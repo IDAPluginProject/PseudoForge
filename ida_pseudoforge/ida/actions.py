@@ -16,6 +16,7 @@ from ida_pseudoforge.core.forge_store import (
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.core.rule_diagnostics import format_rule_report_summary
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
 from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnalysisState
 from ida_pseudoforge.ida.async_runner import active_group_task, run_background
@@ -800,7 +801,7 @@ def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:
         "PseudoForge analyzed 0x%X: %d rename(s), %d flow rewrite(s), %d warning(s)"
         % (capture.ea, len(plan.renames), len(plan.flow_rewrites), len(plan.warnings))
     ]
-    rule_summary = _format_rule_report_summary(plan)
+    rule_summary = format_rule_report_summary(plan.rule_report, include_error_details=True)
     if rule_summary:
         lines.append(rule_summary)
     if plan.warnings:
@@ -811,36 +812,6 @@ def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:
         if len(plan.warnings) > 8:
             lines.append("- ... %d more warning(s)" % (len(plan.warnings) - 8))
     return "\n".join(lines)
-
-
-def _format_rule_report_summary(plan: CleanPlan) -> str:
-    report = plan.rule_report or {}
-    if not isinstance(report, dict):
-        return ""
-    matched = _safe_len(report.get("matched_rules"))
-    rewrites = _safe_dict_list(report.get("rewrite_emissions"))
-    applied = sum(1 for item in rewrites if item.get("status") == "applied")
-    shadowed = sum(1 for item in rewrites if item.get("status") == "shadowed")
-    rejected = sum(1 for item in rewrites if item.get("status") == "rejected")
-    load_errors = _safe_len(report.get("load_errors"))
-    validation_errors = _safe_len(report.get("validation_errors"))
-    if not any((matched, applied, shadowed, rejected, load_errors, validation_errors)):
-        return ""
-    return (
-        "Rules: %d matched, %d rewrite(s) applied, %d shadowed, %d rejected, "
-        "%d load error(s), %d validation error(s)"
-        % (matched, applied, shadowed, rejected, load_errors, validation_errors)
-    )
-
-
-def _safe_len(value: object) -> int:
-    return len(value) if isinstance(value, list) else 0
-
-
-def _safe_dict_list(value: object) -> list[dict]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
 
 
 def _format_warning(item: object) -> str:

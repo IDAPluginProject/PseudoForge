@@ -375,6 +375,10 @@ class IdaPluginSafetyTests(unittest.TestCase):
             "Rules: 2 matched, 1 rewrite(s) applied, 1 shadowed, 1 rejected, 1 load error(s), 1 validation error(s)",
             summary,
         )
+        self.assertIn("Rule load errors:", summary)
+        self.assertIn("- bad.json", summary)
+        self.assertIn("Rule validation errors:", summary)
+        self.assertIn("- invalid.json", summary)
 
     def test_analysis_summary_ignores_malformed_rule_report_rewrites(self):
         capture = _capture()

@@ -88,8 +88,18 @@ def emit_result(payload: dict[str, Any], output_format: str) -> None:
         print_field("Input", result.get("input", ""))
         print_field("LLM status", result.get("llm_status", ""))
         print_field("Warnings", len(result.get("warnings", [])))
+        rule_diagnostics = result.get("rule_diagnostics") or {}
+        if rule_diagnostics:
+            print_field("Rule matches", rule_diagnostics.get("matched_rules", 0))
+            rewrite_emissions = rule_diagnostics.get("rewrite_emissions") or {}
+            rewrite_status = rewrite_emissions.get("by_status") or {}
+            print_field("Rule rewrites", rewrite_emissions.get("total", 0))
+            if rewrite_status.get("rejected"):
+                print_field("Rule rewrite rejects", rewrite_status.get("rejected", 0))
         if result.get("rule_load_errors"):
             print_field("Rule load errors", len(result.get("rule_load_errors", [])))
+        if result.get("rule_validation_errors"):
+            print_field("Rule validation errors", len(result.get("rule_validation_errors", [])))
         print("")
         print("Artifacts")
         print("---------")

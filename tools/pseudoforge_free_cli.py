@@ -19,6 +19,7 @@ from tools.pseudoforge_free_console import (
     format_plan_mode,
     format_rule_dirs,
 )
+from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
 from ida_pseudoforge.version import VERSION, plugin_title
 
 IDA_ONLY_MODULES = {
@@ -264,6 +265,7 @@ def _process_input(
     except OSError as exc:
         raise FreeCliError("Output artifacts could not be written: %s" % exc) from exc
 
+    rule_diagnostics = summarize_rule_report(plan.rule_report)
     result = {
         "input": str(input_path),
         "function": capture.name,
@@ -272,7 +274,9 @@ def _process_input(
         "ida_apis_used": False,
         "idb_modified": False,
         "llm_status": llm_status,
-        "rule_load_errors": list((plan.rule_report or {}).get("load_errors", [])),
+        "rule_diagnostics": rule_diagnostics,
+        "rule_load_errors": list(rule_diagnostics["load_error_details"]),
+        "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
         "warnings": warnings,
         "profile_root": deps.active_profile_root(),
         "active_profiles": deps.active_profile_names(),

@@ -909,6 +909,9 @@ Completed:
 - [x] Added deterministic rule-report diagnostics to the IDA analysis completion
   summary, including matched rules, rewrite status counts, load errors, and
   validation errors.
+- [x] Added shared rule diagnostics to preview/export summary paths, including
+  bounded IDA popup rule error details, export rule error details, and rewrite
+  emission status/kind counts.
 
 Remaining:
 
@@ -918,8 +921,6 @@ Remaining:
 - [ ] Add full non-blocking LLM model discovery refresh.
 - [ ] Add cancellation/progress hooks for long LLM and batch work where IDA APIs
   allow it.
-- [ ] Add richer rule load/validation details to preview/export diagnostics
-  without expanding context menus.
 
 ### Current Evidence
 
@@ -929,6 +930,8 @@ Remaining:
 - The README lists a richer dockable side-by-side preview panel as pending.
 - The IDA analysis completion summary now includes rule-report diagnostic
   counts before the user opens the detailed JSON report.
+- Export summaries now include shared rule diagnostics with load/validation
+  details and rewrite emission counts.
 
 ### Problem
 

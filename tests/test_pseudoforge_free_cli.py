@@ -303,6 +303,10 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
             self.assertEqual(result.exit_code, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertTrue(payload["results"][0]["rule_load_errors"])
+            self.assertEqual(1, payload["results"][0]["rule_diagnostics"]["load_errors"])
+            summary = json.loads(Path(payload["results"][0]["artifacts"]["summary"]).read_text(encoding="utf-8"))
+            self.assertEqual(1, summary["rule_diagnostics"]["load_errors"])
+            self.assertTrue(summary["rule_load_errors"][0]["error"])
 
     def test_free_cli_llm_provider_failure_uses_deterministic_fallback(self):
         with tempfile.TemporaryDirectory() as temp_dir:

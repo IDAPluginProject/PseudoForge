@@ -94,6 +94,33 @@ class ExportBundleTests(unittest.TestCase):
             self.assertTrue(summary_path.exists())
             self.assertFalse((Path(temp_dir) / "ExportBundleSample.summary.json").exists())
 
+    def test_write_export_bundle_includes_rule_diagnostics_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")
+            plan = build_clean_plan(capture)
+            plan.rule_report = {
+                "matched_rules": [{"rule_id": "one"}, {"rule_id": "two"}],
+                "rewrite_emissions": [
+                    {"kind": "call_arg_rewrite", "status": "applied"},
+                    {"kind": "text_rewrite", "status": "rejected"},
+                ],
+                "load_errors": [{"path": "project/broken.json", "error": "invalid json"}],
+                "validation_errors": [{"path": "project/invalid.json", "error": "bad phase"}],
+            }
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            diagnostics = summary["rule_diagnostics"]
+            self.assertEqual(2, diagnostics["matched_rules"])
+            self.assertEqual(2, diagnostics["rewrite_emissions"]["total"])
+            self.assertEqual(1, diagnostics["rewrite_emissions"]["by_status"]["applied"])
+            self.assertEqual(1, diagnostics["rewrite_emissions"]["by_status"]["rejected"])
+            self.assertEqual(1, diagnostics["load_errors"])
+            self.assertEqual(1, diagnostics["validation_errors"])
+            self.assertEqual("project/broken.json", summary["rule_load_errors"][0]["path"])
+            self.assertEqual("project/invalid.json", summary["rule_validation_errors"][0]["path"])
+
     def test_legacy_render_export_import_remains_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")

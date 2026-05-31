@@ -155,6 +155,8 @@ Implemented:
      conflict detection.
 26. IDA analysis completion summaries include deterministic rule diagnostic
     counts.
+27. Export summaries and IDA Free result summaries include deterministic rule
+    diagnostic counts plus rule load and validation error details.
 
 Still pending:
 
@@ -230,6 +232,7 @@ ida_pseudoforge/
     offline_input.py
     pattern_renames.py
     llm_assist.py
+    rule_diagnostics.py
     validation.py
     render.py
     render_callbacks.py
@@ -841,7 +844,7 @@ File purposes:
 - `.raw.cpp`: original captured decompiler text used as analysis input.
 - `.warnings.json`: plan and profile-load warnings as reviewable JSON.
 - `.raw-vs-cleaned.diff`: unified diff from raw pseudocode to cleaned output.
-- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, active profile root, loaded profile names, active profile manifests, profile warnings, and artifact paths.
+- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, deterministic rule diagnostics, rule load/validation error details, active profile root, loaded profile names, active profile manifests, profile warnings, and artifact paths.
 
 Artifact parity:
 

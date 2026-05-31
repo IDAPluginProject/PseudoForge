@@ -509,8 +509,15 @@ P2 IDA UX diagnostics update:
 - The IDA analysis completion summary now includes deterministic rule-report
   counts for matched rules, rewrite emissions by status, rule-pack load errors,
   and validation errors.
-- Detailed rule diagnostics remain in the exported `rule-report.json`; the
-  summary only exposes concise counts.
+- The IDA analysis completion summary includes bounded rule load and validation
+  error details so broken rule packs can be identified without opening the full
+  JSON report first.
+- Export `.summary.json`, IDA Free `.ida-free-summary.json`, and IDA Free JSON
+  results include a shared `rule_diagnostics` payload with matched-rule counts,
+  rewrite emission status/kind counts, and rule load/validation error details.
+- Detailed rule diagnostics remain in the exported `rule-report.json`; the IDA
+  popup keeps error details bounded, while export summaries retain full
+  machine-readable rule error details for audit workflows.
 
 The current implementation state reflects the `NtSetSystemInformation` and `NtSetInformationProcess` large-dispatcher regression pass:
 

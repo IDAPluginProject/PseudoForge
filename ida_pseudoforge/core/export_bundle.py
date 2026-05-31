@@ -11,6 +11,7 @@ from ida_pseudoforge.core.render import (
     render_flow_report,
     render_switch_outline,
 )
+from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
 from ida_pseudoforge.profiles.loader import (
     active_profile_manifests,
     active_profile_names,
@@ -115,6 +116,7 @@ def _export_summary_payload(
     warnings: list[str],
     artifacts: dict[str, str],
 ) -> dict[str, object]:
+    rule_diagnostics = summarize_rule_report(plan.rule_report)
     return {
         "mode": entrypoint,
         "pseudoforge_version": VERSION,
@@ -126,7 +128,9 @@ def _export_summary_payload(
         "renames": len(plan.active_renames()),
         "flow_rewrites": len(plan.flow_rewrites),
         "warnings": len(warnings),
-        "rule_load_errors": list((plan.rule_report or {}).get("load_errors", [])),
+        "rule_diagnostics": rule_diagnostics,
+        "rule_load_errors": list(rule_diagnostics["load_error_details"]),
+        "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
         "profile_root": active_profile_root(),
         "active_profiles": active_profile_names(),
         "profile_warnings": profile_load_warnings(),
