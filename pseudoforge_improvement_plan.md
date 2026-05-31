@@ -668,6 +668,8 @@ Completed:
 - [x] Moved flow/switch-outline regression coverage for shared tails, native
   switch suppression, fallthrough, nested switches, and safe body expansion into
   `tests/test_render_flow.py`.
+- [x] Moved no-PDB DriverEntry and DriverEntry wrapper regression coverage into
+  `tests/test_render_driver_entry.py`.
 
 Remaining:
 

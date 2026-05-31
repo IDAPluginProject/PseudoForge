@@ -375,6 +375,8 @@ P2 switch body reporting update:
 - Flow and switch-outline regressions now live in `tests/test_render_flow.py`
   instead of adding more cases to the historical `test_core_engine.py`
   monolith.
+- No-PDB DriverEntry and DriverEntry wrapper regressions now live in
+  `tests/test_render_driver_entry.py`.
 
 P0 rename identity hardening update:
 
