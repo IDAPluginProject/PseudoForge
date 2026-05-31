@@ -91,27 +91,32 @@ switch (infoClass)
 // SystemFlagsInformation
 case 9:
 {
+    // PseudoForge: body_state=single_statement_body source_line=27.
     return STATUS_INFO_LENGTH_MISMATCH;
 }
 // SystemCpuQuotaInformation
 case 113:
 {
+    // PseudoForge: body_state=complex_unsliced.
     // PseudoForge: complex body not structurally sliced; review normalized original pseudocode.
     break;
 }
 // SystemSecureDumpEncryptionInformation
 case 194:
 {
+    // PseudoForge: body_state=single_statement_body source_line=18.
     return IoProvisionCrashDumpKey();
 }
 // SystemHypervisorBootPagesInformation
 case 235:
 {
+    // PseudoForge: body_state=single_statement_body source_line=21.
     return HvlQuerySetBootPagesInfo(systemInformation, 0LL);
 }
 // SystemTrustedAppsRuntimeInformation
 case 243:
 {
+    // PseudoForge: body_state=single_statement_body source_line=24.
     return STATUS_NOT_SUPPORTED;
 }
 default:

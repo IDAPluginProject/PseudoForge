@@ -457,6 +457,9 @@ Ctrl+Alt+Shift+F  Export cleaned pseudocode
 - Duplicate semantic labels receive stable suffixes such as `InvalidParameter_17`.
 - Safe tail-label hoisting separates error/failfast paths from normal cleanup returns.
 - `Flow rewrites` counts dispatcher/switch recovery only. Kernel semantic substitutions are counted under `Kernel semantic rewrites`.
+- Recovered switch outlines and flow reports include per-case body states,
+  source line anchors, and shared-tail labels while keeping complex bodies in
+  the normalized original pseudocode.
 - TraceLogging and C++ template wrapper functions are not promoted to recovered switch outlines.
 - Kernel rewrite patterns belong in `core/kernel_rewrites.py`, either in `KernelRewriteRule` entries or narrow helper passes. Avoid adding individual kernel patterns directly to `render.py`.
 - Kernel rewrite rules should be gated by `Kernel insights` comment kind and confidence where applicable.

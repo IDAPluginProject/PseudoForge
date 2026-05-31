@@ -68,6 +68,7 @@ Implemented in this folder:
    - low-byte boolean call argument cleanup for known kernel helper calls
    - cleaned preview shows normalized original pseudocode first and appends recovered switch-case view as an auxiliary outline
    - recovered switch-case view omits complex case bodies instead of emitting style-breaking partial fragments
+   - recovered switch cases include body-state metadata, source line anchors, and shared-tail labels in switch outlines and flow reports
    - native switch bodies already present in normalized original pseudocode are not duplicated in the auxiliary outline
    - generated pseudocode style pass enforces next-line braces, mandatory braces, standalone `else`, and guard flattening
    - duplicate semantic cleanup labels are given stable suffixes such as `InvalidParameter_17` to avoid duplicate labels and accidental self-goto rewrites
@@ -176,7 +177,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 206 unit tests
+   - current suite covers 207 unit tests
 
 ## Latest Implementation Notes
 
@@ -258,6 +259,15 @@ P2 RuleContext call-site facts update:
   tags, and alias information.
 - Rule contexts built during `build_clean_plan()` use the kernel API profile
   lookup and skip unknown or failed profile lookups without aborting rules.
+
+P2 switch body reporting update:
+
+- Recovered switch cases now carry explicit body states:
+  `single_statement_body`, `shared_tail`, `fallthrough_or_join`, and
+  `complex_unsliced`.
+- Switch outlines and flow reports include source line anchors and shared-tail
+  labels when available, while still refusing to expand goto-dependent shared
+  tails as unique case bodies.
 
 P0 rename identity hardening update:
 

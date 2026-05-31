@@ -45,6 +45,7 @@ from ida_pseudoforge.core.render import (
     _rewrite_process_information_class_literals,
     _rewrite_system_information_class_literals,
     display_warning_count,
+    render_flow_report,
     render_cleaned_pseudocode,
     render_switch_outline,
 )
@@ -2699,6 +2700,49 @@ __int64 __fastcall DuplicateRuleDirSample(int a1)
         self.assertIn("case 235:", rendered)
         self.assertIn("return HvlQuerySetBootPagesInfo(systemInformation, 0LL);", rendered)
         self.assertIn("case 243:", rendered)
+
+    def test_switch_outline_reports_case_body_states_and_anchors(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall SharedTailDispatcher(int code)
+{
+  int status;
+
+  if ( code == 1 )
+    return 1;
+  if ( code == 2 )
+  {
+    status = -1;
+    goto LABEL_10;
+  }
+  if ( code == 3 )
+    goto LABEL_10;
+  if ( code == 4 )
+    return 4;
+LABEL_10:
+  return status;
+}
+"""
+        )
+        plan = build_clean_plan(capture)
+        flow = plan.flow_rewrites[0]
+
+        self.assertEqual("single_statement_body", flow.case_body_states[1])
+        self.assertEqual("shared_tail", flow.case_body_states[2])
+        self.assertEqual("shared_tail", flow.case_body_states[3])
+        self.assertEqual("LABEL_10", flow.case_labels[2])
+        self.assertEqual("LABEL_10", flow.case_labels[3])
+        self.assertGreater(flow.case_anchors[2], 0)
+
+        report = render_flow_report(capture, plan)
+        self.assertIn("`2` (body_state=`shared_tail`, source_line=`8`, label=`LABEL_10`)", report)
+        self.assertIn("`3` (body_state=`shared_tail`, source_line=`13`, label=`LABEL_10`)", report)
+
+        outline = render_switch_outline(capture, plan)
+        self.assertIn("// PseudoForge: body_state=shared_tail source_line=8 label=LABEL_10.", outline)
+        self.assertIn("// PseudoForge: body_state=single_statement_body source_line=6.", outline)
+        self.assertNotIn("status = -1;", outline)
+        self.assertNotIn("goto LABEL_10;", outline)
 
     def test_native_switch_outline_is_suppressed(self):
         capture = capture_from_pseudocode(NATIVE_SWITCH_SAMPLE)

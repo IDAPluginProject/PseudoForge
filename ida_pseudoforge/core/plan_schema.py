@@ -58,6 +58,9 @@ class FlowRewrite:
     recovered_cases: list[int] = field(default_factory=list)
     case_bodies: dict[int, list[str]] = field(default_factory=dict)
     case_names: dict[int, str] = field(default_factory=dict)
+    case_body_states: dict[int, str] = field(default_factory=dict)
+    case_anchors: dict[int, int] = field(default_factory=dict)
+    case_labels: dict[int, str] = field(default_factory=dict)
     confidence: float = 0.0
     export_only: bool = True
     evidence: str = ""

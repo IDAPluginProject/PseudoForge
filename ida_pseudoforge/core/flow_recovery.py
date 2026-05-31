@@ -50,6 +50,9 @@ def recover_flow(capture: FunctionCapture, rename_map: dict[str, str] | None = N
     cases = _recover_cases(text, dispatcher)
     case_bodies = _recover_case_bodies(text, dispatcher)
     cases.update(case_bodies)
+    case_anchors = _recover_case_anchors(text, dispatcher)
+    case_body_states = _case_body_states(cases, case_bodies)
+    case_labels = _case_labels(case_bodies)
     renamed_dispatcher = (rename_map or {}).get(dispatcher, dispatcher)
     is_system_information_dispatcher = _is_system_information_dispatcher(capture, dispatcher, renamed_dispatcher)
     is_process_information_dispatcher = _is_process_information_dispatcher(capture, dispatcher, renamed_dispatcher)
@@ -81,6 +84,9 @@ def recover_flow(capture: FunctionCapture, rename_map: dict[str, str] | None = N
             recovered_cases=sorted(cases),
             case_bodies=case_bodies,
             case_names=case_names,
+            case_body_states=case_body_states,
+            case_anchors=case_anchors,
+            case_labels=case_labels,
             confidence=round(confidence, 2),
             export_only=True,
             evidence=(
@@ -262,6 +268,98 @@ def _recover_case_bodies(text: str, dispatcher: str) -> dict[int, list[str]]:
             bodies.setdefault(case_value, body)
 
     return bodies
+
+
+def _recover_case_anchors(text: str, dispatcher: str) -> dict[int, int]:
+    lines = (text or "").splitlines()
+    anchors: dict[int, int] = {}
+    offsets: dict[str, int] = {}
+
+    if SWITCH_RE.search(text or ""):
+        anchors.update(_recover_switch_case_anchors(lines, dispatcher))
+
+    for index, line in enumerate(lines):
+        sub_match = SUB_RE.search(line)
+        if sub_match:
+            dst = sub_match.group("dst")
+            src = sub_match.group("src")
+            value = int(sub_match.group("value"))
+            if src == dispatcher:
+                offsets[dst] = value
+            elif src in offsets:
+                offsets[dst] = offsets[src] + value
+
+        case_value = _case_value_for_condition(line, dispatcher, offsets)
+        if case_value is not None:
+            anchors.setdefault(case_value, index + 1)
+    return anchors
+
+
+def _recover_switch_case_anchors(lines: list[str], dispatcher: str) -> dict[int, int]:
+    anchors: dict[int, int] = {}
+    in_target_switch = False
+    depth = 0
+
+    for index, line in enumerate(lines):
+        switch_match = SWITCH_RE.search(line)
+        if not in_target_switch:
+            if switch_match and switch_match.group("var") == dispatcher:
+                in_target_switch = True
+            continue
+
+        stripped = line.strip()
+        closes = stripped.count("}")
+        if closes:
+            depth -= closes
+            if depth <= 0:
+                in_target_switch = False
+                depth = 0
+                continue
+
+        case_match = CASE_LABEL_RE.match(line)
+        if depth == 1 and case_match:
+            anchors.setdefault(_parse_case_literal(case_match.group("value")), index + 1)
+
+        opens = stripped.count("{")
+        if opens:
+            depth += opens
+    return anchors
+
+
+def _case_body_states(cases: set[int], case_bodies: dict[int, list[str]]) -> dict[int, str]:
+    return {
+        value: _case_body_state(case_bodies.get(value))
+        for value in sorted(cases)
+    }
+
+
+def _case_body_state(body: list[str] | None) -> str:
+    if body is None:
+        return "complex_unsliced"
+    statements = [line.strip() for line in body if line.strip() and not line.strip().startswith("//")]
+    if not statements:
+        return "fallthrough_or_join"
+    if any(_goto_label_from_line(line) for line in statements):
+        return "shared_tail"
+    if len(statements) == 1 and statements[0].startswith("return ") and statements[0].endswith(";"):
+        return "single_statement_body"
+    return "complex_unsliced"
+
+
+def _case_labels(case_bodies: dict[int, list[str]]) -> dict[int, str]:
+    result: dict[int, str] = {}
+    for value, body in case_bodies.items():
+        for line in body:
+            label = _goto_label_from_line(line)
+            if label:
+                result[value] = label
+                break
+    return result
+
+
+def _goto_label_from_line(line: str) -> str:
+    match = re.search(r"\bgoto\s+(?P<label>[A-Za-z_][A-Za-z0-9_]*)\s*;", line or "")
+    return match.group("label") if match else ""
 
 
 def _recover_switch_cases(lines: list[str], dispatcher: str) -> set[int]:

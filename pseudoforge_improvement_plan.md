@@ -514,12 +514,32 @@ duplicate parsing bugs.
 
 ## P2: Conservative Switch Body Reconstruction
 
+Status: In progress.
+
+Completed:
+
+- [x] Added explicit recovered case body states:
+  `single_statement_body`, `shared_tail`, `fallthrough_or_join`, and
+  `complex_unsliced`.
+- [x] Added source line anchors and shared-tail labels to switch outlines and
+  flow reports.
+- [x] Added regression coverage for shared cleanup tails without expanding them
+  as unique case bodies.
+
+Remaining:
+
+- [ ] Add branch-slice helper that only extracts bodies when all exits and joins
+  are represented.
+- [ ] Add regression samples for fallthrough and nested native switches.
+
 ### Current Evidence
 
 - README and status docs both list full switch body reconstruction for shared
   and fallthrough branches as pending.
 - `render_switch_outline()` intentionally expands only safe bodies and points
   complex cases back to normalized original pseudocode.
+- `render_flow_report()` now maps cases to body state, source line anchor, and
+  shared-tail label when available.
 
 ### Problem
 

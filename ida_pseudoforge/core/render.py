@@ -893,8 +893,12 @@ def render_flow_report(capture: FunctionCapture, plan: CleanPlan) -> str:
             for value in flow.recovered_cases:
                 name = flow.case_names.get(value, "")
                 suffix = f" `{name}`" if name else ""
-                body_state = "body" if value in flow.case_bodies else "outline"
-                lines.append(f"- `{value}`{suffix} ({body_state})")
+                details = [f"body_state=`{_flow_case_body_state(flow, value)}`"]
+                if value in flow.case_anchors:
+                    details.append(f"source_line=`{flow.case_anchors[value]}`")
+                if flow.case_labels.get(value):
+                    details.append(f"label=`{flow.case_labels[value]}`")
+                lines.append(f"- `{value}`{suffix} ({', '.join(details)})")
             lines.append("")
 
     if plan.cleanup_labels:
@@ -978,6 +982,7 @@ def render_switch_outline(
                 lines.append(f"// {name}")
             lines.append(_format_switch_outline_case_label(flow, value))
             lines.append("{")
+            lines.extend(_switch_outline_case_metadata_lines(flow, value))
             body = flow.case_bodies.get(value, [])
             if body:
                 rendered_body = _render_case_body_lines(body, capture, plan)
@@ -998,6 +1003,21 @@ def render_switch_outline(
         lines.append("")
 
     return _finalize_rendered_c_like_text("\n".join(lines).rstrip() + "\n")
+
+
+def _switch_outline_case_metadata_lines(flow: FlowRewrite, value: int) -> list[str]:
+    details = [f"body_state={_flow_case_body_state(flow, value)}"]
+    if value in flow.case_anchors:
+        details.append(f"source_line={flow.case_anchors[value]}")
+    if flow.case_labels.get(value):
+        details.append(f"label={flow.case_labels[value]}")
+    return ["    // PseudoForge: %s." % " ".join(details)]
+
+
+def _flow_case_body_state(flow: FlowRewrite, value: int) -> str:
+    if flow.case_body_states:
+        return flow.case_body_states.get(value, "complex_unsliced")
+    return "single_statement_body" if value in flow.case_bodies else "complex_unsliced"
 
 
 def _format_switch_outline_case_label(flow: FlowRewrite, value: int) -> str:
