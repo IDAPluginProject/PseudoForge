@@ -163,3 +163,13 @@ def _reject(report: RuleReport, rule: Rule, reason: str) -> None:
             "source": rule.source_label or rule.pack_id,
         }
     )
+    if rule.phase == "call_arg_rewrite" or str((rule.emit or {}).get("kind", "")) == "call_arg_rewrite":
+        report.rewrite_emissions.append(
+            {
+                "rule_id": rule.id,
+                "kind": str((rule.emit or {}).get("kind", "")),
+                "status": "rejected",
+                "reason": reason,
+                "source": rule.source_label or rule.pack_id,
+            }
+        )

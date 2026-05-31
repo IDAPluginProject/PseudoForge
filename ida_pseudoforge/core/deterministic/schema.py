@@ -135,6 +135,7 @@ class RuleEmission:
 @dataclass(slots=True)
 class RuleReport:
     matched_rules: list[dict[str, Any]] = field(default_factory=list)
+    rewrite_emissions: list[dict[str, Any]] = field(default_factory=list)
     rejected_emissions: list[dict[str, Any]] = field(default_factory=list)
     load_errors: list[dict[str, Any]] = field(default_factory=list)
     validation_errors: list[dict[str, Any]] = field(default_factory=list)
@@ -142,6 +143,7 @@ class RuleReport:
     def to_dict(self) -> dict[str, Any]:
         return {
             "matched_rules": list(self.matched_rules),
+            "rewrite_emissions": list(self.rewrite_emissions),
             "rejected_emissions": list(self.rejected_emissions),
             "load_errors": list(self.load_errors),
             "validation_errors": list(self.validation_errors),

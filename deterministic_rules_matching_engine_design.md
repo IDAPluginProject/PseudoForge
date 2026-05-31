@@ -503,6 +503,19 @@ Current v1 structure:
       "evidence": ["ObReferenceObjectByHandle call is present"]
     }
   ],
+  "rewrite_emissions": [
+    {
+      "rule_id": "project.call_arg_rewrite.probe_size",
+      "kind": "call_arg_rewrite",
+      "status": "applied",
+      "preview_only": true,
+      "payload": {
+        "function_name": "ProbeForRead",
+        "argument_index": 1,
+        "replacement": "sizeof(*inputBuffer)"
+      }
+    }
+  ],
   "rejected_emissions": [
     {
       "rule_id": "project.rename.foo",
@@ -514,7 +527,11 @@ Current v1 structure:
 }
 ```
 
-The exported v1 report contains `matched_rules`, `rejected_emissions`, `load_errors`, and `validation_errors`. A future UI summary can show counts only:
+The exported report contains `matched_rules`, `rewrite_emissions`,
+`rejected_emissions`, `load_errors`, and `validation_errors`.
+`rewrite_emissions` is report-only for v2 `call_arg_rewrite` candidates and
+can record `applied`, `shadowed`, or `rejected` status without adding IDB write
+authority. A future UI summary can show counts only:
 
 ```text
 // Deterministic rules: 4 matched, 1 rejected, 0 load errors
@@ -588,7 +605,7 @@ Target scope:
 
 1. Connect `kernel_api_overrides.json` to rule loader/report semantics.
 2. Add `symbol_alias` rule support.
-3. Add `call_arg_rewrite` rule support.
+3. Add `call_arg_rewrite` rule support and preview-only rewrite status reporting.
 4. Preserve existing pool tag, boolean, and flags rewrite coverage.
 
 ### Phase 4: Text Rewrite Migration

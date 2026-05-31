@@ -1838,8 +1838,143 @@ __int64 __fastcall RuleCallArgSample(void *inputBuffer)
         self.assertEqual("ProbeForRead", emission.payload["function_name"])
         self.assertEqual(1, emission.payload["argument_index"])
         self.assertTrue(emission.payload["preview_only"])
+        self.assertEqual(1, len(result.report.rewrite_emissions))
+        self.assertEqual("applied", result.report.rewrite_emissions[0]["status"])
+        self.assertEqual("call_arg_rewrite", result.report.rewrite_emissions[0]["kind"])
+        self.assertEqual("ProbeForRead", result.report.rewrite_emissions[0]["payload"]["function_name"])
         self.assertEqual([], emissions_to_renames(result.emissions))
         self.assertEqual([], emissions_to_comments(result.emissions))
+
+    def test_rule_engine_reports_shadowed_v2_call_arg_rewrites(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleCallArgShadowSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(
+                    id="test.call_arg.low",
+                    phase="call_arg_rewrite",
+                    priority=10,
+                    confidence=0.95,
+                    scope={"calls_any": ["ProbeForRead"]},
+                    match={"text_contains": "ProbeForRead"},
+                    emit={
+                        "kind": "call_arg_rewrite",
+                        "function_name": "ProbeForRead",
+                        "argument_index": 1,
+                        "replacement": "sizeof(low)",
+                        "preview_only": True,
+                    },
+                ),
+                Rule(
+                    id="test.call_arg.high",
+                    phase="call_arg_rewrite",
+                    priority=90,
+                    confidence=0.80,
+                    scope={"calls_any": ["ProbeForRead"]},
+                    match={"text_contains": "ProbeForRead"},
+                    emit={
+                        "kind": "call_arg_rewrite",
+                        "function_name": "ProbeForRead",
+                        "argument_index": 1,
+                        "replacement": "sizeof(*inputBuffer)",
+                        "preview_only": True,
+                    },
+                ),
+            ],
+        )
+
+        result = RuleEngine([pack]).run(build_rule_context(capture), phases={"call_arg_rewrite"})
+
+        self.assertEqual(1, len(result.emissions))
+        self.assertEqual("test.call_arg.high", result.emissions[0].rule_id)
+        statuses = {item["rule_id"]: item["status"] for item in result.report.rewrite_emissions}
+        self.assertEqual("applied", statuses["test.call_arg.high"])
+        self.assertEqual("shadowed", statuses["test.call_arg.low"])
+        shadowed = next(item for item in result.report.rewrite_emissions if item["rule_id"] == "test.call_arg.low")
+        self.assertEqual("test.call_arg.high", shadowed["winner_rule_id"])
+        self.assertIn("won by test.call_arg.high", shadowed["reason"])
+        self.assertEqual([], result.report.rejected_emissions)
+
+    def test_rule_engine_reports_rejected_v2_call_arg_rewrite_runtime_guard(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleCallArgRejectedSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.rules",
+            description="test",
+            rules=[
+                Rule(
+                    id="test.call_arg.rejected",
+                    phase="call_arg_rewrite",
+                    priority=50,
+                    confidence=0.90,
+                    scope={"calls_any": ["ProbeForRead"]},
+                    match={"text_contains": "ProbeForRead"},
+                    emit={
+                        "kind": "call_arg_rewrite",
+                        "function_name": "ProbeForRead",
+                        "argument_index": -1,
+                        "replacement": "sizeof(*inputBuffer)",
+                        "preview_only": True,
+                    },
+                )
+            ],
+        )
+
+        result = RuleEngine([pack]).run(build_rule_context(capture), phases={"call_arg_rewrite"})
+
+        self.assertEqual([], result.emissions)
+        self.assertEqual("rejected", result.report.rewrite_emissions[0]["status"])
+        self.assertIn("argument_index is invalid", result.report.rewrite_emissions[0]["reason"])
+        self.assertTrue(any("argument_index is invalid" in item["reason"] for item in result.report.rejected_emissions))
+
+    def test_build_clean_plan_reports_v2_call_arg_rewrites_without_plan_conversion(self):
+        sample = """
+__int64 __fastcall ProjectCallArgReportSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rules_dir = temp_path / "pseudoforge_rules"
+            rules_dir.mkdir()
+            (rules_dir / "call_arg_report.json").write_text(
+                json.dumps(_rule_pack([_call_arg_rewrite_rule()], schema_version=2)),
+                encoding="utf-8",
+            )
+            capture = capture_from_pseudocode(sample, source_path=str(temp_path / "sample.cpp"))
+            plan = build_clean_plan(capture, rule_dirs=[rules_dir])
+
+            rewrites = plan.rule_report["rewrite_emissions"]
+            self.assertEqual(1, len(rewrites))
+            self.assertEqual("applied", rewrites[0]["status"])
+            self.assertEqual("call_arg_rewrite", rewrites[0]["kind"])
+            self.assertTrue(rewrites[0]["preview_only"])
+            self.assertEqual("ProbeForRead", rewrites[0]["payload"]["function_name"])
+            self.assertFalse(any(item.source == "rule" for item in plan.renames))
+            self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
+            rendered = render_cleaned_pseudocode(capture, plan)
+            self.assertIn("ProbeForRead(inputBuffer, 8, 1);", rendered)
+            self.assertNotIn("sizeof(*inputBuffer)", rendered)
 
     def test_rule_engine_call_arg_gates_match_same_call_site(self):
         capture = capture_from_pseudocode(

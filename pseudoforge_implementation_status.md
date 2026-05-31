@@ -177,7 +177,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 207 unit tests
+   - current suite covers 210 unit tests
 
 ## Latest Implementation Notes
 
@@ -234,6 +234,12 @@ P1 deterministic rules v2 preview boundary update:
   scope so v2 rewrite candidates do not match only on broad text evidence.
 - Runtime support emits `RuleEmission(kind="call_arg_rewrite")` but does not
   convert it into rename/comment plan outputs or any IDB write path.
+- Rule reports now include `rewrite_emissions` entries for preview-only
+  `call_arg_rewrite` candidates with `applied`, `shadowed`, or `rejected`
+  status.
+- `build_clean_plan()` runs the `call_arg_rewrite` phase for reporting only;
+  accepted rewrite candidates remain out of rename, comment, pseudocode, and
+  IDB-write paths.
 - `deterministic_rules_matching_engine_design.md` documents the v2
   preview/export-only boundary.
 

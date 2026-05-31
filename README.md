@@ -1252,9 +1252,10 @@ Rule conflict policy:
 
 1. Higher `priority` and `confidence` sort rules earlier for matching.
 2. Rename emissions for the same target are resolved before normal rename validation.
-3. `override_of` is the strongest conflict signal; otherwise `priority` wins before `confidence`.
-4. Rule-based renames always use source `rule`; JSON cannot spoof trusted internal sources such as `kernel-status` or `semantic-rule`.
-5. Rule report paths are redacted to labels such as `builtin/local_renames.json`, `project/foo.json`, or `user/foo.json`.
+3. Preview-only `call_arg_rewrite` emissions for the same function argument are resolved before report export.
+4. `override_of` is the strongest conflict signal; otherwise `priority` wins before `confidence`.
+5. Rule-based renames always use source `rule`; JSON cannot spoof trusted internal sources such as `kernel-status` or `semantic-rule`.
+6. Rule report paths are redacted to labels such as `builtin/local_renames.json`, `project/foo.json`, or `user/foo.json`.
 
 Run with additional rules and write a report:
 
@@ -1273,6 +1274,7 @@ Report fields:
 
 ```text
 matched_rules: rules that passed scope/match and emitted data
+rewrite_emissions: preview/export-only rewrite emissions with applied, shadowed, or rejected status
 rejected_emissions: emissions rejected by conflict, validation, or runtime guards
 load_errors: JSON read or parse failures
 validation_errors: schema, regex, or forbidden-key failures
@@ -1287,7 +1289,8 @@ Safety boundaries:
 5. Invalid regexes, invalid scope regexes, ambiguous primary regex matchers, empty matches, empty text gates, boolean numeric fields, and missing emit fields are rejected at load time.
 6. Runtime exceptions reject only the offending rule and analysis continues.
 7. Rule-based rename suggestions still pass through `validate_renames()`.
-8. Text and control-flow rewrite rules are out of v1 scope and do not modify IDB state.
+8. `call_arg_rewrite` output is report-only today; it is not converted into rename/comment plan output and cannot modify IDB state.
+9. Text and control-flow rewrite rules are out of v1 scope and do not modify IDB state.
 
 ## Validation
 

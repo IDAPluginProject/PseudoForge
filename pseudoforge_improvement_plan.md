@@ -384,12 +384,14 @@ Completed:
   matching `calls_any`/`calls_all` scope.
 - [x] Added runtime `RuleEmission(kind="call_arg_rewrite")` support without
   converting those emissions into rename/comment plan outputs or IDB writes.
+- [x] Added rule-report `rewrite_emissions` entries for preview-only
+  `call_arg_rewrite` candidates with `applied`, `shadowed`, or `rejected`
+  status.
 - [x] Documented the v2 preview-only boundary in
   `deterministic_rules_matching_engine_design.md`.
 
 Remaining:
 
-- [ ] Add reporting for applied, shadowed, and rejected rewrite emissions.
 - [ ] Mirror one low-risk hard-coded call-argument rewrite family for parity
   comparison.
 - [ ] Add `text_rewrite` only after span conflict detection exists.
@@ -402,6 +404,8 @@ Remaining:
   and `flow`.
 - `ida_pseudoforge/core/deterministic/validators.py` accepts v1 rename/comment
   phases and v2 preview-only `call_arg_rewrite`, with emit kind matching phase.
+- `ida_pseudoforge/core/deterministic/schema.py` exposes
+  `RuleReport.rewrite_emissions` for preview-only rewrite status reporting.
 - `ida_pseudoforge/core/deterministic/context.py:55` builds regex-oriented
   facts: assignments, calls, labels, and literals.
 - Existing hard-coded rewrites remain in `kernel_rewrites.py`, `kernel_api.py`,
