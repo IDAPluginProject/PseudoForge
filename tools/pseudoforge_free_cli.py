@@ -56,6 +56,7 @@ class _Deps:
     build_clean_plan: Any
     write_export_bundle: Any
     render_cleaned_pseudocode: Any
+    profile_load_warnings: Any
     LlmConfig: Any
     build_rename_provider: Any
     PROVIDER_OPENAI_COMPATIBLE: str
@@ -152,6 +153,7 @@ def _load_deps() -> _Deps:
         from ida_pseudoforge.core.lvar_analysis import build_clean_plan
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
         from ida_pseudoforge.core.render import render_cleaned_pseudocode, write_export_bundle
+        from ida_pseudoforge.profiles.loader import profile_load_warnings
         from ida_pseudoforge.models.provider_factory import build_rename_provider
         from ida_pseudoforge.models.provider_registry import (
             PROVIDER_OPENAI_COMPATIBLE,
@@ -174,6 +176,7 @@ def _load_deps() -> _Deps:
         build_clean_plan=build_clean_plan,
         write_export_bundle=write_export_bundle,
         render_cleaned_pseudocode=render_cleaned_pseudocode,
+        profile_load_warnings=profile_load_warnings,
         LlmConfig=LlmConfig,
         build_rename_provider=build_rename_provider,
         PROVIDER_OPENAI_COMPATIBLE=PROVIDER_OPENAI_COMPATIBLE,
@@ -227,7 +230,10 @@ def _process_input(
     console.step("Write artifacts", str(output_dir))
     try:
         artifact_paths = deps.write_export_bundle(output_dir, capture, plan)
-        artifact_paths.update(_write_free_artifacts(output_dir, input_path, capture, plan, pseudocode, deps))
+        warnings = _combined_warnings(plan.warnings, deps.profile_load_warnings())
+        if len(warnings) > len(plan.warnings):
+            console.field("Profile warnings", len(warnings) - len(plan.warnings))
+        artifact_paths.update(_write_free_artifacts(output_dir, input_path, capture, plan, pseudocode, warnings, deps))
     except OSError as exc:
         raise FreeCliError("Output artifacts could not be written: %s" % exc) from exc
 
@@ -240,7 +246,7 @@ def _process_input(
         "idb_modified": False,
         "llm_status": llm_status,
         "rule_load_errors": list((plan.rule_report or {}).get("load_errors", [])),
-        "warnings": [str(item) for item in plan.warnings],
+        "warnings": warnings,
         "artifacts": artifact_paths,
     }
     summary_path = _write_summary(output_dir, capture, result)
@@ -288,6 +294,7 @@ def _write_free_artifacts(
     capture: Any,
     plan: Any,
     pseudocode: str,
+    warnings: list[str],
     deps: _Deps,
 ) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -300,7 +307,7 @@ def _write_free_artifacts(
     raw_text = pseudocode.rstrip() + "\n"
     raw_path.write_text(raw_text, encoding="utf-8")
     warnings_path.write_text(
-        json.dumps([str(item) for item in plan.warnings], indent=2, ensure_ascii=True),
+        json.dumps(warnings, indent=2, ensure_ascii=True),
         encoding="utf-8",
     )
     diff_text = "".join(
@@ -357,6 +364,18 @@ def _safe_file_stem(name: str) -> str:
         for char in str(name or "")
     )
     return cleaned.strip("._") or "function"
+
+
+def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for warning in list(primary) + list(secondary):
+        text = str(warning)
+        if text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 if __name__ == "__main__":

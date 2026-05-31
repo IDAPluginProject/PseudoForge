@@ -38,6 +38,7 @@ from ida_pseudoforge.profiles.loader import (
     get_process_information_class_name,
     get_system_information_class_name,
     get_system_information_class_value,
+    profile_load_warnings,
 )
 from ida_pseudoforge.version import VERSION
 
@@ -89,7 +90,7 @@ class RenderContext:
             capture=self.capture,
             plan=self.plan,
             rename_map=self.rename_map,
-            display_warnings=self.display_warnings,
+            display_warnings=_display_warnings(self.plan),
             native_switch_dispatchers=_native_switch_dispatchers(text, self.plan),
         )
 
@@ -908,9 +909,10 @@ def render_flow_report(capture: FunctionCapture, plan: CleanPlan) -> str:
             lines.append(f"  - {label.evidence}")
         lines.append("")
 
-    if plan.warnings:
+    report_warnings = list(plan.warnings) + profile_load_warnings()
+    if report_warnings:
         lines.extend(["## Warnings", ""])
-        for warning in plan.warnings:
+        for warning in report_warnings:
             lines.append(f"- {_format_warning(warning)}")
         lines.append("")
 
@@ -2225,7 +2227,7 @@ def _warning_display_rank(warning: object) -> tuple[int, str]:
 def _display_warnings(plan: CleanPlan) -> list[object]:
     warnings = [
         warning
-        for warning in plan.warnings
+        for warning in list(plan.warnings) + profile_load_warnings()
         if not _is_routine_skipped_rename_warning(warning, plan)
         and not _is_driver_entry_routine_warning(warning, plan)
         and not _is_irp_device_control_display_warning(warning, plan)

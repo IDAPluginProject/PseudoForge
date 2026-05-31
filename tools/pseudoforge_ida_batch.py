@@ -31,6 +31,7 @@ from ida_pseudoforge.core.forge_store import (
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.profiles.loader import profile_load_warnings
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -248,6 +249,7 @@ def _analyze_function(
             forge_writer.write_section(section)
         else:
             _write_forge_section(forge_path, target_path, capture.ea, section)
+        warnings = _combined_warnings(plan.warnings, profile_load_warnings())
         result = {
             "event": "function",
             "status": "ok",
@@ -255,11 +257,14 @@ def _analyze_function(
             "name": name,
             "renames": len(plan.active_renames()),
             "flow_rewrites": len(plan.flow_rewrites),
-            "warnings": len(plan.warnings),
-            "warning_samples": [str(w) for w in plan.warnings[:5]],
+            "warnings": len(warnings),
+            "warning_samples": warnings[:5],
             "llm_status": llm_status,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
+        profile_warnings = profile_load_warnings()
+        if profile_warnings:
+            result["profile_warnings"] = profile_warnings
         if llm_info.get("enabled"):
             result["llm_provider"] = llm_info.get("provider", "")
             result["llm_model"] = llm_info.get("model", "")
@@ -337,6 +342,18 @@ def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
         plan = build_clean_plan(capture)
         plan.warnings.insert(0, "LLM rename assist failed; deterministic fallback used: %s" % exc)
         return plan, "fallback", str(exc)
+
+
+def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for warning in list(primary) + list(secondary):
+        text = str(warning)
+        if text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _iter_function_eas(args: argparse.Namespace, skip_eas: set[int]) -> Iterable[int]:

@@ -169,10 +169,11 @@ Implemented in this folder:
    - `tests/test_core_engine.py`
    - `tests/test_ida_plugin_safety.py`
    - `tests/test_render_snapshots.py`
+   - `tests/test_profile_loader.py`
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 194 unit tests
+   - current suite covers 195 unit tests
 
 ## Latest Implementation Notes
 
@@ -191,6 +192,17 @@ P1 renderer snapshot protection update:
   dispatcher metadata before header/body rendering.
 - NTSTATUS literal replacement, 32-bit status assignment/store replacement, and
   status accumulator type upgrades now live in `ida_pseudoforge/core/render_status.py`.
+
+P1 profile loader diagnostics update:
+
+- Profile loading now records visible warnings for missing files, invalid JSON,
+  read failures, and non-object profile roots instead of silently returning an
+  empty profile without diagnostics.
+- Renderer headers/flow reports, offline CLI, IDA Free CLI artifacts, and IDA
+  batch JSONL records include profile load warnings after profile-backed paths
+  run.
+- `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
+  reset behavior.
 
 P0 rename identity hardening update:
 

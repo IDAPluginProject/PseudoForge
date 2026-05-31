@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import write_export_bundle
+from ida_pseudoforge.profiles.loader import profile_load_warnings
 from ida_pseudoforge.config import LlmConfig
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -62,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     provider = _build_cli_provider(args) if args.llm_renames else None
     plan = build_clean_plan(capture, rename_provider=provider, rule_dirs=args.rules_dir)
     paths = write_export_bundle(args.out, capture, plan)
+    warnings = _combined_warnings(plan.warnings, profile_load_warnings())
     if args.rule_report:
         report_path = _write_rule_report(args.rule_report, capture, plan.rule_report)
         paths["rule_report"] = str(report_path)
@@ -71,8 +73,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Function: {capture.name}")
     print(f"Renames: {len(plan.renames)}")
     print(f"Flow rewrites: {len(plan.flow_rewrites)}")
-    if plan.warnings:
-        print(f"Warnings: {len(plan.warnings)}")
+    if warnings:
+        print(f"Warnings: {len(warnings)}")
     for kind, path in paths.items():
         print(f"{kind}: {path}")
     return 0
@@ -105,6 +107,18 @@ def _write_rule_report(target: str, capture, report: dict) -> Path:
 def _safe_file_stem(name: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "._-" else "_" for char in name)
     return cleaned.strip("._") or "function"
+
+
+def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for warning in list(primary) + list(secondary):
+        text = str(warning)
+        if text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 if __name__ == "__main__":

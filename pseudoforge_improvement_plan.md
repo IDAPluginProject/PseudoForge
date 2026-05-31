@@ -218,6 +218,24 @@ git diff --check -- .
 
 ## P1: Profile Loading, Size, And Version Management
 
+Status: In progress.
+
+Completed:
+
+- [x] Added profile loader diagnostics for missing files, invalid JSON, read
+  failures, and non-object profile roots.
+- [x] Exposed profile load warnings in renderer warning output, flow reports,
+  offline CLI warnings, IDA Free CLI warnings, and IDA batch JSONL records.
+- [x] Added focused loader coverage for invalid JSON profile diagnostics.
+
+Remaining:
+
+- [ ] Split generated kernel API profile output into smaller artifacts.
+- [ ] Add lookup-family loader APIs that avoid loading the full kernel profile.
+- [ ] Add profile manifest metadata and active profile reporting.
+- [ ] Add optional target-build profile selection.
+- [ ] Add cold-load and repeated-lookup performance smoke checks.
+
 ### Current Evidence
 
 - `ida_pseudoforge/profiles/kernel_api.json` is about 44 MB.
