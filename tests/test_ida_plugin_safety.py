@@ -472,9 +472,11 @@ class IdaPluginSafetyTests(unittest.TestCase):
             attached_paths = [item[0] for item in fake_idaapi.attached]
             self.assertIn(plugin_module.PseudoForgePlugin.preview_current_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.analyzed_functions_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.configure_profile_action_name, fake_idaapi.registered)
             self.assertNotIn(plugin_module.PseudoForgePlugin.legacy_preview_action_name, fake_idaapi.registered)
             self.assertIn("Edit/PseudoForge/Show current analysis result", attached_paths)
             self.assertIn("Edit/PseudoForge/Analyzed functions...", attached_paths)
+            self.assertIn("Edit/PseudoForge/Configure profile directory", attached_paths)
             self.assertNotIn("Edit/PseudoForge/Preview cleaned pseudocode", attached_paths)
         finally:
             plugin.term()
@@ -534,6 +536,67 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("configuration failed", warnings[0])
 
+    def test_configure_profile_directory_handler_saves_and_applies_selection(self):
+        handler = actions_module.ConfigureProfileDirectoryHandler()
+        old_load = actions_module.load_config
+        old_save = actions_module.save_config
+        old_ask = actions_module.ask_profile_dir
+        old_configure = actions_module.configure_profile_dir
+        old_summary = actions_module.format_profile_summary
+        old_info = actions_module.info
+        old_warning = actions_module.warning
+        saved_configs = []
+        configured = []
+        messages = []
+        warnings = []
+        selected = r"F:\profiles\wdk26100"
+        actions_module.load_config = lambda: PseudoForgeConfig(llm=LlmConfig(enabled=False))
+        actions_module.save_config = lambda config: saved_configs.append(config) or Path(r"F:\ida\pseudoforge_config.json")
+        actions_module.ask_profile_dir = lambda current, warn: selected
+        actions_module.configure_profile_dir = lambda profile_dir: configured.append(profile_dir) or Path(profile_dir)
+        actions_module.format_profile_summary = lambda profile_dir: "Profile directory: %s" % profile_dir
+        actions_module.info = messages.append
+        actions_module.warning = warnings.append
+        try:
+            self.assertEqual(handler.activate(None), 1)
+        finally:
+            actions_module.load_config = old_load
+            actions_module.save_config = old_save
+            actions_module.ask_profile_dir = old_ask
+            actions_module.configure_profile_dir = old_configure
+            actions_module.format_profile_summary = old_summary
+            actions_module.info = old_info
+            actions_module.warning = old_warning
+
+        self.assertFalse(warnings)
+        self.assertEqual([config.profile_dir for config in saved_configs], [selected])
+        self.assertEqual(configured, [selected])
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Profile directory: %s" % selected, messages[0])
+
+    def test_build_plan_applies_configured_profile_dir_before_analysis(self):
+        capture = _capture()
+        old_load = actions_module.load_config
+        old_configure = actions_module.configure_profile_dir
+        old_build = actions_module.build_clean_plan
+        configured = []
+        selected = r"F:\profiles\wdk26100"
+        actions_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(enabled=False),
+            profile_dir=selected,
+        )
+        actions_module.configure_profile_dir = lambda profile_dir: configured.append(profile_dir) or Path(profile_dir)
+        actions_module.build_clean_plan = lambda captured: _plan(captured)
+        try:
+            plan = actions_module._build_plan_with_config(capture)
+        finally:
+            actions_module.load_config = old_load
+            actions_module.configure_profile_dir = old_configure
+            actions_module.build_clean_plan = old_build
+
+        self.assertEqual(configured, [selected])
+        self.assertEqual(plan.function_ea, capture.ea)
+
     def test_show_settings_includes_plugin_version(self):
         handler = actions_module.ShowSettingsHandler()
         old_load = actions_module.load_config
@@ -554,6 +617,7 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertFalse(warnings)
         self.assertEqual(len(messages), 1)
         self.assertIn("Version: %s" % VERSION, messages[0])
+        self.assertIn("Profile directory:", messages[0])
 
 
 if __name__ == "__main__":

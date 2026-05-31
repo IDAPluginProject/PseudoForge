@@ -349,6 +349,9 @@ P1 profile loader diagnostics update:
   PowerShell batch wrapper. Changing the loader profile root clears cached
   profile data, and IDA batch start JSONL records the selected profile
   directory.
+- Interactive IDA sessions can persist a profile root through
+  `Edit/PseudoForge/Configure profile directory`; subsequent interactive
+  analysis applies that root before deterministic or optional LLM analysis.
 - `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
   reset behavior plus active profile manifest/name reporting, profile directory
   selection, empty-selection environment override behavior, smoke-tool profile
@@ -571,6 +574,7 @@ Edit/PseudoForge/
   Analyzed functions...
   Export cleaned pseudocode
   Configure LLM rename assist
+  Configure profile directory
   Show settings
   Advanced/
     Apply selected renames to IDB
@@ -585,6 +589,7 @@ PseudoForge/
   Analyzed functions...
   Export cleaned pseudocode
   Configure LLM rename assist
+  Configure profile directory
   Show settings
   Advanced/
     Apply selected renames to IDB

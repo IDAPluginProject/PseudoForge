@@ -289,7 +289,7 @@ git diff --check -- .
 
 ## P1: Profile Loading, Size, And Version Management
 
-Status: In progress.
+Status: Completed.
 
 Completed:
 
@@ -313,11 +313,8 @@ Completed:
   `PSEUDOFORGE_PROFILE_DIR`, offline CLI `--profile-dir`, IDA Free CLI
   `--profile-dir`, IDA batch `--profile-dir`, the PowerShell batch wrapper
   `-ProfileDir`, and `profile_load_smoke.py` `--profile-dir`.
-
-Remaining:
-
-- [ ] Add an interactive IDA settings/profile picker if multiple bundled target
-  profile sets are added.
+- [x] Added an interactive IDA profile directory setting that persists the
+  selected profile root and applies it before interactive analysis.
 
 ### Current Evidence
 
@@ -336,6 +333,9 @@ Remaining:
 - Offline CLI, IDA Free CLI, IDA batch, the PowerShell batch wrapper, and
   profile smoke tools accept profile-directory selection;
   `PSEUDOFORGE_PROFILE_DIR` remains the non-interactive environment override.
+- Interactive IDA sessions can use `Edit/PseudoForge/Configure profile
+  directory` to persist a profile root in the user config; blank selection keeps
+  default/environment behavior.
 - The implementation status records a single WDK 10.0.26100.0-generated profile
   as the current broad profile plus split family artifacts generated from that
   profile.

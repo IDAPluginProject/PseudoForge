@@ -84,6 +84,7 @@ class LlmConfigTests(unittest.TestCase):
                         command_template="test command",
                         extra_headers={"X-Test": "1"},
                     ),
+                    profile_dir=r"F:\profiles\wdk26100",
                     credentials={
                         PROVIDER_OPENROUTER: ProviderCredential(api_key="sk-test"),
                     },
@@ -94,9 +95,11 @@ class LlmConfigTests(unittest.TestCase):
 
                 self.assertTrue(path.exists())
                 self.assertNotIn("api_key", raw["llm"])
+                self.assertEqual(raw["profile_dir"], r"F:\profiles\wdk26100")
                 self.assertEqual(raw["credentials"][PROVIDER_OPENROUTER]["api_key"], "sk-test")
                 self.assertTrue(loaded.llm.enabled)
                 self.assertEqual(loaded.llm.provider, PROVIDER_OPENROUTER)
+                self.assertEqual(loaded.profile_dir, r"F:\profiles\wdk26100")
                 self.assertEqual(get_provider_api_key(loaded, PROVIDER_OPENROUTER), "sk-test")
                 self.assertEqual(loaded.llm.base_url, "https://openrouter.example.invalid/v1")
                 self.assertEqual(loaded.llm.model, "openrouter-test-model")

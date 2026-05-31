@@ -433,7 +433,7 @@ Ctrl+Alt+Shift+F  Export cleaned pseudocode
 - The preview first shows normalized original pseudocode.
 - Functions with recovered dispatcher information append an auxiliary switch-case outline.
 - The auxiliary outline summarizes nested if/else dispatcher chains as switch cases.
-- Only safe single-return bodies are expanded in the outline.
+- Only single-statement returns and complete local branch slices are expanded in the outline.
 - Complex shared or fallthrough bodies point back to the normalized original pseudocode instead of emitting misleading fragments.
 - Native switches already present in the normalized original pseudocode are not duplicated in the auxiliary outline.
 - Viewer lines use IDA color tag syntax highlighting where practical; large previews automatically fall back to plain text.
@@ -584,8 +584,9 @@ but `kernel_api.json` is loaded instead. Optional `--max-cold-ms` and
 
 Alternate target-build profile sets can be selected with
 `PSEUDOFORGE_PROFILE_DIR`, the `--profile-dir` option on Python tools, or
-`-ProfileDir` on `tools/run_pseudoforge_ida_batch.ps1`. The default remains
-the built-in profile directory.
+`-ProfileDir` on `tools/run_pseudoforge_ida_batch.ps1`. Inside IDA, use
+`Edit/PseudoForge/Configure profile directory` to persist an interactive
+profile root selection. The default remains the built-in profile directory.
 
 The built-in profile is currently generated from WDK `10.0.26100.0` and includes:
 

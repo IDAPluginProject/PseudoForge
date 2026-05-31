@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ida_pseudoforge.config import (
@@ -20,6 +21,7 @@ from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnal
 from ida_pseudoforge.ida.async_runner import active_group_task, run_background
 from ida_pseudoforge.ida.decompiler import capture_current_function, capture_current_lvars
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
+from ida_pseudoforge.ida.profile_config_dialog import ask_profile_dir, format_profile_summary
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 from ida_pseudoforge.ida.ui_preview import (
     build_save_as_filename,
@@ -35,6 +37,7 @@ from ida_pseudoforge.models.provider_registry import (
     normalize_provider,
     provider_label,
 )
+from ida_pseudoforge.profiles.loader import DEFAULT_PROFILE_DIR, active_profile_root, configure_profile_dir
 from ida_pseudoforge.version import VERSION
 
 try:
@@ -361,6 +364,42 @@ class ConfigureLlmHandler(idaapi.action_handler_t if idaapi else object):
         return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
 
 
+class ConfigureProfileDirectoryHandler(idaapi.action_handler_t if idaapi else object):
+    def activate(self, ctx):
+        log_checkpoint("action.configure_profile.activate.before")
+        log_output("PseudoForge profile directory configuration requested.")
+        try:
+            config = load_config()
+            log_checkpoint("action.configure_profile.ask.before")
+            selected = ask_profile_dir(config.profile_dir, warning)
+            log_checkpoint("action.configure_profile.ask.after", changed=selected is not None)
+            if selected is None:
+                info("PseudoForge profile directory unchanged.")
+                log_output("PseudoForge profile directory unchanged.")
+                log_checkpoint("action.configure_profile.activate.after", changed=False)
+                return 1
+            config.profile_dir = selected
+            log_checkpoint("action.configure_profile.apply.before", profile_dir=selected or "(default/env)")
+            configure_profile_dir(config.profile_dir)
+            log_checkpoint("action.configure_profile.save.before")
+            path = save_config(config)
+            log_checkpoint("action.configure_profile.save.after", path=str(path))
+            info(
+                "PseudoForge profile directory configured.\nConfig: %s\n%s"
+                % (path, format_profile_summary(config.profile_dir))
+            )
+            log_output("PseudoForge profile directory configuration saved.")
+        except Exception as exc:
+            log_checkpoint("action.configure_profile.activate.failed", error=str(exc))
+            warning(f"PseudoForge profile directory configuration failed: {exc}")
+        else:
+            log_checkpoint("action.configure_profile.activate.after", changed=True)
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
 class ShowSettingsHandler(idaapi.action_handler_t if idaapi else object):
     def activate(self, ctx):
         log_checkpoint("action.show_settings.activate.before")
@@ -372,11 +411,13 @@ class ShowSettingsHandler(idaapi.action_handler_t if idaapi else object):
                 "PseudoForge settings\n"
                 "Version: %s\n"
                 "Config: %s\n"
+                "%s\n"
                 "LLM rename assist: %s\n"
                 "%s"
                 % (
                     VERSION,
                     _safe_config_path_text(),
+                    format_profile_summary(config.profile_dir),
                     state,
                     format_llm_summary(config.llm, config),
                 )
@@ -675,7 +716,8 @@ def _current_function_identity() -> tuple[int, str] | None:
 def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
     log_checkpoint("build_plan.load_config.before", function=capture.name, ea="0x%X" % capture.ea)
     config = load_config()
-    log_checkpoint("build_plan.load_config.after", llm_enabled=config.llm.enabled)
+    profile_root = _configure_profile_dir_for_analysis(config.profile_dir)
+    log_checkpoint("build_plan.load_config.after", llm_enabled=config.llm.enabled, profile_root=str(profile_root))
     if not config.llm.enabled:
         log_output("PseudoForge LLM rename assist is disabled. Running deterministic analysis only.")
         log_event(
@@ -738,6 +780,19 @@ def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
             plan = build_clean_plan(capture)
         plan.warnings.insert(0, f"LLM rename assist failed; deterministic fallback used: {exc}")
         return plan
+
+
+def _configure_profile_dir_for_analysis(profile_dir: str) -> Path:
+    selected = _resolve_configured_profile_dir(profile_dir)
+    if str(selected) == active_profile_root():
+        return selected
+    return configure_profile_dir(profile_dir)
+
+
+def _resolve_configured_profile_dir(profile_dir: str) -> Path:
+    path_text = str(profile_dir or "").strip()
+    raw_path = path_text if path_text else os.environ.get("PSEUDOFORGE_PROFILE_DIR", "").strip()
+    return Path(raw_path).expanduser() if raw_path else DEFAULT_PROFILE_DIR
 
 
 def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:

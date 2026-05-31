@@ -52,6 +52,7 @@ class ProviderCredential:
 @dataclass(slots=True)
 class PseudoForgeConfig:
     llm: LlmConfig
+    profile_dir: str = ""
     credentials: dict[str, ProviderCredential] = field(default_factory=dict)
 
 
@@ -108,6 +109,7 @@ def load_config() -> PseudoForgeConfig:
             command_template=command_template,
             extra_headers=_coerce_string_map(llm_data.get("extra_headers", {})),
         ),
+        profile_dir=str(data.get("profile_dir", "") or "") if isinstance(data, dict) else "",
         credentials=credentials,
     )
 
