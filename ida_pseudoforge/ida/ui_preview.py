@@ -28,12 +28,15 @@ except Exception:
 
 
 _VIEWERS: dict[str, "_ForgeTextViewer"] = {}
+_SIDE_BY_SIDE_FORMS: dict[str, object] = {}
 _ACTIVE_VIEWER: "_ForgeTextViewer | None" = None
 _MAX_PREVIEW_CHARS = 512 * 1024
 _MAX_PREVIEW_LINES = 12000
 _MAX_HIGHLIGHT_CHARS = 256 * 1024
 _MAX_HIGHLIGHT_LINES = 8000
 _DISABLE_HIGHLIGHT_ENV = "PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT"
+_PREVIEW_BACKEND_ENV = "PSEUDOFORGE_PREVIEW_BACKEND"
+_SIDE_BY_SIDE_BACKENDS = {"side_by_side", "side-by-side", "dockable"}
 _ACTIONS_REGISTERED = False
 _COPY_ACTION = "pseudoforge:preview_copy_all"
 _SAVE_ACTION = "pseudoforge:preview_save_as"
@@ -171,13 +174,32 @@ def show_text_view(
     suggested_filename: str | None = None,
     copy_from_source: bool = True,
     target_stem: str | None = None,
-) -> None:
+    reference_text: str | None = None,
+    reference_title: str = "Raw Hex-Rays pseudocode",
+    content_title: str = "PseudoForge preview",
+) -> str:
     text = _finalize_rendered_c_like_text(text)
+    if reference_text is not None:
+        reference_text = _finalize_rendered_c_like_text(reference_text)
     _trace_checkpoint("show_text_view.enter", title=title, chars=len(text), source=source_path)
     if ida_kernwin is None:
         _trace_checkpoint("show_text_view.no_ida", title=title)
         print(text)
-        return
+        return "stdout"
+
+    if reference_text is not None and _try_show_side_by_side_view(
+        title,
+        reference_text,
+        text,
+        source_path=source_path,
+        suggested_filename=suggested_filename,
+        target_stem=target_stem,
+        reference_title=reference_title,
+        content_title=content_title,
+    ):
+        log_event("preview.show title=\"%s\" chars=%d backend=dockable_side_by_side" % (_ascii_for_log(title), len(text)))
+        _trace_checkpoint("show_text_view.exit", title=title, backend="dockable_side_by_side")
+        return "dockable_side_by_side"
 
     _ensure_preview_actions()
     display_text = _bounded_preview_text(text, source_path)
@@ -205,6 +227,7 @@ def show_text_view(
     _trace_checkpoint("simple_viewer.show.after", title=title)
     log_event("preview.show title=\"%s\" chars=%d backend=simplecustviewer" % (_ascii_for_log(title), len(text)))
     _trace_checkpoint("show_text_view.exit", title=title, backend="simplecustviewer")
+    return "simplecustviewer"
 
 
 def info(message: str) -> None:
@@ -227,6 +250,174 @@ def warning(message: str) -> None:
         except Exception:
             pass
     print(message)
+
+
+def _try_show_side_by_side_view(
+    title: str,
+    reference_text: str,
+    content_text: str,
+    source_path: str | Path | None = None,
+    suggested_filename: str | None = None,
+    target_stem: str | None = None,
+    reference_title: str = "Raw Hex-Rays pseudocode",
+    content_title: str = "PseudoForge preview",
+) -> bool:
+    if not _side_by_side_preview_enabled():
+        return False
+    if ida_kernwin is None:
+        return False
+    plugin_form_cls = getattr(ida_kernwin, "PluginForm", None)
+    if plugin_form_cls is None:
+        _trace_checkpoint("side_by_side.unavailable", title=title, reason="missing PluginForm")
+        return False
+    qt_modules = _load_qt_modules()
+    if qt_modules is None:
+        _trace_checkpoint("side_by_side.unavailable", title=title, reason="missing Qt")
+        return False
+
+    try:
+        form_cls = _side_by_side_form_class(plugin_form_cls, qt_modules)
+        form = form_cls(
+            title,
+            _bounded_panel_text(reference_text, source_path),
+            _bounded_panel_text(content_text, source_path),
+            reference_title=reference_title,
+            content_title=content_title,
+            suggested_filename=suggested_filename or "",
+            target_stem=target_stem or "",
+        )
+        options = int(getattr(plugin_form_cls, "WOPN_TAB", 0)) | int(getattr(plugin_form_cls, "WOPN_RESTORE", 0))
+        shown = form.Show(title, options=options)
+        if shown is False or (isinstance(shown, int) and shown < 0):
+            _trace_checkpoint("side_by_side.show.failed", title=title, result=shown)
+            return False
+        _SIDE_BY_SIDE_FORMS[title] = form
+        _trace_checkpoint("side_by_side.show.after", title=title)
+        return True
+    except Exception as exc:
+        _trace_checkpoint("side_by_side.failed", title=title, error=str(exc))
+        return False
+
+
+def _side_by_side_preview_enabled() -> bool:
+    backend = os.environ.get(_PREVIEW_BACKEND_ENV, "").strip().lower()
+    return backend in _SIDE_BY_SIDE_BACKENDS
+
+
+def side_by_side_preview_enabled() -> bool:
+    return _side_by_side_preview_enabled()
+
+
+def _load_qt_modules():
+    try:
+        from PyQt5 import QtCore, QtGui, QtWidgets  # type: ignore
+
+        return QtCore, QtGui, QtWidgets
+    except Exception:
+        pass
+    try:
+        from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
+
+        return QtCore, QtGui, QtWidgets
+    except Exception:
+        return None
+
+
+def _side_by_side_form_class(plugin_form_cls, qt_modules):
+    QtCore, QtGui, QtWidgets = qt_modules
+
+    class _SideBySidePreviewForm(plugin_form_cls):
+        def __init__(
+            self,
+            title: str,
+            reference_text: str,
+            content_text: str,
+            reference_title: str,
+            content_title: str,
+            suggested_filename: str,
+            target_stem: str,
+        ) -> None:
+            super().__init__()
+            self.title = title
+            self.reference_text = reference_text
+            self.content_text = content_text
+            self.reference_title = reference_title
+            self.content_title = content_title
+            self.suggested_filename = suggested_filename
+            self.target_stem = target_stem
+            self._widget = None
+
+        def OnCreate(self, form) -> None:
+            parent = self._form_to_widget(form)
+            layout = QtWidgets.QVBoxLayout(parent)
+            layout.setContentsMargins(6, 6, 6, 6)
+            status = QtWidgets.QLabel("Preview only. IDB was not modified.")
+            layout.addWidget(status)
+
+            splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+            splitter.addWidget(self._make_panel(self.reference_title, self.reference_text))
+            splitter.addWidget(self._make_panel(self.content_title, self.content_text))
+            splitter.setSizes([1, 1])
+            layout.addWidget(splitter)
+            self._widget = parent
+
+        def OnClose(self, form) -> None:
+            _SIDE_BY_SIDE_FORMS.pop(self.title, None)
+
+        def _form_to_widget(self, form):
+            pyqt_adapter = getattr(self, "FormToPyQtWidget", None)
+            if pyqt_adapter is not None:
+                return pyqt_adapter(form)
+            pyside_adapter = getattr(self, "FormToPySideWidget", None)
+            if pyside_adapter is not None:
+                return pyside_adapter(form)
+            raise RuntimeError("IDA PluginForm widget adapter is unavailable")
+
+        def _make_panel(self, title: str, text: str):
+            panel = QtWidgets.QWidget()
+            layout = QtWidgets.QVBoxLayout(panel)
+            layout.setContentsMargins(0, 0, 0, 0)
+            label = QtWidgets.QLabel(title)
+            editor = QtWidgets.QPlainTextEdit()
+            editor.setReadOnly(True)
+            editor.setPlainText(text)
+            no_wrap = getattr(QtWidgets.QPlainTextEdit, "NoWrap", None)
+            if no_wrap is not None:
+                editor.setLineWrapMode(no_wrap)
+            fixed_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
+            editor.setFont(fixed_font)
+            layout.addWidget(label)
+            layout.addWidget(editor)
+            return panel
+
+    return _SideBySidePreviewForm
+
+
+def _bounded_panel_text(text: str, source_path: str | Path | None) -> str:
+    lines = text.splitlines()
+    truncated_by_lines = len(lines) > _MAX_PREVIEW_LINES
+    if truncated_by_lines:
+        body = "\n".join(lines[:_MAX_PREVIEW_LINES])
+    else:
+        body = text
+
+    truncated_by_chars = len(body) > _MAX_PREVIEW_CHARS
+    if truncated_by_chars:
+        body = body[:_MAX_PREVIEW_CHARS]
+
+    header = "// PseudoForge preview panel. IDB was not modified.\n"
+    if not truncated_by_lines and not truncated_by_chars:
+        return header + "\n" + body
+
+    source = str(source_path) if source_path else "(not saved)"
+    notice = (
+        "// Panel text truncated for IDA UI responsiveness.\n"
+        "// Use the simple preview fallback or export path for full content.\n"
+        "// Source: %s\n"
+        "// Preview limit: %d chars, %d lines\n"
+        % (source, _MAX_PREVIEW_CHARS, _MAX_PREVIEW_LINES)
+    )
+    return header + notice + "\n" + body
 
 
 class _ForgeTextViewer(ida_kernwin.simplecustviewer_t if ida_kernwin else object):

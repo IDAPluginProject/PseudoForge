@@ -159,6 +159,9 @@ Implemented:
     diagnostic counts plus rule load and validation error details.
 28. IDA LLM model discovery uses a non-blocking background refresh cache so
     configuration dialogs can open with static or cached model lists.
+29. IDA analysis preview can try an experimental dockable side-by-side raw vs
+    cleaned review panel behind `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`,
+    while preserving the existing `simplecustviewer_t` fallback.
 
 Still pending:
 
@@ -450,6 +453,10 @@ Ctrl+Alt+Shift+F  Export cleaned pseudocode
 - Viewer lines use IDA color tag syntax highlighting where practical; large previews automatically fall back to plain text.
 - `.forge`, `Copy all`, and `Save as...` output remain plain text without color tags.
 - Set `PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT=1` before launching IDA to isolate syntax-highlight issues.
+- Set `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` before launching IDA to try
+  the experimental dockable raw-vs-cleaned review panel. If IDA `PluginForm` or
+  Qt widgets are unavailable, PseudoForge falls back to the existing simple
+  custom viewer.
 - Right-click in the preview for `PseudoForge/Copy all`, `PseudoForge/Save as...`, and `PseudoForge/Analyzed functions...`.
 - `PseudoForge/Analyzed functions...` and the top-level `Analyzed functions...` action parse `.forge` markers and open a chooser of all analyzed sections.
 - Function-section `Save as...` defaults to `PseudoForge__<target>__<function>_0x<EA>.cpp`.

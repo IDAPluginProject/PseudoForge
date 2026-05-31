@@ -28,6 +28,7 @@ from ida_pseudoforge.ida.ui_preview import (
     build_save_as_filename,
     choose_renames,
     info,
+    side_by_side_preview_enabled,
     show_analyzed_functions_from_text,
     show_text_view,
     warning,
@@ -552,6 +553,25 @@ def _show_analysis_preview(capture: FunctionCapture, plan: CleanPlan) -> None:
             cleaned,
             suggested_filename=build_save_as_filename("pseudoforge", capture.name, capture.ea),
             copy_from_source=False,
+            reference_text=capture.pseudocode,
+            reference_title="Raw Hex-Rays pseudocode",
+            content_title="PseudoForge cleaned pseudocode",
+        )
+        return
+
+    if side_by_side_preview_enabled():
+        cleaned = render_cleaned_pseudocode(capture, plan)
+        target_stem = target_path.stem
+        show_text_view(
+            "PseudoForge: %s!%s 0x%X" % (target_stem, capture.name, capture.ea),
+            cleaned,
+            source_path=forge_path if forge_path.exists() else None,
+            suggested_filename=build_save_as_filename(target_stem, capture.name, capture.ea),
+            copy_from_source=False,
+            target_stem=target_stem,
+            reference_text=capture.pseudocode,
+            reference_title="Raw Hex-Rays pseudocode",
+            content_title="PseudoForge cleaned pseudocode",
         )
         return
 
@@ -585,6 +605,9 @@ def _show_analysis_preview(capture: FunctionCapture, plan: CleanPlan) -> None:
         suggested_filename=build_save_as_filename(target_stem, capture.name, capture.ea),
         copy_from_source=False,
         target_stem=target_stem,
+        reference_text=capture.pseudocode,
+        reference_title="Raw Hex-Rays pseudocode",
+        content_title="PseudoForge cleaned pseudocode",
     )
     log_event(
         "preview.analysis.fallback function=\"%s\" ea=0x%X"

@@ -530,6 +530,15 @@ P2 IDA LLM model discovery UX update:
 - Existing fail-closed/fallback behavior is preserved: discovery failures cache
   provider static models with a warning for the next configuration run.
 
+P2 IDA side-by-side preview update:
+
+- Analysis preview can try an experimental dockable raw-vs-cleaned review panel
+  when `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` is set before launching IDA.
+- The dockable panel uses IDA `PluginForm` plus Qt widgets when available.
+- The existing `simplecustviewer_t` preview remains the default path and the
+  fallback path when the feature flag is disabled or the dockable backend cannot
+  be created.
+
 The current implementation state reflects the `NtSetSystemInformation` and `NtSetInformationProcess` large-dispatcher regression pass:
 
 - `NtSetSystemInformation` preview now uses the canonical native API signature and introduces typed `__m128i *` aliases without changing the underlying decompiler body semantics.

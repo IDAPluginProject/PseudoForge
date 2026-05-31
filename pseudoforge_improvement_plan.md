@@ -914,12 +914,12 @@ Completed:
   emission status/kind counts.
 - [x] Added non-blocking IDA LLM model discovery refresh through a background
   cache with static-list fallback and duplicate refresh suppression.
+- [x] Added an experimental dockable raw-vs-cleaned preview backend behind
+  `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` while preserving
+  `simplecustviewer_t` as the default and fallback path.
 
 Remaining:
 
-- [ ] Keep `simplecustviewer_t` as the fallback path while adding any richer
-  dockable review UI.
-- [ ] Add a dockable side-by-side review panel behind a feature flag.
 - [ ] Add cancellation/progress hooks for long LLM and batch work where IDA APIs
   allow it.
 
@@ -935,6 +935,9 @@ Remaining:
   details and rewrite emission counts.
 - IDA LLM configuration now opens with cached/static models while live model
   discovery refreshes in the background.
+- Analysis preview can opt into an experimental dockable raw-vs-cleaned panel
+  with `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`; `simplecustviewer_t` remains
+  the default and fallback backend.
 
 ### Problem
 

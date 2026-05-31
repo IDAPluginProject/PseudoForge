@@ -8,6 +8,9 @@ from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
     _highlight_preview_lines,
     _syntax_highlight_lines,
+    _bounded_panel_text,
+    show_text_view,
+    side_by_side_preview_enabled,
 )
 
 
@@ -77,6 +80,104 @@ class UiPreviewTests(unittest.TestCase):
         self.assertIn("<'\\x01'>if</>", highlighted[0])
         self.assertIn("<'\\x06'>STATUS_SUCCESS</>", highlighted[0])
         self.assertIn("<'\\x02'>// comment</>", highlighted[0])
+
+    def test_side_by_side_preview_feature_flag_values(self) -> None:
+        old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
+        try:
+            os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "side_by_side"
+            self.assertTrue(side_by_side_preview_enabled())
+            os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "dockable"
+            self.assertTrue(side_by_side_preview_enabled())
+            os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "simple"
+            self.assertFalse(side_by_side_preview_enabled())
+        finally:
+            if old_value is None:
+                os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+            else:
+                os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_value
+
+    def test_show_text_view_uses_feature_flagged_side_by_side_backend(self) -> None:
+        old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
+        old_ida_kernwin = ui_preview_module.ida_kernwin
+        old_try = ui_preview_module._try_show_side_by_side_view
+        calls = []
+
+        def fake_try(*args, **kwargs):
+            calls.append((args, kwargs))
+            return True
+
+        os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "side_by_side"
+        ui_preview_module.ida_kernwin = object()
+        ui_preview_module._try_show_side_by_side_view = fake_try
+        try:
+            backend = show_text_view(
+                "PseudoForge: sample",
+                "cleaned text",
+                reference_text="raw text",
+                reference_title="Raw",
+                content_title="Cleaned",
+            )
+        finally:
+            ui_preview_module.ida_kernwin = old_ida_kernwin
+            ui_preview_module._try_show_side_by_side_view = old_try
+            if old_value is None:
+                os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+            else:
+                os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_value
+
+        self.assertEqual("dockable_side_by_side", backend)
+        self.assertEqual(1, len(calls))
+        self.assertEqual("PseudoForge: sample", calls[0][0][0])
+        self.assertEqual("raw text", calls[0][0][1])
+        self.assertEqual("cleaned text", calls[0][0][2])
+        self.assertEqual("Raw", calls[0][1]["reference_title"])
+        self.assertEqual("Cleaned", calls[0][1]["content_title"])
+
+    def test_side_by_side_panel_text_does_not_advertise_simple_viewer_actions(self) -> None:
+        rendered = _bounded_panel_text("int status = 0;", None)
+
+        self.assertIn("PseudoForge preview panel", rendered)
+        self.assertNotIn("Right-click", rendered)
+        self.assertNotIn("Copy all", rendered)
+        self.assertNotIn("Save as", rendered)
+
+    def test_side_by_side_backend_treats_false_show_result_as_failure(self) -> None:
+        old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
+        old_ida_kernwin = ui_preview_module.ida_kernwin
+        old_load_qt_modules = ui_preview_module._load_qt_modules
+        old_form_class = ui_preview_module._side_by_side_form_class
+
+        class FakePluginForm:
+            WOPN_TAB = 1
+            WOPN_RESTORE = 2
+
+        class FakeKernwin:
+            PluginForm = FakePluginForm
+
+        class FakeForm:
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            def Show(self, title, options=0):
+                return False
+
+        os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "side_by_side"
+        ui_preview_module.ida_kernwin = FakeKernwin
+        ui_preview_module._load_qt_modules = lambda: object()
+        ui_preview_module._side_by_side_form_class = lambda plugin_form_cls, qt_modules: FakeForm
+        try:
+            shown = ui_preview_module._try_show_side_by_side_view("PseudoForge: fake", "raw", "clean")
+        finally:
+            ui_preview_module.ida_kernwin = old_ida_kernwin
+            ui_preview_module._load_qt_modules = old_load_qt_modules
+            ui_preview_module._side_by_side_form_class = old_form_class
+            if old_value is None:
+                os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+            else:
+                os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_value
+
+        self.assertFalse(shown)
+        self.assertNotIn("PseudoForge: fake", ui_preview_module._SIDE_BY_SIDE_FORMS)
 
 
 if __name__ == "__main__":
