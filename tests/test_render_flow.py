@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.flow_recovery import recover_flow
 from ida_pseudoforge.core.render_flow import (
     is_safe_switch_outline_body,
     native_switch_dispatchers,
@@ -83,6 +84,46 @@ class RenderFlowTests(unittest.TestCase):
         self.assertEqual(native_switch_dispatchers("switch ( (int)code )\n{", plan), {"code"})
         self.assertFalse(is_safe_switch_outline_body(["status = 0;", "break;"]))
         self.assertTrue(is_safe_switch_outline_body(["return STATUS_NOT_SUPPORTED;"]))
+
+    def test_recover_flow_handles_same_line_switch_fallthrough_and_nested_cases(self) -> None:
+        capture = FunctionCapture(
+            ea=0x140002000,
+            name="NativeDispatcher",
+            pseudocode="""
+__int64 __fastcall NativeDispatcher(int code, int other)
+{
+  switch ( code ) {
+  case 1:
+    return 1;
+  case 2:
+    switch ( other )
+    {
+    case 7:
+      return 7;
+    }
+    return 2;
+  case 3:
+  case 4:
+    return 4;
+  }
+  return 0;
+}
+""",
+        )
+
+        flows = recover_flow(capture)
+        flow = flows[0]
+        report = render_flow_report(capture, _plan(flow))
+        outline = render_switch_outline(capture, _plan(flow))
+
+        self.assertEqual(flow.recovered_cases, [1, 2, 3, 4])
+        self.assertNotIn(7, flow.recovered_cases)
+        self.assertEqual(flow.case_body_states[1], "single_statement_body")
+        self.assertEqual(flow.case_body_states[2], "complex_unsliced")
+        self.assertEqual(flow.case_body_states[3], "fallthrough_or_join")
+        self.assertEqual(flow.case_body_states[4], "single_statement_body")
+        self.assertIn("`3` (body_state=`fallthrough_or_join`", report)
+        self.assertIn("Native switch (code) already exists", outline)
 
 
 if __name__ == "__main__":

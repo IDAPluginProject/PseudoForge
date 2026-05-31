@@ -614,12 +614,13 @@ Completed:
   flow reports.
 - [x] Added regression coverage for shared cleanup tails without expanding them
   as unique case bodies.
+- [x] Added regression coverage for fallthrough and nested native switches,
+  including same-line switch brace placement.
 
 Remaining:
 
 - [ ] Add branch-slice helper that only extracts bodies when all exits and joins
   are represented.
-- [ ] Add regression samples for fallthrough and nested native switches.
 
 ### Current Evidence
 

@@ -51,7 +51,8 @@ def recover_flow(capture: FunctionCapture, rename_map: dict[str, str] | None = N
     case_bodies = _recover_case_bodies(text, dispatcher)
     cases.update(case_bodies)
     case_anchors = _recover_case_anchors(text, dispatcher)
-    case_body_states = _case_body_states(cases, case_bodies)
+    state_bodies = _recover_case_body_state_bodies(text, dispatcher, case_bodies)
+    case_body_states = _case_body_states(cases, state_bodies)
     case_labels = _case_labels(case_bodies)
     renamed_dispatcher = (rename_map or {}).get(dispatcher, dispatcher)
     is_system_information_dispatcher = _is_system_information_dispatcher(capture, dispatcher, renamed_dispatcher)
@@ -305,6 +306,7 @@ def _recover_switch_case_anchors(lines: list[str], dispatcher: str) -> dict[int,
         if not in_target_switch:
             if switch_match and switch_match.group("var") == dispatcher:
                 in_target_switch = True
+                depth += line.strip().count("{")
             continue
 
         stripped = line.strip()
@@ -324,6 +326,19 @@ def _recover_switch_case_anchors(lines: list[str], dispatcher: str) -> dict[int,
         if opens:
             depth += opens
     return anchors
+
+
+def _recover_case_body_state_bodies(
+    text: str,
+    dispatcher: str,
+    case_bodies: dict[int, list[str]],
+) -> dict[int, list[str]]:
+    state_bodies = dict(case_bodies)
+    if SWITCH_RE.search(text or ""):
+        state_bodies.update(
+            _recover_switch_case_bodies((text or "").splitlines(), dispatcher, keep_empty=True)
+        )
+    return state_bodies
 
 
 def _case_body_states(cases: set[int], case_bodies: dict[int, list[str]]) -> dict[int, str]:
@@ -382,6 +397,7 @@ def _recover_switch_case_bodies(
         if not in_target_switch:
             if switch_match and switch_match.group("var") == dispatcher:
                 in_target_switch = True
+                depth += line.strip().count("{")
             continue
 
         stripped = line.strip()

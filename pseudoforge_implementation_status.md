@@ -369,6 +369,9 @@ P2 switch body reporting update:
 - Switch outlines and flow reports include source line anchors and shared-tail
   labels when available, while still refusing to expand goto-dependent shared
   tails as unique case bodies.
+- Native switch recovery now handles `switch (...) {` brace placement on the
+  switch line and has regression coverage for fallthrough cases plus nested
+  switch cases that must not be promoted to the parent dispatcher.
 
 P0 rename identity hardening update:
 
