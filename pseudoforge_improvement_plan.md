@@ -689,7 +689,7 @@ cases share labels, cleanup tails, or fallthrough-like paths.
 
 ## P2: Test Suite Restructure
 
-Status: In progress.
+Status: Completed.
 
 Completed:
 
@@ -723,7 +723,7 @@ Completed:
   profile-function fact regressions into `tests/test_rule_context.py`.
 - [x] Moved deterministic rule-pack validator regressions into
   `tests/test_rule_pack_validator.py` and shared rule test builders into
-  `tests/rule_test_helpers.py`.
+  `tests/helpers.py`.
 - [x] Moved deterministic RuleEngine emission, gate, conflict, and runtime-error
   regressions into `tests/test_rule_engine.py`.
 - [x] Moved deterministic rule integration coverage for build-plan reports,
@@ -775,13 +775,14 @@ Completed:
 - [x] Moved final broad render smoke coverage into `tests/test_render_ntset.py`
   and `tests/test_render_flow.py`, then removed `tests/test_core_engine.py`.
 - [x] Kept the full suite stable at 268 tests across the final monolith split.
-- [x] Added `tests/llm_test_helpers.py` and moved
-  `tests/test_llm_rename_filters.py` JSON rename-provider fixtures onto the
-  shared helper.
+- [x] Moved `tests/test_llm_rename_filters.py` JSON rename-provider fixtures
+  onto the shared test helper, now consolidated in `tests/helpers.py`.
+- [x] Consolidated shared LLM and rule test helpers into `tests/helpers.py`,
+  with legacy helper modules left as compatibility re-exports.
 
 Remaining:
 
-- [ ] Move shared fixtures into `tests/fixtures/` or `tests/helpers.py`.
+- None for the test-suite restructure slice.
 
 ### Current Evidence
 
@@ -803,7 +804,7 @@ Remaining:
   suite.
 - Rule-pack validator coverage now has a focused
   `tests/test_rule_pack_validator.py` suite, with reusable test rule builders
-  in `tests/rule_test_helpers.py`.
+  in `tests/helpers.py`.
 - RuleEngine emission, gate, conflict, and runtime-error coverage now has a
   focused `tests/test_rule_engine.py` suite.
 - Deterministic rule integration coverage now has a focused
@@ -851,7 +852,7 @@ Remaining:
   `tests/test_rename_heuristics.py`.
 - LLM rename filtering coverage now lives in
   `tests/test_llm_rename_filters.py`, with repeated JSON rename-provider
-  fixtures centralized in `tests/llm_test_helpers.py`.
+  fixtures centralized in `tests/helpers.py`.
 - Plan-builder semantic recovery and shadowed duplicate-target warning coverage
   now lives in `tests/test_plan_builder.py`.
 - The final broad NtSet render smoke coverage now lives in

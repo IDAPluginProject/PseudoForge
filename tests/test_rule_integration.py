@@ -8,7 +8,7 @@ from pathlib import Path
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
-from tests.rule_test_helpers import (
+from tests.helpers import (
     _call_arg_rewrite_rule,
     _rename_rule,
     _rule_pack,

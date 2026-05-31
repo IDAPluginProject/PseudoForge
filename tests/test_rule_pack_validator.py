@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.deterministic.validators import validate_rule_pack_file
-from tests.rule_test_helpers import (
+from tests.helpers import (
     _call_arg_gate_match,
     _call_arg_rewrite_rule,
     _rename_rule,

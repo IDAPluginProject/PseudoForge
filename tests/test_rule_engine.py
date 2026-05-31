@@ -7,7 +7,7 @@ from ida_pseudoforge.core.deterministic.context import build_rule_context
 from ida_pseudoforge.core.deterministic.emitters import emissions_to_comments, emissions_to_renames
 from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.schema import Rule, RulePack
-from tests.rule_test_helpers import _call_arg_gate_match
+from tests.helpers import _call_arg_gate_match
 
 
 class RuleEngineTests(unittest.TestCase):

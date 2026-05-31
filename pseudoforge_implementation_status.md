@@ -285,7 +285,7 @@ P1 renderer snapshot protection update:
 - LLM rename filtering regressions now live in
   `tests/test_llm_rename_filters.py`.
 - Repeated JSON rename-provider fixtures for the LLM rename-filter suite now
-  live in `tests/llm_test_helpers.py`.
+  live in `tests/helpers.py`.
 - Plan-builder semantic recovery and shadowed duplicate-target warning
   regressions now live in `tests/test_plan_builder.py`.
 - The final broad render smoke coverage moved into `tests/test_render_ntset.py`
@@ -457,7 +457,9 @@ P2 switch body reporting update:
   profile-function fact regressions now live in `tests/test_rule_context.py`.
 - Deterministic rule-pack validator regressions now live in
   `tests/test_rule_pack_validator.py`, with shared test rule builders in
-  `tests/rule_test_helpers.py`.
+  `tests/helpers.py`.
+- Legacy `tests/llm_test_helpers.py` and `tests/rule_test_helpers.py` remain as
+  compatibility re-export modules only.
 - Deterministic RuleEngine emission, gate, conflict, and runtime-error
   regressions now live in `tests/test_rule_engine.py`.
 - Deterministic rule integration regressions for build-plan reports, builtin
@@ -1173,5 +1175,4 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
 3. Add a richer dockable side-by-side preview panel.
 4. Manually validate identity-backed local variable rename application inside
    IDA after local type/name refresh.
-5. Move remaining shared test helpers into `tests/fixtures/` or `tests/helpers.py`.
-6. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.
+5. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.

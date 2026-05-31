@@ -6,7 +6,7 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
-from tests.llm_test_helpers import JsonRenameProvider
+from tests.helpers import JsonRenameProvider
 
 
 BAD_INVARIANT_RENAME_SAMPLE = r"""
