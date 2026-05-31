@@ -172,6 +172,7 @@ Implemented in this folder:
    - `tests/test_core_engine.py`
    - `tests/test_ida_plugin_safety.py`
    - `tests/test_render_dispatcher.py`
+   - `tests/test_render_driver_entry.py`
    - `tests/test_render_ioctl.py`
    - `tests/test_render_labels.py`
    - `tests/test_render_snapshots.py`
@@ -181,7 +182,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 223 unit tests
+   - current suite covers 225 unit tests
 
 ## Latest Implementation Notes
 
@@ -212,6 +213,9 @@ P1 renderer snapshot protection update:
 - Semantic label rendering for cleanup label renaming, annotations,
   indentation normalization, and stale embedded-tail hoisting now lives in
   `ida_pseudoforge/core/render_labels.py`.
+- DriverEntry rendering for canonical signature output, status normalization,
+  IRP major constants, device flags, and `IoCreateDevice` secure-open rendering
+  now lives in `ida_pseudoforge/core/render_driver_entry.py`.
 
 P1 profile loader diagnostics update:
 

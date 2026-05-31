@@ -152,6 +152,9 @@ Completed:
 - [x] Moved semantic label rendering for cleanup label renaming, annotations,
   indentation normalization, and stale embedded-tail hoisting into a scoped
   `render_labels` module.
+- [x] Moved DriverEntry rendering for canonical signature output, status
+  normalization, IRP major constants, device flags, and `IoCreateDevice`
+  secure-open rendering into a scoped `render_driver_entry` module.
 
 Remaining:
 
@@ -163,8 +166,8 @@ Remaining:
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly
-  1298 lines after the status, style, dispatcher, IOCTL/IRP, and semantic-label
-  extraction slices.
+  1240 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
+  and DriverEntry extraction slices.
 - `render_cleaned_pseudocode()` still coordinates many ordered text passes in
   `ida_pseudoforge/core/render.py`.
 - `ida_pseudoforge/core/render.py` preserves the public `write_export_bundle`
@@ -175,8 +178,10 @@ Remaining:
   `ida_pseudoforge/core/render_dispatcher.py`.
 - IOCTL/IRP rendering now lives in `ida_pseudoforge/core/render_ioctl.py`,
   and semantic label rendering now lives in
-  `ida_pseudoforge/core/render_labels.py`, while driver-entry and callback
-  rewrites remain in `render.py`.
+  `ida_pseudoforge/core/render_labels.py`.
+- DriverEntry rendering now lives in
+  `ida_pseudoforge/core/render_driver_entry.py`, while callback rewrites remain
+  in `render.py`.
 
 ### Problem
 
@@ -618,9 +623,9 @@ conflict risk and makes it harder to identify which subsystem owns a regression.
    - `test_plan_builder.py`
    - `test_render_status.py`
    - `test_render_dispatcher.py`
+   - `test_render_driver_entry.py`
    - `test_render_ioctl.py`
    - `test_render_labels.py`
-   - `test_render_driver_entry.py`
    - `test_render_callbacks.py`
    - `test_validation.py`
    - `test_deterministic_rules.py`
