@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import re
 import unittest
 
+from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, CleanupLabel
+from ida_pseudoforge.core.render import (
+    _hoist_embedded_semantic_tail_labels as legacy_hoist_embedded_semantic_tail_labels,
+    render_cleaned_pseudocode,
+)
 from ida_pseudoforge.core.render_labels import (
     annotate_kernel_labels,
     hoist_embedded_semantic_tail_labels,
@@ -10,6 +17,7 @@ from ida_pseudoforge.core.render_labels import (
     semantic_label_display,
     semantic_label_map,
 )
+from tests.fixtures.kernel_samples import DUPLICATE_SEMANTIC_LABEL_SAMPLE, FIRMWARE_SAMPLE
 
 
 def _plan(labels: list[CleanupLabel]) -> CleanPlan:
@@ -102,6 +110,65 @@ class RenderLabelTests(unittest.TestCase):
             "  goto Cleanup;",
             rendered,
         )
+
+    def test_embedded_semantic_label_fallback_hoists_stale_layout(self) -> None:
+        capture = capture_from_pseudocode(FIRMWARE_SAMPLE)
+        plan = build_clean_plan(capture)
+        stale_text = "\n".join(
+            [
+                "  if ( providerRecord->DriverObject == pTableHandler->DriverObject )",
+                "  {",
+                "        CorruptListEntry:",
+                "  // PseudoForge: failfast_corrupt_list_entry confidence=0.96; Calls __fastfail(3)",
+                "        __fastfail(3u);",
+                "      }",
+                "      goto InvalidParameter;",
+                "  }",
+                "  if ( !pTableHandler->Register )",
+                "  {",
+                "InvalidParameter:",
+                "  // PseudoForge: set_error_status_and_cleanup confidence=0.84; Sets an NTSTATUS-style error",
+                "    status = STATUS_INVALID_PARAMETER;",
+                "    goto Cleanup;",
+                "  }",
+                "  status = STATUS_INSUFFICIENT_RESOURCES;",
+                "Cleanup:",
+                "  ExReleaseResourceLite(&ExpFirmwareTableResource);",
+            ]
+        )
+
+        rendered = legacy_hoist_embedded_semantic_tail_labels(stale_text, plan)
+
+        self.assertIn("        goto CorruptListEntry;", rendered)
+        self.assertIn("    goto InvalidParameter;", rendered)
+        self.assertIn("Cleanup:\n  ExReleaseResourceLite(&ExpFirmwareTableResource);\nInvalidParameter:", rendered)
+        self.assertNotIn("  goto Cleanup;\nInvalidParameter:", rendered)
+        self.assertRegex(
+            rendered,
+            r"(?m)^InvalidParameter:\n"
+            r"  // PseudoForge: set_error_status_and_cleanup[^\n]*\n"
+            r"  status = STATUS_INVALID_PARAMETER;\n"
+            r"  goto Cleanup;",
+        )
+        self.assertRegex(
+            rendered,
+            r"(?m)^CorruptListEntry:\n"
+            r"  // PseudoForge: failfast_corrupt_list_entry[^\n]*\n"
+            r"  __fastfail\(3u\);",
+        )
+        self.assertNotRegex(rendered, r"(?m)^CorruptListEntry:\n[^\n]*\n\s{8,}__fastfail")
+
+    def test_duplicate_semantic_labels_keep_unique_targets(self) -> None:
+        capture = capture_from_pseudocode(DUPLICATE_SEMANTIC_LABEL_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("LABEL_17 -> InvalidParameter: set_error_status_and_cleanup", rendered)
+        self.assertIn("LABEL_21 -> InvalidParameter_21: set_error_status_and_cleanup", rendered)
+        self.assertEqual(len(re.findall(r"(?m)^InvalidParameter:$", rendered)), 1)
+        self.assertEqual(len(re.findall(r"(?m)^InvalidParameter_21:$", rendered)), 1)
+        self.assertIn("goto LABEL_40;", rendered)
+        self.assertNotRegex(rendered, r"(?ms)^InvalidParameter_21:.*?goto InvalidParameter_21;")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import unittest
 import json
-import re
 from pathlib import Path
 
 from ida_pseudoforge.core.forge_store import (
@@ -10,13 +9,13 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import LocalVariable
 from ida_pseudoforge.core.render import (
-    _hoist_embedded_semantic_tail_labels,
     render_cleaned_pseudocode,
     render_switch_outline,
 )
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 from ida_pseudoforge.ida import actions as actions_module
 from ida_pseudoforge.version import VERSION
+from tests.fixtures.kernel_samples import FIRMWARE_SAMPLE
 
 SAMPLE = r"""
 __int64 __fastcall NtSetSystemInformation(char *a1, __m128i *a2, __int64 a3)
@@ -53,99 +52,6 @@ LABEL_421:
   VfFreeCapturedUnicodeString(v4);
   return updated;
   return (ULONG)-1073741821;
-}
-"""
-
-
-FIRMWARE_SAMPLE = r"""
-__int64 __fastcall ExpRegisterFirmwareTableInformationHandler(
-        SYSTEM_FIRMWARE_TABLE_HANDLER *pTableHandler,
-        unsigned int tableHandlerSize,
-        KPROCESSOR_MODE previousMode)
-{
-  unsigned int v3;
-  struct _KTHREAD *CurrentThread;
-  _DWORD *i;
-  _DWORD *v7;
-  __int64 v8;
-  _QWORD *v9;
-  __int64 Pool2;
-  _QWORD *v11;
-  _QWORD *v12;
-
-  v3 = 0;
-  if ( previousMode )
-    return (unsigned int)-1073741727;
-  if ( !pTableHandler || tableHandlerSize < 0x18 )
-    return (unsigned int)-1073741820;
-  CurrentThread = KeGetCurrentThread();
-  --CurrentThread->KernelApcDisable;
-  ExAcquireResourceExclusiveLite(&ExpFirmwareTableResource, 1u);
-  for ( i = (_DWORD *)(ExpFirmwareTableProviderListHead - 24); ; i = (_DWORD *)(*(_QWORD *)v7 - 24LL) )
-  {
-    v7 = i + 6;
-    if ( &ExpFirmwareTableProviderListHead == (__int64 *)(i + 6) )
-      break;
-    if ( *i == pTableHandler->ProviderSignature )
-    {
-      if ( pTableHandler->Register )
-      {
-        v3 = 0x40000000;
-        goto LABEL_22;
-      }
-      if ( (PVOID)*((_QWORD *)i + 2) == pTableHandler->DriverObject )
-      {
-        v8 = *(_QWORD *)v7;
-        if ( *(_DWORD **)(*(_QWORD *)v7 + 8LL) == v7 )
-        {
-          v9 = (_QWORD *)*((_QWORD *)i + 4);
-          if ( (_DWORD *)*v9 == v7 )
-          {
-            *v9 = v8;
-            *(_QWORD *)(v8 + 8) = v9;
-            ObfDereferenceObject(*((PVOID *)i + 2));
-            ExFreePoolWithTag(i, 0x54465241u);
-            goto LABEL_22;
-          }
-        }
-LABEL_19:
-        __fastfail(3u);
-      }
-      goto LABEL_21;
-    }
-  }
-  if ( !pTableHandler->Register )
-  {
-LABEL_21:
-    v3 = -1073741811;
-    goto LABEL_22;
-  }
-  Pool2 = ExAllocatePool2(0x100uLL, 0x28uLL, 0x54465241u);
-  if ( Pool2 )
-  {
-    v11 = (_QWORD *)(Pool2 + 24);
-    *(_DWORD *)Pool2 = pTableHandler->ProviderSignature;
-    *(_QWORD *)(Pool2 + 8) = pTableHandler->FirmwareTableHandler;
-    *(_QWORD *)(Pool2 + 16) = pTableHandler->DriverObject;
-    *(_QWORD *)(Pool2 + 32) = Pool2 + 24;
-    *(_QWORD *)(Pool2 + 24) = Pool2 + 24;
-    PsReferenceSiloContext(*(_QWORD *)(Pool2 + 16));
-    v12 = (_QWORD *)qword_140EFEDD8;
-    if ( *(__int64 **)qword_140EFEDD8 != &ExpFirmwareTableProviderListHead )
-      goto LABEL_19;
-    *v11 = &ExpFirmwareTableProviderListHead;
-    v11[1] = v12;
-    *v12 = v11;
-    qword_140EFEDD8 = (__int64)v11;
-  }
-  else
-  {
-    v3 = -1073741670;
-  }
-LABEL_22:
-  ExReleaseResourceLite(&ExpFirmwareTableResource);
-  KeLeaveCriticalRegion();
-  return v3;
 }
 """
 
@@ -344,32 +250,6 @@ __int64 __fastcall PreviousModeCopySample()
   PreviousMode = KeGetCurrentThread()->PreviousMode;
   v119 = PreviousMode;
   return v119;
-}
-"""
-
-
-DUPLICATE_SEMANTIC_LABEL_SAMPLE = r"""
-NTSTATUS __fastcall DuplicateSemanticLabelSample(int a1, int a2)
-{
-  int status;
-
-  if ( a1 )
-  {
-    status = -1073741592;
-LABEL_40:
-    goto LABEL_41;
-  }
-  if ( a2 )
-  {
-LABEL_17:
-    status = -1073741820;
-    goto LABEL_40;
-  }
-LABEL_21:
-  status = -1073741811;
-  goto LABEL_40;
-LABEL_41:
-  return status;
 }
 """
 
@@ -1288,65 +1168,6 @@ LABEL_34:
         self.assertNotIn("{'message':", rendered)
         self.assertNotIn('{"old":', rendered)
         self.assertIn("if ( !pTableHandler->Register )\n  {\n    goto InvalidParameter;\n  }", rendered)
-
-    def test_embedded_semantic_label_fallback_hoists_stale_layout(self):
-        capture = capture_from_pseudocode(FIRMWARE_SAMPLE)
-        plan = build_clean_plan(capture)
-        stale_text = "\n".join(
-            [
-                "  if ( providerRecord->DriverObject == pTableHandler->DriverObject )",
-                "  {",
-                "        CorruptListEntry:",
-                "  // PseudoForge: failfast_corrupt_list_entry confidence=0.96; Calls __fastfail(3)",
-                "        __fastfail(3u);",
-                "      }",
-                "      goto InvalidParameter;",
-                "  }",
-                "  if ( !pTableHandler->Register )",
-                "  {",
-                "InvalidParameter:",
-                "  // PseudoForge: set_error_status_and_cleanup confidence=0.84; Sets an NTSTATUS-style error",
-                "    status = STATUS_INVALID_PARAMETER;",
-                "    goto Cleanup;",
-                "  }",
-                "  status = STATUS_INSUFFICIENT_RESOURCES;",
-                "Cleanup:",
-                "  ExReleaseResourceLite(&ExpFirmwareTableResource);",
-            ]
-        )
-
-        rendered = _hoist_embedded_semantic_tail_labels(stale_text, plan)
-
-        self.assertIn("        goto CorruptListEntry;", rendered)
-        self.assertIn("    goto InvalidParameter;", rendered)
-        self.assertIn("Cleanup:\n  ExReleaseResourceLite(&ExpFirmwareTableResource);\nInvalidParameter:", rendered)
-        self.assertNotIn("  goto Cleanup;\nInvalidParameter:", rendered)
-        self.assertRegex(
-            rendered,
-            r"(?m)^InvalidParameter:\n"
-            r"  // PseudoForge: set_error_status_and_cleanup[^\n]*\n"
-            r"  status = STATUS_INVALID_PARAMETER;\n"
-            r"  goto Cleanup;",
-        )
-        self.assertRegex(
-            rendered,
-            r"(?m)^CorruptListEntry:\n"
-            r"  // PseudoForge: failfast_corrupt_list_entry[^\n]*\n"
-            r"  __fastfail\(3u\);",
-        )
-        self.assertNotRegex(rendered, r"(?m)^CorruptListEntry:\n[^\n]*\n\s{8,}__fastfail")
-
-    def test_duplicate_semantic_labels_keep_unique_targets(self):
-        capture = capture_from_pseudocode(DUPLICATE_SEMANTIC_LABEL_SAMPLE)
-        plan = build_clean_plan(capture)
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertIn("LABEL_17 -> InvalidParameter: set_error_status_and_cleanup", rendered)
-        self.assertIn("LABEL_21 -> InvalidParameter_21: set_error_status_and_cleanup", rendered)
-        self.assertEqual(len(re.findall(r"(?m)^InvalidParameter:$", rendered)), 1)
-        self.assertEqual(len(re.findall(r"(?m)^InvalidParameter_21:$", rendered)), 1)
-        self.assertIn("goto LABEL_40;", rendered)
-        self.assertNotRegex(rendered, r"(?ms)^InvalidParameter_21:.*?goto InvalidParameter_21;")
 
 if __name__ == "__main__":
     unittest.main()

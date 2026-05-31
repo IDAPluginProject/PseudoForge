@@ -730,6 +730,9 @@ Completed:
   `tests/test_render_signatures.py`.
 - [x] Moved NtSet m128 alias split and prenormalized alias regressions into
   `tests/test_render_ntset.py`.
+- [x] Moved embedded semantic-label stale-layout and duplicate-label
+  regressions into `tests/test_render_labels.py`, with shared kernel samples in
+  `tests/fixtures/kernel_samples.py`.
 
 Remaining:
 
@@ -740,11 +743,11 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 1352 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 1173 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
-  and NtSet splits.
+  and NtSet/label splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -788,6 +791,9 @@ Remaining:
 - Known `PVOID` native signature/body-alias coverage now lives in
   `tests/test_render_signatures.py`.
 - NtSet m128 alias split coverage now lives in `tests/test_render_ntset.py`.
+- Semantic-label stale-layout and duplicate-label coverage now lives in
+  `tests/test_render_labels.py`, backed by shared fixtures in
+  `tests/fixtures/kernel_samples.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.

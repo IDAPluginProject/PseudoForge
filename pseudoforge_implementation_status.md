@@ -257,13 +257,16 @@ P1 renderer snapshot protection update:
   lives in `ida_pseudoforge/core/render_zw.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call regressions now live in `tests/test_render_zw.py`; the core
-  monolith is 1352 lines after the NtSet m128 alias split.
+  monolith is 1173 lines after the label fixture split.
 - TraceLogging template switch false-positive regression now lives in
   `tests/test_render_flow.py`.
 - Known `PVOID` native signature/body-alias regression now lives in
   `tests/test_render_signatures.py`.
 - NtSet m128 alias split and prenormalized alias regressions now live in
   `tests/test_render_ntset.py`.
+- Semantic-label stale-layout and duplicate-label regressions now live in
+  `tests/test_render_labels.py`, with reusable kernel samples in
+  `tests/fixtures/kernel_samples.py`.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
@@ -756,6 +759,15 @@ NtSet m128 alias test-suite split validation:
 
 ```text
 python -B -m unittest tests.test_render_ntset tests.test_core_engine -v: 31 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+```
+
+Label fixture test-suite split validation:
+
+```text
+python -B -m unittest tests.test_render_labels tests.test_core_engine -v: 28 tests OK
 python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
