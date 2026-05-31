@@ -415,6 +415,8 @@ P2 switch body reporting update:
   Windows-safe file-stem regressions now live in `tests/test_ida_batch.py`.
 - LLM config, provider registry, response parsing, CLI stdout, and
   command-template migration regressions now live in `tests/test_llm_config.py`.
+- Kernel API profile rewrite, alias lookup, WDK parser, and profile semantics
+  regressions now live in `tests/test_kernel_api_profile_builder.py`.
 
 P0 rename identity hardening update:
 
@@ -775,7 +777,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 Call-argument renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_call_args tests.test_core_engine.CoreEngineTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_rule_integration.RuleIntegrationTests.test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup tests.test_core_engine.CoreEngineTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 6 tests OK
+python -B -m unittest tests.test_render_call_args tests.test_core_engine.CoreEngineTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_rule_integration.RuleIntegrationTests.test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup tests.test_kernel_api_profile_builder.KernelApiProfileBuilderTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 6 tests OK
 python -B -m unittest discover -s tests -v: 252 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
@@ -808,7 +810,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 DriverEntry cleanup regression validation:
 
 ```text
-python -B -m unittest tests.test_core_engine.CoreEngineTests.test_callback_registration_toggle_rewrites_ob_operation_registration tests.test_core_engine.CoreEngineTests.test_registry_callback_registration_probe_gets_cm_semantics tests.test_core_engine.CoreEngineTests.test_memory_manager_probe_gets_mm_semantics tests.test_core_engine.CoreEngineTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_core_engine.CoreEngineTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_core_engine.CoreEngineTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 7 tests OK
+python -B -m unittest tests.test_core_engine.CoreEngineTests.test_callback_registration_toggle_rewrites_ob_operation_registration tests.test_core_engine.CoreEngineTests.test_registry_callback_registration_probe_gets_cm_semantics tests.test_core_engine.CoreEngineTests.test_memory_manager_probe_gets_mm_semantics tests.test_core_engine.CoreEngineTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_core_engine.CoreEngineTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_kernel_api_profile_builder.KernelApiProfileBuilderTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 7 tests OK
 python -B -m unittest tests.test_core_engine.CoreEngineTests.test_driver_entry_device_extension_semantics tests.test_core_engine.CoreEngineTests.test_driver_entry_extension_rewrite_requires_dword_scaled_offsets -v: 2 tests OK
 python -B -m unittest tests.test_core_engine.CoreEngineTests.test_ioctl_switch_case_labels_decode_ctl_code_bitfields tests.test_core_engine.CoreEngineTests.test_ioctl_stack_location_rewrite_does_not_require_device_extension_use tests.test_core_engine.CoreEngineTests.test_irp_stack_location_union_arm_is_not_forced_without_ioctl_evidence tests.test_core_engine.CoreEngineTests.test_irp_stack_location_roles_require_driver_dispatch_evidence tests.test_core_engine.CoreEngineTests.test_llm_ioctl_like_names_do_not_force_irp_union_arm_without_dispatch_evidence tests.test_core_engine.CoreEngineTests.test_master_irp_alias_rewrite_requires_all_buffered_ioctl_cases tests.test_core_engine.CoreEngineTests.test_master_irp_alias_rewrite_requires_device_control_stack_evidence tests.test_core_engine.CoreEngineTests.test_ioctl_ctl_code_decode_handles_methods_and_access_bits tests.test_core_engine.CoreEngineTests.test_ioctl_case_labels_decode_hexrays_integer_suffixes -v: 9 tests OK
 python -B -m unittest discover -s tests -v: 171 tests OK

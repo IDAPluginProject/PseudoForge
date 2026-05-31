@@ -705,6 +705,8 @@ Completed:
   and Windows-safe file-stem regressions into `tests/test_ida_batch.py`.
 - [x] Moved LLM config, provider registry, response parsing, CLI stdout, and
   command-template migration regressions into `tests/test_llm_config.py`.
+- [x] Moved kernel API profile rewrite, alias lookup, WDK parser, and profile
+  semantics regressions into `tests/test_kernel_api_profile_builder.py`.
 
 Remaining:
 
@@ -715,9 +717,9 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is about 3650 lines after the focused forge-store,
+- `tests/test_core_engine.py` is about 3470 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, and rule
-  integration, IDA batch, and LLM config splits.
+  integration, IDA batch, LLM config, and kernel profile splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -740,6 +742,8 @@ Remaining:
 - LLM config, provider registry, response parsing, CLI stdout, and
   command-template migration coverage now has a focused
   `tests/test_llm_config.py` suite.
+- Kernel API profile rewrite, alias lookup, WDK parser, and profile semantics
+  coverage now lives in `tests/test_kernel_api_profile_builder.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
