@@ -201,6 +201,7 @@ Implemented in this folder:
    - `tests/test_render_warnings.py`
    - `tests/test_render_zw.py`
    - `tests/test_rule_engine.py`
+   - `tests/test_rule_integration.py`
    - `tests/test_rule_pack_validator.py`
    - `tests/test_rule_context.py`
    - `tests/test_ui_preview.py`
@@ -404,6 +405,10 @@ P2 switch body reporting update:
   `tests/rule_test_helpers.py`.
 - Deterministic RuleEngine emission, gate, conflict, and runtime-error
   regressions now live in `tests/test_rule_engine.py`.
+- Deterministic rule integration regressions for build-plan reports, builtin
+  call-argument rewrites, project rule loading, source-path discovery,
+  duplicate rule-dir dedupe, source spoofing, and semantic-comment dedupe now
+  live in `tests/test_rule_integration.py`.
 
 P0 rename identity hardening update:
 
@@ -764,7 +769,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 Call-argument renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_call_args tests.test_core_engine.CoreEngineTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_core_engine.CoreEngineTests.test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup tests.test_core_engine.CoreEngineTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 6 tests OK
+python -B -m unittest tests.test_render_call_args tests.test_core_engine.CoreEngineTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_rule_integration.RuleIntegrationTests.test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup tests.test_core_engine.CoreEngineTests.test_kernel_api_profile_rewrites_pool_flags_and_tags -v: 6 tests OK
 python -B -m unittest discover -s tests -v: 252 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed

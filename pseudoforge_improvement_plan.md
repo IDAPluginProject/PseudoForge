@@ -697,6 +697,10 @@ Completed:
   `tests/rule_test_helpers.py`.
 - [x] Moved deterministic RuleEngine emission, gate, conflict, and runtime-error
   regressions into `tests/test_rule_engine.py`.
+- [x] Moved deterministic rule integration coverage for build-plan reports,
+  builtin call-argument rewrites, project rule loading, source-path rule
+  discovery, duplicate rule-dir dedupe, source spoofing, and semantic-comment
+  dedupe into `tests/test_rule_integration.py`.
 
 Remaining:
 
@@ -707,8 +711,9 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is about 4380 lines after the focused forge-store,
-  UI preview, RuleContext, rule-pack validator, and RuleEngine splits.
+- `tests/test_core_engine.py` is about 4150 lines after the focused forge-store,
+  UI preview, RuleContext, rule-pack validator, RuleEngine, and rule
+  integration splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -724,6 +729,8 @@ Remaining:
   in `tests/rule_test_helpers.py`.
 - RuleEngine emission, gate, conflict, and runtime-error coverage now has a
   focused `tests/test_rule_engine.py` suite.
+- Deterministic rule integration coverage now has a focused
+  `tests/test_rule_integration.py` suite.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
