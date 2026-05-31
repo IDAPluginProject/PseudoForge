@@ -728,6 +728,8 @@ Completed:
   `tests/test_render_flow.py`.
 - [x] Moved known `PVOID` native signature/body-alias regression into
   `tests/test_render_signatures.py`.
+- [x] Moved NtSet m128 alias split and prenormalized alias regressions into
+  `tests/test_render_ntset.py`.
 
 Remaining:
 
@@ -738,11 +740,11 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 1428 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 1352 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
-  splits.
+  and NtSet splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -785,6 +787,7 @@ Remaining:
   `tests/test_render_flow.py`.
 - Known `PVOID` native signature/body-alias coverage now lives in
   `tests/test_render_signatures.py`.
+- NtSet m128 alias split coverage now lives in `tests/test_render_ntset.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.

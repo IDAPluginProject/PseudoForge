@@ -257,11 +257,13 @@ P1 renderer snapshot protection update:
   lives in `ida_pseudoforge/core/render_zw.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call regressions now live in `tests/test_render_zw.py`; the core
-  monolith is 1428 lines after the known `PVOID` signature split.
+  monolith is 1352 lines after the NtSet m128 alias split.
 - TraceLogging template switch false-positive regression now lives in
   `tests/test_render_flow.py`.
 - Known `PVOID` native signature/body-alias regression now lives in
   `tests/test_render_signatures.py`.
+- NtSet m128 alias split and prenormalized alias regressions now live in
+  `tests/test_render_ntset.py`.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
@@ -742,12 +744,21 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 NtSet renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_ntset tests.test_render_snapshots tests.test_render_signatures.RenderSignatureTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_core_engine.CoreEngineTests.test_reused_m128_alias_splits_original_view_from_mutable_alias tests.test_core_engine.CoreEngineTests.test_prenormalized_reused_m128_alias_is_neutralized tests.test_core_engine.CoreEngineTests.test_cpu_set_mask_stack_buffer_pattern_beats_vague_llm_name -v: 8 tests OK
+python -B -m unittest tests.test_render_ntset tests.test_render_snapshots tests.test_render_signatures.RenderSignatureTests.test_known_pvoid_signature_keeps_typed_body_alias tests.test_core_engine.CoreEngineTests.test_cpu_set_mask_stack_buffer_pattern_beats_vague_llm_name -v: 8 tests OK
 python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_ntset_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_ntset_extract_smoke --format json --no-progress: succeeded
+```
+
+NtSet m128 alias test-suite split validation:
+
+```text
+python -B -m unittest tests.test_render_ntset tests.test_core_engine -v: 31 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
 ```
 
 Warning renderer extraction validation:
