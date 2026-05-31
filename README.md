@@ -581,6 +581,11 @@ if profile warnings are emitted, no entries load, or a split family file exists
 but `kernel_api.json` is loaded instead. Optional `--max-cold-ms` and
 `--max-repeated-ms` thresholds can be used for local performance tracking.
 
+Alternate target-build profile sets can be selected with
+`PSEUDOFORGE_PROFILE_DIR`, the `--profile-dir` option on Python tools, or
+`-ProfileDir` on `tools/run_pseudoforge_ida_batch.ps1`. The default remains
+the built-in profile directory.
+
 The built-in profile is currently generated from WDK `10.0.26100.0` and includes:
 
 - 470 headers

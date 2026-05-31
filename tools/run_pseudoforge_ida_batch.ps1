@@ -10,6 +10,7 @@ param(
     [string]$OutputDir = "",
     [string]$ForgePath = "",
     [string]$CompareDir = "",
+    [string]$ProfileDir = "",
     [string]$ReportPath = "",
     [string]$IdaLogPath = "",
     [int]$MaxFunctions = 0,
@@ -124,6 +125,7 @@ Add-Option -Args $scriptArgs -Name "--report" -Value $ReportPath
 Add-Option -Args $scriptArgs -Name "--forge-path" -Value $ForgePath
 Add-Option -Args $scriptArgs -Name "--target-path" -Value $TargetPath
 if ($CompareDir) { Add-Option -Args $scriptArgs -Name "--compare-dir" -Value $CompareDir }
+if ($ProfileDir) { Add-Option -Args $scriptArgs -Name "--profile-dir" -Value $ProfileDir }
 if ($CompareContext -ne 3) { Add-Option -Args $scriptArgs -Name "--compare-context" -Value ([string]$CompareContext) }
 if ($LlmRenames) { $scriptArgs.Add("--llm-renames") }
 if ($LlmProvider) { Add-Option -Args $scriptArgs -Name "--llm-provider" -Value $LlmProvider }
@@ -164,6 +166,10 @@ Write-Host "  Forge:  $ForgePath"
 if ($CompareDir)
 {
     Write-Host "  Compare: $CompareDir"
+}
+if ($ProfileDir)
+{
+    Write-Host "  Profile:$ProfileDir"
 }
 if ($LlmRenames)
 {

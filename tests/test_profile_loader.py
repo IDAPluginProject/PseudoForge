@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from ida_pseudoforge.profiles import loader as profile_loader
 from ida_pseudoforge.core import kernel_api
+from tools.profile_load_smoke import run_smoke
 
 
 class ProfileLoaderTests(unittest.TestCase):
@@ -63,6 +65,65 @@ class ProfileLoaderTests(unittest.TestCase):
                 self.assertEqual(manifests[0]["profile_kind"], "sample")
                 self.assertEqual(manifests[0]["counts"], {"entries": 1})
                 self.assertEqual(profile_loader.profile_load_warnings(), [])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_configure_profile_dir_selects_alternate_root_and_clears_cache(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as first_dir, tempfile.TemporaryDirectory() as second_dir:
+            first_path = Path(first_dir)
+            second_path = Path(second_dir)
+            (first_path / "sample.json").write_text(json.dumps({"1": "FIRST"}), encoding="utf-8")
+            (second_path / "sample.json").write_text(json.dumps({"1": "SECOND"}), encoding="utf-8")
+            try:
+                profile_loader.configure_profile_dir(first_path)
+                self.assertEqual(profile_loader.load_profile("sample.json"), {"1": "FIRST"})
+
+                selected = profile_loader.configure_profile_dir(second_path)
+                self.assertEqual(selected, second_path)
+                self.assertEqual(profile_loader.active_profile_root(), str(second_path))
+                self.assertEqual(profile_loader.load_profile("sample.json"), {"1": "SECOND"})
+                self.assertEqual(profile_loader.profile_load_warnings(), [])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_configure_profile_dir_empty_selection_honors_environment_override(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        original_env = os.environ.get("PSEUDOFORGE_PROFILE_DIR")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            try:
+                os.environ["PSEUDOFORGE_PROFILE_DIR"] = str(temp_path)
+
+                selected = profile_loader.configure_profile_dir("")
+
+                self.assertEqual(selected, temp_path)
+                self.assertEqual(profile_loader.active_profile_root(), str(temp_path))
+            finally:
+                if original_env is None:
+                    os.environ.pop("PSEUDOFORGE_PROFILE_DIR", None)
+                else:
+                    os.environ["PSEUDOFORGE_PROFILE_DIR"] = original_env
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_profile_load_smoke_accepts_profile_dir_selection(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            (temp_path / "kernel_functions.json").write_text(
+                json.dumps({"ExUnitTest": {"return_type": "NTSTATUS", "params": []}}),
+                encoding="utf-8",
+            )
+            try:
+                result = run_smoke("functions", profile_dir=temp_path, repeat=2)
+
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["active_profiles"], ["kernel_functions.json"])
+                self.assertTrue(result["loaded_split_profile"])
+                self.assertFalse(result["loaded_monolithic_profile"])
             finally:
                 profile_loader.PROFILE_DIR = original_dir
                 profile_loader.clear_profile_caches()

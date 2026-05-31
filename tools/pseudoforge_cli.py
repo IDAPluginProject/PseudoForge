@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.profiles.loader import profile_load_warnings
+from ida_pseudoforge.profiles.loader import configure_profile_dir, profile_load_warnings
 from ida_pseudoforge.config import LlmConfig
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -29,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("input", help="Path to an IDA/Hex-Rays pseudocode text file.")
     parser.add_argument("--name", default="", help="Optional function name override.")
     parser.add_argument("--out", default="pseudoforge_out", help="Output directory.")
+    parser.add_argument(
+        "--profile-dir",
+        default="",
+        help="Optional profile directory for target-build-specific profile sets.",
+    )
     parser.add_argument(
         "--llm-renames",
         action="store_true",
@@ -52,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional rule report JSON file or directory.",
     )
     args = parser.parse_args(argv)
+    configure_profile_dir(args.profile_dir)
 
     input_path = Path(args.input)
     pseudocode = input_path.read_text(encoding="utf-8")

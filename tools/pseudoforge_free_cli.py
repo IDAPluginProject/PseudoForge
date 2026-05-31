@@ -58,6 +58,7 @@ class _Deps:
     render_cleaned_pseudocode: Any
     active_profile_manifests: Any
     profile_load_warnings: Any
+    configure_profile_dir: Any
     LlmConfig: Any
     build_rename_provider: Any
     PROVIDER_OPENAI_COMPATIBLE: str
@@ -78,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
 
         _assert_no_ida_modules_loaded("startup")
         deps = _load_deps()
+        deps.configure_profile_dir(args.profile_dir)
         results: list[dict[str, Any]] = []
         failures: list[dict[str, str]] = []
         output_root = Path(args.out)
@@ -125,6 +127,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("inputs", nargs="+", help="One or more pseudocode text files. Use one function per file.")
     parser.add_argument("--name", default="", help="Optional function name override for a single input.")
     parser.add_argument("--out", default="pseudoforge_free_out", help="Output directory.")
+    parser.add_argument(
+        "--profile-dir",
+        default="",
+        help="Optional profile directory for target-build-specific profile sets.",
+    )
     parser.add_argument("--project-root", default="", help="Project root containing an optional pseudoforge_rules directory.")
     parser.add_argument("--no-progress", action="store_true", help="Suppress incremental progress messages.")
     parser.add_argument(
@@ -155,7 +162,11 @@ def _load_deps() -> _Deps:
         from ida_pseudoforge.core.lvar_analysis import build_clean_plan
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
         from ida_pseudoforge.core.render import render_cleaned_pseudocode
-        from ida_pseudoforge.profiles.loader import active_profile_manifests, profile_load_warnings
+        from ida_pseudoforge.profiles.loader import (
+            active_profile_manifests,
+            configure_profile_dir,
+            profile_load_warnings,
+        )
         from ida_pseudoforge.models.provider_factory import build_rename_provider
         from ida_pseudoforge.models.provider_registry import (
             PROVIDER_OPENAI_COMPATIBLE,
@@ -180,6 +191,7 @@ def _load_deps() -> _Deps:
         render_cleaned_pseudocode=render_cleaned_pseudocode,
         active_profile_manifests=active_profile_manifests,
         profile_load_warnings=profile_load_warnings,
+        configure_profile_dir=configure_profile_dir,
         LlmConfig=LlmConfig,
         build_rename_provider=build_rename_provider,
         PROVIDER_OPENAI_COMPATIBLE=PROVIDER_OPENAI_COMPATIBLE,

@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     result = run_smoke(
         args.family,
+        profile_dir=args.profile_dir,
         repeat=args.repeat,
         require_split=not args.allow_monolithic_fallback,
         max_cold_ms=args.max_cold_ms,
@@ -35,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 def run_smoke(
     family: str,
     *,
+    profile_dir: str | Path = "",
     repeat: int = 100,
     require_split: bool = True,
     max_cold_ms: float = 0.0,
@@ -45,6 +47,7 @@ def run_smoke(
         raise ValueError("family is required")
     if repeat < 1:
         raise ValueError("repeat must be at least 1")
+    profile_loader.configure_profile_dir(profile_dir)
 
     split_name = profile_loader.KERNEL_API_FAMILY_FILES.get(family_name, "")
     split_path = profile_loader.PROFILE_DIR / split_name if split_name else None
@@ -64,7 +67,7 @@ def run_smoke(
     repeated_manifests = profile_loader.active_profile_manifests()
     repeated_warnings = profile_loader.profile_load_warnings()
 
-    active_names = sorted({item.get("name", "") for item in repeated_manifests if item.get("name")})
+    active_names = profile_loader.active_profile_names()
     loaded_split = bool(split_name and split_name in active_names)
     loaded_monolithic = profile_loader.KERNEL_API_PROFILE_NAME in active_names
     failures: list[str] = []
@@ -113,6 +116,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Kernel API profile family to load.",
     )
     parser.add_argument("--repeat", type=int, default=100)
+    parser.add_argument(
+        "--profile-dir",
+        default="",
+        help="Optional profile directory for target-build-specific profile sets.",
+    )
     parser.add_argument(
         "--allow-monolithic-fallback",
         action="store_true",

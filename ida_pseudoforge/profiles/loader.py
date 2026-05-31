@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from typing import Any
 from pathlib import Path
 
 
-PROFILE_DIR = Path(__file__).resolve().parent
+DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent
+PROFILE_DIR = Path(os.environ.get("PSEUDOFORGE_PROFILE_DIR") or DEFAULT_PROFILE_DIR).expanduser()
 PROFILE_MANIFEST_NAME = "profiles_manifest.json"
 KERNEL_API_PROFILE_NAME = "kernel_api.json"
 KERNEL_API_FAMILY_FILES = {
@@ -20,6 +22,20 @@ KERNEL_API_FAMILY_FILES = {
 }
 _PROFILE_LOAD_WARNINGS: dict[str, str] = {}
 _ACTIVE_PROFILE_NAMES: set[str] = set()
+
+
+def configure_profile_dir(path: str | Path | None = None) -> Path:
+    global PROFILE_DIR
+
+    path_text = str(path or "").strip()
+    raw_path = path_text if path_text else os.environ.get("PSEUDOFORGE_PROFILE_DIR", "").strip()
+    PROFILE_DIR = Path(raw_path).expanduser() if raw_path else DEFAULT_PROFILE_DIR
+    clear_profile_caches()
+    return PROFILE_DIR
+
+
+def active_profile_root() -> str:
+    return str(PROFILE_DIR)
 
 
 @lru_cache(maxsize=None)
@@ -83,6 +99,10 @@ def load_kernel_api_family(family: str) -> dict[str, Any]:
 
 def profile_load_warnings() -> list[str]:
     return [_PROFILE_LOAD_WARNINGS[name] for name in sorted(_PROFILE_LOAD_WARNINGS)]
+
+
+def active_profile_names() -> list[str]:
+    return sorted(_ACTIVE_PROFILE_NAMES)
 
 
 def active_profile_manifests() -> list[dict[str, Any]]:

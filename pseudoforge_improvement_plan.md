@@ -309,10 +309,15 @@ Completed:
   and indices.
 - [x] Added `tools/profile_load_smoke.py` for cold-load and repeated cached
   lookup smoke checks, including split-file and monolithic fallback guards.
+- [x] Added optional profile directory selection through
+  `PSEUDOFORGE_PROFILE_DIR`, offline CLI `--profile-dir`, IDA Free CLI
+  `--profile-dir`, IDA batch `--profile-dir`, the PowerShell batch wrapper
+  `-ProfileDir`, and `profile_load_smoke.py` `--profile-dir`.
 
 Remaining:
 
-- [ ] Add optional target-build profile selection.
+- [ ] Add an interactive IDA settings/profile picker if multiple bundled target
+  profile sets are added.
 
 ### Current Evidence
 
@@ -325,6 +330,12 @@ Remaining:
 - `tools/profile_load_smoke.py` measures split-family cold-load and repeated
   cached lookup paths while failing on profile warnings, empty loads, or
   unexpected monolithic loads when split files are present.
+- `ida_pseudoforge/profiles/loader.py` can select an alternate target-build
+  profile root, clears profile caches when the selection changes, and preserves
+  the `PSEUDOFORGE_PROFILE_DIR` override when CLI profile selection is omitted.
+- Offline CLI, IDA Free CLI, IDA batch, the PowerShell batch wrapper, and
+  profile smoke tools accept profile-directory selection;
+  `PSEUDOFORGE_PROFILE_DIR` remains the non-interactive environment override.
 - The implementation status records a single WDK 10.0.26100.0-generated profile
   as the current broad profile plus split family artifacts generated from that
   profile.
@@ -359,8 +370,10 @@ keeps analysis alive but can hide profile corruption.
    - SHA-256 per split file
 4. Add optional target-build profile selection:
    - default profile remains current behavior
-   - CLI and IDA settings can select a profile version
+   - CLI and IDA batch can select a profile root
    - batch mode records selected profile metadata in JSONL
+   - interactive IDA settings can add a picker when multiple bundled profile
+     roots exist
 5. Turn profile JSON decode errors into warnings in export/batch reports while
    keeping deterministic fallback behavior.
 6. Add performance smoke checks for cold profile load and repeated lookups.
@@ -378,6 +391,7 @@ keeps analysis alive but can hide profile corruption.
 ```powershell
 python -B .\tools\build_kernel_api_profile.py --version 10.0.26100.0 --dry-run --summary --function ExAllocatePool2 --function MmCopyMemory
 python -B .\tools\profile_load_smoke.py --family functions --repeat 100 --json
+python -B .\tools\profile_load_smoke.py --family functions --profile-dir .\ida_pseudoforge\profiles --repeat 2 --json
 python -B .\tools\build_status_codes_profile.py --version 10.0.26100.0 --dry-run --summary
 python -B -m unittest tests.test_kernel_api_profile_builder -v
 python -B -m unittest discover -s tests -v

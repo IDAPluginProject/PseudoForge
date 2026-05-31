@@ -216,7 +216,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 265 unit tests
+   - current suite covers 268 unit tests
 
 ## Latest Implementation Notes
 
@@ -337,9 +337,16 @@ P1 profile loader diagnostics update:
 - `tools/profile_load_smoke.py` measures split-family cold-load and repeated
   cached lookup paths and fails closed on profile warnings, empty loads, or
   unexpected monolithic `kernel_api.json` loads while split files are present.
+- Optional target-build profile roots can be selected with
+  `PSEUDOFORGE_PROFILE_DIR` or `--profile-dir` on the offline CLI, IDA Free CLI,
+  IDA batch script, and profile smoke tool, plus `-ProfileDir` on the
+  PowerShell batch wrapper. Changing the loader profile root clears cached
+  profile data, and IDA batch start JSONL records the selected profile
+  directory.
 - `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
-  reset behavior plus active profile manifest reporting and split-family loader
-  fallback behavior.
+  reset behavior plus active profile manifest/name reporting, profile directory
+  selection, empty-selection environment override behavior, smoke-tool profile
+  directory selection, and split-family loader fallback behavior.
 
 P1 export artifact parity update:
 

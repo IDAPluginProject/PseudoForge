@@ -31,7 +31,7 @@ from ida_pseudoforge.core.forge_store import (
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
-from ida_pseudoforge.profiles.loader import profile_load_warnings
+from ida_pseudoforge.profiles.loader import active_profile_root, configure_profile_dir, profile_load_warnings
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -64,6 +64,7 @@ except Exception:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(_script_argv() if argv is None else argv)
+    configure_profile_dir(args.profile_dir)
     started = time.monotonic()
     exit_code = 0
     reporter = _JsonlReporter(args.report)
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
                 "forge_path": str(forge_path),
                 "compare_dir": str(compare_dir) if compare_dir else "",
                 "llm": llm_info,
+                "profile_dir": active_profile_root(),
                 "selected_functions": total_selected,
                 "resume_skipped": len(skip_eas),
                 "max_functions": args.max_functions,
@@ -164,6 +166,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--target-path", default="", help="Original binary path used in .forge metadata.")
     parser.add_argument("--forge-path", default="", help="Aggregate .forge output path.")
     parser.add_argument("--compare-dir", default="", help="Directory for raw Hex-Rays, PseudoForge, and unified diff artifacts.")
+    parser.add_argument(
+        "--profile-dir",
+        default="",
+        help="Optional profile directory for target-build-specific profile sets.",
+    )
     parser.add_argument("--compare-context", type=int, default=3, help="Unified diff context lines for --compare-dir artifacts.")
     parser.add_argument("--llm-renames", action="store_true", help="Use the configured LLM provider for additional rename suggestions.")
     parser.add_argument("--llm-provider", choices=PROVIDER_ORDER, default="", help="Override configured LLM provider.")

@@ -1,6 +1,9 @@
 from ida_pseudoforge.profiles.loader import (
+    active_profile_names,
+    active_profile_root,
     active_profile_manifests,
     clear_profile_caches,
+    configure_profile_dir,
     get_process_information_class_name,
     get_process_information_class_value,
     get_status_name,
@@ -14,8 +17,11 @@ from ida_pseudoforge.profiles.loader import (
 )
 
 __all__ = [
+    "active_profile_names",
+    "active_profile_root",
     "active_profile_manifests",
     "clear_profile_caches",
+    "configure_profile_dir",
     "get_process_information_class_name",
     "get_process_information_class_value",
     "get_status_name",
