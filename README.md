@@ -233,6 +233,7 @@ ida_pseudoforge/
     render_labels.py
     render_status.py
     render_style.py
+    render_zw.py
     plan_schema.py
     api_semantics.py
   profiles/
@@ -299,6 +300,7 @@ tests/
   test_render_labels.py
   test_render_snapshots.py
   test_render_style.py
+  test_render_zw.py
   test_release_pseudoforge.py
 ```
 

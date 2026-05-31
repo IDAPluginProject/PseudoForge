@@ -161,6 +161,9 @@ Completed:
 - [x] Moved callback rendering for OB pre-operation signatures, callback
   registration toggle body cleanup, and registry callback status checks into a
   scoped `render_callbacks` module.
+- [x] Moved Zw API probe rendering for `OBJECT_ATTRIBUTES` length/flag cleanup,
+  `NtCurrentProcess()` / `NtCurrentThread()`, and Zw status success checks into
+  a scoped `render_zw` module.
 
 Remaining:
 
@@ -172,8 +175,8 @@ Remaining:
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly
-  1280 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
-  DriverEntry, callback, and IRP dispatch extraction slices.
+  1150 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
+  DriverEntry, callback, IRP dispatch, and Zw API extraction slices.
 - `render_cleaned_pseudocode()` still coordinates many ordered text passes in
   `ida_pseudoforge/core/render.py`.
 - `ida_pseudoforge/core/render.py` preserves the public `write_export_bundle`
@@ -188,9 +191,10 @@ Remaining:
 - DriverEntry rendering now lives in
   `ida_pseudoforge/core/render_driver_entry.py`.
 - Callback rendering now lives in
-  `ida_pseudoforge/core/render_callbacks.py`, while warning-display filters,
-  Zw/API probe cleanup, and `NtSetSystemInformation` body cleanup remain in
-  `render.py`.
+  `ida_pseudoforge/core/render_callbacks.py`.
+- Zw API probe rendering now lives in `ida_pseudoforge/core/render_zw.py`,
+  while warning-display filters and `NtSetSystemInformation` body cleanup
+  remain in `render.py`.
 
 ### Problem
 

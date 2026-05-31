@@ -178,12 +178,13 @@ Implemented in this folder:
    - `tests/test_render_labels.py`
    - `tests/test_render_snapshots.py`
    - `tests/test_render_style.py`
+   - `tests/test_render_zw.py`
    - `tests/test_profile_loader.py`
    - `tests/test_export_bundle.py`
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 231 unit tests
+   - current suite covers 234 unit tests
 
 ## Latest Implementation Notes
 
@@ -221,6 +222,9 @@ P1 renderer snapshot protection update:
 - Callback rendering for OB pre-operation signatures, callback registration
   toggle body cleanup, and Configuration Manager callback registration status
   checks now lives in `ida_pseudoforge/core/render_callbacks.py`.
+- Zw API probe rendering for `OBJECT_ATTRIBUTES` length/flag cleanup,
+  `NtCurrentProcess()` / `NtCurrentThread()`, and Zw status success checks now
+  lives in `ida_pseudoforge/core/render_zw.py`.
 
 P1 profile loader diagnostics update:
 
@@ -598,6 +602,17 @@ python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: pass
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_irp_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_irp_extract_smoke --format json --no-progress: succeeded
+```
+
+Zw API renderer extraction validation:
+
+```text
+python -B -m unittest tests.test_render_zw tests.test_render_snapshots tests.test_core_engine.CoreEngineTests.test_zw_api_probe_gets_deterministic_names_and_status_checks tests.test_core_engine.CoreEngineTests.test_zw_reused_status_slot_is_not_given_routine_specific_name -v: 6 tests OK
+python -B -m unittest discover -s tests -v: 234 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_zw_extract_smoke: succeeded
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_zw_extract_smoke --format json --no-progress: succeeded
 ```
 
 DriverEntry cleanup regression validation:
