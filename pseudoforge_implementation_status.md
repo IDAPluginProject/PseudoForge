@@ -378,6 +378,8 @@ P2 switch body reporting update:
 - No-PDB DriverEntry and DriverEntry wrapper regressions now live in
   `tests/test_render_driver_entry.py`.
 - Status literal rendering regressions now live in `tests/test_render_status.py`.
+- NTSTATUS profile lookup and generator regressions now live in
+  `tests/test_render_status.py`.
 - Dispatcher/profile literal regressions now live in
   `tests/test_render_dispatcher.py`.
 

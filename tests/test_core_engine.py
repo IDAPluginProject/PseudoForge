@@ -45,9 +45,6 @@ from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
     render_switch_outline,
 )
-from ida_pseudoforge.profiles.loader import (
-    get_status_name,
-)
 from ida_pseudoforge.models.cli_provider import CliRenameProvider
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -85,7 +82,6 @@ from tools.build_kernel_api_profile import (
     _extract_pool_flags,
     _merge_function_semantics,
 )
-from tools.build_status_codes_profile import build_status_code_profile, parse_ntstatus_definitions
 
 
 SAMPLE = r"""
@@ -2627,36 +2623,6 @@ __int64 __fastcall DuplicateRuleDirSample(int a1)
         self.assertIn("case 235:", rendered)
         self.assertIn("return HvlQuerySetBootPagesInfo(systemInformation, 0LL);", rendered)
         self.assertIn("case 243:", rendered)
-
-    def test_status_profile_includes_wdk_severity_codes_without_wait_success_values(self):
-        self.assertEqual(get_status_name("0"), "STATUS_SUCCESS")
-        self.assertEqual(get_status_name("259"), "STATUS_PENDING")
-        self.assertEqual(get_status_name("1"), "")
-        self.assertEqual(get_status_name("3225812995"), "STATUS_IORING_VERSION_NOT_SUPPORTED")
-        self.assertEqual(get_status_name("-1069154301"), "STATUS_IORING_VERSION_NOT_SUPPORTED")
-        self.assertEqual(get_status_name("3236823552"), "STATUS_PRM_HANDLER_NOT_FOUND")
-        self.assertEqual(get_status_name("-1058078719"), "STATUS_ACCELERATOR_SUBMISSION_QUEUE_FULL")
-
-    def test_status_profile_generator_filters_low_success_aliases(self):
-        source = """
-#define STATUS_SUCCESS                   ((NTSTATUS)0x00000000L)
-#define STATUS_WAIT_0                    ((NTSTATUS)0x00000000L)
-#define STATUS_WAIT_1                    ((NTSTATUS)0x00000001L)
-#define STATUS_PENDING                   ((NTSTATUS)0x00000103L)
-#define STATUS_OBJECT_NAME_EXISTS        ((NTSTATUS)0x40000000L)
-#define STATUS_DEVICE_BUSY               ((NTSTATUS)0x80000011L)
-#define STATUS_IORING_VERSION_NOT_SUPPORTED ((NTSTATUS)0xC0460003L)
-"""
-        profile = build_status_code_profile(parse_ntstatus_definitions(source))
-
-        self.assertEqual(profile["0"], "STATUS_SUCCESS")
-        self.assertNotIn("1", profile)
-        self.assertEqual(profile["259"], "STATUS_PENDING")
-        self.assertEqual(profile["1073741824"], "STATUS_OBJECT_NAME_EXISTS")
-        self.assertEqual(profile["2147483665"], "STATUS_DEVICE_BUSY")
-        self.assertEqual(profile["-2147483631"], "STATUS_DEVICE_BUSY")
-        self.assertEqual(profile["3225812995"], "STATUS_IORING_VERSION_NOT_SUPPORTED")
-        self.assertEqual(profile["-1069154301"], "STATUS_IORING_VERSION_NOT_SUPPORTED")
 
     def test_identifier_renames_do_not_touch_struct_members(self):
         class FakeProvider:

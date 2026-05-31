@@ -672,6 +672,8 @@ Completed:
   `tests/test_render_driver_entry.py`.
 - [x] Moved status literal rendering regressions into
   `tests/test_render_status.py`.
+- [x] Moved NTSTATUS profile lookup and status-code generator regressions into
+  `tests/test_render_status.py`.
 - [x] Moved dispatcher/profile literal regressions for system/process
   information classes and character case labels into
   `tests/test_render_dispatcher.py`.

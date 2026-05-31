@@ -6,6 +6,8 @@ import unittest
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.profiles.loader import get_status_name
+from tools.build_status_codes_profile import build_status_code_profile, parse_ntstatus_definitions
 
 
 NON_STATUS_ZERO_SAMPLE = r"""
@@ -134,6 +136,36 @@ NTSTATUS __fastcall StatusProfileSample()
         self.assertIn("status = STATUS_IORING_VERSION_NOT_SUPPORTED;", rendered)
         self.assertNotIn("-1073741592", rendered)
         self.assertNotIn("-2147483631", rendered)
+
+    def test_status_profile_includes_wdk_severity_codes_without_wait_success_values(self) -> None:
+        self.assertEqual(get_status_name("0"), "STATUS_SUCCESS")
+        self.assertEqual(get_status_name("259"), "STATUS_PENDING")
+        self.assertEqual(get_status_name("1"), "")
+        self.assertEqual(get_status_name("3225812995"), "STATUS_IORING_VERSION_NOT_SUPPORTED")
+        self.assertEqual(get_status_name("-1069154301"), "STATUS_IORING_VERSION_NOT_SUPPORTED")
+        self.assertEqual(get_status_name("3236823552"), "STATUS_PRM_HANDLER_NOT_FOUND")
+        self.assertEqual(get_status_name("-1058078719"), "STATUS_ACCELERATOR_SUBMISSION_QUEUE_FULL")
+
+    def test_status_profile_generator_filters_low_success_aliases(self) -> None:
+        source = """
+#define STATUS_SUCCESS                   ((NTSTATUS)0x00000000L)
+#define STATUS_WAIT_0                    ((NTSTATUS)0x00000000L)
+#define STATUS_WAIT_1                    ((NTSTATUS)0x00000001L)
+#define STATUS_PENDING                   ((NTSTATUS)0x00000103L)
+#define STATUS_OBJECT_NAME_EXISTS        ((NTSTATUS)0x40000000L)
+#define STATUS_DEVICE_BUSY               ((NTSTATUS)0x80000011L)
+#define STATUS_IORING_VERSION_NOT_SUPPORTED ((NTSTATUS)0xC0460003L)
+"""
+        profile = build_status_code_profile(parse_ntstatus_definitions(source))
+
+        self.assertEqual(profile["0"], "STATUS_SUCCESS")
+        self.assertNotIn("1", profile)
+        self.assertEqual(profile["259"], "STATUS_PENDING")
+        self.assertEqual(profile["1073741824"], "STATUS_OBJECT_NAME_EXISTS")
+        self.assertEqual(profile["2147483665"], "STATUS_DEVICE_BUSY")
+        self.assertEqual(profile["-2147483631"], "STATUS_DEVICE_BUSY")
+        self.assertEqual(profile["3225812995"], "STATUS_IORING_VERSION_NOT_SUPPORTED")
+        self.assertEqual(profile["-1069154301"], "STATUS_IORING_VERSION_NOT_SUPPORTED")
 
     def test_error_status_literals_rewrite_in_32bit_assignments_and_stores(self) -> None:
         source = """
