@@ -670,6 +670,8 @@ Completed:
   `tests/test_render_flow.py`.
 - [x] Moved no-PDB DriverEntry and DriverEntry wrapper regression coverage into
   `tests/test_render_driver_entry.py`.
+- [x] Moved status literal rendering regressions into
+  `tests/test_render_status.py`.
 
 Remaining:
 
@@ -681,6 +683,8 @@ Remaining:
 ### Current Evidence
 
 - `tests/test_core_engine.py` is about 5600 lines.
+- Status literal rendering coverage now has a focused
+  `tests/test_render_status.py` suite.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.

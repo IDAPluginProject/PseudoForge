@@ -377,6 +377,7 @@ P2 switch body reporting update:
   monolith.
 - No-PDB DriverEntry and DriverEntry wrapper regressions now live in
   `tests/test_render_driver_entry.py`.
+- Status literal rendering regressions now live in `tests/test_render_status.py`.
 
 P0 rename identity hardening update:
 
