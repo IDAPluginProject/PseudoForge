@@ -46,6 +46,40 @@ __int64 __fastcall GuardSample(int a1, int a2)
 """
 
 
+MULTILINE_CONDITION_SAMPLE = r"""
+__int64 __fastcall MultiLineConditionSample(int a1, int a2, int a3)
+{
+  int v1;
+
+  v1 = 0;
+  if ( a1 == 1
+    || (a2 = a1 - 2, a1 == 2)
+    || (a3 = a1 - 3, a1 == 3) )
+    return 0;
+  if ( a1 && a2 >= 4
+    || a3 )
+  {
+    return 1;
+  }
+  return v1;
+}
+"""
+
+
+SINGLE_LINE_IF_SAMPLE = r"""
+__int64 __fastcall SingleLineIfSample(int a1)
+{
+  int v1;
+
+  v1 = 0;
+  if ( a1 )
+    *(_BYTE *)(v1 + 10) = 1;
+  v1 = ZwLoadDriver(&DriverServiceName);
+  return v1;
+}
+"""
+
+
 class RenderStyleTests(unittest.TestCase):
     def test_style_pass_splits_inline_braces_and_expands_else_if(self) -> None:
         styled = enforce_generated_code_style(
@@ -95,6 +129,43 @@ class RenderStyleTests(unittest.TestCase):
         self.assertIn("if ( !argument0 || argument1 < 4 )", rendered)
         self.assertIn("return STATUS_INFO_LENGTH_MISMATCH;", rendered)
         self.assertIn("argument1 + 1;", rendered)
+
+    def test_multiline_conditions_keep_braces_after_complete_header(self) -> None:
+        capture = capture_from_pseudocode(MULTILINE_CONDITION_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn(
+            "if ( argument0 == 1\n"
+            "    || (argument1 = argument0 - 2, argument0 == 2)\n"
+            "    || (argument2 = argument0 - 3, argument0 == 3) )\n"
+            "  {\n"
+            "    return 0;\n"
+            "  }",
+            rendered,
+        )
+        self.assertIn(
+            "if ( argument0 && argument1 >= 4\n"
+            "    || argument2 )\n"
+            "  {",
+            rendered,
+        )
+        self.assertNotIn("if ( argument0 == 1\n  {", rendered)
+        self.assertNotIn("if ( argument0 && argument1 >= 4\n  {", rendered)
+
+    def test_single_line_if_body_wrapping_preserves_following_statement(self) -> None:
+        capture = capture_from_pseudocode(SINGLE_LINE_IF_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn(
+            "  if ( argument0 )\n"
+            "  {\n"
+            "    *(_BYTE *)(v1 + 10) = 1;\n"
+            "  }\n"
+            "  v1 = ZwLoadDriver(&DriverServiceName);",
+            rendered,
+        )
 
 
 if __name__ == "__main__":

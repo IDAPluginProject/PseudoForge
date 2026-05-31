@@ -735,6 +735,8 @@ Completed:
   `tests/fixtures/kernel_samples.py`.
 - [x] Moved firmware handler kernel-driver semantics regression into
   `tests/test_render_kernel_hints.py`.
+- [x] Moved multiline-condition brace and single-line if-body style
+  regressions into `tests/test_render_style.py`.
 
 Remaining:
 
@@ -745,11 +747,11 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 1024 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 953 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
-  and NtSet/label/kernel-hint splits.
+  and NtSet/label/kernel-hint/style splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -798,6 +800,8 @@ Remaining:
   `tests/fixtures/kernel_samples.py`.
 - Firmware handler kernel-driver semantics coverage now lives in
   `tests/test_render_kernel_hints.py`.
+- Multiline-condition brace and single-line if-body style coverage now lives in
+  `tests/test_render_style.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
