@@ -257,7 +257,7 @@ P1 renderer snapshot protection update:
   lives in `ida_pseudoforge/core/render_zw.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call regressions now live in `tests/test_render_zw.py`; the core
-  monolith is 1173 lines after the label fixture split.
+  monolith is 1024 lines after the kernel-hint split.
 - TraceLogging template switch false-positive regression now lives in
   `tests/test_render_flow.py`.
 - Known `PVOID` native signature/body-alias regression now lives in
@@ -267,6 +267,8 @@ P1 renderer snapshot protection update:
 - Semantic-label stale-layout and duplicate-label regressions now live in
   `tests/test_render_labels.py`, with reusable kernel samples in
   `tests/fixtures/kernel_samples.py`.
+- Firmware handler kernel-driver semantics regression now lives in
+  `tests/test_render_kernel_hints.py`.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
@@ -818,12 +820,21 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 Kernel hint renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_kernel_hints tests.test_core_engine.CoreEngineTests.test_kernel_driver_semantics tests.test_render_driver_entry.RenderDriverEntryTests.test_driver_entry_wrapper_comment_does_not_claim_device_creation_sequence tests.test_render_snapshots -v: 6 tests OK
-python -B -m unittest discover -s tests -v: 249 tests OK
+python -B -m unittest tests.test_render_kernel_hints tests.test_render_driver_entry.RenderDriverEntryTests.test_driver_entry_wrapper_comment_does_not_claim_device_creation_sequence tests.test_render_snapshots -v: 6 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_kernel_hints_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_kernel_hints_extract_smoke --format json --no-progress: succeeded
+```
+
+Kernel semantics test-suite split validation:
+
+```text
+python -B -m unittest tests.test_render_kernel_hints tests.test_core_engine -v: 27 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
 ```
 
 Call-argument renderer extraction validation:
@@ -860,7 +871,7 @@ git diff --check -- .: passed
 Header renderer extraction validation:
 
 ```text
-python -B -m unittest tests.test_render_header tests.test_render_snapshots tests.test_llm_config.LlmConfigTests.test_rendered_comment_text_is_ascii_safe tests.test_core_engine.CoreEngineTests.test_kernel_driver_semantics -v: 5 tests OK
+python -B -m unittest tests.test_render_header tests.test_render_snapshots tests.test_llm_config.LlmConfigTests.test_rendered_comment_text_is_ascii_safe tests.test_render_kernel_hints.RenderKernelHintTests.test_kernel_driver_semantics -v: 5 tests OK
 python -B -m unittest discover -s tests -v: 256 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed

@@ -733,6 +733,8 @@ Completed:
 - [x] Moved embedded semantic-label stale-layout and duplicate-label
   regressions into `tests/test_render_labels.py`, with shared kernel samples in
   `tests/fixtures/kernel_samples.py`.
+- [x] Moved firmware handler kernel-driver semantics regression into
+  `tests/test_render_kernel_hints.py`.
 
 Remaining:
 
@@ -743,11 +745,11 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 1173 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 1024 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
-  and NtSet/label splits.
+  and NtSet/label/kernel-hint splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -794,6 +796,8 @@ Remaining:
 - Semantic-label stale-layout and duplicate-label coverage now lives in
   `tests/test_render_labels.py`, backed by shared fixtures in
   `tests/fixtures/kernel_samples.py`.
+- Firmware handler kernel-driver semantics coverage now lives in
+  `tests/test_render_kernel_hints.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
