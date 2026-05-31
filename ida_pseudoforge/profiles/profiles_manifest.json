@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "kernel_api.json": {
+      "profile_kind": "kernel_api",
+      "source": "WDK km/shared headers",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_kernel_api_profile.py",
+      "sha256": "B0D22A9F57C56BFA8DEA4D6E997DCDC9F338071223665F0FCC00A4D6D0D38D64",
+      "counts": {
+        "functions": 3501,
+        "enums": 1760,
+        "structures": 8354,
+        "aliases": 19865,
+        "macros": 58251,
+        "symbols": 93592
+      }
+    },
+    "kernel_api_overrides.json": {
+      "profile_kind": "kernel_api_overrides",
+      "source": "PseudoForge curated private-wrapper and parameter semantic overrides",
+      "source_version": "10.0.26100.0",
+      "sha256": "E8F137FC12A20E06F514BB9FDEBAB7256CC31B18130178DDFDCB789A100CD43B"
+    },
+    "status_codes.json": {
+      "profile_kind": "ntstatus",
+      "source": "WDK ntstatus.h",
+      "source_version": "10.0.26100.0",
+      "builder": "tools/build_status_codes_profile.py",
+      "sha256": "A2C64A5192D5150FF19BC3419053279AB96C736ACA7D6E5FF2386E4AB6D5B29B",
+      "counts": {
+        "entries": 5391
+      }
+    },
+    "system_information_class.json": {
+      "profile_kind": "system_information_class",
+      "source": "Windows 25H2-range SYSTEM_INFORMATION_CLASS table",
+      "source_version": "25H2",
+      "sha256": "410043E66913AEFA53BA0A60BAFE38DC8CE5ACB4DEFF5131B73FE6F7080B08DF",
+      "counts": {
+        "entries": 252
+      }
+    },
+    "process_information_class.json": {
+      "profile_kind": "process_information_class",
+      "source": "Windows 25H2-range PROCESSINFOCLASS table",
+      "source_version": "25H2",
+      "sha256": "4516033012DD1DF0904BB7B73512FD3EA681185246501A6FBA2DD3DDA079BBF5",
+      "counts": {
+        "entries": 119
+      }
+    }
+  }
+}

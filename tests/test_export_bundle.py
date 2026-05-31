@@ -9,6 +9,7 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import write_export_bundle as legacy_render_write_export_bundle
+from ida_pseudoforge.profiles import loader as profile_loader
 
 
 SAMPLE = """
@@ -28,39 +29,50 @@ __int64 __fastcall ExportBundleSample(int a1)
 
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
+        profile_loader.clear_profile_caches()
         with tempfile.TemporaryDirectory() as temp_dir:
-            capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")
-            plan = build_clean_plan(capture)
+            try:
+                capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")
+                plan = build_clean_plan(capture)
+                self.assertTrue(profile_loader.get_status_name(-1073741823))
 
-            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+                artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
 
-            for key in (
-                "cleaned_pseudocode",
-                "switch_outline",
-                "rename_map",
-                "flow_report",
-                "rule_report",
-                "raw_pseudocode",
-                "warnings",
-                "raw_vs_cleaned_diff",
-                "summary",
-            ):
-                self.assertIn(key, artifacts)
-                self.assertTrue(Path(artifacts[key]).exists(), key)
+                for key in (
+                    "cleaned_pseudocode",
+                    "switch_outline",
+                    "rename_map",
+                    "flow_report",
+                    "rule_report",
+                    "raw_pseudocode",
+                    "warnings",
+                    "raw_vs_cleaned_diff",
+                    "summary",
+                ):
+                    self.assertIn(key, artifacts)
+                    self.assertTrue(Path(artifacts[key]).exists(), key)
 
-            self.assertEqual(Path(artifacts["raw_pseudocode"]).read_text(encoding="utf-8"), capture.pseudocode.rstrip() + "\n")
-            diff_text = Path(artifacts["raw_vs_cleaned_diff"]).read_text(encoding="utf-8")
-            self.assertTrue(diff_text.startswith("--- raw/ExportBundleSample.cpp\n"))
-            self.assertIn("+++ cleaned/ExportBundleSample.cpp\n", diff_text)
-            self.assertIsInstance(json.loads(Path(artifacts["warnings"]).read_text(encoding="utf-8")), list)
+                self.assertEqual(
+                    Path(artifacts["raw_pseudocode"]).read_text(encoding="utf-8"),
+                    capture.pseudocode.rstrip() + "\n",
+                )
+                diff_text = Path(artifacts["raw_vs_cleaned_diff"]).read_text(encoding="utf-8")
+                self.assertTrue(diff_text.startswith("--- raw/ExportBundleSample.cpp\n"))
+                self.assertIn("+++ cleaned/ExportBundleSample.cpp\n", diff_text)
+                self.assertIsInstance(json.loads(Path(artifacts["warnings"]).read_text(encoding="utf-8")), list)
 
-            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
-            self.assertEqual(summary["mode"], "ida_interactive")
-            self.assertEqual(summary["function"], "ExportBundleSample")
-            self.assertEqual(summary["function_ea"], "0x140001000")
-            self.assertEqual(summary["source_path"], "sample.bin")
-            self.assertIn("raw_vs_cleaned_diff", summary["artifacts"])
-            self.assertEqual(artifacts["summary"], summary["artifacts"]["summary"])
+                summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+                self.assertEqual(summary["mode"], "ida_interactive")
+                self.assertEqual(summary["function"], "ExportBundleSample")
+                self.assertEqual(summary["function_ea"], "0x140001000")
+                self.assertEqual(summary["source_path"], "sample.bin")
+                self.assertIn("raw_vs_cleaned_diff", summary["artifacts"])
+                self.assertEqual(artifacts["summary"], summary["artifacts"]["summary"])
+                self.assertTrue(
+                    any(item["name"] == "status_codes.json" for item in summary["profile_manifests"])
+                )
+            finally:
+                profile_loader.clear_profile_caches()
 
     def test_write_export_bundle_allows_summary_suffix_override(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

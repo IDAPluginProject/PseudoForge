@@ -156,6 +156,8 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
             self.assertFalse(payload["idb_modified"])
             self.assertFalse(payload["interactive_plugin_supported"])
             self.assertIn("Build clean plan", result.stderr)
+            self.assertIn("profile_manifests", payload["results"][0])
+            self.assertIsInstance(payload["results"][0]["profile_manifests"], list)
             artifacts = payload["results"][0]["artifacts"]
             for key in (
                 "cleaned_pseudocode",
@@ -169,6 +171,9 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
                 self.assertIn(key, artifacts)
                 self.assertTrue(Path(artifacts[key]).exists(), key)
             self.assertEqual("free_sample.ida-free-summary.json", Path(artifacts["summary"]).name)
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            self.assertIn("profile_manifests", summary)
+            self.assertIsInstance(summary["profile_manifests"], list)
             self.assertFalse((output_dir / "free_sample.summary.json").exists())
             self.assertFalse(pseudoforge_free_cli.loaded_ida_modules())
 

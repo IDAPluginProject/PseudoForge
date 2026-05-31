@@ -7,11 +7,14 @@ from pathlib import Path
 
 
 PROFILE_DIR = Path(__file__).resolve().parent
+PROFILE_MANIFEST_NAME = "profiles_manifest.json"
 _PROFILE_LOAD_WARNINGS: dict[str, str] = {}
+_ACTIVE_PROFILE_NAMES: set[str] = set()
 
 
 @lru_cache(maxsize=None)
 def load_json_profile(name: str) -> Any:
+    _ACTIVE_PROFILE_NAMES.add(name)
     path = PROFILE_DIR / name
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -45,12 +48,68 @@ def profile_load_warnings() -> list[str]:
     return [_PROFILE_LOAD_WARNINGS[name] for name in sorted(_PROFILE_LOAD_WARNINGS)]
 
 
+def active_profile_manifests() -> list[dict[str, Any]]:
+    result = []
+    for name in sorted(_ACTIVE_PROFILE_NAMES):
+        manifest = profile_manifest(name)
+        if manifest:
+            result.append(manifest)
+    return result
+
+
+def profile_manifest(name: str) -> dict[str, Any]:
+    profiles = _profiles_manifest_entries()
+    entry = profiles.get(name)
+    if not isinstance(entry, dict):
+        return {}
+    result = dict(entry)
+    result["name"] = name
+    return result
+
+
 def clear_profile_caches() -> None:
     load_json_profile.cache_clear()
     load_profile.cache_clear()
+    load_profiles_manifest.cache_clear()
     get_system_information_class_value.cache_clear()
     get_process_information_class_value.cache_clear()
     _PROFILE_LOAD_WARNINGS.clear()
+    _ACTIVE_PROFILE_NAMES.clear()
+
+
+@lru_cache(maxsize=None)
+def load_profiles_manifest() -> dict[str, Any]:
+    path = PROFILE_DIR / PROFILE_MANIFEST_NAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        _record_profile_warning(
+            PROFILE_MANIFEST_NAME,
+            "invalid JSON in %s at line %d column %d: %s"
+            % (path, exc.lineno, exc.colno, exc.msg),
+        )
+        return {}
+    except OSError as exc:
+        _record_profile_warning(
+            PROFILE_MANIFEST_NAME,
+            "profile manifest read failed for %s: %s" % (path, exc),
+        )
+        return {}
+    if not isinstance(payload, dict):
+        _record_profile_warning(
+            PROFILE_MANIFEST_NAME,
+            "profile manifest root must be a JSON object, got %s" % type(payload).__name__,
+        )
+        return {}
+    return payload
+
+
+def _profiles_manifest_entries() -> dict[str, Any]:
+    manifest = load_profiles_manifest()
+    profiles = manifest.get("profiles", {}) if isinstance(manifest, dict) else {}
+    return profiles if isinstance(profiles, dict) else {}
 
 
 def _record_profile_warning(name: str, message: str) -> None:

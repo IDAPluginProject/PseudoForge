@@ -177,7 +177,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 211 unit tests
+   - current suite covers 213 unit tests
 
 ## Latest Implementation Notes
 
@@ -205,8 +205,12 @@ P1 profile loader diagnostics update:
 - Renderer headers/flow reports, offline CLI, IDA Free CLI artifacts, and IDA
   batch JSONL records include profile load warnings after profile-backed paths
   run.
+- `profiles_manifest.json` records built-in profile kind, source version, entry
+  counts, and SHA-256 metadata.
+- Export summaries report manifest metadata for profiles loaded during the
+  current run.
 - `tests/test_profile_loader.py` covers invalid JSON warning recording and cache
-  reset behavior.
+  reset behavior plus active profile manifest reporting.
 
 P1 export artifact parity update:
 
@@ -219,6 +223,8 @@ P1 export artifact parity update:
   metadata into the shared bundle writer.
 - IDA Free CLI keeps the existing `.ida-free-summary.json` summary filename
   without leaving an extra unreported `.summary.json` artifact.
+- Shared export summaries and IDA Free result summaries include active profile
+  manifest metadata when profile manifests exist.
 - `README.md` documents artifact parity across IDA interactive export, offline
   CLI, and IDA Free CLI.
 - `tests/test_export_bundle.py` covers parity artifact creation and summary

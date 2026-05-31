@@ -56,6 +56,7 @@ class _Deps:
     build_clean_plan: Any
     write_export_bundle: Any
     render_cleaned_pseudocode: Any
+    active_profile_manifests: Any
     profile_load_warnings: Any
     LlmConfig: Any
     build_rename_provider: Any
@@ -154,7 +155,7 @@ def _load_deps() -> _Deps:
         from ida_pseudoforge.core.lvar_analysis import build_clean_plan
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
         from ida_pseudoforge.core.render import render_cleaned_pseudocode
-        from ida_pseudoforge.profiles.loader import profile_load_warnings
+        from ida_pseudoforge.profiles.loader import active_profile_manifests, profile_load_warnings
         from ida_pseudoforge.models.provider_factory import build_rename_provider
         from ida_pseudoforge.models.provider_registry import (
             PROVIDER_OPENAI_COMPATIBLE,
@@ -177,6 +178,7 @@ def _load_deps() -> _Deps:
         build_clean_plan=build_clean_plan,
         write_export_bundle=write_export_bundle,
         render_cleaned_pseudocode=render_cleaned_pseudocode,
+        active_profile_manifests=active_profile_manifests,
         profile_load_warnings=profile_load_warnings,
         LlmConfig=LlmConfig,
         build_rename_provider=build_rename_provider,
@@ -254,6 +256,7 @@ def _process_input(
         "llm_status": llm_status,
         "rule_load_errors": list((plan.rule_report or {}).get("load_errors", [])),
         "warnings": warnings,
+        "profile_manifests": deps.active_profile_manifests(),
         "artifacts": artifact_paths,
     }
     summary_path = _write_summary(output_dir, capture, result)

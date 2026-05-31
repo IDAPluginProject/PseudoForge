@@ -227,12 +227,13 @@ Completed:
 - [x] Exposed profile load warnings in renderer warning output, flow reports,
   offline CLI warnings, IDA Free CLI warnings, and IDA batch JSONL records.
 - [x] Added focused loader coverage for invalid JSON profile diagnostics.
+- [x] Added profile manifest metadata and active profile reporting in export
+  summaries.
 
 Remaining:
 
 - [ ] Split generated kernel API profile output into smaller artifacts.
 - [ ] Add lookup-family loader APIs that avoid loading the full kernel profile.
-- [ ] Add profile manifest metadata and active profile reporting.
 - [ ] Add optional target-build profile selection.
 - [ ] Add cold-load and repeated-lookup performance smoke checks.
 
@@ -317,10 +318,13 @@ Completed:
   import path.
 - [x] Added shared-style artifact keys to IDA batch compare records while
   preserving legacy `raw_path`/`cleaned_path`/`diff_path` fields.
+- [x] Added profile manifest metadata to shared export and IDA Free summary
+  payloads once manifests exist.
 
 Remaining:
 
-- [ ] Add profile manifest metadata once profile manifests exist.
+- [ ] Extend profile manifest metadata into future split-profile and
+  target-build selection reports.
 
 ### Current Evidence
 
@@ -331,7 +335,7 @@ Remaining:
   artifacts, keeps its `.ida-free-summary.json` compatibility filename, and
   adds the run manifest.
 - `pseudoforge_implementation_status.md` records the shared export parity update
-  and the remaining profile manifest follow-up.
+  and the completed profile manifest reporting follow-up.
 - IDA batch compare records preserve legacy path fields and now include an
   `artifacts` map with shared export key names.
 
@@ -339,8 +343,8 @@ Remaining:
 
 Interactive IDA export, offline CLI, IDA Free CLI, and IDA batch compare records
 now expose the shared raw/cleaned/diff artifact shape where practical. The
-remaining export metadata gap is profile manifest reporting once profile
-manifests exist.
+remaining export metadata work is future split-profile and target-build
+selection reporting.
 
 ### Plan
 

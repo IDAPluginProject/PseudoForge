@@ -230,6 +230,7 @@ ida_pseudoforge/
     api_semantics.py
   profiles/
     loader.py
+    profiles_manifest.json
     kernel_api.json
     kernel_api_overrides.json
     status_codes.json
@@ -528,6 +529,10 @@ Options:
 - `--verbose-summary`: include function names in the summary.
 - `--dry-run`: print JSON to stdout instead of writing a file.
 
+`profiles_manifest.json` records source version, profile kind, entry counts,
+and SHA-256 metadata for the built-in profile files. Export summaries include
+the manifest entries for profiles touched during a run.
+
 The built-in profile is currently generated from WDK `10.0.26100.0` and includes:
 
 - 470 headers
@@ -774,7 +779,7 @@ File purposes:
 - `.raw.cpp`: original captured decompiler text used as analysis input.
 - `.warnings.json`: plan and profile-load warnings as reviewable JSON.
 - `.raw-vs-cleaned.diff`: unified diff from raw pseudocode to cleaned output.
-- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, profile warnings, and artifact paths.
+- `.summary.json` / `.ida-free-summary.json`: per-function export metadata, counts, active profile manifests, profile warnings, and artifact paths.
 
 Artifact parity:
 
@@ -1315,6 +1320,7 @@ Profile JSON checks:
 ```powershell
 python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api.json
 python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api_overrides.json
+python -B -m json.tool .\ida_pseudoforge\profiles\profiles_manifest.json
 python -B -m json.tool .\ida_pseudoforge\profiles\status_codes.json
 python -B -m json.tool .\ida_pseudoforge\profiles\process_information_class.json
 python -B -m json.tool .\ida_pseudoforge\profiles\system_information_class.json
@@ -1354,6 +1360,7 @@ python -B -m unittest discover -s tests -v
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools
 python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api.json
 python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api_overrides.json
+python -B -m json.tool .\ida_pseudoforge\profiles\profiles_manifest.json
 python -B -m json.tool .\ida_pseudoforge\profiles\status_codes.json
 python -B -m json.tool .\ida_pseudoforge\profiles\process_information_class.json
 python -B -m json.tool .\ida_pseudoforge\profiles\system_information_class.json

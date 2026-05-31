@@ -11,7 +11,7 @@ from ida_pseudoforge.core.render import (
     render_flow_report,
     render_switch_outline,
 )
-from ida_pseudoforge.profiles.loader import profile_load_warnings
+from ida_pseudoforge.profiles.loader import active_profile_manifests, profile_load_warnings
 from ida_pseudoforge.version import VERSION
 
 
@@ -123,5 +123,6 @@ def _export_summary_payload(
         "warnings": len(warnings),
         "rule_load_errors": list((plan.rule_report or {}).get("load_errors", [])),
         "profile_warnings": profile_load_warnings(),
+        "profile_manifests": active_profile_manifests(),
         "artifacts": dict(artifacts),
     }
