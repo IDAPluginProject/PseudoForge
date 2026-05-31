@@ -41,15 +41,11 @@ from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import LocalVariable
 from ida_pseudoforge.core.render import (
     _hoist_embedded_semantic_tail_labels,
-    _rewrite_process_information_class_literals,
-    _rewrite_system_information_class_literals,
     display_warning_count,
     render_cleaned_pseudocode,
     render_switch_outline,
 )
 from ida_pseudoforge.profiles.loader import (
-    get_process_information_class_name,
-    get_process_information_class_value,
     get_status_name,
 )
 from ida_pseudoforge.models.cli_provider import CliRenameProvider
@@ -1140,22 +1136,6 @@ __int64 __fastcall SingleLineIfSample(int a1)
 """
 
 
-CHAR_CASE_SAMPLE = r"""
-__int64 __fastcall CharCaseSample(int a1)
-{
-  switch ( a1 )
-  {
-    case 'K':
-      return 1;
-    case ';':
-      return 2;
-    default:
-      return 0;
-  }
-}
-"""
-
-
 NTSET_TYPED_ACCESS_SAMPLE = r"""
 __int64 __fastcall NtSetSystemInformation(char *a1, __m128i *a2, __int64 a3)
 {
@@ -1388,48 +1368,6 @@ LABEL_21:
   goto LABEL_40;
 LABEL_41:
   return status;
-}
-"""
-
-
-NTSET_INFORMATION_PROCESS_SAMPLE = r"""
-NTSTATUS __fastcall NtSetInformationProcess(ULONG_PTR BugCheckParameter1, __int64 a2, __int128 *a3, __int64 a4)
-{
-  size_t v4;
-  __int128 *v5;
-  int v6;
-  HANDLE v7;
-
-  v4 = (unsigned int)a4;
-  v5 = a3;
-  v6 = a2;
-  v7 = (HANDLE)BugCheckParameter1;
-  if ( (_DWORD)a2 != 96 )
-  {
-    switch ( (int)a2 )
-    {
-      case 5:
-        if ( (_DWORD)a4 != 4 )
-          return -1073741820;
-        return PspSetBasePriority(v7, *(_DWORD *)v5);
-      case 87:
-        break;
-      case 112:
-        if ( (_DWORD)a4 != 8 )
-          return -1073741820;
-        *(_QWORD *)v5 = 0LL;
-        return 0;
-      case 113:
-        if ( (_DWORD)a4 )
-          return -1073741820;
-        return 0;
-      default:
-        return -1073741821;
-    }
-  }
-  if ( (_DWORD)a2 == 87 && !(_DWORD)a4 || (unsigned int)a4 < 4 && (_DWORD)a2 == 96 )
-    return -1073741820;
-  return 0;
 }
 """
 
@@ -2679,86 +2617,6 @@ __int64 __fastcall DuplicateRuleDirSample(int a1)
             rendered.index("PseudoForge recovered switch view"),
         )
 
-    def test_process_information_class_profile_is_current_to_25h2(self):
-        self.assertEqual(get_process_information_class_name(112), "ProcessSchedulerSharedData")
-        self.assertEqual(get_process_information_class_name(113), "ProcessSlistRollbackInformation")
-        self.assertEqual(get_process_information_class_name(116), "ProcessEnclaveAddressSpaceRestriction")
-        self.assertEqual(get_process_information_class_name(117), "ProcessAvailableCpus")
-        self.assertEqual(get_process_information_class_value("ProcessAvailableCpus"), 117)
-
-    def test_ntset_information_process_uses_processinfo_profile(self):
-        class FakeProvider:
-            def suggest_renames(self, capture):
-                return json.dumps(
-                    {
-                        "renames": [
-                            {
-                                "old": "BugCheckParameter1",
-                                "new": "ProcessHandle",
-                                "confidence": 0.99,
-                            },
-                            {
-                                "old": "a2",
-                                "new": "ProcessInformationClass",
-                                "confidence": 0.99,
-                            },
-                            {
-                                "old": "a3",
-                                "new": "ProcessInformation",
-                                "confidence": 0.99,
-                            },
-                            {
-                                "old": "a4",
-                                "new": "ProcessInformationLength",
-                                "confidence": 0.99,
-                            },
-                        ]
-                    }
-                )
-
-        capture = capture_from_pseudocode(NTSET_INFORMATION_PROCESS_SAMPLE)
-        plan = build_clean_plan(capture, rename_provider=FakeProvider())
-        rename_map = {item.old: item.new for item in plan.renames if item.apply}
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertEqual(rename_map["BugCheckParameter1"], "processHandle")
-        self.assertEqual(rename_map["a2"], "processInformationClass")
-        self.assertEqual(rename_map["a3"], "processInformation")
-        self.assertEqual(rename_map["a4"], "processInformationLength")
-        self.assertTrue(plan.flow_rewrites)
-        self.assertEqual(plan.flow_rewrites[0].dispatcher, "processInformationClass")
-        self.assertEqual(plan.flow_rewrites[0].case_names[112], "ProcessSchedulerSharedData")
-        self.assertNotIn("Skipped PascalCase LLM rename a2->ProcessInformationClass", plan.warnings)
-        self.assertIn("NTSTATUS NTAPI NtSetInformationProcess(", rendered)
-        self.assertIn("HANDLE processHandle,", rendered)
-        self.assertIn("PROCESSINFOCLASS processInformationClass,", rendered)
-        self.assertIn("PVOID processInformation,", rendered)
-        self.assertIn("ULONG processInformationLength)", rendered)
-        self.assertIn("switch ( (int)processInformationClass )", rendered)
-        self.assertIn("case ProcessBasePriority:", rendered)
-        self.assertIn("case ProcessEnableReadWriteVmLogging:", rendered)
-        self.assertIn("case ProcessSchedulerSharedData:", rendered)
-        self.assertIn("case ProcessSlistRollbackInformation:", rendered)
-        self.assertIn("processInformationClass != ProcessEnableLogging", rendered)
-        self.assertIn("source=native_switch outline=suppressed", rendered)
-        self.assertNotIn("switch (processInformationLength)", rendered)
-        self.assertNotIn("dispatcher=processInformationLength", rendered)
-
-    def test_process_information_class_literals_rewrite_only_process_dispatcher(self):
-        source = """
-  switch ( (int)processInformationClass )
-  {
-    case 113:
-      return 0;
-  }
-  if ( (_DWORD)processInformationClass == 96 )
-    return 1;
-"""
-        rendered = _rewrite_process_information_class_literals(source)
-
-        self.assertIn("case ProcessSlistRollbackInformation:", rendered)
-        self.assertIn("processInformationClass == ProcessEnableLogging", rendered)
-
     def test_render_switch_outline(self):
         capture = capture_from_pseudocode(SAMPLE)
         plan = build_clean_plan(capture)
@@ -2799,96 +2657,6 @@ __int64 __fastcall DuplicateRuleDirSample(int a1)
         self.assertEqual(profile["-2147483631"], "STATUS_DEVICE_BUSY")
         self.assertEqual(profile["3225812995"], "STATUS_IORING_VERSION_NOT_SUPPORTED")
         self.assertEqual(profile["-1069154301"], "STATUS_IORING_VERSION_NOT_SUPPORTED")
-
-    def test_system_information_class_delta_chain_preserves_delta_variables(self):
-        source = """
-  classMinus235 = infoClass - 235;
-  if ( !classMinus235 )
-    return first();
-  classMinus243 = classMinus235 - 8;
-  if ( !classMinus243 )
-    return second();
-  classMinus245 = classMinus243 - 2;
-  if ( classMinus245 )
-  {
-    if ( classMinus245 == 1 )
-      return fourth();
-    return fallback();
-  }
-"""
-        rendered = _rewrite_system_information_class_literals(source)
-
-        self.assertIn("classMinus235 = infoClass - SystemHypervisorBootPagesInformation;", rendered)
-        self.assertIn("if ( !classMinus235 )", rendered)
-        self.assertIn("classMinus243 = infoClass - SystemTrustedAppsRuntimeInformation;", rendered)
-        self.assertIn("if ( !classMinus243 )", rendered)
-        self.assertIn("classMinus245 = infoClass - SystemResourceDeadlockTimeout;", rendered)
-        self.assertIn("if ( classMinus245 )", rendered)
-        self.assertIn(
-            "if ( classMinus245 == SystemBreakOnContextUnwindFailureInformation - SystemResourceDeadlockTimeout )",
-            rendered,
-        )
-        self.assertIn(
-            "if ( infoClass == SystemErrorPortInformation )",
-            _rewrite_system_information_class_literals("if ( infoClass == 0x59 )"),
-        )
-        suffix_rendered = _rewrite_system_information_class_literals(
-            "if ( infoClass == 0x59u )\n"
-            "classMinus235 = infoClass - 235ULL;\n"
-            "classMinus243 = classMinus235 - 8u;\n"
-            "if ( classMinus243 == 3UL )"
-        )
-        self.assertIn("if ( infoClass == SystemErrorPortInformation )", suffix_rendered)
-        self.assertIn("classMinus235 = infoClass - SystemHypervisorBootPagesInformation;", suffix_rendered)
-        self.assertIn("classMinus243 = infoClass - SystemTrustedAppsRuntimeInformation;", suffix_rendered)
-        self.assertIn(
-            "if ( classMinus243 == SystemBreakOnContextUnwindFailureInformation - SystemTrustedAppsRuntimeInformation )",
-            suffix_rendered,
-        )
-
-    def test_system_information_class_delta_rewrite_expires_after_large_gap(self):
-        filler = "\n".join("  scratch%d = scratch%d + 1;" % (index, index) for index in range(40))
-        source = """
-  classMinus235 = infoClass - 235;
-%s
-  if ( classMinus235 == 1 )
-    return stale();
-""" % filler
-
-        rendered = _rewrite_system_information_class_literals(source)
-
-        self.assertIn("classMinus235 = infoClass - SystemHypervisorBootPagesInformation;", rendered)
-        self.assertIn("if ( classMinus235 == 1 )", rendered)
-        self.assertNotIn("SystemHypervisorRootSchedulerInformation - SystemHypervisorBootPagesInformation", rendered)
-
-    def test_system_information_class_delta_chain_assignment_survives_large_branch_body(self):
-        branch_body = "\n".join("    trace%d();" % index for index in range(40))
-        source = """
-  v85 = infoClass - SystemCriticalProcessErrorLogInformation;
-  if ( !v85 )
-  {
-%s
-    return handled();
-  }
-  v86 = v85 - 8;
-  if ( !v86 )
-    return boot_metadata();
-  v87 = v86 - 1;
-  if ( v87 != 1 )
-    return invalid();
-""" % branch_body
-
-        rendered = _rewrite_system_information_class_literals(source)
-
-        self.assertIn("v86 = infoClass - SystemBootMetadataInformation;", rendered)
-        self.assertIn("if ( !v86 )", rendered)
-        self.assertIn("v87 = infoClass - SystemSoftRebootInformation;", rendered)
-        self.assertIn(
-            "if ( v87 != SystemElamCertificateInformation - SystemSoftRebootInformation )",
-            rendered,
-        )
-        self.assertNotIn("v86 = v85 - 8;", rendered)
-        self.assertNotIn("v87 = v86 - 1;", rendered)
 
     def test_identifier_renames_do_not_touch_struct_members(self):
         class FakeProvider:
@@ -3939,16 +3707,6 @@ LABEL_34:
             "  v1 = ZwLoadDriver(&DriverServiceName);",
             rendered,
         )
-
-    def test_char_literal_case_labels_are_normalized_to_numbers(self):
-        capture = capture_from_pseudocode(CHAR_CASE_SAMPLE)
-        plan = build_clean_plan(capture)
-        rendered = render_cleaned_pseudocode(capture, plan)
-
-        self.assertIn("case 75:", rendered)
-        self.assertIn("case 59:", rendered)
-        self.assertNotIn("case 'K':", rendered)
-        self.assertNotIn("case ';':", rendered)
 
     def test_driver_entry_device_extension_semantics(self):
         class FakeProvider:

@@ -672,6 +672,9 @@ Completed:
   `tests/test_render_driver_entry.py`.
 - [x] Moved status literal rendering regressions into
   `tests/test_render_status.py`.
+- [x] Moved dispatcher/profile literal regressions for system/process
+  information classes and character case labels into
+  `tests/test_render_dispatcher.py`.
 
 Remaining:
 
@@ -685,6 +688,8 @@ Remaining:
 - `tests/test_core_engine.py` is about 5600 lines.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
+- Dispatcher/profile literal coverage now has a focused
+  `tests/test_render_dispatcher.py` suite.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
