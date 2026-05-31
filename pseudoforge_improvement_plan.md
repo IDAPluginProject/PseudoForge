@@ -387,13 +387,15 @@ Completed:
 - [x] Added rule-report `rewrite_emissions` entries for preview-only
   `call_arg_rewrite` candidates with `applied`, `shadowed`, or `rejected`
   status.
+- [x] Mirrored the low-risk
+  `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine`
+  BOOLEAN remove-argument cleanup family as builtin report-only
+  `call_arg_rewrite` rules for parity comparison.
 - [x] Documented the v2 preview-only boundary in
   `deterministic_rules_matching_engine_design.md`.
 
 Remaining:
 
-- [ ] Mirror one low-risk hard-coded call-argument rewrite family for parity
-  comparison.
 - [ ] Add `text_rewrite` only after span conflict detection exists.
 - [ ] Add `flow` only after stronger branch evidence exists.
 
@@ -406,6 +408,8 @@ Remaining:
   phases and v2 preview-only `call_arg_rewrite`, with emit kind matching phase.
 - `ida_pseudoforge/core/deterministic/schema.py` exposes
   `RuleReport.rewrite_emissions` for preview-only rewrite status reporting.
+- `ida_pseudoforge/rules/builtin/call_arg_rewrites.json` mirrors one BOOLEAN
+  call-argument cleanup family without replacing hard-coded rendering.
 - `ida_pseudoforge/core/deterministic/context.py:55` builds regex-oriented
   facts: assignments, calls, labels, and literals.
 - Existing hard-coded rewrites remain in `kernel_rewrites.py`, `kernel_api.py`,

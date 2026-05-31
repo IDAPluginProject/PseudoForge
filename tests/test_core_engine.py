@@ -1976,6 +1976,40 @@ __int64 __fastcall ProjectCallArgReportSample(void *inputBuffer)
             self.assertIn("ProbeForRead(inputBuffer, 8, 1);", rendered)
             self.assertNotIn("sizeof(*inputBuffer)", rendered)
 
+    def test_builtin_call_arg_rewrite_report_mirrors_boolean_kernel_api_cleanup(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall BuiltinCallArgReportSample(void *NotifyRoutine)
+{
+  PsSetCreateProcessNotifyRoutine(NotifyRoutine, 1u);
+  PspSetCreateProcessNotifyRoutine(NotifyRoutine, 0u);
+  return 0;
+}
+"""
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        rewrites = [
+            item
+            for item in plan.rule_report["rewrite_emissions"]
+            if str(item.get("rule_id", "")).startswith("builtin.call_arg.ps")
+        ]
+        reported = {
+            (item["payload"]["function_name"], item["payload"]["replacement"], item["status"])
+            for item in rewrites
+        }
+
+        self.assertEqual(
+            {
+                ("PsSetCreateProcessNotifyRoutine", "TRUE", "applied"),
+                ("PspSetCreateProcessNotifyRoutine", "FALSE", "applied"),
+            },
+            reported,
+        )
+        self.assertIn("PsSetCreateProcessNotifyRoutine(NotifyRoutine, TRUE);", rendered)
+        self.assertIn("PspSetCreateProcessNotifyRoutine(NotifyRoutine, FALSE);", rendered)
+        self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
+
     def test_rule_engine_call_arg_gates_match_same_call_site(self):
         capture = capture_from_pseudocode(
             """

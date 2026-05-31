@@ -1247,6 +1247,10 @@ semantic_comment
 ```
 
 Schema version 2 also supports preview-only `call_arg_rewrite` emissions.
+The builtin v2 report-only rules currently mirror the low-risk
+`PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine` BOOLEAN
+remove-argument cleanup so reports can compare rule candidates against the
+existing hard-coded kernel API renderer path.
 
 Rule conflict policy:
 

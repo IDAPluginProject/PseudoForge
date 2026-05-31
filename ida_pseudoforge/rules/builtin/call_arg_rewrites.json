@@ -1,0 +1,119 @@
+{
+  "schema_version": 2,
+  "id": "pseudoforge.builtin.call_arg_rewrites",
+  "description": "Builtin preview-only call argument rewrite rules mirrored from low-risk kernel API argument cleanup.",
+  "rules": [
+    {
+      "id": "builtin.call_arg.ps_create_process_notify_remove_true",
+      "phase": "call_arg_rewrite",
+      "priority": 70,
+      "confidence": 0.95,
+      "scope": {
+        "calls_any": ["PsSetCreateProcessNotifyRoutine"]
+      },
+      "match": {
+        "call_arg_count": {
+          "function_name": "PsSetCreateProcessNotifyRoutine",
+          "count": 2
+        },
+        "call_arg_literal": {
+          "function_name": "PsSetCreateProcessNotifyRoutine",
+          "argument_index": 1,
+          "value": "1u"
+        }
+      },
+      "emit": {
+        "kind": "call_arg_rewrite",
+        "function_name": "PsSetCreateProcessNotifyRoutine",
+        "argument_index": 1,
+        "replacement": "TRUE",
+        "preview_only": true,
+        "evidence": "BOOLEAN Remove argument literal 1u mirrors kernel API cleanup"
+      }
+    },
+    {
+      "id": "builtin.call_arg.ps_create_process_notify_remove_false",
+      "phase": "call_arg_rewrite",
+      "priority": 70,
+      "confidence": 0.95,
+      "scope": {
+        "calls_any": ["PsSetCreateProcessNotifyRoutine"]
+      },
+      "match": {
+        "call_arg_count": {
+          "function_name": "PsSetCreateProcessNotifyRoutine",
+          "count": 2
+        },
+        "call_arg_literal": {
+          "function_name": "PsSetCreateProcessNotifyRoutine",
+          "argument_index": 1,
+          "value": "0u"
+        }
+      },
+      "emit": {
+        "kind": "call_arg_rewrite",
+        "function_name": "PsSetCreateProcessNotifyRoutine",
+        "argument_index": 1,
+        "replacement": "FALSE",
+        "preview_only": true,
+        "evidence": "BOOLEAN Remove argument literal 0u mirrors kernel API cleanup"
+      }
+    },
+    {
+      "id": "builtin.call_arg.psp_create_process_notify_remove_true",
+      "phase": "call_arg_rewrite",
+      "priority": 70,
+      "confidence": 0.95,
+      "scope": {
+        "calls_any": ["PspSetCreateProcessNotifyRoutine"]
+      },
+      "match": {
+        "call_arg_count": {
+          "function_name": "PspSetCreateProcessNotifyRoutine",
+          "count": 2
+        },
+        "call_arg_literal": {
+          "function_name": "PspSetCreateProcessNotifyRoutine",
+          "argument_index": 1,
+          "value": "1u"
+        }
+      },
+      "emit": {
+        "kind": "call_arg_rewrite",
+        "function_name": "PspSetCreateProcessNotifyRoutine",
+        "argument_index": 1,
+        "replacement": "TRUE",
+        "preview_only": true,
+        "evidence": "BOOLEAN Remove argument literal 1u mirrors private alias cleanup"
+      }
+    },
+    {
+      "id": "builtin.call_arg.psp_create_process_notify_remove_false",
+      "phase": "call_arg_rewrite",
+      "priority": 70,
+      "confidence": 0.95,
+      "scope": {
+        "calls_any": ["PspSetCreateProcessNotifyRoutine"]
+      },
+      "match": {
+        "call_arg_count": {
+          "function_name": "PspSetCreateProcessNotifyRoutine",
+          "count": 2
+        },
+        "call_arg_literal": {
+          "function_name": "PspSetCreateProcessNotifyRoutine",
+          "argument_index": 1,
+          "value": "0u"
+        }
+      },
+      "emit": {
+        "kind": "call_arg_rewrite",
+        "function_name": "PspSetCreateProcessNotifyRoutine",
+        "argument_index": 1,
+        "replacement": "FALSE",
+        "preview_only": true,
+        "evidence": "BOOLEAN Remove argument literal 0u mirrors private alias cleanup"
+      }
+    }
+  ]
+}

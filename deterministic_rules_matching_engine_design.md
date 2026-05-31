@@ -606,6 +606,9 @@ Target scope:
 1. Connect `kernel_api_overrides.json` to rule loader/report semantics.
 2. Add `symbol_alias` rule support.
 3. Add `call_arg_rewrite` rule support and preview-only rewrite status reporting.
+   The first builtin parity family mirrors
+   `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine`
+   BOOLEAN remove-argument cleanup without replacing the existing renderer path.
 4. Preserve existing pool tag, boolean, and flags rewrite coverage.
 
 ### Phase 4: Text Rewrite Migration

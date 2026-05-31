@@ -177,7 +177,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 210 unit tests
+   - current suite covers 211 unit tests
 
 ## Latest Implementation Notes
 
@@ -240,6 +240,10 @@ P1 deterministic rules v2 preview boundary update:
 - `build_clean_plan()` runs the `call_arg_rewrite` phase for reporting only;
   accepted rewrite candidates remain out of rename, comment, pseudocode, and
   IDB-write paths.
+- Builtin v2 report-only rules now mirror the low-risk
+  `PsSetCreateProcessNotifyRoutine`/`PspSetCreateProcessNotifyRoutine`
+  BOOLEAN remove-argument cleanup family for parity comparison with the
+  existing kernel API renderer path.
 - `deterministic_rules_matching_engine_design.md` documents the v2
   preview/export-only boundary.
 
