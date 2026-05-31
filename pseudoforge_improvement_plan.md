@@ -763,6 +763,8 @@ Completed:
   `tests/test_core_engine.py` into `tests/fixtures/ntset_samples.py`.
 - [x] Moved snapshot-shared DriverEntry, IOCTL dispatch, and single-line style
   samples into `tests/fixtures/snapshot_samples.py`.
+- [x] Moved plan-builder semantic recovery and shadowed duplicate-target
+  warning coverage into `tests/test_plan_builder.py`.
 
 Remaining:
 
@@ -773,12 +775,12 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 97 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 57 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
   IDA batch, LLM config, logging, release/version, kernel profile, DriverEntry,
   Memory Manager, IOCTL/IRP, callback, Zw/API, TraceLogging/flow, and signature
   and NtSet/label/kernel-hint/style/rename-heuristic/LLM-filter/label-tail
-  splits plus the shared NtSet fixture extraction.
+  splits plus the shared NtSet fixture extraction and plan-builder split.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -839,6 +841,8 @@ Remaining:
   `tests/test_rename_heuristics.py`.
 - LLM rename filtering coverage now lives in
   `tests/test_llm_rename_filters.py`.
+- Plan-builder semantic recovery and shadowed duplicate-target warning coverage
+  now lives in `tests/test_plan_builder.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.

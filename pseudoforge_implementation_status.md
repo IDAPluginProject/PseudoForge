@@ -259,7 +259,7 @@ P1 renderer snapshot protection update:
   lives in `ida_pseudoforge/core/render_zw.py`.
 - Zw API probe, reused Zw status-slot, and `MmGetSystemRoutineAddress`
   indirect-call regressions now live in `tests/test_render_zw.py`; the core
-  monolith is 97 lines after the shared NtSet fixture split.
+  monolith is 57 lines after the shared NtSet fixture and plan-builder splits.
 - TraceLogging template switch false-positive regression now lives in
   `tests/test_render_flow.py`.
 - Known `PVOID` native signature/body-alias regression now lives in
@@ -285,6 +285,8 @@ P1 renderer snapshot protection update:
   in `tests/test_rename_heuristics.py`.
 - LLM rename filtering regressions now live in
   `tests/test_llm_rename_filters.py`.
+- Plan-builder semantic recovery and shadowed duplicate-target warning
+  regressions now live in `tests/test_plan_builder.py`.
 - `NtSetSystemInformation` m128/body rendering for typed `systemInformation`
   access, mutable alias splitting, and `userProbeEnd` recovery now lives in
   `ida_pseudoforge/core/render_ntset.py`.
