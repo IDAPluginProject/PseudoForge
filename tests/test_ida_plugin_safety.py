@@ -570,6 +570,96 @@ class IdaPluginSafetyTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(async_runner.active_group_task("plugin_state"), "")
 
+    def test_background_cancel_request_stops_task_at_cooperative_checkpoint(self):
+        task_name = "cancel_test"
+        started = threading.Event()
+        cancelled = threading.Event()
+
+        def work():
+            started.set()
+            deadline = time.time() + 2
+            while time.time() < deadline and not async_runner.cancel_requested(task_name):
+                time.sleep(0.01)
+            try:
+                async_runner.raise_if_cancelled(task_name)
+            except async_runner.CancellationRequested:
+                cancelled.set()
+                raise
+            self.fail("cancelled background task should not continue past the checkpoint")
+
+        self.assertTrue(async_runner.run_background(task_name, work, group_name="cancel_group"))
+        self.assertTrue(started.wait(2))
+        self.assertTrue(async_runner.request_group_cancel("cancel_group"))
+
+        deadline = time.time() + 2
+        while async_runner.active_group_task("cancel_group") and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(async_runner.active_group_task("cancel_group"), "")
+        self.assertTrue(cancelled.is_set())
+        self.assertFalse(async_runner.cancel_requested(task_name))
+
+    def test_background_cancel_after_work_skips_success_callback(self):
+        task_name = "cancel_after_work_test"
+        started = threading.Event()
+        requested = threading.Event()
+        successes = []
+
+        def work():
+            started.set()
+            self.assertTrue(async_runner.request_cancel(task_name))
+            requested.set()
+            return "done"
+
+        self.assertTrue(async_runner.run_background(task_name, work, successes.append))
+        self.assertTrue(started.wait(2))
+        self.assertTrue(requested.wait(2))
+
+        deadline = time.time() + 2
+        while async_runner.cancel_requested(task_name) and time.time() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(successes, [])
+        self.assertFalse(async_runner.cancel_requested(task_name))
+
+    def test_analysis_cancellation_is_not_swallowed_by_forge_write_warning_path(self):
+        old_capture = actions_module.capture_current_function
+        old_set_source = actions_module._set_capture_source_path
+        old_build = actions_module._build_plan_with_config
+        old_write = actions_module._write_forge_snapshot
+        capture = _capture()
+        plan = _plan(capture)
+        actions_module.capture_current_function = lambda: (capture, object())
+        actions_module._set_capture_source_path = lambda captured: None
+        actions_module._build_plan_with_config = lambda captured, task_name="": plan
+        actions_module._write_forge_snapshot = lambda captured, built_plan: (_ for _ in ()).throw(
+            async_runner.CancellationRequested("stop before forge write")
+        )
+        try:
+            with self.assertRaises(async_runner.CancellationRequested):
+                actions_module.analyze_current_function("direct_cancel_test")
+        finally:
+            actions_module.capture_current_function = old_capture
+            actions_module._set_capture_source_path = old_set_source
+            actions_module._build_plan_with_config = old_build
+            actions_module._write_forge_snapshot = old_write
+
+    def test_cancel_current_task_handler_requests_active_group_cancel(self):
+        handler = actions_module.CancelCurrentTaskHandler()
+        old_request = actions_module.request_group_cancel
+        old_info = actions_module.info
+        requested = []
+        messages = []
+        actions_module.request_group_cancel = lambda group: requested.append(group) or "analyze"
+        actions_module.info = messages.append
+        try:
+            self.assertEqual(handler.activate(None), 1)
+        finally:
+            actions_module.request_group_cancel = old_request
+            actions_module.info = old_info
+
+        self.assertEqual(requested, [actions_module.PLUGIN_STATE_GROUP])
+        self.assertEqual(len(messages), 1)
+        self.assertIn("cancellation requested for analyze", messages[0])
+
     def test_action_registry_tracks_and_unregisters_actions(self):
         fake_idaapi = FakeIdaApi()
         registry = ActionRegistry(fake_idaapi)
@@ -603,10 +693,12 @@ class IdaPluginSafetyTests(unittest.TestCase):
             attached_paths = [item[0] for item in fake_idaapi.attached]
             self.assertIn(plugin_module.PseudoForgePlugin.preview_current_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.analyzed_functions_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.cancel_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_profile_action_name, fake_idaapi.registered)
             self.assertNotIn(plugin_module.PseudoForgePlugin.legacy_preview_action_name, fake_idaapi.registered)
             self.assertIn("Edit/PseudoForge/Show current analysis result", attached_paths)
             self.assertIn("Edit/PseudoForge/Analyzed functions...", attached_paths)
+            self.assertIn("Edit/PseudoForge/Cancel current operation", attached_paths)
             self.assertIn("Edit/PseudoForge/Configure profile directory", attached_paths)
             self.assertNotIn("Edit/PseudoForge/Preview cleaned pseudocode", attached_paths)
         finally:

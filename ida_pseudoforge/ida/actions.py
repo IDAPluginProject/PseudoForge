@@ -19,7 +19,13 @@ from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.rule_diagnostics import format_rule_report_summary
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
 from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnalysisState
-from ida_pseudoforge.ida.async_runner import active_group_task, run_background
+from ida_pseudoforge.ida.async_runner import (
+    CancellationRequested,
+    active_group_task,
+    raise_if_cancelled,
+    request_group_cancel,
+    run_background,
+)
 from ida_pseudoforge.ida.decompiler import capture_current_function, capture_current_lvars
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
 from ida_pseudoforge.ida.profile_config_dialog import ask_profile_dir, format_profile_summary
@@ -61,20 +67,26 @@ _ANALYSIS_STATE = PluginAnalysisState()
 def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture, CleanPlan]:
     with trace_scope("analysis", purpose=purpose):
         log_event("analysis.start purpose=%s" % _ascii_for_log(purpose))
+        _raise_if_task_cancelled(purpose, "before capture")
         with trace_scope("analysis.capture", purpose=purpose):
             capture, _cfunc = capture_current_function()
+        _raise_if_task_cancelled(purpose, "after capture")
         _set_capture_source_path(capture)
         log_event(
             "capture.ok function=\"%s\" ea=0x%X lvars=%d calls=%d"
             % (_ascii_for_log(capture.name), capture.ea, len(capture.lvars), len(capture.calls))
         )
         with trace_scope("analysis.build_plan", function=capture.name, ea="0x%X" % capture.ea):
-            plan = _build_plan_with_config(capture)
+            plan = _build_plan_with_config(capture, task_name=purpose)
+        _raise_if_task_cancelled(purpose, "after build plan")
         forge_path: Path | None = None
         forge_text = ""
         try:
             with trace_scope("analysis.forge_write", function=capture.name, ea="0x%X" % capture.ea):
+                _raise_if_task_cancelled(purpose, "before forge write")
                 forge_path, forge_text = _write_forge_snapshot(capture, plan)
+        except CancellationRequested:
+            raise
         except Exception as exc:
             log_checkpoint("analysis.forge_write.warning", function=capture.name, ea="0x%X" % capture.ea, error=str(exc))
             log_event(
@@ -100,8 +112,10 @@ def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture,
 def export_current_function() -> dict[str, str]:
     with trace_scope("export_current_function"):
         capture, plan = analyze_current_function(purpose="export")
+        _raise_if_task_cancelled("export", "before output directory")
         with trace_scope("export.output_dir"):
             output_dir = run_on_main_thread(_default_output_dir, write=False)
+        _raise_if_task_cancelled("export", "before bundle write")
         with trace_scope("export.write_bundle", function=capture.name, output_dir=str(output_dir)):
             paths = write_export_bundle(output_dir, capture, plan, entrypoint="ida_interactive")
         log_event("export.done function=\"%s\" output_dir=\"%s\"" % (_ascii_for_log(capture.name), output_dir))
@@ -231,6 +245,26 @@ class ExportCleanedPseudocodeHandler(idaapi.action_handler_t if idaapi else obje
 
         run_background("export", export_current_function, on_success, group_name=PLUGIN_STATE_GROUP)
         log_checkpoint("action.export.activate.after")
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
+class CancelCurrentTaskHandler(idaapi.action_handler_t if idaapi else object):
+    def activate(self, ctx):
+        log_checkpoint("action.cancel.activate.before")
+        task_name = request_group_cancel(PLUGIN_STATE_GROUP)
+        if task_name:
+            info(
+                "PseudoForge cancellation requested for %s. "
+                "The current decompiler or provider call may finish before the task stops."
+                % task_name
+            )
+            log_checkpoint("action.cancel.activate.after", cancelled=task_name)
+        else:
+            info("No PseudoForge analyze/export/apply task is running.")
+            log_checkpoint("action.cancel.activate.after", cancelled="")
         return 1
 
     def update(self, ctx):
@@ -737,11 +771,12 @@ def _current_function_identity() -> tuple[int, str] | None:
         return None
 
 
-def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
+def _build_plan_with_config(capture: FunctionCapture, task_name: str = "") -> CleanPlan:
     log_checkpoint("build_plan.load_config.before", function=capture.name, ea="0x%X" % capture.ea)
     config = load_config()
     profile_root = _configure_profile_dir_for_analysis(config.profile_dir)
     log_checkpoint("build_plan.load_config.after", llm_enabled=config.llm.enabled, profile_root=str(profile_root))
+    _raise_if_task_cancelled(task_name, "after config load")
     if not config.llm.enabled:
         log_output("PseudoForge LLM rename assist is disabled. Running deterministic analysis only.")
         log_event(
@@ -749,7 +784,9 @@ def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
             % (_ascii_for_log(capture.name), capture.ea)
         )
         with trace_scope("build_plan.deterministic", function=capture.name, ea="0x%X" % capture.ea):
-            return build_clean_plan(capture)
+            plan = build_clean_plan(capture)
+        _raise_if_task_cancelled(task_name, "after deterministic plan")
+        return plan
 
     provider_name = normalize_provider(config.llm.provider)
     log_output(
@@ -771,10 +808,12 @@ def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
             config.llm,
             api_key=get_provider_api_key(config, config.llm.provider),
         )
+    _raise_if_task_cancelled(task_name, "before llm provider")
 
     try:
         with trace_scope("build_plan.llm", provider=provider_name, model=config.llm.model, function=capture.name):
             plan = build_clean_plan(capture, rename_provider=provider)
+        _raise_if_task_cancelled(task_name, "after llm provider")
         log_event(
             "llm.plan.done provider=%s model=\"%s\" renames=%d warnings=%d"
             % (
@@ -789,6 +828,8 @@ def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
             % (len(plan.active_renames()), len(plan.warnings))
         )
         return plan
+    except CancellationRequested:
+        raise
     except Exception as exc:
         log_event(
             "llm.failed provider=%s model=\"%s\" function=\"%s\" error=\"%s\""
@@ -802,6 +843,7 @@ def _build_plan_with_config(capture: FunctionCapture) -> CleanPlan:
         log_output("PseudoForge LLM rename assist failed; deterministic fallback will be used.")
         with trace_scope("build_plan.fallback", function=capture.name, ea="0x%X" % capture.ea):
             plan = build_clean_plan(capture)
+        _raise_if_task_cancelled(task_name, "after fallback plan")
         plan.warnings.insert(0, f"LLM rename assist failed; deterministic fallback used: {exc}")
         return plan
 
@@ -847,6 +889,16 @@ def _format_warning(item: object) -> str:
         if old and reason:
             return "Potential bad call target %s: %s" % (old, reason)
     return str(item)
+
+
+def _raise_if_task_cancelled(task_name: str, phase: str) -> None:
+    if not task_name:
+        return
+    try:
+        raise_if_cancelled(task_name)
+    except CancellationRequested:
+        log_checkpoint("task.cancelled", task=task_name, phase=phase)
+        raise
 
 
 def _ascii_for_log(message: str) -> str:

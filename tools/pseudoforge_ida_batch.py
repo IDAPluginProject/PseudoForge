@@ -81,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         target_path = Path(args.target_path) if args.target_path else _target_path(idb_path)
         forge_path = Path(args.forge_path) if args.forge_path else target_path.with_suffix(".forge")
         compare_dir = Path(args.compare_dir) if args.compare_dir else None
+        cancel_file = Path(args.cancel_file) if args.cancel_file else None
         rename_provider, llm_info = _build_llm_context(args)
         skip_eas = _existing_forge_eas(forge_path) if args.resume else set()
         forge_writer = None if args.upsert_forge else _BatchForgeWriter(
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
                 "target_path": str(target_path),
                 "forge_path": str(forge_path),
                 "compare_dir": str(compare_dir) if compare_dir else "",
+                "cancel_file": str(cancel_file) if cancel_file else "",
                 "llm": llm_info,
                 "profile_dir": active_profile_root(),
                 "selected_functions": total_selected,
@@ -116,7 +118,18 @@ def main(argv: list[str] | None = None) -> int:
                 break
             if args.max_functions and processed >= args.max_functions:
                 break
+            if _cancel_file_requested(cancel_file):
+                reporter.write(
+                    {
+                        "event": "stop",
+                        "reason": "cancel_file",
+                        "cancel_file": str(cancel_file),
+                        "processed": processed,
+                    }
+                )
+                break
 
+            reporter.write(_batch_progress_record(ea, _function_name(ea), processed + 1, total_selected))
             processed += 1
             result = _analyze_function(ea, target_path, forge_path, forge_writer, args, rename_provider, llm_info)
             reporter.write(result)
@@ -180,6 +193,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--llm-command", default="", help="Override CLI provider command template.")
     parser.add_argument("--llm-timeout", type=int, default=0, help="Override per-function LLM timeout seconds.")
     parser.add_argument("--report", default="", help="JSONL progress report path.")
+    parser.add_argument("--cancel-file", default="", help="Stop before the next function when this file exists.")
     parser.add_argument("--max-functions", type=int, default=0, help="Maximum functions to process. 0 means all.")
     parser.add_argument("--max-seconds", type=int, default=0, help="Maximum wall time. 0 means unlimited.")
     parser.add_argument("--start-ea", default="", help="First function EA, inclusive.")
@@ -308,6 +322,27 @@ def _skipped_function(ea: int, name: str, reason: str, started: float) -> dict[s
         "name": name,
         "reason": reason,
         "elapsed_seconds": round(time.monotonic() - started, 3),
+    }
+
+
+def _cancel_file_requested(cancel_file: Path | None) -> bool:
+    if cancel_file is None:
+        return False
+    try:
+        return cancel_file.exists()
+    except Exception:
+        return False
+
+
+def _batch_progress_record(ea: int, name: str, index: int, selected_functions: int) -> dict[str, Any]:
+    return {
+        "event": "progress",
+        "phase": "function_start",
+        "time": _utc_now(),
+        "index": index,
+        "selected_functions": selected_functions,
+        "ea": "0x%X" % ea,
+        "name": name,
     }
 
 

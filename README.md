@@ -162,12 +162,15 @@ Implemented:
 29. IDA analysis preview can try an experimental dockable side-by-side raw vs
     cleaned review panel behind `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`,
     while preserving the existing `simplecustviewer_t` fallback.
+30. IDA analyze/export/apply tasks support cooperative cancellation checkpoints,
+    and headless IDA batch runs can stop at a cancel-file boundary while writing
+    per-function start progress records.
 
 Still pending:
 
 1. Full switch body reconstruction for shared and fallthrough branches.
 2. Manual IDA validation and true object-level ctree rename application beyond the current identity preflight gates.
-3. Richer dockable side-by-side preview panel.
+3. Richer side-by-side preview navigation, synchronized search, and warning/rule summary panes.
 4. Deterministic rule phase expansion for `flow` and broader parity migration.
 5. Wider profile coverage from real target builds.
 
@@ -397,6 +400,7 @@ Edit/PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Cancel current operation
   Configure LLM rename assist
   Show settings
   Advanced/
@@ -411,6 +415,7 @@ PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Cancel current operation
   Configure LLM rename assist
   Show settings
   Advanced/
@@ -435,6 +440,8 @@ Ctrl+Alt+Shift+F  Export cleaned pseudocode
 `Analyzed functions...` opens a chooser built from cached `.forge` function-section markers. It avoids opening the full aggregate `.forge` as the primary UI, which keeps navigation usable after many functions have been analyzed.
 
 `Export cleaned pseudocode` analyzes the current function and writes a review/audit bundle. Its main purpose is to freeze a PseudoForge result outside the IDA UI so the cleaned pseudocode, rename plan, flow report, and rule report can be shared, diffed, regression-tested, and inspected later. It writes to `pseudoforge_out` beside the IDB when possible and does not modify the IDB.
+
+`Cancel current operation` requests cooperative cancellation for the active analyze, export, or apply-preparation task. Cancellation is checked at safe phase boundaries; an in-flight Hex-Rays decompile or LLM provider call may finish before the task stops.
 
 `Advanced/Apply selected renames to IDB` analyzes the function if needed, shows a rename chooser, refuses stale sessions when the current function changed, and applies only user-selected local or argument renames that pass final preflight through `ida_hexrays.rename_lvar()`. This path is intentionally separate from preview/export.
 
@@ -1081,6 +1088,7 @@ Wrapper options:
 - `-Resume`: skip EAs already present in the existing `.forge`.
 - `-OverwriteForge`: create a fresh `.forge` before append-only batch export.
 - `-UpsertForge`: slower path that verifies aggregate section replacement.
+- `-CancelFile PATH`: stop before the next function when the sentinel file exists.
 - `-LlmRenames`: use saved or explicit LLM rename assist settings.
 - `-NoPdb`: pass `-Opdb:off` to IDA so validation runs do not load PDB/debug symbols.
 - `-NoWait`: start the IDA process and return immediately.
@@ -1112,6 +1120,10 @@ Compare raw Hex-Rays output against PseudoForge output:
 
 Each JSONL function record includes legacy comparison paths, a shared-style
 `artifacts` map, SHA-256 hashes, line counts, and diff line counts.
+Batch reports also include `progress` records before each function starts so a
+long decompile or LLM-assisted function can be identified before it finishes.
+When `-CancelFile` is used, creating that file requests a cooperative stop at
+the next function boundary and records a `stop` event with `reason=cancel_file`.
 
 To include the same LLM assist path used by interactive IDA Analyze, add `-LlmRenames`. Full-kernel LLM batch runs can issue many provider calls, so check cost and runtime first.
 
@@ -1518,5 +1530,5 @@ Rename application fails:
 1. Continue deterministic rules v2 with a safe `flow` phase after stronger branch evidence exists.
 2. Improve shared and fallthrough branch body reconstruction.
 3. Manually validate identity-backed rename tracking and investigate true object-level ctree rename application.
-4. Implement a dockable side-by-side preview panel.
+4. Enhance the feature-flagged side-by-side preview with synchronized search and warning/rule summary panes.
 5. Expand profile coverage against real target builds.

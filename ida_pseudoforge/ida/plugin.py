@@ -12,6 +12,7 @@ except Exception:
 from ida_pseudoforge.ida.actions import (
     AnalyzeCurrentFunctionHandler,
     ApplySelectedRenamesHandler,
+    CancelCurrentTaskHandler,
     ConfigureLlmHandler,
     ConfigureProfileDirectoryHandler,
     ExportCleanedPseudocodeHandler,
@@ -36,6 +37,7 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
     preview_current_action_name = "pseudoforge:preview_current_analyzed_function"
     analyzed_functions_action_name = "pseudoforge:analyzed_functions"
     export_action_name = "pseudoforge:export_cleaned_pseudocode"
+    cancel_action_name = "pseudoforge:cancel_current_task"
     apply_renames_action_name = "pseudoforge:apply_selected_renames"
     configure_llm_action_name = "pseudoforge:configure_llm"
     configure_profile_action_name = "pseudoforge:configure_profile_dir"
@@ -68,6 +70,13 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
             ExportCleanedPseudocodeHandler(),
             "Ctrl+Alt+Shift+F",
             "Export a readable pseudocode bundle",
+        )
+        self._actions.register(
+            self.cancel_action_name,
+            "Cancel current operation",
+            CancelCurrentTaskHandler(),
+            "",
+            "Request cancellation for the running PseudoForge task",
         )
         self._actions.register(
             self.preview_current_action_name,
@@ -127,6 +136,10 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
         self._actions.attach_menu(
             "Edit/PseudoForge/Export cleaned pseudocode",
             self.export_action_name,
+        )
+        self._actions.attach_menu(
+            "Edit/PseudoForge/Cancel current operation",
+            self.cancel_action_name,
         )
         self._actions.attach_menu(
             "Edit/PseudoForge/Advanced/Apply selected renames to IDB",
@@ -212,6 +225,12 @@ class ContextMenuHooks(idaapi.UI_Hooks if idaapi else object):
                 form,
                 popup,
                 PseudoForgePlugin.export_action_name,
+                "PseudoForge/",
+            )
+            idaapi.attach_action_to_popup(
+                form,
+                popup,
+                PseudoForgePlugin.cancel_action_name,
                 "PseudoForge/",
             )
             idaapi.attach_action_to_popup(

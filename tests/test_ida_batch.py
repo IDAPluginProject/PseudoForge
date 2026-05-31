@@ -9,7 +9,9 @@ from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tools.pseudoforge_ida_batch import (
+    _batch_progress_record,
     _build_plan_with_optional_llm,
+    _cancel_file_requested,
     _function_file_stem,
     _write_compare_artifacts,
 )
@@ -29,6 +31,14 @@ class IdaBatchTests(unittest.TestCase):
     def test_ida_batch_report_summary_groups_statuses(self) -> None:
         records = [
             {"event": "start", "selected_functions": 3, "compare_dir": r"C:\tmp\compare"},
+            {
+                "event": "progress",
+                "phase": "function_start",
+                "index": 1,
+                "selected_functions": 3,
+                "ea": "0x1000",
+                "name": "A",
+            },
             {
                 "event": "function",
                 "status": "ok",
@@ -55,6 +65,7 @@ class IdaBatchTests(unittest.TestCase):
                 "warnings": 1,
                 "elapsed_seconds": 0.3,
             },
+            {"event": "stop", "reason": "cancel_file", "processed": 3},
             {"event": "summary", "processed": 3, "succeeded": 2, "skipped": 1, "failed": 0},
         ]
 
@@ -143,6 +154,25 @@ __int64 __fastcall LlmBatchSample(int a1)
         stem = _function_file_stem(0x1234, "bad:name<with>|chars?and spaces")
 
         self.assertEqual(stem, "0000000000001234_bad_name_with_chars_and_spaces")
+
+    def test_ida_batch_progress_record_identifies_next_function(self) -> None:
+        record = _batch_progress_record(0x140001000, "NtOpenProcess", 4, 25)
+
+        self.assertEqual("progress", record["event"])
+        self.assertEqual("function_start", record["phase"])
+        self.assertEqual(4, record["index"])
+        self.assertEqual(25, record["selected_functions"])
+        self.assertEqual("0x140001000", record["ea"])
+        self.assertEqual("NtOpenProcess", record["name"])
+
+    def test_ida_batch_cancel_file_requested_after_sentinel_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cancel_file = Path(temp_dir) / "cancel.flag"
+
+            self.assertFalse(_cancel_file_requested(cancel_file))
+            cancel_file.write_text("stop\n", encoding="utf-8")
+
+            self.assertTrue(_cancel_file_requested(cancel_file))
 
 
 if __name__ == "__main__":

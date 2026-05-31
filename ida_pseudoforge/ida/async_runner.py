@@ -11,7 +11,12 @@ from ida_pseudoforge.logging import log_checkpoint, log_event, log_output
 
 _ACTIVE_TASKS: set[str] = set()
 _ACTIVE_GROUPS: dict[str, str] = {}
+_ACTIVE_CANCELS: dict[str, threading.Event] = {}
 _ACTIVE_LOCK = threading.Lock()
+
+
+class CancellationRequested(RuntimeError):
+    pass
 
 
 def run_background(
@@ -35,6 +40,7 @@ def run_background(
             log_checkpoint("background.run.after", task=task_name, skipped=True, group=active_group)
             return False
         _ACTIVE_TASKS.add(task_name)
+        _ACTIVE_CANCELS[task_name] = threading.Event()
         if active_group:
             _ACTIVE_GROUPS[active_group] = task_name
 
@@ -46,6 +52,13 @@ def run_background(
         log_event("%s.worker.start" % task_name)
         try:
             result = work()
+            raise_if_cancelled(task_name)
+        except CancellationRequested as exc:
+            log_event("%s.worker.cancelled reason=\"%s\"" % (task_name, _ascii_for_log(str(exc))))
+            log_output("PseudoForge %s cancelled." % task_name)
+            _mark_done(task_name, active_group)
+            log_checkpoint("background.worker.after", task=task_name, cancelled=True)
+            return
         except Exception as exc:
             error_text = str(exc)
             log_event("%s.worker.failed error=\"%s\"" % (task_name, _ascii_for_log(error_text)))
@@ -102,6 +115,7 @@ def run_background(
 def _mark_done(task_name: str, group_name: str = "") -> None:
     with _ACTIVE_LOCK:
         _ACTIVE_TASKS.discard(task_name)
+        _ACTIVE_CANCELS.pop(task_name, None)
         if group_name and _ACTIVE_GROUPS.get(group_name) == task_name:
             del _ACTIVE_GROUPS[group_name]
 
@@ -109,6 +123,38 @@ def _mark_done(task_name: str, group_name: str = "") -> None:
 def active_group_task(group_name: str) -> str:
     with _ACTIVE_LOCK:
         return _ACTIVE_GROUPS.get(group_name, "")
+
+
+def request_cancel(task_name: str) -> bool:
+    with _ACTIVE_LOCK:
+        cancel_event = _ACTIVE_CANCELS.get(task_name)
+    if cancel_event is None:
+        return False
+    cancel_event.set()
+    log_event("%s.cancel.requested" % task_name)
+    log_output("PseudoForge cancellation requested for %s." % task_name)
+    return True
+
+
+def request_group_cancel(group_name: str) -> str:
+    with _ACTIVE_LOCK:
+        task_name = _ACTIVE_GROUPS.get(group_name, "")
+    if not task_name:
+        return ""
+    if request_cancel(task_name):
+        return task_name
+    return ""
+
+
+def cancel_requested(task_name: str) -> bool:
+    with _ACTIVE_LOCK:
+        cancel_event = _ACTIVE_CANCELS.get(task_name)
+    return bool(cancel_event is not None and cancel_event.is_set())
+
+
+def raise_if_cancelled(task_name: str) -> None:
+    if cancel_requested(task_name):
+        raise CancellationRequested("cancel requested for %s" % task_name)
 
 
 def _ascii_for_log(message: str) -> str:

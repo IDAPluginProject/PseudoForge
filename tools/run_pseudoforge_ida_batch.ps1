@@ -12,6 +12,7 @@ param(
     [string]$CompareDir = "",
     [string]$ProfileDir = "",
     [string]$ReportPath = "",
+    [string]$CancelFile = "",
     [string]$IdaLogPath = "",
     [int]$MaxFunctions = 0,
     [int]$MaxSeconds = 0,
@@ -126,6 +127,7 @@ Add-Option -Args $scriptArgs -Name "--forge-path" -Value $ForgePath
 Add-Option -Args $scriptArgs -Name "--target-path" -Value $TargetPath
 if ($CompareDir) { Add-Option -Args $scriptArgs -Name "--compare-dir" -Value $CompareDir }
 if ($ProfileDir) { Add-Option -Args $scriptArgs -Name "--profile-dir" -Value $ProfileDir }
+if ($CancelFile) { Add-Option -Args $scriptArgs -Name "--cancel-file" -Value $CancelFile }
 if ($CompareContext -ne 3) { Add-Option -Args $scriptArgs -Name "--compare-context" -Value ([string]$CompareContext) }
 if ($LlmRenames) { $scriptArgs.Add("--llm-renames") }
 if ($LlmProvider) { Add-Option -Args $scriptArgs -Name "--llm-provider" -Value $LlmProvider }
@@ -170,6 +172,10 @@ if ($CompareDir)
 if ($ProfileDir)
 {
     Write-Host "  Profile:$ProfileDir"
+}
+if ($CancelFile)
+{
+    Write-Host "  Cancel: $CancelFile"
 }
 if ($LlmRenames)
 {

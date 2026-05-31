@@ -917,18 +917,15 @@ Completed:
 - [x] Added an experimental dockable raw-vs-cleaned preview backend behind
   `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` while preserving
   `simplecustviewer_t` as the default and fallback path.
-
-Remaining:
-
-- [ ] Add cancellation/progress hooks for long LLM and batch work where IDA APIs
-  allow it.
+- [x] Added cooperative cancellation checkpoints for IDA analyze/export/apply
+  preparation plus a `Cancel current operation` action.
+- [x] Added headless IDA batch function-start progress records and
+  `--cancel-file` / wrapper `-CancelFile` stop-at-boundary support.
 
 ### Current Evidence
 
 - The simple custom viewer has preview size/highlight limits in
   `ida_pseudoforge/ida/ui_preview.py`.
-- The status document defers full non-blocking LLM model discovery.
-- The README lists a richer dockable side-by-side preview panel as pending.
 - The IDA analysis completion summary now includes rule-report diagnostic
   counts before the user opens the detailed JSON report.
 - Export summaries now include shared rule diagnostics with load/validation
@@ -938,6 +935,10 @@ Remaining:
 - Analysis preview can opt into an experimental dockable raw-vs-cleaned panel
   with `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`; `simplecustviewer_t` remains
   the default and fallback backend.
+- `Edit/PseudoForge/Cancel current operation` requests cooperative cancellation
+  for running interactive tasks at safe phase boundaries.
+- IDA batch JSONL reports emit `progress` records before each function starts
+  and support cancel-file sentinel stops between functions.
 
 ### Problem
 
@@ -1060,7 +1061,8 @@ increases drift.
 7. Add safe `flow` rule support only after stronger branch evidence exists.
 8. Improve switch reports before attempting deeper body reconstruction.
 9. Split `test_core_engine.py` after behavior is stabilized.
-10. Add dockable preview and non-blocking model discovery.
+10. Add dockable preview, non-blocking model discovery, and cooperative
+    cancellation/progress hooks.
 
 ## Current Validation Baseline To Preserve
 

@@ -539,6 +539,18 @@ P2 IDA side-by-side preview update:
   fallback path when the feature flag is disabled or the dockable backend cannot
   be created.
 
+P2 long-running operation cancellation/progress update:
+
+- Interactive IDA analyze/export/apply-preparation tasks now have cooperative
+  cancellation checkpoints and a `Cancel current operation` menu action.
+- Cancellation does not forcefully terminate an active Hex-Rays decompile or LLM
+  provider call; it stops at the next safe PseudoForge phase boundary.
+- Headless IDA batch reports now emit `progress` records before each function
+  starts, so the currently long-running function is visible before completion.
+- `tools/pseudoforge_ida_batch.py --cancel-file` and the wrapper
+  `-CancelFile` option stop at the next function boundary when the sentinel file
+  exists and record a `stop` event with `reason=cancel_file`.
+
 The current implementation state reflects the `NtSetSystemInformation` and `NtSetInformationProcess` large-dispatcher regression pass:
 
 - `NtSetSystemInformation` preview now uses the canonical native API signature and introduces typed `__m128i *` aliases without changing the underlying decompiler body semantics.
@@ -1175,7 +1187,8 @@ implemented:
 - Added focused plugin safety tests for session identity, stale apply refusal, apply preflight, IDB write gating, task coordination, action lifecycle, preview cleanup, Windows path identity normalization, and LLM config failure handling.
 
 deferred:
-- Full non-blocking LLM model discovery UI refresh is still deferred; current behavior keeps the existing dialog flow with safer fallback handling.
+- LLM model discovery now uses a non-blocking cache-backed refresh; richer live
+  refresh UI is still deferred.
 - True object-level ctree rename application is still incomplete; apply continues to call ida_hexrays.rename_lvar(function_ea, old, new) after the new session and identity preflight gates pass.
 - Manual IDA validation of identity-backed apply after local type/name refresh is still pending.
 - Interactive export now shares raw pseudocode, warnings JSON, raw-vs-cleaned diff, and summary JSON artifacts with the CLI paths; only IDA Free CLI-specific run manifest output remains separate.
@@ -1205,8 +1218,9 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
    - PseudoForge does not run browser login inside IDA; old `chatgpt_oauth` is not accepted as a provider ID.
    - IDA uses `Edit/PseudoForge/Configure LLM rename assist` and stores settings under the IDA user directory.
 
-3. IDA-side preview uses a simple text preview window.
-   - A richer dockable side-by-side panel is still pending.
+3. IDA-side preview defaults to a simple text preview window.
+   - A feature-flagged dockable raw-vs-cleaned side-by-side panel is available.
+   - Synchronized search and warning/rule summary panes are still pending.
 
 4. True object-level ctree rename application is not complete.
    - IDA apply currently uses `ida_hexrays.rename_lvar(function_ea, old, new)`
@@ -1217,7 +1231,8 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
 
 1. Extend deterministic rules matching engine beyond v2 preview reports with a safe `flow` phase when branch evidence is strong enough.
 2. Improve switch body reconstruction for shared/fallthrough branch paths.
-3. Add a richer dockable side-by-side preview panel.
+3. Enhance the feature-flagged side-by-side preview with synchronized search
+   and warning/rule summary panes.
 4. Manually validate identity-backed local variable rename application inside
    IDA after local type/name refresh.
 5. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.
