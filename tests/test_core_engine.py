@@ -1,8 +1,6 @@
 import unittest
 import json
-import os
 import re
-import tempfile
 from pathlib import Path
 
 import ida_pseudoforge
@@ -19,7 +17,6 @@ from ida_pseudoforge.core.render import (
 )
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 from ida_pseudoforge.ida import actions as actions_module
-from ida_pseudoforge.logging import append_bounded_log_line
 from ida_pseudoforge.version import PLUGIN_NAME, VERSION, plugin_title
 
 SAMPLE = r"""
@@ -1528,23 +1525,6 @@ LABEL_34:
         self.assertEqual(len(re.findall(r"(?m)^InvalidParameter_21:$", rendered)), 1)
         self.assertIn("goto LABEL_40;", rendered)
         self.assertNotRegex(rendered, r"(?ms)^InvalidParameter_21:.*?goto InvalidParameter_21;")
-
-    def test_bounded_log_line_rotates_at_limit(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            log_path = os.path.join(temp_dir, "pseudoforge_trace.log")
-            for index in range(20):
-                append_bounded_log_line(log_path, "line-%02d-%s" % (index, "X" * 20), max_bytes=160)
-
-            rotated_path = log_path + ".1"
-
-            self.assertTrue(os.path.exists(log_path))
-            self.assertTrue(os.path.exists(rotated_path))
-            self.assertLessEqual(os.path.getsize(log_path), 160)
-            self.assertLessEqual(os.path.getsize(rotated_path), 160)
-            with open(log_path, "r", encoding="utf-8") as file:
-                current_text = file.read()
-            self.assertIn("line-19", current_text)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -210,6 +210,7 @@ Implemented in this folder:
    - `tests/test_export_bundle.py`
    - `tests/test_ida_batch.py`
    - `tests/test_llm_config.py`
+   - `tests/test_logging.py`
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
@@ -394,6 +395,7 @@ P2 switch body reporting update:
 - No-PDB DriverEntry, DriverEntry wrapper, device-extension, and offset-guard
   regressions now live in `tests/test_render_driver_entry.py`.
 - Memory Manager probe regressions now live in `tests/test_render_memory.py`.
+- Bounded logging rotation regression now lives in `tests/test_logging.py`.
 - Status literal rendering regressions now live in `tests/test_render_status.py`.
 - NTSTATUS profile lookup and generator regressions now live in
   `tests/test_render_status.py`.
@@ -858,6 +860,15 @@ Memory Manager test-suite split validation:
 
 ```text
 python -B -m unittest tests.test_render_memory tests.test_core_engine -v: 33 tests OK
+python -B -m unittest discover -s tests -v: 265 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+```
+
+Logging test-suite split validation:
+
+```text
+python -B -m unittest tests.test_logging tests.test_core_engine -v: 32 tests OK
 python -B -m unittest discover -s tests -v: 265 tests OK
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
 git diff --check -- .: passed
