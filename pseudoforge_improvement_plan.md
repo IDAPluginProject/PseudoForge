@@ -710,6 +710,9 @@ Completed:
 - [x] Moved IOCTL/IRP dispatch, stack-location union-arm gating, buffered
   SystemBuffer, completion-tail, warning suppression, and CTL_CODE literal
   regressions into `tests/test_render_ioctl.py`.
+- [x] Moved callback signature, OB pre-operation, callback registration, packed
+  operation registration, and registry callback regressions into
+  `tests/test_render_callbacks.py`.
 
 Remaining:
 
@@ -720,9 +723,9 @@ Remaining:
 
 ### Current Evidence
 
-- `tests/test_core_engine.py` is 2612 lines after the focused forge-store,
+- `tests/test_core_engine.py` is 2134 lines after the focused forge-store,
   UI preview, RuleContext, rule-pack validator, RuleEngine, rule integration,
-  IDA batch, LLM config, kernel profile, and IOCTL/IRP splits.
+  IDA batch, LLM config, kernel profile, IOCTL/IRP, and callback splits.
 - Status literal rendering coverage now has a focused
   `tests/test_render_status.py` suite.
 - Dispatcher/profile literal coverage now has a focused
@@ -750,6 +753,9 @@ Remaining:
 - IOCTL/IRP dispatch, stack-location, SystemBuffer, completion-tail, warning
   suppression, and CTL_CODE literal coverage now lives in
   `tests/test_render_ioctl.py`.
+- Callback signature, OB pre-operation, callback registration, packed operation
+  registration, and registry callback coverage now lives in
+  `tests/test_render_callbacks.py`.
 - The status document already lists the historical monolith as deferred debt.
 - Test coverage is broad but organized mostly by accumulation rather than by
   subsystem.
