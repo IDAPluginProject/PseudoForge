@@ -173,6 +173,9 @@ Completed:
   `render_flow` module while preserving public render imports.
 - [x] Moved path-like C/C++ string literal finalization into a scoped
   `render_literals` module while preserving public render imports.
+- [x] Moved critical-region entry rewrite and LIST_ENTRY/provider-link hint
+  annotation into a scoped `render_kernel_hints` module while preserving public
+  render imports.
 
 Remaining:
 
@@ -184,9 +187,9 @@ Remaining:
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly
-  475 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
+  392 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
   DriverEntry, callback, IRP dispatch, Zw API, NtSet, warning-display,
-  flow/switch-outline, and path-literal extraction slices.
+  flow/switch-outline, path-literal, and kernel-hint extraction slices.
 - `render_cleaned_pseudocode()` still coordinates many ordered text passes in
   `ida_pseudoforge/core/render.py`.
 - `ida_pseudoforge/core/render.py` preserves the public `write_export_bundle`
@@ -210,6 +213,8 @@ Remaining:
   `ida_pseudoforge/core/render_flow.py`.
 - Path-like C/C++ string literal finalization now lives in
   `ida_pseudoforge/core/render_literals.py`.
+- Critical-region entry rewrite and LIST_ENTRY/provider-link hint annotation
+  now live in `ida_pseudoforge/core/render_kernel_hints.py`.
 
 ### Problem
 

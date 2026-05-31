@@ -86,6 +86,8 @@ Implemented in this folder:
    - path-like C/C++ string literal finalization lives in
      `ida_pseudoforge/core/render_literals.py` while preserving the public
      `ida_pseudoforge.core.render._finalize_rendered_c_like_text` import path
+   - critical-region entry rewrite and LIST_ENTRY/provider-link hint annotation
+     live in `ida_pseudoforge/core/render_kernel_hints.py`
    - `Show current analysis result` displays only the cached current function `.forge` section and does not trigger decompile, LLM, or `.forge` refresh work
    - top-level `Analyzed functions...` action opens a chooser from cached `.forge` section markers instead of opening the full aggregate file
    - switch outline export
@@ -179,6 +181,7 @@ Implemented in this folder:
    - `tests/test_render_driver_entry.py`
    - `tests/test_render_flow.py`
    - `tests/test_render_ioctl.py`
+   - `tests/test_render_kernel_hints.py`
    - `tests/test_render_labels.py`
    - `tests/test_render_literals.py`
    - `tests/test_render_ntset.py`
@@ -191,7 +194,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 246 unit tests
+   - current suite covers 249 unit tests
 
 ## Latest Implementation Notes
 
@@ -247,6 +250,10 @@ P1 renderer snapshot protection update:
   `ida_pseudoforge/core/render_literals.py` while preserving the public
   `ida_pseudoforge.core.render._finalize_rendered_c_like_text` import path
   used by forge storage and IDA preview save/copy paths.
+- Kernel hint rendering for critical-region entry normalization and
+  LIST_ENTRY/provider-link comments now lives in
+  `ida_pseudoforge/core/render_kernel_hints.py` while preserving the public
+  private-helper aliases imported through `ida_pseudoforge.core.render`.
 
 P1 profile loader diagnostics update:
 
@@ -679,6 +686,17 @@ python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: pass
 git diff --check -- .: passed
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_literals_extract_smoke: succeeded
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_literals_extract_smoke --format json --no-progress: succeeded
+```
+
+Kernel hint renderer extraction validation:
+
+```text
+python -B -m unittest tests.test_render_kernel_hints tests.test_core_engine.CoreEngineTests.test_kernel_driver_semantics tests.test_core_engine.CoreEngineTests.test_driver_entry_wrapper_comment_does_not_claim_device_creation_sequence tests.test_render_snapshots -v: 6 tests OK
+python -B -m unittest discover -s tests -v: 249 tests OK
+python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+git diff --check -- .: passed
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_kernel_hints_extract_smoke: succeeded
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_kernel_hints_extract_smoke --format json --no-progress: succeeded
 ```
 
 DriverEntry cleanup regression validation:
