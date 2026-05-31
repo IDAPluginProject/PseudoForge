@@ -6,9 +6,11 @@ import unittest
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
-    _highlight_preview_lines,
-    _syntax_highlight_lines,
     _bounded_panel_text,
+    _highlight_preview_lines,
+    _search_line_matches,
+    _side_by_side_summary_text,
+    _syntax_highlight_lines,
     show_text_view,
     side_by_side_preview_enabled,
 )
@@ -140,6 +142,30 @@ class UiPreviewTests(unittest.TestCase):
         self.assertNotIn("Right-click", rendered)
         self.assertNotIn("Copy all", rendered)
         self.assertNotIn("Save as", rendered)
+
+    def test_side_by_side_summary_includes_counts_and_analysis_summary(self) -> None:
+        summary = _side_by_side_summary_text(
+            "int raw;\nreturn raw;",
+            "// Warnings\n// Rule diagnostics\nint cleaned;",
+            "PseudoForge analyzed 0x1400: 1 rename(s), 0 flow rewrite(s), 1 warning(s)",
+        )
+
+        self.assertIn("Raw lines: 2", summary)
+        self.assertIn("Cleaned lines: 3", summary)
+        self.assertIn("Warning markers: 1", summary)
+        self.assertIn("Rule markers: 1", summary)
+        self.assertIn("PseudoForge analyzed 0x1400", summary)
+
+    def test_side_by_side_search_line_matches_are_case_insensitive_by_panel(self) -> None:
+        matches = _search_line_matches(
+            [
+                "alpha\nNeedle raw\nbeta",
+                "clean\nneedle cleaned\nneedle again",
+            ],
+            "NEEDLE",
+        )
+
+        self.assertEqual(matches, [(0, 1), (1, 1), (1, 2)])
 
     def test_side_by_side_backend_treats_false_show_result_as_failure(self) -> None:
         old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")

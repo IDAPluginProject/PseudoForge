@@ -553,6 +553,9 @@ P2 IDA side-by-side preview update:
 - Analysis preview can try an experimental dockable raw-vs-cleaned review panel
   when `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` is set before launching IDA.
 - The dockable panel uses IDA `PluginForm` plus Qt widgets when available.
+- The dockable panel now includes a read-only analysis summary pane for warning
+  and rule diagnostics plus a search bar that jumps both raw and cleaned panes
+  to the selected matching line.
 - The existing `simplecustviewer_t` preview remains the default path and the
   fallback path when the feature flag is disabled or the dockable backend cannot
   be created.
@@ -1237,7 +1240,8 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
 
 3. IDA-side preview defaults to a simple text preview window.
    - A feature-flagged dockable raw-vs-cleaned side-by-side panel is available.
-   - Synchronized search and warning/rule summary panes are still pending.
+   - The dockable panel includes synchronized line search and a warning/rule
+     analysis summary pane.
 
 4. True object-level ctree rename application is not complete.
    - IDA apply currently uses `ida_hexrays.rename_lvar(function_ea, old, new)`
@@ -1248,10 +1252,8 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
 ## Next Steps
 
 1. Improve switch body reconstruction for shared/fallthrough branch paths.
-2. Enhance the feature-flagged side-by-side preview with synchronized search
-   and warning/rule summary panes.
-3. Investigate true object-level ctree rename application beyond the validated
+2. Investigate true object-level ctree rename application beyond the validated
    identity preflight gates.
-4. Compare report-only deterministic rule candidates against more hard-coded
+3. Compare report-only deterministic rule candidates against more hard-coded
    renderer paths before any replacement work.
-5. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.
+4. Expand semantic overlays for more WDK APIs beyond the currently known pool/list/resource cases.

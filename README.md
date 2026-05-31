@@ -162,6 +162,7 @@ Implemented:
     configuration dialogs can open with static or cached model lists.
 29. IDA analysis preview can try an experimental dockable side-by-side raw vs
     cleaned review panel behind `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`,
+    with synchronized line search plus an analysis warning/rule summary pane,
     while preserving the existing `simplecustviewer_t` fallback.
 30. IDA analyze/export/apply tasks support cooperative cancellation checkpoints,
     and headless IDA batch runs can stop at a cancel-file boundary while writing
@@ -171,9 +172,8 @@ Still pending:
 
 1. Full switch body reconstruction for shared and fallthrough branches.
 2. True object-level ctree rename application beyond the current identity preflight gates.
-3. Richer side-by-side preview navigation, synchronized search, and warning/rule summary panes.
-4. Broader deterministic rule parity migration beyond report-only phases.
-5. Wider profile coverage from real target builds.
+3. Broader deterministic rule parity migration beyond report-only phases.
+4. Wider profile coverage from real target builds.
 
 Detailed implementation tracking lives in [pseudoforge_implementation_status.md](pseudoforge_implementation_status.md).
 
@@ -1549,6 +1549,5 @@ Rename application fails:
 
 1. Improve shared and fallthrough branch body reconstruction.
 2. Investigate true object-level ctree rename application beyond the validated identity preflight gates.
-3. Enhance the feature-flagged side-by-side preview with synchronized search and warning/rule summary panes.
-4. Expand profile coverage against real target builds.
-5. Compare report-only deterministic rule candidates against more hard-coded renderer paths before any replacement work.
+3. Expand profile coverage against real target builds.
+4. Compare report-only deterministic rule candidates against more hard-coded renderer paths before any replacement work.

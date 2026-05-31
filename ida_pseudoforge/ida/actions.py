@@ -590,6 +590,7 @@ def _show_analysis_preview(capture: FunctionCapture, plan: CleanPlan) -> None:
             reference_text=capture.pseudocode,
             reference_title="Raw Hex-Rays pseudocode",
             content_title="PseudoForge cleaned pseudocode",
+            summary_text=_format_analysis_summary(capture, plan),
         )
         return
 
@@ -606,6 +607,7 @@ def _show_analysis_preview(capture: FunctionCapture, plan: CleanPlan) -> None:
             reference_text=capture.pseudocode,
             reference_title="Raw Hex-Rays pseudocode",
             content_title="PseudoForge cleaned pseudocode",
+            summary_text=_format_analysis_summary(capture, plan),
         )
         return
 
@@ -642,6 +644,7 @@ def _show_analysis_preview(capture: FunctionCapture, plan: CleanPlan) -> None:
         reference_text=capture.pseudocode,
         reference_title="Raw Hex-Rays pseudocode",
         content_title="PseudoForge cleaned pseudocode",
+        summary_text=_format_analysis_summary(capture, plan),
     )
     log_event(
         "preview.analysis.fallback function=\"%s\" ea=0x%X"

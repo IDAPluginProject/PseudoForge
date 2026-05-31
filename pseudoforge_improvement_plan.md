@@ -914,7 +914,7 @@ conflict risk and makes it harder to identify which subsystem owns a regression.
 
 ## P2: IDA UX And Long-Running Operation Improvements
 
-Status: In progress.
+Status: Completed.
 
 Completed:
 
@@ -929,6 +929,8 @@ Completed:
 - [x] Added an experimental dockable raw-vs-cleaned preview backend behind
   `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` while preserving
   `simplecustviewer_t` as the default and fallback path.
+- [x] Added synchronized line search plus a warning/rule analysis summary pane
+  to the feature-flagged side-by-side preview.
 - [x] Added cooperative cancellation checkpoints for IDA analyze/export/apply
   preparation plus a `Cancel current operation` action.
 - [x] Added headless IDA batch function-start progress records and
@@ -947,6 +949,9 @@ Completed:
 - Analysis preview can opt into an experimental dockable raw-vs-cleaned panel
   with `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`; `simplecustviewer_t` remains
   the default and fallback backend.
+- The side-by-side panel includes search controls that jump both panes to the
+  selected match line and a read-only analysis summary pane populated from the
+  same warning/rule diagnostics used by the analysis completion popup.
 - `Edit/PseudoForge/Cancel current operation` requests cooperative cancellation
   for running interactive tasks at safe phase boundaries.
 - IDA batch JSONL reports emit `progress` records before each function starts
@@ -981,6 +986,10 @@ navigation, diffing, rule diagnostics, and long-running progress behavior.
 - Dockable panel can be disabled by environment/config.
 - Model discovery failure never corrupts saved config.
 - Large previews still fall back to plain text safely.
+
+Remaining:
+
+- None for the P2 IDA UX and long-running operation slice.
 
 ## P3: Real-Target Validation Continuation
 

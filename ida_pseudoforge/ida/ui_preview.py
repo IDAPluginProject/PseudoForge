@@ -177,6 +177,7 @@ def show_text_view(
     reference_text: str | None = None,
     reference_title: str = "Raw Hex-Rays pseudocode",
     content_title: str = "PseudoForge preview",
+    summary_text: str = "",
 ) -> str:
     text = _finalize_rendered_c_like_text(text)
     if reference_text is not None:
@@ -196,6 +197,7 @@ def show_text_view(
         target_stem=target_stem,
         reference_title=reference_title,
         content_title=content_title,
+        summary_text=summary_text,
     ):
         log_event("preview.show title=\"%s\" chars=%d backend=dockable_side_by_side" % (_ascii_for_log(title), len(text)))
         _trace_checkpoint("show_text_view.exit", title=title, backend="dockable_side_by_side")
@@ -261,6 +263,7 @@ def _try_show_side_by_side_view(
     target_stem: str | None = None,
     reference_title: str = "Raw Hex-Rays pseudocode",
     content_title: str = "PseudoForge preview",
+    summary_text: str = "",
 ) -> bool:
     if not _side_by_side_preview_enabled():
         return False
@@ -285,6 +288,7 @@ def _try_show_side_by_side_view(
             content_title=content_title,
             suggested_filename=suggested_filename or "",
             target_stem=target_stem or "",
+            summary_text=_side_by_side_summary_text(reference_text, content_text, summary_text),
         )
         options = int(getattr(plugin_form_cls, "WOPN_TAB", 0)) | int(getattr(plugin_form_cls, "WOPN_RESTORE", 0))
         shown = form.Show(title, options=options)
@@ -336,6 +340,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             content_title: str,
             suggested_filename: str,
             target_stem: str,
+            summary_text: str,
         ) -> None:
             super().__init__()
             self.title = title
@@ -345,7 +350,13 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             self.content_title = content_title
             self.suggested_filename = suggested_filename
             self.target_stem = target_stem
+            self.summary_text = summary_text
             self._widget = None
+            self._search_matches: list[tuple[int, int]] = []
+            self._search_index = 0
+            self._editors: list[object] = []
+            self._search_box = None
+            self._search_status = None
 
         def OnCreate(self, form) -> None:
             parent = self._form_to_widget(form)
@@ -354,11 +365,33 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             status = QtWidgets.QLabel("Preview only. IDB was not modified.")
             layout.addWidget(status)
 
+            summary = QtWidgets.QPlainTextEdit()
+            summary.setReadOnly(True)
+            summary.setMaximumHeight(128)
+            summary.setPlainText(self.summary_text)
+            layout.addWidget(summary)
+
+            search_row = QtWidgets.QHBoxLayout()
+            search_row.addWidget(QtWidgets.QLabel("Search"))
+            self._search_box = QtWidgets.QLineEdit()
+            self._search_box.setPlaceholderText("Text")
+            search_row.addWidget(self._search_box)
+            previous_button = QtWidgets.QPushButton("Prev")
+            next_button = QtWidgets.QPushButton("Next")
+            self._search_status = QtWidgets.QLabel("0 matches")
+            search_row.addWidget(previous_button)
+            search_row.addWidget(next_button)
+            search_row.addWidget(self._search_status)
+            layout.addLayout(search_row)
+
             splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
             splitter.addWidget(self._make_panel(self.reference_title, self.reference_text))
             splitter.addWidget(self._make_panel(self.content_title, self.content_text))
             splitter.setSizes([1, 1])
             layout.addWidget(splitter)
+            self._search_box.textChanged.connect(lambda _value: self._update_search())
+            previous_button.clicked.connect(lambda _checked=False: self._jump_to_search_match(-1))
+            next_button.clicked.connect(lambda _checked=False: self._jump_to_search_match(1))
             self._widget = parent
 
         def OnClose(self, form) -> None:
@@ -388,9 +421,95 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             editor.setFont(fixed_font)
             layout.addWidget(label)
             layout.addWidget(editor)
+            self._editors.append(editor)
             return panel
 
+        def _update_search(self) -> None:
+            query = self._search_box.text() if self._search_box is not None else ""
+            self._search_matches = _search_line_matches([self.reference_text, self.content_text], query)
+            self._search_index = 0
+            self._update_search_status(query)
+            self._focus_search_match()
+
+        def _jump_to_search_match(self, step: int) -> None:
+            if not self._search_matches:
+                return
+            self._search_index = (self._search_index + step) % len(self._search_matches)
+            self._update_search_status(self._search_box.text() if self._search_box is not None else "")
+            self._focus_search_match()
+
+        def _update_search_status(self, query: str) -> None:
+            if self._search_status is None:
+                return
+            if not query:
+                self._search_status.setText("0 matches")
+                return
+            if not self._search_matches:
+                self._search_status.setText("0 matches")
+                return
+            self._search_status.setText("%d/%d matches" % (self._search_index + 1, len(self._search_matches)))
+
+        def _focus_search_match(self) -> None:
+            if not self._search_matches:
+                return
+            panel_index, line_index = self._search_matches[self._search_index]
+            for editor in self._editors:
+                _scroll_editor_to_line(editor, line_index, QtGui)
+            if 0 <= panel_index < len(self._editors):
+                self._editors[panel_index].setFocus()
+
     return _SideBySidePreviewForm
+
+
+def _side_by_side_summary_text(reference_text: str, content_text: str, summary_text: str = "") -> str:
+    summary_lines = [
+        "Summary",
+        "Raw lines: %d" % _line_count(reference_text),
+        "Cleaned lines: %d" % _line_count(content_text),
+    ]
+    warning_count = _marker_count(content_text, "warning")
+    rule_count = _marker_count(content_text, "rule")
+    if warning_count:
+        summary_lines.append("Warning markers: %d" % warning_count)
+    if rule_count:
+        summary_lines.append("Rule markers: %d" % rule_count)
+    normalized_summary = (summary_text or "").strip()
+    if normalized_summary:
+        summary_lines.extend(["", normalized_summary])
+    return "\n".join(summary_lines)
+
+
+def _line_count(text: str) -> int:
+    if not text:
+        return 0
+    return len(text.splitlines())
+
+
+def _marker_count(text: str, marker: str) -> int:
+    pattern = re.compile(r"\b%s(?:s|ing)?\b" % re.escape(marker), re.IGNORECASE)
+    return len(pattern.findall(text or ""))
+
+
+def _search_line_matches(panel_texts: list[str], query: str) -> list[tuple[int, int]]:
+    needle = (query or "").strip().lower()
+    if not needle:
+        return []
+    result: list[tuple[int, int]] = []
+    for panel_index, text in enumerate(panel_texts):
+        for line_index, line in enumerate((text or "").splitlines()):
+            if needle in line.lower():
+                result.append((panel_index, line_index))
+    return result
+
+
+def _scroll_editor_to_line(editor, line_index: int, qt_gui) -> None:
+    cursor = editor.textCursor()
+    cursor.movePosition(qt_gui.QTextCursor.Start)
+    for _index in range(max(0, int(line_index))):
+        if not cursor.movePosition(qt_gui.QTextCursor.Down):
+            break
+    editor.setTextCursor(cursor)
+    editor.centerCursor()
 
 
 def _bounded_panel_text(text: str, source_path: str | Path | None) -> str:
