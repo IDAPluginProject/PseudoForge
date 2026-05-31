@@ -174,7 +174,7 @@ Implemented in this folder:
    - `tests/test_pseudoforge_free_cli.py`
    - `tests/test_release_pseudoforge.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 197 unit tests
+   - current suite covers 198 unit tests
 
 ## Latest Implementation Notes
 
@@ -210,6 +210,8 @@ P1 export artifact parity update:
 - Shared export bundles now include raw pseudocode, warnings JSON,
   raw-vs-cleaned diff, and per-function summary JSON in addition to the existing
   cleaned pseudocode, switch outline, rename map, flow report, and rule report.
+- Shared artifact writing now lives in `ida_pseudoforge/core/export_bundle.py`,
+  with a compatibility wrapper left at `ida_pseudoforge.core.render.write_export_bundle`.
 - IDA interactive export, offline CLI, and IDA Free CLI calls pass entrypoint
   metadata into the shared bundle writer.
 - IDA Free CLI keeps the existing `.ida-free-summary.json` summary filename

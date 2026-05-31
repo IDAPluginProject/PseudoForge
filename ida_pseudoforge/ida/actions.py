@@ -7,13 +7,14 @@ from ida_pseudoforge.config import (
     load_config,
     save_config,
 )
+from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.forge_store import (
     find_forge_function_section,
     write_forge_function,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
-from ida_pseudoforge.core.render import render_cleaned_pseudocode, write_export_bundle
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
 from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnalysisState
 from ida_pseudoforge.ida.async_runner import active_group_task, run_background

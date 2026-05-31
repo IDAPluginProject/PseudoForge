@@ -312,19 +312,21 @@ Completed:
   CLI, and IDA Free CLI.
 - [x] Added focused export bundle coverage for parity artifacts and summary
   metadata.
+- [x] Moved shared artifact writing into `ida_pseudoforge/core/export_bundle.py`
+  while preserving the legacy `ida_pseudoforge.core.render.write_export_bundle`
+  import path.
 
 Remaining:
 
-- [ ] Move shared artifact writing into a dedicated export module.
 - [ ] Add profile manifest metadata once profile manifests exist.
 - [ ] Align IDA batch compare artifacts with the shared bundle schema where
   practical.
 
 ### Current Evidence
 
-- `write_export_bundle()` writes cleaned pseudocode, switch outline, rename map,
-  flow report, rule report, raw pseudocode, warnings JSON, raw-vs-cleaned diff,
-  and per-function summary JSON.
+- `ida_pseudoforge/core/export_bundle.py` writes cleaned pseudocode, switch
+  outline, rename map, flow report, rule report, raw pseudocode, warnings JSON,
+  raw-vs-cleaned diff, and per-function summary JSON.
 - `tools/pseudoforge_free_cli.py` now uses the shared bundle writer for those
   artifacts, keeps its `.ida-free-summary.json` compatibility filename, and
   adds the run manifest.

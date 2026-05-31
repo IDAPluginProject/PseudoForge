@@ -150,9 +150,10 @@ def _load_deps() -> _Deps:
     try:
         from ida_pseudoforge.config import LlmConfig
         from ida_pseudoforge.core.capture import capture_from_pseudocode
+        from ida_pseudoforge.core.export_bundle import write_export_bundle
         from ida_pseudoforge.core.lvar_analysis import build_clean_plan
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
-        from ida_pseudoforge.core.render import render_cleaned_pseudocode, write_export_bundle
+        from ida_pseudoforge.core.render import render_cleaned_pseudocode
         from ida_pseudoforge.profiles.loader import profile_load_warnings
         from ida_pseudoforge.models.provider_factory import build_rename_provider
         from ida_pseudoforge.models.provider_registry import (

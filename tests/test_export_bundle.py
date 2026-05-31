@@ -6,8 +6,9 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.render import write_export_bundle
+from ida_pseudoforge.core.render import write_export_bundle as legacy_render_write_export_bundle
 
 
 SAMPLE = """
@@ -78,6 +79,16 @@ class ExportBundleTests(unittest.TestCase):
             self.assertEqual("ExportBundleSample.ida-free-summary.json", summary_path.name)
             self.assertTrue(summary_path.exists())
             self.assertFalse((Path(temp_dir) / "ExportBundleSample.summary.json").exists())
+
+    def test_legacy_render_export_import_remains_compatible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")
+            plan = build_clean_plan(capture)
+
+            artifacts = legacy_render_write_export_bundle(temp_dir, capture, plan)
+
+            self.assertTrue(Path(artifacts["cleaned_pseudocode"]).exists())
+            self.assertTrue(Path(artifacts["summary"]).exists())
 
 
 if __name__ == "__main__":
