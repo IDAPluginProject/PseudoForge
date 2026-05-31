@@ -236,6 +236,7 @@ ida_pseudoforge/
     render_labels.py
     render_literals.py
     render_ntset.py
+    render_signatures.py
     render_status.py
     render_style.py
     render_warnings.py
@@ -310,6 +311,7 @@ tests/
   test_render_literals.py
   test_render_ntset.py
   test_render_snapshots.py
+  test_render_signatures.py
   test_render_style.py
   test_render_warnings.py
   test_render_zw.py

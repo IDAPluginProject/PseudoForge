@@ -178,6 +178,9 @@ Completed:
   render imports.
 - [x] Moved low-byte parameter call-argument cleanup into a scoped
   `render_call_args` module while preserving public render imports.
+- [x] Moved known function/callback signature replacement and
+  signature-sensitive body routing into a scoped `render_signatures` module
+  while preserving public render imports.
 
 Remaining:
 
@@ -189,10 +192,10 @@ Remaining:
 ### Current Evidence
 
 - `ida_pseudoforge/core/render.py` is the largest production module at roughly
-  339 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
+  266 lines after the status, style, dispatcher, IOCTL/IRP, semantic-label,
   DriverEntry, callback, IRP dispatch, Zw API, NtSet, warning-display,
-  flow/switch-outline, path-literal, kernel-hint, and call-argument extraction
-  slices.
+  flow/switch-outline, path-literal, kernel-hint, call-argument, and signature
+  routing extraction slices.
 - `render_cleaned_pseudocode()` still coordinates many ordered text passes in
   `ida_pseudoforge/core/render.py`.
 - `ida_pseudoforge/core/render.py` preserves the public `write_export_bundle`
@@ -220,6 +223,8 @@ Remaining:
   now live in `ida_pseudoforge/core/render_kernel_hints.py`.
 - Low-byte parameter call-argument cleanup now lives in
   `ida_pseudoforge/core/render_call_args.py`.
+- Known function/callback signature replacement and signature-sensitive body
+  routing now live in `ida_pseudoforge/core/render_signatures.py`.
 
 ### Problem
 

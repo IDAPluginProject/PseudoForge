@@ -1,26 +1,12 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ida_pseudoforge.core.api_semantics import FUNCTION_SIGNATURE_OVERRIDES
 from ida_pseudoforge.core.kernel_api import apply_kernel_api_rewrites, kernel_api_prelude
 from ida_pseudoforge.core.kernel_rewrites import apply_kernel_rewrites, apply_known_kernel_struct_rewrites
-from ida_pseudoforge.core.kernel_semantics import (
-    looks_like_callback_registration_toggle,
-    looks_like_driver_entry,
-    looks_like_irp_dispatch,
-    looks_like_registry_callback_registration,
-    looks_like_zw_api_probe,
-)
-from ida_pseudoforge.core.normalize import extract_function_name, safe_identifier_replace
+from ida_pseudoforge.core.normalize import safe_identifier_replace
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
-from ida_pseudoforge.core.render_callbacks import (
-    apply_known_callback_signature as _apply_known_callback_signature_impl,
-    normalize_callback_registration_toggle_body as _normalize_callback_registration_toggle_body,
-    normalize_registry_callback_registration_body as _normalize_registry_callback_registration_body,
-)
 from ida_pseudoforge.core.render_call_args import (
     rewrite_parameter_low_byte_call_arguments as _rewrite_parameter_low_byte_call_arguments,
 )
@@ -28,10 +14,6 @@ from ida_pseudoforge.core.render_dispatcher import (
     replace_char_literal_cases as _replace_char_literal_cases,
     rewrite_process_information_class_literals as _rewrite_process_information_class_literals,
     rewrite_system_information_class_literals as _rewrite_system_information_class_literals,
-)
-from ida_pseudoforge.core.render_driver_entry import (
-    driver_entry_signature_override as _driver_entry_signature_override,
-    normalize_driver_entry_body as _normalize_driver_entry_body,
 )
 from ida_pseudoforge.core.render_flow import (
     format_flow_case_value as _format_flow_case_value,
@@ -42,8 +24,6 @@ from ida_pseudoforge.core.render_flow import (
 )
 from ida_pseudoforge.core.render_ioctl import (
     annotate_ioctl_code_switch_cases as _annotate_ioctl_code_switch_cases,
-    irp_dispatch_signature_override as _irp_dispatch_signature_override,
-    normalize_irp_dispatch_body as _normalize_irp_dispatch_body,
     rewrite_device_control_system_buffer as _rewrite_device_control_system_buffer,
     rewrite_irp_stack_location_fields as _rewrite_irp_stack_location_fields,
 )
@@ -72,15 +52,17 @@ from ida_pseudoforge.core.render_status import (
     _upgrade_kernel_status_types,
 )
 from ida_pseudoforge.core.render_style import enforce_generated_code_style
-from ida_pseudoforge.core.render_ntset import (
-    normalize_ntset_system_information_body as _normalize_ntset_system_information_body,
+from ida_pseudoforge.core.render_signatures import (
+    apply_known_callback_signature as _apply_known_callback_signature,
+    apply_known_function_signature as _apply_known_function_signature,
+    apply_known_signature_body_rewrites as _apply_known_signature_body_rewrites,
+    find_signature_end as _find_signature_end,
 )
 from ida_pseudoforge.core.render_warnings import (
     display_warning_count,
     display_warnings as _display_warnings,
     format_warning as _format_warning,
 )
-from ida_pseudoforge.core.render_zw import normalize_zw_api_probe_body as _normalize_zw_api_probe_body
 from ida_pseudoforge.version import VERSION
 
 
@@ -248,61 +230,6 @@ def render_switch_outline(
     rendered_text: str | None = None,
 ) -> str:
     return _finalize_rendered_c_like_text(_render_switch_outline_impl(capture, plan, rendered_text=rendered_text))
-
-
-def _apply_known_function_signature(text: str, capture: FunctionCapture) -> str:
-    override = FUNCTION_SIGNATURE_OVERRIDES.get(capture.name)
-    if not override and looks_like_driver_entry(capture):
-        override = _driver_entry_signature_override()
-    if not override and looks_like_irp_dispatch(capture):
-        override = _irp_dispatch_signature_override(capture.name or extract_function_name(capture.prototype))
-    if not override:
-        return text
-
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
-        if re.search(r"\b%s\s*\(" % re.escape(capture.name), line):
-            end_index = _find_signature_end(lines, index)
-            if end_index < index:
-                return text
-            lines = lines[:index] + override + lines[end_index + 1 :]
-            return "\n".join(lines)
-    return text
-
-
-def _apply_known_callback_signature(text: str, capture: FunctionCapture) -> str:
-    return _apply_known_callback_signature_impl(text, capture, _find_signature_end)
-
-
-def _apply_known_signature_body_rewrites(text: str, capture: FunctionCapture) -> str:
-    if capture.name != "NtSetSystemInformation":
-        if looks_like_driver_entry(capture):
-            return _normalize_driver_entry_body(text)
-        if looks_like_irp_dispatch(capture):
-            return _normalize_irp_dispatch_body(text)
-        if looks_like_callback_registration_toggle(capture):
-            return _normalize_callback_registration_toggle_body(text, capture)
-        if looks_like_registry_callback_registration(capture):
-            return _normalize_registry_callback_registration_body(text)
-        if looks_like_zw_api_probe(capture):
-            return _normalize_zw_api_probe_body(text)
-        return text
-    return _normalize_ntset_system_information_body(text)
-
-
-def _find_signature_end(lines: list[str], start_index: int) -> int:
-    depth = 0
-    seen_open = False
-    for index in range(start_index, len(lines)):
-        for char in lines[index]:
-            if char == "(":
-                depth += 1
-                seen_open = True
-            elif char == ")":
-                depth -= 1
-                if seen_open and depth <= 0:
-                    return index
-    return -1
 
 
 def _kernel_semantic_rewrite_count(plan: CleanPlan) -> int:
