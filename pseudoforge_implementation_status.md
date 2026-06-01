@@ -551,7 +551,9 @@ P2 IDA LLM model discovery UX update:
 P2 IDA side-by-side preview update:
 
 - Analysis preview can try an experimental dockable raw-vs-cleaned review panel
-  when `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` is set before launching IDA.
+  through the persisted `Edit/PseudoForge/Configure preview mode` setting.
+- `PSEUDOFORGE_PREVIEW_BACKEND` remains a temporary launch-time override for
+  forcing `side_by_side` or `simple` during troubleshooting.
 - The dockable panel uses IDA `PluginForm` plus Qt widgets when available.
 - The dockable panel now includes a read-only analysis summary pane for warning
   and rule diagnostics plus a search bar that jumps both raw and cleaned panes
@@ -656,8 +658,10 @@ Edit/PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Cancel current operation
   Configure LLM rename assist
   Configure profile directory
+  Configure preview mode
   Show settings
   Advanced/
     Apply selected renames to IDB
@@ -671,8 +675,10 @@ PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Cancel current operation
   Configure LLM rename assist
   Configure profile directory
+  Configure preview mode
   Show settings
   Advanced/
     Apply selected renames to IDB
@@ -1239,7 +1245,9 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
    - IDA uses `Edit/PseudoForge/Configure LLM rename assist` and stores settings under the IDA user directory.
 
 3. IDA-side preview defaults to a simple text preview window.
-   - A feature-flagged dockable raw-vs-cleaned side-by-side panel is available.
+   - A persisted setting can enable the dockable raw-vs-cleaned side-by-side
+     panel.
+   - `PSEUDOFORGE_PREVIEW_BACKEND` remains available as a temporary override.
    - The dockable panel includes synchronized line search and a warning/rule
      analysis summary pane.
 

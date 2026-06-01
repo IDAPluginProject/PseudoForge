@@ -28,6 +28,7 @@ from ida_pseudoforge.ida.async_runner import (
 )
 from ida_pseudoforge.ida.decompiler import capture_current_function, capture_current_lvars
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
+from ida_pseudoforge.ida.preview_config_dialog import ask_preview_config, format_preview_summary
 from ida_pseudoforge.ida.profile_config_dialog import ask_profile_dir, format_profile_summary
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 from ida_pseudoforge.ida.ui_preview import (
@@ -436,6 +437,39 @@ class ConfigureProfileDirectoryHandler(idaapi.action_handler_t if idaapi else ob
         return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
 
 
+class ConfigurePreviewModeHandler(idaapi.action_handler_t if idaapi else object):
+    def activate(self, ctx):
+        log_checkpoint("action.configure_preview.activate.before")
+        log_output("PseudoForge preview mode configuration requested.")
+        try:
+            config = load_config()
+            log_checkpoint("action.configure_preview.ask.before")
+            updated = ask_preview_config(config, warning)
+            log_checkpoint("action.configure_preview.ask.after", changed=updated is not None)
+            if updated is None:
+                info("PseudoForge preview mode unchanged.")
+                log_output("PseudoForge preview mode unchanged.")
+                log_checkpoint("action.configure_preview.activate.after", changed=False)
+                return 1
+            log_checkpoint("action.configure_preview.save.before")
+            path = save_config(updated)
+            log_checkpoint("action.configure_preview.save.after", path=str(path))
+            info(
+                "PseudoForge preview mode configured.\nConfig: %s\n%s"
+                % (path, format_preview_summary(updated.preview))
+            )
+            log_output("PseudoForge preview mode configuration saved.")
+        except Exception as exc:
+            log_checkpoint("action.configure_preview.activate.failed", error=str(exc))
+            warning(f"PseudoForge preview mode configuration failed: {exc}")
+        else:
+            log_checkpoint("action.configure_preview.activate.after", changed=True)
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
 class ShowSettingsHandler(idaapi.action_handler_t if idaapi else object):
     def activate(self, ctx):
         log_checkpoint("action.show_settings.activate.before")
@@ -448,12 +482,14 @@ class ShowSettingsHandler(idaapi.action_handler_t if idaapi else object):
                 "Version: %s\n"
                 "Config: %s\n"
                 "%s\n"
+                "%s\n"
                 "LLM rename assist: %s\n"
                 "%s"
                 % (
                     VERSION,
                     _safe_config_path_text(),
                     format_profile_summary(config.profile_dir),
+                    format_preview_summary(config.preview),
                     state,
                     format_llm_summary(config.llm, config),
                 )

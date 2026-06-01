@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+from ida_pseudoforge.config import PREVIEW_BACKEND_SIDE_BY_SIDE, load_config, normalize_preview_backend
 from ida_pseudoforge.core.forge_store import ForgeFunctionSection, parse_forge_function_sections
 from ida_pseudoforge.core.plan_schema import CleanPlan
 from ida_pseudoforge.core.render import _finalize_rendered_c_like_text
@@ -36,7 +37,6 @@ _MAX_HIGHLIGHT_CHARS = 256 * 1024
 _MAX_HIGHLIGHT_LINES = 8000
 _DISABLE_HIGHLIGHT_ENV = "PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT"
 _PREVIEW_BACKEND_ENV = "PSEUDOFORGE_PREVIEW_BACKEND"
-_SIDE_BY_SIDE_BACKENDS = {"side_by_side", "side-by-side", "dockable"}
 _ACTIONS_REGISTERED = False
 _COPY_ACTION = "pseudoforge:preview_copy_all"
 _SAVE_ACTION = "pseudoforge:preview_save_as"
@@ -305,7 +305,13 @@ def _try_show_side_by_side_view(
 
 def _side_by_side_preview_enabled() -> bool:
     backend = os.environ.get(_PREVIEW_BACKEND_ENV, "").strip().lower()
-    return backend in _SIDE_BY_SIDE_BACKENDS
+    if backend:
+        return normalize_preview_backend(backend) == PREVIEW_BACKEND_SIDE_BY_SIDE
+    try:
+        config = load_config()
+    except Exception:
+        return False
+    return normalize_preview_backend(config.preview.backend) == PREVIEW_BACKEND_SIDE_BY_SIDE
 
 
 def side_by_side_preview_enabled() -> bool:

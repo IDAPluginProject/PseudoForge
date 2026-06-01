@@ -927,10 +927,11 @@ Completed:
 - [x] Added non-blocking IDA LLM model discovery refresh through a background
   cache with static-list fallback and duplicate refresh suppression.
 - [x] Added an experimental dockable raw-vs-cleaned preview backend behind
-  `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` while preserving
+  a persisted `Configure preview mode` setting with
+  `PSEUDOFORGE_PREVIEW_BACKEND` kept as a temporary override, while preserving
   `simplecustviewer_t` as the default and fallback path.
 - [x] Added synchronized line search plus a warning/rule analysis summary pane
-  to the feature-flagged side-by-side preview.
+  to the configurable side-by-side preview.
 - [x] Added cooperative cancellation checkpoints for IDA analyze/export/apply
   preparation plus a `Cancel current operation` action.
 - [x] Added headless IDA batch function-start progress records and
@@ -947,8 +948,9 @@ Completed:
 - IDA LLM configuration now opens with cached/static models while live model
   discovery refreshes in the background.
 - Analysis preview can opt into an experimental dockable raw-vs-cleaned panel
-  with `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`; `simplecustviewer_t` remains
-  the default and fallback backend.
+  with `Edit/PseudoForge/Configure preview mode`;
+  `PSEUDOFORGE_PREVIEW_BACKEND` remains a temporary override, and
+  `simplecustviewer_t` remains the default and fallback backend.
 - The side-by-side panel includes search controls that jump both panes to the
   selected match line and a read-only analysis summary pane populated from the
   same warning/rule diagnostics used by the analysis completion popup.
@@ -966,7 +968,7 @@ navigation, diffing, rule diagnostics, and long-running progress behavior.
 ### Plan
 
 1. Keep `simplecustviewer_t` as the fallback path.
-2. Add a dockable side-by-side review panel behind a feature flag:
+2. Add a dockable side-by-side review panel behind a persisted setting:
    - raw pseudocode
    - cleaned pseudocode
    - synchronized line search

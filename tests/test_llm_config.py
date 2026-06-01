@@ -9,7 +9,9 @@ import unittest
 
 from ida_pseudoforge.config import (
     LlmConfig,
+    PREVIEW_BACKEND_SIDE_BY_SIDE,
     ProviderCredential,
+    PreviewConfig,
     PseudoForgeConfig,
     get_provider_api_key,
     load_config,
@@ -85,6 +87,7 @@ class LlmConfigTests(unittest.TestCase):
                         extra_headers={"X-Test": "1"},
                     ),
                     profile_dir=r"F:\profiles\wdk26100",
+                    preview=PreviewConfig(backend=PREVIEW_BACKEND_SIDE_BY_SIDE),
                     credentials={
                         PROVIDER_OPENROUTER: ProviderCredential(api_key="sk-test"),
                     },
@@ -96,16 +99,36 @@ class LlmConfigTests(unittest.TestCase):
                 self.assertTrue(path.exists())
                 self.assertNotIn("api_key", raw["llm"])
                 self.assertEqual(raw["profile_dir"], r"F:\profiles\wdk26100")
+                self.assertEqual(raw["preview"]["backend"], PREVIEW_BACKEND_SIDE_BY_SIDE)
                 self.assertEqual(raw["credentials"][PROVIDER_OPENROUTER]["api_key"], "sk-test")
                 self.assertTrue(loaded.llm.enabled)
                 self.assertEqual(loaded.llm.provider, PROVIDER_OPENROUTER)
                 self.assertEqual(loaded.profile_dir, r"F:\profiles\wdk26100")
+                self.assertEqual(loaded.preview.backend, PREVIEW_BACKEND_SIDE_BY_SIDE)
                 self.assertEqual(get_provider_api_key(loaded, PROVIDER_OPENROUTER), "sk-test")
                 self.assertEqual(loaded.llm.base_url, "https://openrouter.example.invalid/v1")
                 self.assertEqual(loaded.llm.model, "openrouter-test-model")
                 self.assertEqual(loaded.llm.timeout_seconds, 42)
                 self.assertEqual(loaded.llm.command_template, "test command")
                 self.assertEqual(loaded.llm.extra_headers["X-Test"], "1")
+            finally:
+                if old_config_dir is None:
+                    os.environ.pop("PSEUDOFORGE_CONFIG_DIR", None)
+                else:
+                    os.environ["PSEUDOFORGE_CONFIG_DIR"] = old_config_dir
+
+    def test_config_without_preview_settings_defaults_to_simple_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_config_dir = os.environ.get("PSEUDOFORGE_CONFIG_DIR")
+            os.environ["PSEUDOFORGE_CONFIG_DIR"] = temp_dir
+            try:
+                config_path = os.path.join(temp_dir, "pseudoforge_config.json")
+                with open(config_path, "w", encoding="utf-8") as file:
+                    json.dump({"llm": {"enabled": False}}, file)
+
+                loaded = load_config()
+
+                self.assertEqual(loaded.preview.backend, "simple")
             finally:
                 if old_config_dir is None:
                     os.environ.pop("PSEUDOFORGE_CONFIG_DIR", None)

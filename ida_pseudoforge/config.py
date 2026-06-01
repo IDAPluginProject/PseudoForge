@@ -31,6 +31,17 @@ _OLD_CLAUDE_COMMAND_TEMPLATES = {
     "claude -p --permission-mode dontAsk --output-format text",
     "claude -p --model {model} --permission-mode dontAsk --output-format text",
 }
+PREVIEW_BACKEND_SIMPLE = "simple"
+PREVIEW_BACKEND_SIDE_BY_SIDE = "side_by_side"
+_PREVIEW_BACKEND_ALIASES = {
+    "": PREVIEW_BACKEND_SIMPLE,
+    "simple": PREVIEW_BACKEND_SIMPLE,
+    "simple_viewer": PREVIEW_BACKEND_SIMPLE,
+    "simple-viewer": PREVIEW_BACKEND_SIMPLE,
+    "side_by_side": PREVIEW_BACKEND_SIDE_BY_SIDE,
+    "side-by-side": PREVIEW_BACKEND_SIDE_BY_SIDE,
+    "dockable": PREVIEW_BACKEND_SIDE_BY_SIDE,
+}
 
 
 @dataclass(slots=True)
@@ -50,9 +61,15 @@ class ProviderCredential:
 
 
 @dataclass(slots=True)
+class PreviewConfig:
+    backend: str = PREVIEW_BACKEND_SIMPLE
+
+
+@dataclass(slots=True)
 class PseudoForgeConfig:
     llm: LlmConfig
     profile_dir: str = ""
+    preview: PreviewConfig = field(default_factory=PreviewConfig)
     credentials: dict[str, ProviderCredential] = field(default_factory=dict)
 
 
@@ -94,6 +111,12 @@ def load_config() -> PseudoForgeConfig:
     provider = normalize_provider(llm_data.get("provider", PROVIDER_OPENAI_COMPATIBLE))
     defaults = provider_defaults(provider)
     credentials = _load_credentials(data, provider, llm_data)
+    preview_data = data.get("preview", {}) if isinstance(data, dict) else {}
+    preview_backend = ""
+    if isinstance(preview_data, dict):
+        preview_backend = str(preview_data.get("backend", "") or "")
+    if not preview_backend and isinstance(data, dict):
+        preview_backend = str(data.get("preview_backend", "") or "")
     command_template = _coerce_command_template(
         provider,
         llm_data.get("command_template", defaults.command_template),
@@ -110,6 +133,7 @@ def load_config() -> PseudoForgeConfig:
             extra_headers=_coerce_string_map(llm_data.get("extra_headers", {})),
         ),
         profile_dir=str(data.get("profile_dir", "") or "") if isinstance(data, dict) else "",
+        preview=PreviewConfig(backend=normalize_preview_backend(preview_backend)),
         credentials=credentials,
     )
 
@@ -140,6 +164,18 @@ def get_provider_api_key(config: PseudoForgeConfig, provider: str) -> str:
 def set_provider_api_key(config: PseudoForgeConfig, provider: str, api_key: str) -> None:
     normalized = normalize_provider(provider)
     config.credentials[normalized] = ProviderCredential(api_key=api_key)
+
+
+def normalize_preview_backend(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    return _PREVIEW_BACKEND_ALIASES.get(normalized, PREVIEW_BACKEND_SIMPLE)
+
+
+def preview_backend_label(value: object) -> str:
+    backend = normalize_preview_backend(value)
+    if backend == PREVIEW_BACKEND_SIDE_BY_SIDE:
+        return "Side-by-side dockable preview"
+    return "Simple preview viewer"
 
 
 def _coerce_timeout(value: object) -> int:

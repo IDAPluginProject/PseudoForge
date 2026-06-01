@@ -161,9 +161,10 @@ Implemented:
 28. IDA LLM model discovery uses a non-blocking background refresh cache so
     configuration dialogs can open with static or cached model lists.
 29. IDA analysis preview can try an experimental dockable side-by-side raw vs
-    cleaned review panel behind `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side`,
-    with synchronized line search plus an analysis warning/rule summary pane,
-    while preserving the existing `simplecustviewer_t` fallback.
+    cleaned review panel through the persisted `Configure preview mode` setting
+    or temporary `PSEUDOFORGE_PREVIEW_BACKEND` override, with synchronized line
+    search plus an analysis warning/rule summary pane, while preserving the
+    existing `simplecustviewer_t` fallback.
 30. IDA analyze/export/apply tasks support cooperative cancellation checkpoints,
     and headless IDA batch runs can stop at a cancel-file boundary while writing
     per-function start progress records.
@@ -403,6 +404,8 @@ Edit/PseudoForge/
   Export cleaned pseudocode
   Cancel current operation
   Configure LLM rename assist
+  Configure profile directory
+  Configure preview mode
   Show settings
   Advanced/
     Apply selected renames to IDB
@@ -418,6 +421,8 @@ PseudoForge/
   Export cleaned pseudocode
   Cancel current operation
   Configure LLM rename assist
+  Configure profile directory
+  Configure preview mode
   Show settings
   Advanced/
     Apply selected renames to IDB
@@ -448,7 +453,11 @@ Ctrl+Alt+Shift+F  Export cleaned pseudocode
 
 `Configure LLM rename assist` stores optional LLM settings in `<IDA user directory>\pseudoforge_config.json`. HTTP provider API keys are stored per provider under `credentials` and are prompted only when an enabled provider needs a missing key.
 
-`Show settings` displays the current plugin version, config path, and LLM status. API keys are masked.
+`Configure profile directory` stores an optional profile root in `<IDA user directory>\pseudoforge_config.json`.
+
+`Configure preview mode` stores the preferred preview backend in `<IDA user directory>\pseudoforge_config.json`.
+
+`Show settings` displays the current plugin version, config path, profile status, preview mode, and LLM status. API keys are masked.
 
 ### Preview Behavior
 
@@ -461,10 +470,14 @@ Ctrl+Alt+Shift+F  Export cleaned pseudocode
 - Viewer lines use IDA color tag syntax highlighting where practical; large previews automatically fall back to plain text.
 - `.forge`, `Copy all`, and `Save as...` output remain plain text without color tags.
 - Set `PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT=1` before launching IDA to isolate syntax-highlight issues.
-- Set `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` before launching IDA to try
-  the experimental dockable raw-vs-cleaned review panel. If IDA `PluginForm` or
-  Qt widgets are unavailable, PseudoForge falls back to the existing simple
+- Run `Edit/PseudoForge/Configure preview mode` and select
+  `Side-by-side dockable preview` to persist the experimental dockable
+  raw-vs-cleaned review panel in `pseudoforge_config.json`. If IDA `PluginForm`
+  or Qt widgets are unavailable, PseudoForge falls back to the existing simple
   custom viewer.
+- `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` remains available as a temporary
+  override before launching IDA. Set it to `simple` to temporarily force the
+  simple custom viewer even when the saved config enables side-by-side preview.
 - Right-click in the preview for `PseudoForge/Copy all`, `PseudoForge/Save as...`, and `PseudoForge/Analyzed functions...`.
 - `PseudoForge/Analyzed functions...` and the top-level `Analyzed functions...` action parse `.forge` markers and open a chooser of all analyzed sections.
 - Function-section `Save as...` defaults to `PseudoForge__<target>__<function>_0x<EA>.cpp`.
@@ -744,6 +757,10 @@ Example:
     "timeout_seconds": 60,
     "command_template": "",
     "extra_headers": {}
+  },
+  "profile_dir": "",
+  "preview": {
+    "backend": "simple"
   },
   "credentials": {
     "openai_compatible": {

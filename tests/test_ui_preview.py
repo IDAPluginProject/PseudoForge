@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
 
+from ida_pseudoforge.config import (
+    LlmConfig,
+    PREVIEW_BACKEND_SIDE_BY_SIDE,
+    PreviewConfig,
+    PseudoForgeConfig,
+    save_config,
+)
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
@@ -97,6 +105,54 @@ class UiPreviewTests(unittest.TestCase):
                 os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
             else:
                 os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_value
+
+    def test_side_by_side_preview_uses_saved_preview_config_without_env(self) -> None:
+        old_backend = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
+        old_config_dir = os.environ.get("PSEUDOFORGE_CONFIG_DIR")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+            os.environ["PSEUDOFORGE_CONFIG_DIR"] = temp_dir
+            save_config(
+                PseudoForgeConfig(
+                    llm=LlmConfig(enabled=False),
+                    preview=PreviewConfig(backend=PREVIEW_BACKEND_SIDE_BY_SIDE),
+                )
+            )
+            try:
+                self.assertTrue(side_by_side_preview_enabled())
+            finally:
+                if old_backend is None:
+                    os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+                else:
+                    os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_backend
+                if old_config_dir is None:
+                    os.environ.pop("PSEUDOFORGE_CONFIG_DIR", None)
+                else:
+                    os.environ["PSEUDOFORGE_CONFIG_DIR"] = old_config_dir
+
+    def test_side_by_side_preview_env_overrides_saved_preview_config(self) -> None:
+        old_backend = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
+        old_config_dir = os.environ.get("PSEUDOFORGE_CONFIG_DIR")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ["PSEUDOFORGE_CONFIG_DIR"] = temp_dir
+            os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "simple"
+            save_config(
+                PseudoForgeConfig(
+                    llm=LlmConfig(enabled=False),
+                    preview=PreviewConfig(backend=PREVIEW_BACKEND_SIDE_BY_SIDE),
+                )
+            )
+            try:
+                self.assertFalse(side_by_side_preview_enabled())
+            finally:
+                if old_backend is None:
+                    os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+                else:
+                    os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_backend
+                if old_config_dir is None:
+                    os.environ.pop("PSEUDOFORGE_CONFIG_DIR", None)
+                else:
+                    os.environ["PSEUDOFORGE_CONFIG_DIR"] = old_config_dir
 
     def test_show_text_view_uses_feature_flagged_side_by_side_backend(self) -> None:
         old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")

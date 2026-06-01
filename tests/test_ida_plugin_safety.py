@@ -4,7 +4,12 @@ import time
 import unittest
 from pathlib import Path
 
-from ida_pseudoforge.config import LlmConfig, PseudoForgeConfig
+from ida_pseudoforge.config import (
+    LlmConfig,
+    PREVIEW_BACKEND_SIDE_BY_SIDE,
+    PreviewConfig,
+    PseudoForgeConfig,
+)
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
     FunctionCapture,
@@ -694,11 +699,13 @@ class IdaPluginSafetyTests(unittest.TestCase):
             self.assertIn(plugin_module.PseudoForgePlugin.preview_current_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.analyzed_functions_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.cancel_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.configure_preview_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_profile_action_name, fake_idaapi.registered)
             self.assertNotIn(plugin_module.PseudoForgePlugin.legacy_preview_action_name, fake_idaapi.registered)
             self.assertIn("Edit/PseudoForge/Show current analysis result", attached_paths)
             self.assertIn("Edit/PseudoForge/Analyzed functions...", attached_paths)
             self.assertIn("Edit/PseudoForge/Cancel current operation", attached_paths)
+            self.assertIn("Edit/PseudoForge/Configure preview mode", attached_paths)
             self.assertIn("Edit/PseudoForge/Configure profile directory", attached_paths)
             self.assertNotIn("Edit/PseudoForge/Preview cleaned pseudocode", attached_paths)
         finally:
@@ -841,6 +848,43 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertIn("Profile directory: %s" % selected, messages[0])
 
+    def test_configure_preview_mode_handler_saves_selection(self):
+        handler = actions_module.ConfigurePreviewModeHandler()
+        old_load = actions_module.load_config
+        old_save = actions_module.save_config
+        old_ask = actions_module.ask_preview_config
+        old_summary = actions_module.format_preview_summary
+        old_info = actions_module.info
+        old_warning = actions_module.warning
+        saved_configs = []
+        messages = []
+        warnings = []
+
+        def fake_ask(config, warn):
+            config.preview = PreviewConfig(backend=PREVIEW_BACKEND_SIDE_BY_SIDE)
+            return config
+
+        actions_module.load_config = lambda: PseudoForgeConfig(llm=LlmConfig(enabled=False))
+        actions_module.save_config = lambda config: saved_configs.append(config) or Path(r"F:\ida\pseudoforge_config.json")
+        actions_module.ask_preview_config = fake_ask
+        actions_module.format_preview_summary = lambda preview: "Preview mode: %s" % preview.backend
+        actions_module.info = messages.append
+        actions_module.warning = warnings.append
+        try:
+            self.assertEqual(handler.activate(None), 1)
+        finally:
+            actions_module.load_config = old_load
+            actions_module.save_config = old_save
+            actions_module.ask_preview_config = old_ask
+            actions_module.format_preview_summary = old_summary
+            actions_module.info = old_info
+            actions_module.warning = old_warning
+
+        self.assertFalse(warnings)
+        self.assertEqual([config.preview.backend for config in saved_configs], [PREVIEW_BACKEND_SIDE_BY_SIDE])
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Preview mode: %s" % PREVIEW_BACKEND_SIDE_BY_SIDE, messages[0])
+
     def test_build_plan_applies_configured_profile_dir_before_analysis(self):
         capture = _capture()
         old_load = actions_module.load_config
@@ -885,6 +929,7 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertIn("Version: %s" % VERSION, messages[0])
         self.assertIn("Profile directory:", messages[0])
+        self.assertIn("Preview mode:", messages[0])
 
 
 if __name__ == "__main__":

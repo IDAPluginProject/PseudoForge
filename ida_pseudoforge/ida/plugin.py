@@ -14,6 +14,7 @@ from ida_pseudoforge.ida.actions import (
     ApplySelectedRenamesHandler,
     CancelCurrentTaskHandler,
     ConfigureLlmHandler,
+    ConfigurePreviewModeHandler,
     ConfigureProfileDirectoryHandler,
     ExportCleanedPseudocodeHandler,
     PreviewCurrentAnalyzedFunctionHandler,
@@ -40,6 +41,7 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
     cancel_action_name = "pseudoforge:cancel_current_task"
     apply_renames_action_name = "pseudoforge:apply_selected_renames"
     configure_llm_action_name = "pseudoforge:configure_llm"
+    configure_preview_action_name = "pseudoforge:configure_preview_mode"
     configure_profile_action_name = "pseudoforge:configure_profile_dir"
     show_settings_action_name = "pseudoforge:show_settings"
     legacy_preview_action_name = "pseudoforge:preview_cleaned_pseudocode"
@@ -114,6 +116,13 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
             "Configure the PseudoForge profile directory",
         )
         self._actions.register(
+            self.configure_preview_action_name,
+            "Configure preview mode",
+            ConfigurePreviewModeHandler(),
+            "",
+            "Configure the PseudoForge preview mode",
+        )
+        self._actions.register(
             self.show_settings_action_name,
             "Show settings",
             ShowSettingsHandler(),
@@ -152,6 +161,10 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
         self._actions.attach_menu(
             "Edit/PseudoForge/Configure profile directory",
             self.configure_profile_action_name,
+        )
+        self._actions.attach_menu(
+            "Edit/PseudoForge/Configure preview mode",
+            self.configure_preview_action_name,
         )
         self._actions.attach_menu(
             "Edit/PseudoForge/Show settings",
@@ -249,6 +262,12 @@ class ContextMenuHooks(idaapi.UI_Hooks if idaapi else object):
                 form,
                 popup,
                 PseudoForgePlugin.configure_profile_action_name,
+                "PseudoForge/",
+            )
+            idaapi.attach_action_to_popup(
+                form,
+                popup,
+                PseudoForgePlugin.configure_preview_action_name,
                 "PseudoForge/",
             )
             idaapi.attach_action_to_popup(
