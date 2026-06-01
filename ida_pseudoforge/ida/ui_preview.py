@@ -37,7 +37,9 @@ _MAX_PREVIEW_CHARS = 512 * 1024
 _MAX_PREVIEW_LINES = 12000
 _MAX_HIGHLIGHT_CHARS = 256 * 1024
 _MAX_HIGHLIGHT_LINES = 8000
-_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT = 72
+_SIDE_BY_SIDE_STATUS_MAX_HEIGHT = 18
+_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT = 44
+_SIDE_BY_SIDE_SEARCH_MAX_HEIGHT = 28
 _DISABLE_HIGHLIGHT_ENV = "PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT"
 _PREVIEW_BACKEND_ENV = "PSEUDOFORGE_PREVIEW_BACKEND"
 _ACTIONS_REGISTERED = False
@@ -392,6 +394,17 @@ def _fixed_width_system_font(qt_gui):
     return font_database_cls.systemFont(fixed_font)
 
 
+def _size_policy_value(qt_widgets, name: str):
+    policy_cls = qt_widgets.QSizePolicy
+    value = getattr(policy_cls, name, None)
+    if value is not None:
+        return value
+    policy_enum_cls = getattr(policy_cls, "Policy", None)
+    if policy_enum_cls is None:
+        raise AttributeError("QSizePolicy enum is unavailable: %s" % name)
+    return getattr(policy_enum_cls, name)
+
+
 def _side_by_side_form_class(plugin_form_cls, qt_modules):
     QtCore, QtGui, QtWidgets = qt_modules
 
@@ -428,16 +441,32 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             parent = self._form_to_widget(form)
             layout = QtWidgets.QVBoxLayout(parent)
             layout.setContentsMargins(6, 6, 6, 6)
+            layout.setSpacing(4)
             status = QtWidgets.QLabel("Preview only. IDB was not modified.")
-            layout.addWidget(status)
+            status.setMaximumHeight(_SIDE_BY_SIDE_STATUS_MAX_HEIGHT)
+            status.setSizePolicy(
+                _size_policy_value(QtWidgets, "Preferred"),
+                _size_policy_value(QtWidgets, "Fixed"),
+            )
+            layout.addWidget(status, 0)
 
-            summary = QtWidgets.QPlainTextEdit()
-            summary.setReadOnly(True)
+            summary = QtWidgets.QLabel(self.summary_text)
             summary.setMaximumHeight(_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT)
-            summary.setPlainText(self.summary_text)
-            layout.addWidget(summary)
+            summary.setSizePolicy(
+                _size_policy_value(QtWidgets, "Preferred"),
+                _size_policy_value(QtWidgets, "Fixed"),
+            )
+            layout.addWidget(summary, 0)
 
-            search_row = QtWidgets.QHBoxLayout()
+            search_widget = QtWidgets.QWidget()
+            search_widget.setMaximumHeight(_SIDE_BY_SIDE_SEARCH_MAX_HEIGHT)
+            search_widget.setSizePolicy(
+                _size_policy_value(QtWidgets, "Preferred"),
+                _size_policy_value(QtWidgets, "Fixed"),
+            )
+            search_row = QtWidgets.QHBoxLayout(search_widget)
+            search_row.setContentsMargins(0, 0, 0, 0)
+            search_row.setSpacing(6)
             search_row.addWidget(QtWidgets.QLabel("Search"))
             self._search_box = QtWidgets.QLineEdit()
             self._search_box.setPlaceholderText("Text")
@@ -448,13 +477,13 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             search_row.addWidget(previous_button)
             search_row.addWidget(next_button)
             search_row.addWidget(self._search_status)
-            layout.addLayout(search_row)
+            layout.addWidget(search_widget, 0)
 
             splitter = QtWidgets.QSplitter(_qt_horizontal_orientation(QtCore))
             splitter.addWidget(self._make_panel(self.reference_title, self.reference_text))
             splitter.addWidget(self._make_panel(self.content_title, self.content_text))
             splitter.setSizes([1, 1])
-            layout.addWidget(splitter)
+            layout.addWidget(splitter, 1)
             self._search_box.textChanged.connect(lambda _value: self._update_search())
             previous_button.clicked.connect(lambda _checked=False: self._jump_to_search_match(-1))
             next_button.clicked.connect(lambda _checked=False: self._jump_to_search_match(1))
@@ -525,21 +554,22 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
 
 
 def _side_by_side_summary_text(reference_text: str, content_text: str, summary_text: str = "") -> str:
-    summary_lines = [
-        "Summary",
+    summary_parts = [
         "Raw lines: %d" % _line_count(reference_text),
         "Cleaned lines: %d" % _line_count(content_text),
     ]
     warning_count = _marker_count(content_text, "warning")
     rule_count = _marker_count(content_text, "rule")
     if warning_count:
-        summary_lines.append("Warning markers: %d" % warning_count)
+        summary_parts.append("Warning markers: %d" % warning_count)
     if rule_count:
-        summary_lines.append("Rule markers: %d" % rule_count)
+        summary_parts.append("Rule markers: %d" % rule_count)
     normalized_summary = (summary_text or "").strip()
     if normalized_summary:
-        summary_lines.extend(["", normalized_summary])
-    return "\n".join(summary_lines)
+        first_summary_line = normalized_summary.splitlines()[0].strip()
+        if first_summary_line:
+            summary_parts.append(first_summary_line)
+    return " | ".join(summary_parts)
 
 
 def _apply_side_by_side_syntax_highlighting(editor, qt_gui):
@@ -570,6 +600,9 @@ def _side_by_side_highlighter_class(qt_gui):
             self._rules = _side_by_side_highlight_rules()
 
         def highlightBlock(self, text: str) -> None:
+            plain_format = self._formats.get("plain")
+            if plain_format is not None and text:
+                self.setFormat(0, len(text), plain_format)
             for pattern, role in self._rules:
                 text_format = self._formats.get(role)
                 if text_format is None:
@@ -583,24 +616,15 @@ def _side_by_side_highlighter_class(qt_gui):
             if text_format is None:
                 return
             self.setCurrentBlockState(0)
-            start_index = 0 if self.previousBlockState() == 1 else text.find("/*")
-            while start_index >= 0:
-                end_index = text.find("*/", start_index + 2)
-                if end_index < 0:
-                    self.setCurrentBlockState(1)
-                    length = len(text) - start_index
-                else:
-                    length = end_index - start_index + 2
+            for start_index, length in _side_by_side_block_comment_spans(text):
                 self.setFormat(start_index, length, text_format)
-                if end_index < 0:
-                    break
-                start_index = text.find("/*", start_index + length)
 
     return _SideBySideSyntaxHighlighter
 
 
 def _side_by_side_text_formats(qt_gui) -> dict[str, object]:
     palette = {
+        "plain": (220, 220, 220),
         "keyword": (86, 156, 214),
         "constant": (78, 201, 176),
         "number": (181, 206, 168),
@@ -615,6 +639,20 @@ def _side_by_side_text_formats(qt_gui) -> dict[str, object]:
         text_format.setForeground(qt_gui.QColor(*rgb))
         formats[role] = text_format
     return formats
+
+
+def _side_by_side_block_comment_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    start_index = (text or "").find("/*")
+    while start_index >= 0:
+        end_index = text.find("*/", start_index + 2)
+        if end_index < 0:
+            spans.append((start_index, len(text) - start_index))
+            break
+        length = end_index - start_index + 2
+        spans.append((start_index, length))
+        start_index = text.find("/*", start_index + length)
+    return spans
 
 
 def _side_by_side_highlight_rules() -> list[tuple[re.Pattern[str], str]]:

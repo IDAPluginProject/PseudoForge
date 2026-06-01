@@ -932,6 +932,12 @@ Completed:
   `simplecustviewer_t` as the default and fallback path.
 - [x] Added synchronized line search plus a warning/rule analysis summary pane
   to the configurable side-by-side preview.
+- [x] Tightened the side-by-side top controls into fixed-height status,
+  summary, and search rows so the code splitter receives the available vertical
+  space.
+- [x] Added a neutral base foreground to Qt side-by-side syntax highlighting and
+  made block-comment highlighting line-local to avoid comment-green bleed into
+  pseudocode.
 - [x] Reused the active raw Hex-Rays analysis session for cached
   current-function side-by-side preview when the session still matches the
   function, with a visible cleaned-only fallback warning when raw context is
@@ -957,9 +963,11 @@ Completed:
   with `Edit/PseudoForge/Configure preview mode`;
   `PSEUDOFORGE_PREVIEW_BACKEND` remains a temporary override, and
   `simplecustviewer_t` remains the default and fallback backend.
-- The side-by-side panel includes search controls that jump both panes to the
-  selected match line and a read-only analysis summary pane populated from the
-  same warning/rule diagnostics used by the analysis completion popup.
+- The side-by-side panel includes fixed-height search controls that jump both
+  panes to the selected match line and a compact warning/rule summary row
+  populated from the same diagnostics used by the analysis completion popup.
+- The side-by-side highlighter applies a neutral plain-text base before token
+  colors, so unhighlighted pseudocode stays readable under IDA dark themes.
 - Cached current-function preview can open side-by-side when the active analysis
   session still has matching raw pseudocode; otherwise it warns and falls back
   to the cached cleaned section.

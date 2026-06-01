@@ -14,6 +14,8 @@ from ida_pseudoforge.config import (
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
+    _SIDE_BY_SIDE_SEARCH_MAX_HEIGHT,
+    _SIDE_BY_SIDE_STATUS_MAX_HEIGHT,
     _SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT,
     _bounded_panel_text,
     _fixed_width_system_font,
@@ -21,9 +23,12 @@ from ida_pseudoforge.ida.ui_preview import (
     _plain_text_no_wrap,
     _qt_horizontal_orientation,
     _search_line_matches,
+    _side_by_side_block_comment_spans,
     _side_by_side_summary_text,
+    _side_by_side_text_formats,
     _side_by_side_highlight_rules,
     _scroll_editors_to_search_match,
+    _size_policy_value,
     _syntax_highlight_lines,
     _text_cursor_move_operation,
     show_text_view,
@@ -218,9 +223,12 @@ class UiPreviewTests(unittest.TestCase):
         self.assertIn("Warning markers: 1", summary)
         self.assertIn("Rule markers: 1", summary)
         self.assertIn("PseudoForge analyzed 0x1400", summary)
+        self.assertNotIn("\n", summary)
 
     def test_side_by_side_summary_pane_height_stays_compact(self) -> None:
-        self.assertLessEqual(_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT, 80)
+        self.assertLessEqual(_SIDE_BY_SIDE_STATUS_MAX_HEIGHT, 20)
+        self.assertLessEqual(_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT, 48)
+        self.assertLessEqual(_SIDE_BY_SIDE_SEARCH_MAX_HEIGHT, 30)
 
     def test_side_by_side_search_line_matches_are_case_insensitive_by_panel(self) -> None:
         matches = _search_line_matches(
@@ -279,6 +287,11 @@ class UiPreviewTests(unittest.TestCase):
                     Horizontal = "horizontal"
 
         class FakeQtWidgets:
+            class QSizePolicy:
+                class Policy:
+                    Preferred = "preferred"
+                    Fixed = "fixed"
+
             class QPlainTextEdit:
                 class LineWrapMode:
                     NoWrap = "no_wrap"
@@ -302,6 +315,34 @@ class UiPreviewTests(unittest.TestCase):
         self.assertEqual(_text_cursor_move_operation(FakeQtGui, "Start"), "start")
         self.assertEqual(_text_cursor_move_operation(FakeQtGui, "Down"), "down")
         self.assertEqual(_fixed_width_system_font(FakeQtGui), "font:fixed_font")
+        self.assertEqual(_size_policy_value(FakeQtWidgets, "Preferred"), "preferred")
+        self.assertEqual(_size_policy_value(FakeQtWidgets, "Fixed"), "fixed")
+
+    def test_side_by_side_block_comment_highlight_is_line_local(self) -> None:
+        self.assertEqual(_side_by_side_block_comment_spans("code /* one */ tail"), [(5, 9)])
+        self.assertEqual(_side_by_side_block_comment_spans("code /* unterminated"), [(5, 15)])
+        self.assertEqual(_side_by_side_block_comment_spans("code only"), [])
+
+    def test_side_by_side_formats_define_plain_foreground(self) -> None:
+        class FakeColor:
+            def __init__(self, red, green, blue) -> None:
+                self.rgb = (red, green, blue)
+
+        class FakeTextCharFormat:
+            def __init__(self) -> None:
+                self.foreground = None
+
+            def setForeground(self, color) -> None:
+                self.foreground = color
+
+        class FakeQtGui:
+            QColor = FakeColor
+            QTextCharFormat = FakeTextCharFormat
+
+        formats = _side_by_side_text_formats(FakeQtGui)
+
+        self.assertIn("plain", formats)
+        self.assertEqual(formats["plain"].foreground.rgb, (220, 220, 220))
 
     def test_side_by_side_highlight_rules_cover_cpp_roles(self) -> None:
         role_matches = {

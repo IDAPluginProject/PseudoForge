@@ -562,11 +562,13 @@ P2 IDA side-by-side preview update:
   session for side-by-side mode when the session still matches the current
   function. If the raw session is missing or stale, it warns and opens the
   cleaned cached `.forge` section only.
-- The dockable panel now includes a read-only analysis summary pane for warning
-  and rule diagnostics plus a search bar that jumps both raw and cleaned panes
-  to the selected matching line.
+- The dockable panel now keeps the status, warning/rule summary, and search
+  controls in fixed-height rows so the raw and cleaned code panes receive the
+  available vertical space.
 - The raw and cleaned dockable panes use Qt syntax highlighting when
-  `QSyntaxHighlighter` is available, while preserving plain-text fallback.
+  `QSyntaxHighlighter` is available, including an explicit neutral foreground
+  base so IDA theme defaults do not turn unchanged pseudocode into comment
+  green, while preserving plain-text fallback.
 - Dockable preview fallback now reports the concrete unavailable backend reason,
   and Qt binding discovery accepts PyQt5, PyQt6, PySide6, and PySide2 layouts.
 - The existing `simplecustviewer_t` preview remains the default path and the

@@ -162,9 +162,10 @@ Implemented:
     configuration dialogs can open with static or cached model lists.
 29. IDA analysis preview can try an experimental dockable side-by-side raw vs
     cleaned review panel through the persisted `Configure preview mode` setting
-    or temporary `PSEUDOFORGE_PREVIEW_BACKEND` override, with synchronized line
-    search plus an analysis warning/rule summary pane, while preserving the
-    existing `simplecustviewer_t` fallback.
+    or temporary `PSEUDOFORGE_PREVIEW_BACKEND` override, with a compact
+    warning/rule summary row, synchronized line search, and neutral-base Qt
+    syntax highlighting while preserving the existing `simplecustviewer_t`
+    fallback.
 30. IDA analyze/export/apply tasks support cooperative cancellation checkpoints,
     and headless IDA batch runs can stop at a cancel-file boundary while writing
     per-function start progress records.
