@@ -442,7 +442,7 @@ Ctrl+Alt+Shift+V  Configure preview mode
 
 `Analyze current function` decompiles the current function, builds the rename plan, flow outline, cleanup classification, deterministic rule report, and warnings, then updates the function section in `<input>.forge`. It does not modify the IDB.
 
-`Show current analysis result` opens only the cached `.forge` section whose function start EA matches the current pseudocode cursor. It does not decompile, invoke an LLM, run analysis, or refresh the `.forge` file. If the current function has not been analyzed yet, it asks the user to run `Analyze current function` first. `Copy all` and `Save as...` operate on that selected section.
+`Show current analysis result` opens only the cached `.forge` section whose function start EA matches the current pseudocode cursor. It does not decompile, invoke an LLM, run analysis, or refresh the `.forge` file. If side-by-side preview is enabled and the current in-memory analysis session still matches the function, it reuses that session's raw Hex-Rays pseudocode for the raw-vs-cleaned dockable panel. If only the cached `.forge` section is available, it warns and opens the cleaned section only. If the current function has not been analyzed yet, it asks the user to run `Analyze current function` first. `Copy all` and `Save as...` operate on that selected section.
 
 `Analyzed functions...` opens a chooser built from cached `.forge` function-section markers. It avoids opening the full aggregate `.forge` as the primary UI, which keeps navigation usable after many functions have been analyzed.
 
@@ -480,8 +480,9 @@ mode configuration fallback.
 - Run `Edit/PseudoForge/Configure preview mode` and select
   `Side-by-side dockable preview` to persist the experimental dockable
   raw-vs-cleaned review panel in `pseudoforge_config.json`. If IDA `PluginForm`
-  or Qt widgets are unavailable, PseudoForge falls back to the existing simple
-  custom viewer.
+  or Qt widgets are unavailable, PseudoForge warns with the fallback reason and
+  opens the existing simple custom viewer. The dockable backend accepts PyQt5,
+  PyQt6, PySide6, and PySide2 module layouts when IDA exposes them.
 - `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` remains available as a temporary
   override before launching IDA. Set it to `simple` to temporarily force the
   simple custom viewer even when the saved config enables side-by-side preview.

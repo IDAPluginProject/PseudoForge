@@ -932,6 +932,12 @@ Completed:
   `simplecustviewer_t` as the default and fallback path.
 - [x] Added synchronized line search plus a warning/rule analysis summary pane
   to the configurable side-by-side preview.
+- [x] Reused the active raw Hex-Rays analysis session for cached
+  current-function side-by-side preview when the session still matches the
+  function, with a visible cleaned-only fallback warning when raw context is
+  unavailable.
+- [x] Added visible dockable-preview fallback diagnostics and widened Qt binding
+  discovery across PyQt5, PyQt6, PySide6, and PySide2 layouts.
 - [x] Added cooperative cancellation checkpoints for IDA analyze/export/apply
   preparation plus a `Cancel current operation` action.
 - [x] Added headless IDA batch function-start progress records and
@@ -954,6 +960,11 @@ Completed:
 - The side-by-side panel includes search controls that jump both panes to the
   selected match line and a read-only analysis summary pane populated from the
   same warning/rule diagnostics used by the analysis completion popup.
+- Cached current-function preview can open side-by-side when the active analysis
+  session still has matching raw pseudocode; otherwise it warns and falls back
+  to the cached cleaned section.
+- Dockable-preview fallback now names the missing backend condition instead of
+  silently opening the simple viewer.
 - `Edit/PseudoForge/Cancel current operation` requests cooperative cancellation
   for running interactive tasks at safe phase boundaries.
 - IDA batch JSONL reports emit `progress` records before each function starts

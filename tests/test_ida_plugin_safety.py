@@ -564,6 +564,97 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("Run Analyze current function first", warnings[0])
 
+    def test_current_function_preview_uses_active_session_for_side_by_side(self):
+        calls = []
+        warnings = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target_path = Path(temp_dir) / "driver.sys"
+            forge_path = Path(temp_dir) / "driver.forge"
+            capture = _capture()
+            capture.source_path = str(target_path)
+            plan = _plan(capture)
+            cleaned_text = "__int64 __fastcall sub_140001000(int argument)\n{\n    return renamedLocal;\n}\n"
+            forge_text = actions_module.write_forge_function(forge_path, target_path, capture, plan, cleaned_text)
+            session = PluginAnalysisSession.from_capture_plan(
+                capture,
+                plan,
+                target_path=target_path,
+                forge_path=forge_path,
+                forge_text=forge_text,
+            )
+            actions_module._ANALYSIS_STATE.set(session)
+            old_paths = actions_module._target_and_forge_paths
+            old_current = actions_module._current_function_identity
+            old_side_by_side = actions_module.side_by_side_preview_enabled
+            old_show = actions_module.show_text_view
+            old_warning = actions_module.warning
+            actions_module._target_and_forge_paths = lambda: (target_path, forge_path)
+            actions_module._current_function_identity = lambda: (capture.ea, capture.name)
+            actions_module.side_by_side_preview_enabled = lambda: True
+
+            def fake_show(title, text, **kwargs):
+                calls.append((title, text, kwargs))
+                return "dockable_side_by_side"
+
+            actions_module.show_text_view = fake_show
+            actions_module.warning = warnings.append
+            try:
+                self.assertTrue(actions_module._show_cached_forge_for_current_function())
+            finally:
+                actions_module._target_and_forge_paths = old_paths
+                actions_module._current_function_identity = old_current
+                actions_module.side_by_side_preview_enabled = old_side_by_side
+                actions_module.show_text_view = old_show
+                actions_module.warning = old_warning
+
+        self.assertFalse(warnings)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("PseudoForge: driver!sub_140001000 0x140001000", calls[0][0])
+        self.assertEqual(calls[0][2]["reference_text"], capture.pseudocode)
+        self.assertEqual(calls[0][2]["reference_title"], "Raw Hex-Rays pseudocode")
+        self.assertEqual(calls[0][2]["content_title"], "PseudoForge cleaned pseudocode")
+        self.assertIn("PseudoForge analyzed 0x140001000", calls[0][2]["summary_text"])
+
+    def test_current_function_preview_warns_when_side_by_side_has_no_raw_session(self):
+        calls = []
+        warnings = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target_path = Path(temp_dir) / "driver.sys"
+            forge_path = Path(temp_dir) / "driver.forge"
+            capture = _capture()
+            capture.source_path = str(target_path)
+            plan = _plan(capture)
+            actions_module.write_forge_function(
+                forge_path,
+                target_path,
+                capture,
+                plan,
+                "__int64 __fastcall sub_140001000(int argument)\n{\n    return renamedLocal;\n}\n",
+            )
+            old_paths = actions_module._target_and_forge_paths
+            old_current = actions_module._current_function_identity
+            old_side_by_side = actions_module.side_by_side_preview_enabled
+            old_show = actions_module.show_text_view
+            old_warning = actions_module.warning
+            actions_module._target_and_forge_paths = lambda: (target_path, forge_path)
+            actions_module._current_function_identity = lambda: (capture.ea, capture.name)
+            actions_module.side_by_side_preview_enabled = lambda: True
+            actions_module.show_text_view = lambda title, text, **kwargs: calls.append((title, text, kwargs)) or "simple"
+            actions_module.warning = warnings.append
+            try:
+                self.assertTrue(actions_module._show_cached_forge_for_current_function())
+            finally:
+                actions_module._target_and_forge_paths = old_paths
+                actions_module._current_function_identity = old_current
+                actions_module.side_by_side_preview_enabled = old_side_by_side
+                actions_module.show_text_view = old_show
+                actions_module.warning = old_warning
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("current raw analysis session", warnings[0])
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("reference_text", calls[0][2])
+
     def test_background_group_prevents_shared_state_overlap_and_cleans_up(self):
         started = threading.Event()
         release = threading.Event()

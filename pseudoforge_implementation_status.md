@@ -558,11 +558,17 @@ P2 IDA side-by-side preview update:
 - `PSEUDOFORGE_PREVIEW_BACKEND` remains a temporary launch-time override for
   forcing `side_by_side` or `simple` during troubleshooting.
 - The dockable panel uses IDA `PluginForm` plus Qt widgets when available.
+- Cached current-function preview now reuses the active raw Hex-Rays analysis
+  session for side-by-side mode when the session still matches the current
+  function. If the raw session is missing or stale, it warns and opens the
+  cleaned cached `.forge` section only.
 - The dockable panel now includes a read-only analysis summary pane for warning
   and rule diagnostics plus a search bar that jumps both raw and cleaned panes
   to the selected matching line.
 - The raw and cleaned dockable panes use Qt syntax highlighting when
   `QSyntaxHighlighter` is available, while preserving plain-text fallback.
+- Dockable preview fallback now reports the concrete unavailable backend reason,
+  and Qt binding discovery accepts PyQt5, PyQt6, PySide6, and PySide2 layouts.
 - The existing `simplecustviewer_t` preview remains the default path and the
   fallback path when the feature flag is disabled or the dockable backend cannot
   be created.

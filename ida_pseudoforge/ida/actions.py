@@ -10,6 +10,7 @@ from ida_pseudoforge.config import (
 )
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.forge_store import (
+    ForgeFunctionSection,
     find_forge_function_section,
     write_forge_function,
 )
@@ -736,6 +737,15 @@ def _show_cached_forge_for_current_function() -> bool:
         )
         return False
 
+    if _show_cached_side_by_side_section(
+        target_path,
+        forge_path,
+        section,
+        _ANALYSIS_STATE.get(),
+        "preview.cached_function",
+    ):
+        return True
+
     _show_forge_section(target_path, forge_path, section, "preview.cached_function")
     return True
 
@@ -761,7 +771,7 @@ def _show_forge_section_text(
 def _show_forge_section(
     target_path: Path,
     forge_path: Path,
-    section,
+    section: ForgeFunctionSection,
     event_prefix: str,
 ) -> None:
     target_stem = target_path.stem
@@ -782,6 +792,62 @@ def _show_forge_section(
         "%s.show.after title=\"%s\" function=\"%s\" ea=0x%X"
         % (event_prefix, _ascii_for_log(title), _ascii_for_log(section.name), section.ea)
     )
+
+
+def _show_cached_side_by_side_section(
+    target_path: Path,
+    forge_path: Path,
+    section: ForgeFunctionSection,
+    session: PluginAnalysisSession | None,
+    event_prefix: str,
+) -> bool:
+    if not side_by_side_preview_enabled():
+        return False
+    if session is None or not session.matches_current(target_path, section.ea):
+        warning(
+            "PseudoForge side-by-side preview needs the current raw analysis session. "
+            "Opening the cached cleaned section only. Run Analyze current function again "
+            "to refresh raw-vs-cleaned preview."
+        )
+        log_event(
+            "%s.side_by_side.unavailable reason=\"stale_or_missing_session\" function=\"%s\" ea=0x%X"
+            % (event_prefix, _ascii_for_log(section.name), section.ea)
+        )
+        return False
+    if not session.capture.pseudocode:
+        warning(
+            "PseudoForge side-by-side preview needs raw Hex-Rays pseudocode. "
+            "Opening the cached cleaned section only."
+        )
+        log_event(
+            "%s.side_by_side.unavailable reason=\"missing_raw_pseudocode\" function=\"%s\" ea=0x%X"
+            % (event_prefix, _ascii_for_log(section.name), section.ea)
+        )
+        return False
+
+    target_stem = target_path.stem
+    title = "PseudoForge: %s!%s 0x%X" % (target_stem, section.name, section.ea)
+    log_event(
+        "%s.side_by_side.show.before title=\"%s\" function=\"%s\" ea=0x%X chars=%d"
+        % (event_prefix, _ascii_for_log(title), _ascii_for_log(section.name), section.ea, len(section.text))
+    )
+    show_text_view(
+        title,
+        section.text,
+        source_path=forge_path,
+        suggested_filename=build_save_as_filename(target_stem, section.name, section.ea),
+        copy_from_source=False,
+        target_stem=target_stem,
+        reference_text=session.capture.pseudocode,
+        reference_title="Raw Hex-Rays pseudocode",
+        content_title="PseudoForge cleaned pseudocode",
+        summary_text=_format_analysis_summary(session.capture, session.plan),
+    )
+    log_event(
+        "%s.side_by_side.show.after title=\"%s\" function=\"%s\" ea=0x%X"
+        % (event_prefix, _ascii_for_log(title), _ascii_for_log(section.name), section.ea)
+    )
+    return True
 
 
 def _idb_path() -> Path | None:

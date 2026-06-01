@@ -16,12 +16,16 @@ from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
     _SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT,
     _bounded_panel_text,
+    _fixed_width_system_font,
     _highlight_preview_lines,
+    _plain_text_no_wrap,
+    _qt_horizontal_orientation,
     _search_line_matches,
     _side_by_side_summary_text,
     _side_by_side_highlight_rules,
     _scroll_editors_to_search_match,
     _syntax_highlight_lines,
+    _text_cursor_move_operation,
     show_text_view,
     side_by_side_preview_enabled,
 )
@@ -268,6 +272,37 @@ class UiPreviewTests(unittest.TestCase):
             self.assertTrue(editor.centered)
             self.assertEqual(editor.cursor.moves, ["start", "down", "down"])
 
+    def test_side_by_side_qt_compat_helpers_accept_modern_enums(self) -> None:
+        class FakeQtCore:
+            class Qt:
+                class Orientation:
+                    Horizontal = "horizontal"
+
+        class FakeQtWidgets:
+            class QPlainTextEdit:
+                class LineWrapMode:
+                    NoWrap = "no_wrap"
+
+        class FakeQtGui:
+            class QTextCursor:
+                class MoveOperation:
+                    Start = "start"
+                    Down = "down"
+
+            class QFontDatabase:
+                class SystemFont:
+                    FixedFont = "fixed_font"
+
+                @staticmethod
+                def systemFont(value):
+                    return "font:%s" % value
+
+        self.assertEqual(_qt_horizontal_orientation(FakeQtCore), "horizontal")
+        self.assertEqual(_plain_text_no_wrap(FakeQtWidgets), "no_wrap")
+        self.assertEqual(_text_cursor_move_operation(FakeQtGui, "Start"), "start")
+        self.assertEqual(_text_cursor_move_operation(FakeQtGui, "Down"), "down")
+        self.assertEqual(_fixed_width_system_font(FakeQtGui), "font:fixed_font")
+
     def test_side_by_side_highlight_rules_cover_cpp_roles(self) -> None:
         role_matches = {
             role
@@ -291,6 +326,7 @@ class UiPreviewTests(unittest.TestCase):
         old_ida_kernwin = ui_preview_module.ida_kernwin
         old_load_qt_modules = ui_preview_module._load_qt_modules
         old_form_class = ui_preview_module._side_by_side_form_class
+        old_warning = ui_preview_module.warning
 
         class FakePluginForm:
             WOPN_TAB = 1
@@ -310,12 +346,14 @@ class UiPreviewTests(unittest.TestCase):
         ui_preview_module.ida_kernwin = FakeKernwin
         ui_preview_module._load_qt_modules = lambda: object()
         ui_preview_module._side_by_side_form_class = lambda plugin_form_cls, qt_modules: FakeForm
+        ui_preview_module.warning = lambda message: None
         try:
             shown = ui_preview_module._try_show_side_by_side_view("PseudoForge: fake", "raw", "clean")
         finally:
             ui_preview_module.ida_kernwin = old_ida_kernwin
             ui_preview_module._load_qt_modules = old_load_qt_modules
             ui_preview_module._side_by_side_form_class = old_form_class
+            ui_preview_module.warning = old_warning
             if old_value is None:
                 os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
             else:
@@ -323,6 +361,35 @@ class UiPreviewTests(unittest.TestCase):
 
         self.assertFalse(shown)
         self.assertNotIn("PseudoForge: fake", ui_preview_module._SIDE_BY_SIDE_FORMS)
+
+    def test_side_by_side_backend_warns_when_dockable_prerequisite_is_missing(self) -> None:
+        old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
+        old_ida_kernwin = ui_preview_module.ida_kernwin
+        old_warning = ui_preview_module.warning
+        warnings = []
+
+        class FakeKernwin:
+            pass
+
+        os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = "side_by_side"
+        ui_preview_module.ida_kernwin = FakeKernwin
+        ui_preview_module.warning = warnings.append
+        ui_preview_module._SIDE_BY_SIDE_FALLBACK_WARNINGS.clear()
+        try:
+            shown = ui_preview_module._try_show_side_by_side_view("PseudoForge: missing form", "raw", "clean")
+        finally:
+            ui_preview_module.ida_kernwin = old_ida_kernwin
+            ui_preview_module.warning = old_warning
+            ui_preview_module._SIDE_BY_SIDE_FALLBACK_WARNINGS.clear()
+            if old_value is None:
+                os.environ.pop("PSEUDOFORGE_PREVIEW_BACKEND", None)
+            else:
+                os.environ["PSEUDOFORGE_PREVIEW_BACKEND"] = old_value
+
+        self.assertFalse(shown)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("fell back to the simple viewer", warnings[0])
+        self.assertIn("PluginForm", warnings[0])
 
 
 if __name__ == "__main__":

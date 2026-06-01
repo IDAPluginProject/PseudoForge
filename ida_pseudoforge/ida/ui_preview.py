@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as wintypes
+import importlib
 import os
 import re
 import tempfile
@@ -30,6 +31,7 @@ except Exception:
 
 _VIEWERS: dict[str, "_ForgeTextViewer"] = {}
 _SIDE_BY_SIDE_FORMS: dict[str, object] = {}
+_SIDE_BY_SIDE_FALLBACK_WARNINGS: set[str] = set()
 _ACTIVE_VIEWER: "_ForgeTextViewer | None" = None
 _MAX_PREVIEW_CHARS = 512 * 1024
 _MAX_PREVIEW_LINES = 12000
@@ -272,11 +274,15 @@ def _try_show_side_by_side_view(
         return False
     plugin_form_cls = getattr(ida_kernwin, "PluginForm", None)
     if plugin_form_cls is None:
-        _trace_checkpoint("side_by_side.unavailable", title=title, reason="missing PluginForm")
+        reason = "IDA PluginForm is unavailable"
+        _trace_checkpoint("side_by_side.unavailable", title=title, reason=reason)
+        _warn_side_by_side_fallback(title, reason)
         return False
     qt_modules = _load_qt_modules()
     if qt_modules is None:
-        _trace_checkpoint("side_by_side.unavailable", title=title, reason="missing Qt")
+        reason = "Qt widgets are unavailable; tried PyQt5, PyQt6, PySide6, and PySide2"
+        _trace_checkpoint("side_by_side.unavailable", title=title, reason=reason)
+        _warn_side_by_side_fallback(title, reason)
         return False
 
     try:
@@ -294,13 +300,16 @@ def _try_show_side_by_side_view(
         options = int(getattr(plugin_form_cls, "WOPN_TAB", 0)) | int(getattr(plugin_form_cls, "WOPN_RESTORE", 0))
         shown = form.Show(title, options=options)
         if shown is False or (isinstance(shown, int) and shown < 0):
-            _trace_checkpoint("side_by_side.show.failed", title=title, result=shown)
+            reason = "IDA refused to show the dockable PluginForm"
+            _trace_checkpoint("side_by_side.show.failed", title=title, result=shown, reason=reason)
+            _warn_side_by_side_fallback(title, reason)
             return False
         _SIDE_BY_SIDE_FORMS[title] = form
         _trace_checkpoint("side_by_side.show.after", title=title)
         return True
     except Exception as exc:
         _trace_checkpoint("side_by_side.failed", title=title, error=str(exc))
+        _warn_side_by_side_fallback(title, "dockable preview creation failed: %s" % exc)
         return False
 
 
@@ -319,19 +328,68 @@ def side_by_side_preview_enabled() -> bool:
     return _side_by_side_preview_enabled()
 
 
+def _warn_side_by_side_fallback(title: str, reason: str) -> None:
+    key = reason
+    if key in _SIDE_BY_SIDE_FALLBACK_WARNINGS:
+        return
+    _SIDE_BY_SIDE_FALLBACK_WARNINGS.add(key)
+    warning(
+        "PseudoForge side-by-side preview is enabled, but the dockable view fell back to the simple viewer: %s"
+        % reason
+    )
+
+
 def _load_qt_modules():
-    try:
-        from PyQt5 import QtCore, QtGui, QtWidgets  # type: ignore
+    for module_name in ("PyQt5", "PyQt6", "PySide6", "PySide2"):
+        try:
+            qt_core = importlib.import_module("%s.QtCore" % module_name)
+            qt_gui = importlib.import_module("%s.QtGui" % module_name)
+            qt_widgets = importlib.import_module("%s.QtWidgets" % module_name)
+            return qt_core, qt_gui, qt_widgets
+        except Exception:
+            pass
+    return None
 
-        return QtCore, QtGui, QtWidgets
-    except Exception:
-        pass
-    try:
-        from PySide6 import QtCore, QtGui, QtWidgets  # type: ignore
 
-        return QtCore, QtGui, QtWidgets
-    except Exception:
-        return None
+def _qt_horizontal_orientation(qt_core):
+    orientation_cls = getattr(getattr(qt_core, "Qt", object()), "Orientation", None)
+    if orientation_cls is not None:
+        horizontal = getattr(orientation_cls, "Horizontal", None)
+        if horizontal is not None:
+            return horizontal
+    return getattr(qt_core.Qt, "Horizontal")
+
+
+def _plain_text_no_wrap(qt_widgets):
+    no_wrap = getattr(qt_widgets.QPlainTextEdit, "NoWrap", None)
+    if no_wrap is not None:
+        return no_wrap
+    line_wrap_mode = getattr(qt_widgets.QPlainTextEdit, "LineWrapMode", None)
+    if line_wrap_mode is not None:
+        return getattr(line_wrap_mode, "NoWrap", None)
+    return None
+
+
+def _text_cursor_move_operation(qt_gui, name: str):
+    cursor_cls = qt_gui.QTextCursor
+    value = getattr(cursor_cls, name, None)
+    if value is not None:
+        return value
+    move_operation_cls = getattr(cursor_cls, "MoveOperation", None)
+    if move_operation_cls is None:
+        raise AttributeError("QTextCursor move operation is unavailable: %s" % name)
+    return getattr(move_operation_cls, name)
+
+
+def _fixed_width_system_font(qt_gui):
+    font_database_cls = qt_gui.QFontDatabase
+    fixed_font = getattr(font_database_cls, "FixedFont", None)
+    if fixed_font is None:
+        system_font_cls = getattr(font_database_cls, "SystemFont", None)
+        fixed_font = getattr(system_font_cls, "FixedFont", None) if system_font_cls is not None else None
+    if fixed_font is None:
+        raise AttributeError("QFontDatabase fixed-width system font enum is unavailable")
+    return font_database_cls.systemFont(fixed_font)
 
 
 def _side_by_side_form_class(plugin_form_cls, qt_modules):
@@ -392,7 +450,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             search_row.addWidget(self._search_status)
             layout.addLayout(search_row)
 
-            splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+            splitter = QtWidgets.QSplitter(_qt_horizontal_orientation(QtCore))
             splitter.addWidget(self._make_panel(self.reference_title, self.reference_text))
             splitter.addWidget(self._make_panel(self.content_title, self.content_text))
             splitter.setSizes([1, 1])
@@ -422,10 +480,10 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             editor = QtWidgets.QPlainTextEdit()
             editor.setReadOnly(True)
             editor.setPlainText(text)
-            no_wrap = getattr(QtWidgets.QPlainTextEdit, "NoWrap", None)
+            no_wrap = _plain_text_no_wrap(QtWidgets)
             if no_wrap is not None:
                 editor.setLineWrapMode(no_wrap)
-            fixed_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
+            fixed_font = _fixed_width_system_font(QtGui)
             editor.setFont(fixed_font)
             highlighter = _apply_side_by_side_syntax_highlighting(editor, QtGui)
             if highlighter is not None:
@@ -608,9 +666,10 @@ def _scroll_editors_to_search_match(editors, search_matches: list[tuple[int, int
 
 def _scroll_editor_to_line(editor, line_index: int, qt_gui) -> None:
     cursor = editor.textCursor()
-    cursor.movePosition(qt_gui.QTextCursor.Start)
+    cursor.movePosition(_text_cursor_move_operation(qt_gui, "Start"))
+    down_operation = _text_cursor_move_operation(qt_gui, "Down")
     for _index in range(max(0, int(line_index))):
-        if not cursor.movePosition(qt_gui.QTextCursor.Down):
+        if not cursor.movePosition(down_operation):
             break
     editor.setTextCursor(cursor)
     editor.centerCursor()
