@@ -169,6 +169,19 @@ Implemented:
 30. IDA analyze/export/apply tasks support cooperative cancellation checkpoints,
     and headless IDA batch runs can stop at a cancel-file boundary while writing
     per-function start progress records.
+31. Generic runtime helper aliasing can classify strongly evidenced no-PDB
+    `sub_*` memory-fill and memory-move helpers and render caller sites as
+    standard `memset` or `memmove` calls without renaming helper definitions.
+32. IDA batch and interactive analysis can probe direct helper callees on
+    demand, so helper aliases do not require users to analyze every function
+    first.
+33. Raw-vs-cleaned compare directories can be scored with a corpus-agnostic
+    quality scorer that reports remaining Hex-Rays artifacts and positive
+    semantic recovery signals.
+34. Claude CLI providers default to a hook-isolated print-mode command
+    (`--setting-sources project,local`) and old default templates are migrated
+    on load; LLM failures are summarized in IDA Output before deterministic
+    fallback continues.
 
 Still pending:
 
@@ -232,20 +245,25 @@ ida_pseudoforge/
       validators.py
       matchers/
         regex.py
+    export_bundle.py
+    flow_recovery.py
     forge_store.py
+    helper_aliases.py
+    ioctl.py
     kernel_api.py
     kernel_rewrites.py
     normalize.py
     kernel_semantics.py
     lvar_analysis.py
-    flow_recovery.py
     cleanup_rewriter.py
     offline_input.py
     pattern_renames.py
     llm_assist.py
+    quality_score.py
     rule_diagnostics.py
     validation.py
     render.py
+    render_cleanup.py
     render_callbacks.py
     render_call_args.py
     render_dispatcher.py
@@ -301,12 +319,15 @@ tools/
   build_kernel_api_profile.py
   build_status_codes_profile.py
   empty_llm_rename_provider.py
+  profile_load_smoke.py
   pseudoforge_cli.py
   pseudoforge_free_console.py
   pseudoforge_free_cli.py
   pseudoforge_ida_batch.py
+  pseudoforge_ida_identity_apply_smoke.py
   release_pseudoforge.py
   run_pseudoforge_ida_batch.ps1
+  score_pseudoforge_quality.py
   summarize_pseudoforge_ida_batch.py
   validate_pseudoforge_rules.py
 samples/
@@ -315,14 +336,25 @@ samples/
   kernel_pattern_driver/
 tests/
   test_export_bundle.py
+  test_forge_store.py
+  test_helper_aliases.py
+  test_ida_batch.py
+  test_ida_identity_apply_smoke.py
   test_ida_plugin_safety.py
   test_kernel_api_profile_builder.py
   test_llm_cli_provider.py
+  test_llm_config.py
+  test_llm_rename_filters.py
+  test_logging.py
   test_plan_builder.py
+  test_profile_load_smoke.py
   test_profile_loader.py
   test_pseudoforge_free_cli.py
+  test_quality_score.py
+  test_rename_heuristics.py
   test_render_callbacks.py
   test_render_call_args.py
+  test_render_cleanup.py
   test_render_dispatcher.py
   test_render_driver_entry.py
   test_render_flow.py
@@ -331,13 +363,21 @@ tests/
   test_render_kernel_hints.py
   test_render_labels.py
   test_render_literals.py
+  test_render_memory.py
   test_render_ntset.py
   test_render_snapshots.py
   test_render_signatures.py
+  test_render_status.py
   test_render_style.py
   test_render_warnings.py
   test_render_zw.py
   test_release_pseudoforge.py
+  test_rule_context.py
+  test_rule_diagnostics.py
+  test_rule_engine.py
+  test_rule_integration.py
+  test_rule_pack_validator.py
+  test_ui_preview.py
 ```
 
 ## Installation
@@ -533,6 +573,9 @@ mode configuration fallback.
 - Callback registration toggles that combine process, image, thread, and object callbacks can recover `deviceExtension`, `enable`, callback status locals, `OB_FLT_REGISTRATION_VERSION`, and `OB_OPERATION_REGISTRATION` field assignments from Hex-Rays `_QWORD[4]` stack arrays.
 - Configuration Manager registry callback probes can recover `callbackContext`, `majorVersion`, `minorVersion`, `callbackCookie`, `altitudeString`, `registerExStatus`, and `registerStatus`, while rendering successful `CmRegisterCallback(Ex)` checks with `NT_SUCCESS(...)`.
 - Memory Manager probe functions that combine `MmGetSystemRoutineAddress`, `MmCopyMemory`, MDL setup, noncached memory, and contiguous memory allocation can recover routine-name, buffer, MDL, byte-count, and physical-address locals. Reused probe sinks get neutral names instead of a single stale API role, and preview cleanup can suppress write-only scratch captures while preserving probed calls as `(void)Call(...)`. Generic cleanup also normalizes scalar out-parameter arrays, single-assignment pointer aliases, unrolled wide-array copies, and same-named struct-field locals by usage pattern, while `MmCopyMemory` flags render as `MM_COPY_MEMORY_PHYSICAL` or `MM_COPY_MEMORY_VIRTUAL`.
+- Strongly evidenced no-PDB runtime helper calls can render as `memset` or
+  `memmove` at caller sites. Exact local-array zero fills can use
+  `sizeof(localArray)`, while pointer targets keep explicit byte counts.
 - Zw API corpus/probe functions that exercise object, registry, token, and file calls can recover handle, status, object-attribute, timeout, IO-status, value-name, and shared info-buffer roles. Preview rendering keeps the calls intact while normalizing `OBJECT_ATTRIBUTES` size, `OBJ_*` flags, `NtCurrentProcess()`, `NtCurrentThread()`, and successful status checks.
 - Confident record layout evidence can simplify offset arithmetic into preview-only `CONTAINING_RECORD(...)` forms.
 - Known OB pre-operation callbacks simplify raw offset loads such as `*(_DWORD *)(*(_QWORD *)(preOperationInfo + 32) + 4LL)` and typed-array offset loads such as `*(_DWORD *)(*((_QWORD *)preOperationInfo + 4) + 4LL)` into typed `preOperationInfo->Parameters->...OriginalDesiredAccess` access.
@@ -723,8 +766,8 @@ Default provider settings:
 | `openrouter` | `openrouter/auto` | `https://openrouter.ai/api/v1` |
 | `chatgpt_oauth_via_codex_cli` | `gpt-5-mini` | `codex exec -m {model} --skip-git-repo-check --sandbox read-only --output-last-message {output_file} -` |
 | `codex_cli` | `gpt-5-mini` | `codex exec -m {model} --skip-git-repo-check --sandbox read-only --output-last-message {output_file} -` |
-| `claude_login_via_claude_cli` | `claude-sonnet-4-6` | `claude -p --model {model} --permission-mode dontAsk --output-format text --no-session-persistence --tools ""` |
-| `claude_cli` | `claude-sonnet-4-6` | `claude -p --model {model} --permission-mode dontAsk --output-format text --no-session-persistence --tools ""` |
+| `claude_login_via_claude_cli` | `claude-sonnet-4-6` | `claude -p --model {model} --permission-mode dontAsk --output-format text --no-session-persistence --tools "" --setting-sources project,local` |
+| `claude_cli` | `claude-sonnet-4-6` | `claude -p --model {model} --permission-mode dontAsk --output-format text --no-session-persistence --tools "" --setting-sources project,local` |
 | `deepseek_api` | `deepseek-v4-flash` | `https://api.deepseek.com` |
 
 The default timeout is 60 seconds.
@@ -752,7 +795,7 @@ CLI command template placeholders:
 {model}         selected model name
 ```
 
-PseudoForge also sends the prompt to CLI providers over stdin. If `{output_file}` is present, the file is preferred; otherwise stdout is used. CLI command templates are parsed into argv and executed with `shell=False` by default. On Windows, CLI provider calls and Codex model discovery request hidden child console windows so local CLI bridges such as Claude CLI do not flash a separate console during normal runs. Prefix a template with `shell:` or `raw-shell:` only when an explicitly reviewed advanced shell pipeline is required. The default Codex, ChatGPT, and Claude templates include `{model}`. Old default templates that omitted `{model}`, used unsupported Codex CLI flags, or used the older Claude CLI template without the selected model are migrated on load; user-created custom templates are preserved.
+PseudoForge also sends the prompt to CLI providers over stdin. If `{output_file}` is present, the file is preferred; otherwise stdout is used. CLI command templates are parsed into argv and executed with `shell=False` by default. On Windows, CLI provider calls and Codex model discovery request hidden child console windows so local CLI bridges such as Claude CLI do not flash a separate console during normal runs. Prefix a template with `shell:` or `raw-shell:` only when an explicitly reviewed advanced shell pipeline is required. The default Codex, ChatGPT, and Claude templates include `{model}`. Claude defaults also include `--setting-sources project,local` so user/global Claude hooks do not pollute the JSON-only rename-assist response. Old default templates that omitted `{model}`, used unsupported Codex CLI flags, or used older Claude CLI defaults without the selected model or setting-source isolation are migrated on load; user-created custom templates are preserved.
 
 Config path:
 
@@ -1157,6 +1200,23 @@ Batch reports also include `progress` records before each function starts so a
 long decompile or LLM-assisted function can be identified before it finishes.
 When `-CancelFile` is used, creating that file requests a cooperative stop at
 the next function boundary and records a `stop` event with `reason=cancel_file`.
+IDA batch rendering also applies direct helper alias postprocessing so
+strongly evidenced direct `sub_*` helper callees can render as standard memory
+helpers in compare artifacts without requiring a prior interactive all-function
+analysis pass.
+
+Score a compare directory:
+
+```powershell
+python -B .\tools\score_pseudoforge_quality.py `
+  --compare-dir "$env:TEMP\pseudoforge_ida_batch\ntoskrnl_compare" `
+  --report "$env:TEMP\pseudoforge_ida_batch\ntoskrnl\ntoskrnl.exe_<timestamp>.jsonl" `
+  --json-output "$env:TEMP\pseudoforge_ida_batch\quality.json" `
+  --markdown-output "$env:TEMP\pseudoforge_ida_batch\quality.md"
+```
+
+The quality scorer is heuristic and corpus-agnostic. It is intended for
+regression comparison across no-PDB runs, not as a correctness proof.
 
 To include the same LLM assist path used by interactive IDA Analyze, add `-LlmRenames`. Full-kernel LLM batch runs can issue many provider calls, so check cost and runtime first.
 
@@ -1552,6 +1612,19 @@ Paste is empty after `Copy all`:
 2. Confirm that the target function can be decompiled in the pseudocode view.
 3. Confirm write access beside the IDB.
 4. Reproduce with the offline CLI using the same pseudocode text.
+
+LLM rename assist falls back to deterministic analysis:
+
+1. Check the IDA Output reason appended after `PseudoForge LLM rename assist failed`.
+2. For Claude CLI providers, confirm that the saved command template contains
+   `--setting-sources project,local`. Re-run
+   `Edit/PseudoForge/Configure LLM rename assist` or edit
+   `<IDA user directory>\pseudoforge_config.json` if an older template is saved.
+3. Confirm `claude auth login` or `codex login` was completed outside IDA for
+   the selected CLI bridge.
+4. Session limits, provider policy blocks, or timeouts are provider failures;
+   PseudoForge keeps the analysis deterministic and records the fallback warning
+   in the preview/export metadata.
 
 Rename application fails:
 

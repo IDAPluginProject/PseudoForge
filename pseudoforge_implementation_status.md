@@ -72,6 +72,7 @@ Implemented in this folder:
    - recovered switch cases include body-state metadata, source line anchors, and shared-tail labels in switch outlines and flow reports
    - native switch bodies already present in normalized original pseudocode are not duplicated in the auxiliary outline
    - generated pseudocode style pass enforces next-line braces, mandatory braces, standalone `else`, and guard flattening
+   - generated pseudocode style pass treats a C label plus its following statement as one control-body unit when adding braces, preventing unbraced `if`/label fragments without matching specific label names
    - duplicate semantic cleanup labels are given stable suffixes such as `InvalidParameter_17` to avoid duplicate labels and accidental self-goto rewrites
    - `do { } while (false)` single-exit conversion is not forced
    - LLM warning dictionaries are normalized to readable warning messages
@@ -87,6 +88,10 @@ Implemented in this folder:
    - path-like C/C++ string literal finalization lives in
      `ida_pseudoforge/core/render_literals.py` while preserving the public
      `ida_pseudoforge.core.render._finalize_rendered_c_like_text` import path
+   - generic runtime helper alias inference lives in
+     `ida_pseudoforge/core/helper_aliases.py` and classifies strongly evidenced
+     no-PDB memory-fill or memory-move helpers from signature roles plus helper
+     body behavior before rewriting caller sites as `memset` or `memmove`
    - critical-region entry rewrite and LIST_ENTRY/provider-link hint annotation
      live in `ida_pseudoforge/core/render_kernel_hints.py`
    - low-byte parameter call-argument cleanup lives in
@@ -155,6 +160,12 @@ Implemented in this folder:
    - optional `--compare-dir` / `-CompareDir` emits per-function raw Hex-Rays text, PseudoForge cleaned output, full `.forge` section, and raw-vs-cleaned unified diff artifacts
    - batch compare JSONL records include shared-style artifact keys while preserving legacy path fields
    - optional `--llm-renames` / `-LlmRenames` routes batch analysis through the same rename provider/fallback path as interactive IDA Analyze
+   - IDA batch rendering applies direct helper alias postprocessing before
+     writing compare artifacts, forge sections, and diffs so caller cleanup does
+     not depend on a prior all-functions interactive analysis pass
+   - `tools/score_pseudoforge_quality.py` scores raw-vs-cleaned compare
+     directories using `ida_pseudoforge/core/quality_score.py` and emits JSON
+     or Markdown summaries of remaining artifacts and recovery signals
    - Hex-Rays decompile-unavailable functions are recorded as `skipped` instead of PseudoForge failures
 
 5. Optional LLM assist
@@ -172,9 +183,11 @@ Implemented in this folder:
    - warning-free static Claude model list for Claude CLI providers, headed by current IDs and aliases: `claude-opus-4-8`, `claude-sonnet-4-6`, and `claude-haiku-4-5`
    - dynamic model discovery through `/models` for HTTP providers, with static fallback
    - CLI command templates pass the selected model through `{model}`
-   - migration for old default Codex/Claude command templates that did not pass `{model}`, used unsupported Codex CLI flags, or omitted the safer Claude print-mode flags
+   - Claude CLI defaults include `--no-session-persistence`, disabled tools, and `--setting-sources project,local` so user/global Claude hooks do not pollute JSON-only rename-assist output
+   - migration for old default Codex/Claude command templates that did not pass `{model}`, used unsupported Codex CLI flags, omitted safer Claude print-mode flags, or omitted Claude setting-source isolation
    - Windows CLI provider calls and Codex model discovery request hidden child console windows to avoid Claude/Codex console flashes during normal runs
    - analyze summary displays warning details instead of only warning counts
+   - IDA Output now includes a short ASCII-safe reason when LLM rename assist fails before deterministic fallback
    - provider-specific API key storage under `credentials`
    - API key prompt only when an enabled HTTP provider has no stored key
    - disabled by default
@@ -198,6 +211,7 @@ Implemented in this folder:
    - `tests/test_rename_heuristics.py`
    - `tests/test_render_snapshots.py`
    - `tests/test_render_signatures.py`
+   - `tests/test_render_status.py`
    - `tests/test_render_style.py`
    - `tests/test_render_warnings.py`
    - `tests/test_render_zw.py`
@@ -207,16 +221,24 @@ Implemented in this folder:
    - `tests/test_rule_context.py`
    - `tests/test_ui_preview.py`
    - `tests/test_plan_builder.py`
-   - `tests/test_profile_loader.py`
-   - `tests/test_export_bundle.py`
+   - `tests/test_helper_aliases.py`
    - `tests/test_ida_batch.py`
+   - `tests/test_ida_identity_apply_smoke.py`
+   - `tests/test_kernel_api_profile_builder.py`
+   - `tests/test_llm_cli_provider.py`
    - `tests/test_llm_config.py`
    - `tests/test_llm_rename_filters.py`
+   - `tests/test_profile_loader.py`
+   - `tests/test_profile_load_smoke.py`
+   - `tests/test_export_bundle.py`
    - `tests/test_logging.py`
    - `tests/test_pseudoforge_free_cli.py`
+   - `tests/test_quality_score.py`
    - `tests/test_release_pseudoforge.py`
+   - `tests/test_render_cleanup.py`
+   - `tests/test_rule_diagnostics.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 345 unit tests
+   - current suite covers 402 unit tests
 
 ## Latest Implementation Notes
 
@@ -770,7 +792,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 git diff --check -- .
 ```
 
-Latest unit test count: 345 tests.
+Latest unit test count: 402 tests.
 
 Latest no-PDB kernel pattern driver quality loop:
 
@@ -1241,7 +1263,9 @@ implemented:
 deferred:
 - The historical test_core_engine.py monolith has been removed; broad coverage
   now lives in focused domain suites.
-- render.py, ida/actions.py, and ida/ui_preview.py remain candidates for later scoped extraction; they were not broadly rewritten in this pass to avoid behavior drift.
+- render.py is now a pipeline coordinator plus compatibility import surface;
+  ida/actions.py and ida/ui_preview.py remain candidates for later scoped
+  extraction.
 ```
 
 IDA Free offline CLI update:
@@ -1405,12 +1429,77 @@ quality:
 - raw_pointer_offset count remains 70
 ```
 
+No-PDB IDA batch postprocess and Opus 4.8 validation:
+
+```text
+implemented:
+- Extended direct-helper alias postprocessing into IDA batch rendering so
+  compare cleaned files, forge sections, and diffs all see the same helper
+  cleanup as the interactive preview path.
+- Exact-size local array zero-fill calls now render as
+  memset(localArray, 0, sizeof(localArray)) after a helper is generically
+  classified as memset; pointer targets keep explicit byte counts.
+- Generated-code style now wraps control bodies that begin with a plain C label
+  and include a following terminal statement, avoiding malformed unbraced
+  if/label output.
+- The LLM rename prompt is framed as defensive static-code readability and
+  rename-only JSON output, keeping code rewrite and operational guidance out of
+  the provider task.
+
+validated:
+- python -B -m unittest discover -s tests -v: 400 tests OK
+- python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed
+- git diff --check -- .: passed
+- IDA Professional 9.0 no-PDB all-discovered-function batch with
+  claude_login_via_claude_cli / claude-opus-4-8: 51 processed, 51 succeeded,
+  0 skipped, 0 failed, LLM ok=48, deterministic fallback=3 provider policy
+  blocks
+
+artifacts:
+- pseudoforge_out\ida_batch_eval\ida_postprocess_llm_opus48_full_20260602_004100
+- pseudoforge_out\ida_batch_eval\ida_postprocess_llm_opus48_full_20260602_004100\quality.md
+- pseudoforge_out\ida_batch_eval\ida_postprocess_llm_opus48_full_20260602_004100\quality.json
+
+quality:
+- average score: 75.88
+- average opportunity: 30.78
+- average reward: 8.16
+- cleaned-output sanity scan: dangling else=0, broken pointer-member comparison=0,
+  unresolved helper-call memset candidate=0, unbraced if-label body=0
+```
+
+Claude CLI rename-assist stabilization:
+
+```text
+implemented:
+- Claude CLI provider defaults now include --setting-sources project,local in
+  addition to print mode, no session persistence, and disabled tools.
+- Saved older default Claude command templates without setting-source isolation
+  are migrated on config load.
+- Interactive IDA LLM fallback logging now includes a short ASCII-safe reason in
+  Output while still preserving deterministic fallback behavior.
+- Existing IDA user configs using the older default Claude template can be
+  migrated to the isolated command template while preserving the selected model,
+  including claude-opus-4-8.
+
+validated:
+- python -B -m unittest discover -s tests -v: 402 tests OK
+- python -B -m compileall .\ida_pseudoforge .\tests: passed
+- git diff --check -- .: passed
+- Claude CLI smoke reached the provider with the isolated command; the live
+  failure observed in this run was an external session-limit message, not hook
+  output contamination.
+```
+
 Next continuation point:
 
 ```text
 Next batch should continue after 0x14021A324 RtlSparseArrayElementAllocate.
 Suggested StartEa: 0x14021A325
-Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
+For the historical ntoskrnl GPT batches, keep LLM path enabled with
+-LlmProvider codex_cli -LlmModel gpt-5.5. For current Claude-login validation,
+use -LlmProvider claude_login_via_claude_cli -LlmModel claude-opus-4-8 and a
+command template containing --setting-sources project,local.
 ```
 
 ## Known Limits
@@ -1426,6 +1515,11 @@ Keep LLM path enabled with -LlmProvider codex_cli -LlmModel gpt-5.5.
    - CLI provider custom command templates must include `{model}` if the selected model should be passed to the command.
    - `chatgpt_oauth_via_codex_cli` is implemented as a Codex CLI auth bridge and requires `codex login` outside IDA once.
    - `claude_login_via_claude_cli` is implemented as a Claude CLI auth bridge and requires `claude auth login` outside IDA once.
+   - Claude CLI defaults include `--setting-sources project,local`; older saved
+     default templates are migrated, but explicitly custom templates remain the
+     user's responsibility.
+   - Provider-side session limits or policy blocks still produce deterministic
+     fallback; the Output log now includes a short reason when available.
    - PseudoForge does not run browser login inside IDA; old `chatgpt_oauth` is not accepted as a provider ID.
    - IDA uses `Edit/PseudoForge/Configure LLM rename assist` and stores settings under the IDA user directory.
 
