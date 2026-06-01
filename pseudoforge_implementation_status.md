@@ -561,6 +561,8 @@ P2 IDA side-by-side preview update:
 - The dockable panel now includes a read-only analysis summary pane for warning
   and rule diagnostics plus a search bar that jumps both raw and cleaned panes
   to the selected matching line.
+- The raw and cleaned dockable panes use Qt syntax highlighting when
+  `QSyntaxHighlighter` is available, while preserving plain-text fallback.
 - The existing `simplecustviewer_t` preview remains the default path and the
   fallback path when the feature flag is disabled or the dockable backend cannot
   be created.

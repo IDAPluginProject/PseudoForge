@@ -35,6 +35,7 @@ _MAX_PREVIEW_CHARS = 512 * 1024
 _MAX_PREVIEW_LINES = 12000
 _MAX_HIGHLIGHT_CHARS = 256 * 1024
 _MAX_HIGHLIGHT_LINES = 8000
+_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT = 72
 _DISABLE_HIGHLIGHT_ENV = "PSEUDOFORGE_DISABLE_PREVIEW_HIGHLIGHT"
 _PREVIEW_BACKEND_ENV = "PSEUDOFORGE_PREVIEW_BACKEND"
 _ACTIONS_REGISTERED = False
@@ -361,6 +362,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             self._search_matches: list[tuple[int, int]] = []
             self._search_index = 0
             self._editors: list[object] = []
+            self._highlighters: list[object] = []
             self._search_box = None
             self._search_status = None
 
@@ -373,7 +375,7 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
 
             summary = QtWidgets.QPlainTextEdit()
             summary.setReadOnly(True)
-            summary.setMaximumHeight(128)
+            summary.setMaximumHeight(_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT)
             summary.setPlainText(self.summary_text)
             layout.addWidget(summary)
 
@@ -425,6 +427,9 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
                 editor.setLineWrapMode(no_wrap)
             fixed_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
             editor.setFont(fixed_font)
+            highlighter = _apply_side_by_side_syntax_highlighting(editor, QtGui)
+            if highlighter is not None:
+                self._highlighters.append(highlighter)
             layout.addWidget(label)
             layout.addWidget(editor)
             self._editors.append(editor)
@@ -435,14 +440,14 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
             self._search_matches = _search_line_matches([self.reference_text, self.content_text], query)
             self._search_index = 0
             self._update_search_status(query)
-            self._focus_search_match()
+            self._show_search_match()
 
         def _jump_to_search_match(self, step: int) -> None:
             if not self._search_matches:
                 return
             self._search_index = (self._search_index + step) % len(self._search_matches)
             self._update_search_status(self._search_box.text() if self._search_box is not None else "")
-            self._focus_search_match()
+            self._show_search_match()
 
         def _update_search_status(self, query: str) -> None:
             if self._search_status is None:
@@ -455,14 +460,8 @@ def _side_by_side_form_class(plugin_form_cls, qt_modules):
                 return
             self._search_status.setText("%d/%d matches" % (self._search_index + 1, len(self._search_matches)))
 
-        def _focus_search_match(self) -> None:
-            if not self._search_matches:
-                return
-            panel_index, line_index = self._search_matches[self._search_index]
-            for editor in self._editors:
-                _scroll_editor_to_line(editor, line_index, QtGui)
-            if 0 <= panel_index < len(self._editors):
-                self._editors[panel_index].setFocus()
+        def _show_search_match(self) -> None:
+            _scroll_editors_to_search_match(self._editors, self._search_matches, self._search_index, QtGui)
 
     return _SideBySidePreviewForm
 
@@ -483,6 +482,97 @@ def _side_by_side_summary_text(reference_text: str, content_text: str, summary_t
     if normalized_summary:
         summary_lines.extend(["", normalized_summary])
     return "\n".join(summary_lines)
+
+
+def _apply_side_by_side_syntax_highlighting(editor, qt_gui):
+    highlighter_cls = _side_by_side_highlighter_class(qt_gui)
+    if highlighter_cls is None:
+        return None
+    try:
+        highlighter = highlighter_cls(editor.document())
+        rehighlight = getattr(highlighter, "rehighlight", None)
+        if rehighlight is not None:
+            rehighlight()
+        return highlighter
+    except Exception:
+        return None
+
+
+def _side_by_side_highlighter_class(qt_gui):
+    highlighter_base = getattr(qt_gui, "QSyntaxHighlighter", None)
+    text_format_cls = getattr(qt_gui, "QTextCharFormat", None)
+    color_cls = getattr(qt_gui, "QColor", None)
+    if highlighter_base is None or text_format_cls is None or color_cls is None:
+        return None
+
+    class _SideBySideSyntaxHighlighter(highlighter_base):
+        def __init__(self, document) -> None:
+            super().__init__(document)
+            self._formats = _side_by_side_text_formats(qt_gui)
+            self._rules = _side_by_side_highlight_rules()
+
+        def highlightBlock(self, text: str) -> None:
+            for pattern, role in self._rules:
+                text_format = self._formats.get(role)
+                if text_format is None:
+                    continue
+                for match in pattern.finditer(text):
+                    self.setFormat(match.start(), match.end() - match.start(), text_format)
+            self._highlight_block_comments(text)
+
+        def _highlight_block_comments(self, text: str) -> None:
+            text_format = self._formats.get("comment")
+            if text_format is None:
+                return
+            self.setCurrentBlockState(0)
+            start_index = 0 if self.previousBlockState() == 1 else text.find("/*")
+            while start_index >= 0:
+                end_index = text.find("*/", start_index + 2)
+                if end_index < 0:
+                    self.setCurrentBlockState(1)
+                    length = len(text) - start_index
+                else:
+                    length = end_index - start_index + 2
+                self.setFormat(start_index, length, text_format)
+                if end_index < 0:
+                    break
+                start_index = text.find("/*", start_index + length)
+
+    return _SideBySideSyntaxHighlighter
+
+
+def _side_by_side_text_formats(qt_gui) -> dict[str, object]:
+    palette = {
+        "keyword": (86, 156, 214),
+        "constant": (78, 201, 176),
+        "number": (181, 206, 168),
+        "string": (206, 145, 120),
+        "comment": (106, 153, 85),
+        "function": (220, 220, 170),
+        "preprocessor": (197, 134, 192),
+    }
+    formats: dict[str, object] = {}
+    for role, rgb in palette.items():
+        text_format = qt_gui.QTextCharFormat()
+        text_format.setForeground(qt_gui.QColor(*rgb))
+        formats[role] = text_format
+    return formats
+
+
+def _side_by_side_highlight_rules() -> list[tuple[re.Pattern[str], str]]:
+    keyword_pattern = r"\b(?:%s)\b" % "|".join(re.escape(keyword) for keyword in sorted(_C_KEYWORDS))
+    function_pattern = r"\b(?!(?:%s)\b)[A-Za-z_][A-Za-z0-9_]*(?=\s*\()" % "|".join(
+        re.escape(keyword) for keyword in sorted(_C_KEYWORDS)
+    )
+    return [
+        (re.compile(r"^\s*#\s*[A-Za-z_][A-Za-z0-9_]*"), "preprocessor"),
+        (re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])+'"), "string"),
+        (re.compile(r"\b0x[0-9A-Fa-f]+[uUlL]*\b|\b\d+[uUlL]*\b"), "number"),
+        (re.compile(keyword_pattern), "keyword"),
+        (re.compile(r"\b[A-Z_][A-Z0-9_]{2,}\b"), "constant"),
+        (re.compile(function_pattern), "function"),
+        (re.compile(r"//.*"), "comment"),
+    ]
 
 
 def _line_count(text: str) -> int:
@@ -506,6 +596,14 @@ def _search_line_matches(panel_texts: list[str], query: str) -> list[tuple[int, 
             if needle in line.lower():
                 result.append((panel_index, line_index))
     return result
+
+
+def _scroll_editors_to_search_match(editors, search_matches: list[tuple[int, int]], search_index: int, qt_gui) -> None:
+    if not search_matches:
+        return
+    _panel_index, line_index = search_matches[search_index % len(search_matches)]
+    for editor in editors:
+        _scroll_editor_to_line(editor, line_index, qt_gui)
 
 
 def _scroll_editor_to_line(editor, line_index: int, qt_gui) -> None:

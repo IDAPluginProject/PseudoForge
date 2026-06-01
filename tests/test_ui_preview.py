@@ -14,10 +14,13 @@ from ida_pseudoforge.config import (
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.ui_preview import (
     _MAX_HIGHLIGHT_LINES,
+    _SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT,
     _bounded_panel_text,
     _highlight_preview_lines,
     _search_line_matches,
     _side_by_side_summary_text,
+    _side_by_side_highlight_rules,
+    _scroll_editors_to_search_match,
     _syntax_highlight_lines,
     show_text_view,
     side_by_side_preview_enabled,
@@ -212,6 +215,9 @@ class UiPreviewTests(unittest.TestCase):
         self.assertIn("Rule markers: 1", summary)
         self.assertIn("PseudoForge analyzed 0x1400", summary)
 
+    def test_side_by_side_summary_pane_height_stays_compact(self) -> None:
+        self.assertLessEqual(_SIDE_BY_SIDE_SUMMARY_MAX_HEIGHT, 80)
+
     def test_side_by_side_search_line_matches_are_case_insensitive_by_panel(self) -> None:
         matches = _search_line_matches(
             [
@@ -222,6 +228,63 @@ class UiPreviewTests(unittest.TestCase):
         )
 
         self.assertEqual(matches, [(0, 1), (1, 1), (1, 2)])
+
+    def test_side_by_side_search_scroll_does_not_steal_focus(self) -> None:
+        class FakeQtGui:
+            class QTextCursor:
+                Start = "start"
+                Down = "down"
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.moves = []
+
+            def movePosition(self, position):
+                self.moves.append(position)
+                return True
+
+        class FakeEditor:
+            def __init__(self) -> None:
+                self.cursor = FakeCursor()
+                self.centered = False
+
+            def textCursor(self):
+                return self.cursor
+
+            def setTextCursor(self, cursor) -> None:
+                self.cursor = cursor
+
+            def centerCursor(self) -> None:
+                self.centered = True
+
+            def setFocus(self) -> None:
+                raise AssertionError("search scrolling must not steal focus")
+
+        editors = [FakeEditor(), FakeEditor()]
+
+        _scroll_editors_to_search_match(editors, [(1, 2)], 0, FakeQtGui)
+
+        for editor in editors:
+            self.assertTrue(editor.centered)
+            self.assertEqual(editor.cursor.moves, ["start", "down", "down"])
+
+    def test_side_by_side_highlight_rules_cover_cpp_roles(self) -> None:
+        role_matches = {
+            role
+            for pattern, role in _side_by_side_highlight_rules()
+            if pattern.search("#define STATUS_SUCCESS 0")
+            or pattern.search("if ( NT_SUCCESS(status) )")
+            or pattern.search("return 0xC0000001;")
+            or pattern.search("DbgPrint(\"status\"); // comment")
+        }
+
+        self.assertIn("preprocessor", role_matches)
+        self.assertIn("constant", role_matches)
+        self.assertIn("keyword", role_matches)
+        self.assertIn("number", role_matches)
+        self.assertIn("string", role_matches)
+        self.assertIn("function", role_matches)
+        self.assertIn("comment", role_matches)
 
     def test_side_by_side_backend_treats_false_show_result_as_failure(self) -> None:
         old_value = os.environ.get("PSEUDOFORGE_PREVIEW_BACKEND")
