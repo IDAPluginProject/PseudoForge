@@ -9,6 +9,7 @@ def enforce_generated_code_style(text: str, _capture: object | None = None) -> s
     lines = _split_inline_open_braces(lines)
     lines = _enforce_required_control_braces(lines)
     lines = _expand_else_if_chains(lines)
+    lines = _repair_nested_else_after_empty_if(lines)
     lines = _flatten_else_after_terminal_if(lines)
     lines = _invert_positive_guard_with_terminal_else(lines)
     return "\n".join(lines)
@@ -269,6 +270,85 @@ def _starts_while(stripped: str) -> bool:
     return stripped.startswith("while ")
 
 
+def _repair_nested_else_after_empty_if(lines: list[str]) -> list[str]:
+    updated = list(lines)
+    index = len(updated) - 1
+    while index >= 0:
+        stripped = updated[index].strip()
+        if not _starts_if(stripped):
+            index -= 1
+            continue
+        if _control_header_end_index(updated, index) != index:
+            index -= 1
+            continue
+        if_open_index = _next_meaningful_index(updated, index + 1)
+        if if_open_index < 0 or updated[if_open_index].strip() != "{":
+            index -= 1
+            continue
+        if_close_index = _find_matching_brace(updated, if_open_index)
+        indent = leading_ws(updated[index])
+        branch = _nested_else_body_after_empty_if(updated, if_open_index, if_close_index, indent)
+        if branch is None:
+            index -= 1
+            continue
+        else_body = branch
+
+        condition = _extract_if_condition(stripped)
+        inverted_condition = _invert_condition(condition) or _negate_condition(condition)
+        if not inverted_condition:
+            index -= 1
+            continue
+
+        replacement = [
+            "%sif ( %s )" % (indent, inverted_condition),
+            indent + "{",
+        ]
+        replacement.extend(else_body)
+        replacement.append(indent + "}")
+        updated = updated[:index] + replacement + updated[if_close_index + 1 :]
+        index = min(index, len(updated) - 1)
+    return updated
+
+
+def _nested_else_body_after_empty_if(
+    lines: list[str],
+    if_open_index: int,
+    if_close_index: int,
+    indent: str,
+) -> list[str] | None:
+    branch_index = _next_meaningful_index(lines, if_open_index + 1)
+    if branch_index < 0:
+        return None
+
+    stripped = lines[branch_index].strip()
+    if stripped == "else":
+        branch_open_index = _next_meaningful_index(lines, branch_index + 1)
+        if branch_open_index < 0 or lines[branch_open_index].strip() != "{":
+            return None
+        branch_close_index = _find_matching_brace(lines, branch_open_index)
+        if if_close_index <= branch_close_index:
+            return None
+        after_branch_index = _next_meaningful_index(lines, branch_close_index + 1)
+        if after_branch_index != if_close_index:
+            return None
+
+        else_body = _unindent_else_body(lines[branch_open_index + 1 : branch_close_index], indent + "  ")
+        return else_body
+
+    if _starts_else_if(stripped):
+        branch_end_index = _find_statement_end(lines, branch_index)
+        if branch_end_index >= if_close_index:
+            return None
+        after_branch_index = _next_meaningful_index(lines, branch_end_index + 1)
+        if after_branch_index != if_close_index:
+            return None
+        branch_body = list(lines[branch_index : branch_end_index + 1])
+        branch_body[0] = leading_ws(branch_body[0]) + "if" + stripped[len("else if") :]
+        return branch_body
+
+    return None
+
+
 def _flatten_else_after_terminal_if(lines: list[str]) -> list[str]:
     updated = list(lines)
     index = len(updated) - 1
@@ -379,6 +459,13 @@ def _invert_condition(condition: str) -> str:
         return ""
 
     return _invert_simple_condition(condition)
+
+
+def _negate_condition(condition: str) -> str:
+    stripped = strip_outer_parentheses(condition.strip())
+    if not stripped:
+        return ""
+    return "!(%s)" % stripped
 
 
 def _split_top_level_operator(condition: str, operator: str) -> list[str]:

@@ -154,6 +154,114 @@ class RenderStyleTests(unittest.TestCase):
             rendered,
         )
 
+    def test_nested_else_after_empty_if_is_repaired(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( flags != 0 )\n"
+            "{\n"
+            "  else\n"
+            "  {\n"
+            "    (void)Probe(buffer);\n"
+            "  }\n"
+            "}\n"
+        )
+
+        self.assertIn(
+            "if ( flags == 0 )\n"
+            "{\n"
+            "  (void)Probe(buffer);\n"
+            "}",
+            styled,
+        )
+        self.assertNotIn("{\n  else", styled)
+
+    def test_nested_else_after_empty_if_with_complex_condition_is_repaired(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( Probe(buffer) && (flags & mask) )\n"
+            "{\n"
+            "  else\n"
+            "  {\n"
+            "    Use(buffer);\n"
+            "  }\n"
+            "}\n"
+        )
+
+        self.assertIn(
+            "if ( !(Probe(buffer) && (flags & mask)) )\n"
+            "{\n"
+            "  Use(buffer);\n"
+            "}",
+            styled,
+        )
+        self.assertNotIn("{\n  else", styled)
+
+    def test_nested_else_if_after_empty_if_is_repaired(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( flags != 0 )\n"
+            "{\n"
+            "  else if ( Probe(buffer) )\n"
+            "  {\n"
+            "    Use(buffer);\n"
+            "  }\n"
+            "}\n"
+        )
+
+        self.assertIn(
+            "if ( flags == 0 )\n"
+            "{\n"
+            "  if ( Probe(buffer) )\n"
+            "  {\n"
+            "    Use(buffer);\n"
+            "  }\n"
+            "}",
+            styled,
+        )
+        self.assertNotIn("{\n  else", styled)
+        self.assertNotIn("else if", styled)
+
+    def test_nested_multiline_else_if_after_empty_if_is_repaired(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( flags != 0 )\n"
+            "{\n"
+            "  else if ( Probe(buffer)\n"
+            "    && Check(mask) )\n"
+            "  {\n"
+            "    Use(buffer);\n"
+            "  }\n"
+            "}\n"
+        )
+
+        self.assertIn(
+            "if ( flags == 0 )\n"
+            "{\n"
+            "  if ( Probe(buffer)\n"
+            "    && Check(mask) )\n"
+            "  {\n"
+            "    Use(buffer);\n"
+            "  }\n"
+            "}",
+            styled,
+        )
+        self.assertNotIn("{\n  else", styled)
+        self.assertNotIn("else if", styled)
+
+    def test_nested_else_single_statement_after_empty_if_is_repaired(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( flags != 0 )\n"
+            "{\n"
+            "  else\n"
+            "    Use(buffer);\n"
+            "}\n"
+        )
+
+        self.assertIn(
+            "if ( flags == 0 )\n"
+            "{\n"
+            "  Use(buffer);\n"
+            "}",
+            styled,
+        )
+        self.assertNotIn("{\n  else", styled)
+
 
 if __name__ == "__main__":
     unittest.main()
