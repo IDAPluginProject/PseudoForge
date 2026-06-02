@@ -189,6 +189,11 @@ Implemented:
     (`--setting-sources project,local`) and old default templates are migrated
     on load; LLM failures are summarized in IDA Output before deterministic
     fallback continues.
+35. Command buffer contract recovery emits per-case input/output buffer
+    contracts for IOCTL, `NtSetInformationProcess`, `NtSetSystemInformation`,
+    and strongly evidenced generic switch dispatchers, plus packed C++ struct
+    sketches that include observed reject guards and derived valid predicates
+    for recovered buffer layouts.
 
 Still pending:
 
@@ -252,6 +257,7 @@ ida_pseudoforge/
       validators.py
       matchers/
         regex.py
+    buffer_contracts.py
     export_bundle.py
     flow_recovery.py
     forge_store.py
@@ -450,6 +456,8 @@ Edit/PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Analyze buffer contract for cursor case
+  Analyze buffer contract by case value...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -467,6 +475,8 @@ PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Analyze buffer contract for cursor case
+  Analyze buffer contract by case value...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -483,6 +493,7 @@ Ctrl+Alt+F        Analyze current function
 Ctrl+Alt+P        Show current analysis result
 Ctrl+Alt+Shift+P  Analyzed functions...
 Ctrl+Alt+Shift+F  Export cleaned pseudocode
+Ctrl+Alt+B        Analyze buffer contract for cursor case
 Ctrl+Alt+Shift+V  Configure preview mode
 ```
 
@@ -495,6 +506,40 @@ Ctrl+Alt+Shift+V  Configure preview mode
 `Analyzed functions...` opens a chooser built from cached `.forge` function-section markers. It avoids opening the full aggregate `.forge` as the primary UI, which keeps navigation usable after many functions have been analyzed.
 
 `Export cleaned pseudocode` analyzes the current function and writes a review/audit bundle. Its main purpose is to freeze a PseudoForge result outside the IDA UI so the cleaned pseudocode, rename plan, flow report, and rule report can be shared, diffed, regression-tested, and inspected later. It writes to `pseudoforge_out` beside the IDB when possible and does not modify the IDB.
+
+`Analyze buffer contract for cursor case` performs a focused deep analysis of
+the switch case under the Hex-Rays pseudocode cursor. It does not prompt for a
+case value; if the cursor cannot be mapped to a concrete case, use `Analyze
+buffer contract by case value...` and enter a hex or decimal command value such
+as `0x91234000` or `29`. The focused action limits buffer contract recovery to
+that case, captures direct helper functions when IDA can resolve them, and opens
+a report plus generated C++ struct sketch without modifying the IDB. When the
+selected case does not touch a command input/output buffer, the same preview can
+still show a separate selected-case context section with shared-tail labels,
+cleanup classification, and generic cast-offset context accesses observed in
+the case body. Helper-only cases are handled by scanning the selected case
+call-sites for arguments that reference recovered buffer or length variables
+before the deep helper capture pass runs. The preview reports both helper
+candidates and successfully captured helpers, which separates candidate
+discovery failures from helper decompilation/capture failures. It also reports
+captured helpers that were not linked back to the selected buffer path, which
+separates useful helper propagation from unrelated or currently untracked helper
+captures. It also reports the selected case body line count and a short excerpt;
+if dispatcher-name based body slicing fails, it falls back to the recovered case
+source-line anchor.
+Narrow casts on buffer arguments are normalized before helper candidate and
+helper-edge matching. When a helper-only case passes a context argument followed
+by a candidate pointer and one or more length arguments, the length-adjacent
+pointer is treated as provisional buffer evidence; it is promoted only if the
+helper body exposes matching size guards or field accesses. Helper evidence can
+upgrade the caller-side buffer role, length variables, and derived valid
+predicates, so helper-only METHOD_BUFFERED cases can render as `INOUT` when both
+input and output lengths guard the same system buffer. Direct IRP ABI assignments
+such as `AssociatedIrp.MasterIrp` or `AssociatedIrp.SystemBuffer` remain ABI
+evidence, not variable-name shortcuts. When no fixed-offset fields are recovered
+but size guards are recovered, the generated C++ sketch still emits directional
+byte windows, input/output size constants, and an inline size validator instead
+of collapsing the ABI to a single anonymous reserved array.
 
 `Cancel current operation` requests cooperative cancellation for the active analyze, export, or apply-preparation task. Cancellation is checked at safe phase boundaries; an in-flight Hex-Rays decompile or LLM provider call may finish before the task stops.
 
@@ -564,6 +609,25 @@ mode configuration fallback.
 - Driver device flags can render `DO_BUFFERED_IO` and `DO_DEVICE_INITIALIZING`, and `IoCreateDevice` device characteristics can render `FILE_DEVICE_SECURE_OPEN`.
 - Unknown or vendor `DEVICE_TYPE` values, for example `0x8337u`, stay as literals unless a trusted binary/profile source proves a standard `FILE_DEVICE_*` name. PseudoForge does not infer original source macro names.
 - IOCTL dispatcher case constants can be annotated with exact `CTL_CODE(DeviceType, Function, Method, Access)` bitfield decoding, including `METHOD_BUFFERED`, while preserving Hex-Rays integer suffixes and without inventing original `IOCTL_*` macro names.
+- IOCTL, `NtSetInformationProcess`, and `NtSetSystemInformation` switch cases
+  can emit report-only buffer contracts. The contract pass records buffer
+  variables, observed length/field guard predicates, derived valid predicates
+  for common rejection branches, synthetic input/output structure names, fixed
+  offset field reads/writes, helper/subhandler edges, and confidence/evidence
+  without applying IDB types. Export bundles also include a packed C++ header
+  sketch with inferred fields, padding, offset assertions, predicate comments,
+  size constants, and inline validator helpers for review or downstream harness
+  prototyping. Size-only contracts use directional byte windows such as
+  inout/output-extension ranges rather than a single opaque reserved array.
+- Focused case analysis keeps command buffer ABI recovery separate from
+  context/state analysis. Cases that only inspect a device extension, request
+  context, or other non-buffer base can legitimately produce zero buffer
+  contracts; the IDA focused preview reports those generic cast-offset accesses
+  and shared cleanup exits as selected-case context instead of inventing an
+  input/output structure.
+- Focused helper capture is not gated on already recovered contracts. The IDA
+  selected-case action also inspects call arguments in the active case body and
+  captures matching helpers before re-running the deeper buffer-contract pass.
 - IRP dispatch handlers can render preview signatures as `NTSTATUS __fastcall Name(PDEVICE_OBJECT deviceObject, PIRP irp)` once IRP completion or `IoStatus` evidence identifies the handler.
 - No-PDB dispatch handlers can still recover `deviceObject` and `irp` when the second parameter is completed through `IofCompleteRequest(...)`, including casted forms such as `(IRP *)a2`.
 - `IO_STACK_LOCATION` index rewrites are union-arm gated. `Parameters.DeviceIoControl.*` is emitted only when IRP dispatch evidence and DeviceControl `IoControlCode` stack-index evidence are present; other IRP major-function paths keep raw indexing until their own union arm is identified.
@@ -926,6 +990,9 @@ Export is the durable artifact path for PseudoForge analysis. It is not an apply
 <function>.switch-outline.cpp
 <function>.rename-map.json
 <function>.flow-report.md
+<function>.buffer-contracts.md
+<function>.buffer-contracts.json
+<function>.buffer-structs.hpp
 <function>.rule-report.json
 <function>.raw.cpp
 <function>.warnings.json
@@ -942,6 +1009,15 @@ File purposes:
 - `.switch-outline.cpp`: recovered dispatcher case values and conservative body excerpts.
 - `.rename-map.json`: full `CleanPlan` JSON.
 - `.flow-report.md`: dispatcher, recovered cases, cleanup labels, and warning report.
+- `.buffer-contracts.md`: per-command input/output buffer contract report with
+  observed size/field guards, derived valid predicates, inferred field
+  accesses, helper edges, evidence, and caveats.
+- `.buffer-contracts.json`: machine-readable command buffer contracts from the
+  `CleanPlan`.
+- `.buffer-structs.hpp`: packed C++ ABI sketch generated from recovered buffer
+  contracts, including inferred padding, fixed-offset fields, observed/valid
+  predicate comments, size constants, inline size validators, directional
+  byte windows for size-only contracts, and `offsetof`/`sizeof` assertions.
 - `.rule-report.json`: deterministic rule matches, rejected emissions, load errors, and validation errors.
 - `.raw.cpp`: original captured decompiler text used as analysis input.
 - `.warnings.json`: plan and profile-load warnings as reviewable JSON.
@@ -956,6 +1032,7 @@ Artifact parity:
 | Switch outline | yes | yes | yes |
 | Rename map / CleanPlan | yes | yes | yes |
 | Flow report | yes | yes | yes |
+| Buffer contract report/JSON | yes | yes | yes |
 | Rule report | yes | yes | yes |
 | Raw pseudocode | yes | yes | yes |
 | Warnings JSON | yes | yes | yes |
@@ -966,6 +1043,14 @@ Artifact parity:
 Caveats:
 
 - `switch-outline.cpp` does not synthesize deep shared branches or fallthrough bodies.
+- Buffer contracts are conservative report artifacts. Unknown field names stay
+  as `field_0xNN`; helper-derived constraints appear only when helper captures
+  are available, unresolved helper calls are reported as edges, and derived
+  valid predicates are emitted only for common fail-fast guard branches.
+  Generated `.buffer-structs.hpp` files are ABI sketches, not automatically
+  applied IDB type definitions. For large dispatchers, prefer the focused
+  cursor-case or case-value command instead of reviewing every recovered switch
+  case.
 - Control-flow rewrites are preview/export-only artifacts and never modify the IDB.
 - The IDB receives only user-selected local or argument renames.
 - Export artifacts are intended to be reviewed against the original pseudocode.
@@ -977,6 +1062,15 @@ Run the core engine outside IDA:
 ```powershell
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_smoke
 ```
+
+Focused buffer contract analysis for one case:
+
+```powershell
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_case_0x18 --buffer-contract-case 0x18
+```
+
+`--buffer-contract-case` accepts hex or decimal values and can be repeated.
+`--buffer-contract-helper-depth` controls helper/subhandler propagation depth.
 
 Expected output:
 
@@ -1068,6 +1162,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 ```
 
 The IDA Free CLI accepts one or more text files. Each file should contain one complete function. Leading or trailing copied text is tolerated when the function boundary is unambiguous. Multiple functions in one file fail closed with an actionable error.
+Use `--buffer-contract-case 0x...` to restrict buffer contract artifacts to one command case.
 
 Project-local deterministic rules:
 
@@ -1570,6 +1665,7 @@ Current validation set used during development:
 
 ```powershell
 python -B -m unittest discover -s tests -v
+python -B -m unittest tests.test_buffer_contracts -v
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools
 python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api.json
 python -B -m json.tool .\ida_pseudoforge\profiles\kernel_api_overrides.json
@@ -1583,8 +1679,12 @@ python -B .\tools\build_status_codes_profile.py --version 10.0.26100.0 --dry-run
 python -B .\tools\pseudoforge_cli.py --version
 python -B .\tools\release_pseudoforge.py --dry-run
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_smoke
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_struct_smoke
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_case_0x18_smoke --buffer-contract-case 0x18
 python -B .\tools\pseudoforge_free_cli.py --version
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_smoke
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_struct_free_smoke --format json --no-progress
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_case_0x18_free_smoke --buffer-contract-case 0x18 --format json --no-progress
 git diff --check -- .
 ```
 

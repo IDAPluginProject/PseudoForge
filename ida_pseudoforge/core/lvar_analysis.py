@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ida_pseudoforge.core.buffer_contracts import recover_buffer_contracts
 from ida_pseudoforge.core.cleanup_rewriter import classify_cleanup_labels
 from ida_pseudoforge.core.api_semantics import FUNCTION_PARAMETER_NAMES, LOCAL_NAME_RULES
 from ida_pseudoforge.core.deterministic.context import build_rule_context
@@ -37,6 +38,9 @@ def build_clean_plan(
     capture: FunctionCapture,
     rename_provider: Any | None = None,
     rule_dirs: list[str | Path] | None = None,
+    helper_captures: dict[str, FunctionCapture] | list[FunctionCapture] | None = None,
+    buffer_contract_case_values: list[int] | None = None,
+    buffer_contract_helper_depth: int = 2,
 ) -> CleanPlan:
     rule_report = RuleReport()
     rule_engine = _build_rule_engine(rule_report, rule_dirs, capture)
@@ -55,6 +59,14 @@ def build_clean_plan(
     _attach_rename_identities(validated, capture)
     rename_map = {item.old: item.new for item in validated if item.apply}
     flow_rewrites = recover_flow(capture, rename_map=rename_map)
+    buffer_contracts = recover_buffer_contracts(
+        capture,
+        flow_rewrites,
+        rename_map=rename_map,
+        helper_captures=helper_captures,
+        max_depth=buffer_contract_helper_depth,
+        case_values=buffer_contract_case_values,
+    )
     cleanup_labels = classify_cleanup_labels(capture)
     comments = _dedupe_comments(
         kernel_comments(capture, rename_map)
@@ -77,6 +89,7 @@ def build_clean_plan(
         renames=validated,
         flow_rewrites=flow_rewrites,
         cleanup_labels=cleanup_labels,
+        buffer_contracts=buffer_contracts,
         comments=comments,
         warnings=combined_warnings,
         rule_report=rule_report.to_dict(),

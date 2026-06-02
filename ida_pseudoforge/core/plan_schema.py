@@ -77,6 +77,91 @@ class CleanupLabel:
 
 
 @dataclass(slots=True)
+class BufferSizeConstraint:
+    buffer: str
+    length: str
+    relation: str
+    value: str
+    valid_relation: str = ""
+    valid_value: str = ""
+    role: str = ""
+    evidence: str = ""
+    source: str = "local"
+    confidence: float = 0.0
+
+
+@dataclass(slots=True)
+class FieldAccess:
+    buffer: str
+    structure: str
+    offset: int
+    type: str
+    field: str
+    access: str
+    evidence: str = ""
+    source: str = "local"
+    confidence: float = 0.0
+
+
+@dataclass(slots=True)
+class FieldConstraint:
+    buffer: str
+    structure: str
+    offset: int
+    field: str
+    relation: str
+    value: str = ""
+    mask: str = ""
+    valid_relation: str = ""
+    valid_value: str = ""
+    evidence: str = ""
+    source: str = "local"
+    confidence: float = 0.0
+
+
+@dataclass(slots=True)
+class HelperContractEdge:
+    callee: str
+    arguments: list[str] = field(default_factory=list)
+    passed_buffers: list[str] = field(default_factory=list)
+    resolved: bool = False
+    depth: int = 0
+    evidence: str = ""
+    propagated_size_constraints: list[BufferSizeConstraint] = field(default_factory=list)
+    propagated_field_constraints: list[FieldConstraint] = field(default_factory=list)
+    nested_edges: list["HelperContractEdge"] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+
+
+@dataclass(slots=True)
+class BufferContract:
+    role: str
+    source: str
+    variable: str
+    length_variable: str
+    structure_name: str
+    size_constraints: list[BufferSizeConstraint] = field(default_factory=list)
+    field_accesses: list[FieldAccess] = field(default_factory=list)
+    field_constraints: list[FieldConstraint] = field(default_factory=list)
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
+class CommandBufferContract:
+    dispatcher_kind: str
+    dispatcher: str
+    command_value: int
+    command_name: str = ""
+    buffers: list[BufferContract] = field(default_factory=list)
+    helper_edges: list[HelperContractEdge] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
 class CleanPlan:
     function_ea: int
     function_name: str
@@ -84,6 +169,7 @@ class CleanPlan:
     renames: list[RenameSuggestion] = field(default_factory=list)
     flow_rewrites: list[FlowRewrite] = field(default_factory=list)
     cleanup_labels: list[CleanupLabel] = field(default_factory=list)
+    buffer_contracts: list[CommandBufferContract] = field(default_factory=list)
     comments: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     rule_report: dict[str, Any] = field(default_factory=dict)

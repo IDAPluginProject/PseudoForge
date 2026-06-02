@@ -53,6 +53,17 @@ Implemented in this folder:
    - DriverEntry preview signature normalization, IRP major-function constants, `NT_SUCCESS` tests, `DO_*` device flags, and `FILE_DEVICE_SECURE_OPEN` rendering
    - IOCTL dispatcher case constant annotation with exact `CTL_CODE(DeviceType, Function, Method, Access)` bitfield decoding
    - IOCTL-gated `IO_STACK_LOCATION.Parameters.DeviceIoControl` field rendering and deterministic device-control local naming from `_DWORD *` stack-location indexing
+   - command buffer contract recovery under `ida_pseudoforge/core/buffer_contracts.py`
+     for IOCTL, `NtSetInformationProcess`, `NtSetSystemInformation`, and
+     strongly evidenced generic switch dispatchers, producing report-only
+     per-case observed size/field guard predicates, derived valid predicates
+     for common rejection branches, inferred field accesses, synthetic
+     structure names, helper edges, confidence, and evidence
+   - selected-case buffer contract recovery for focused CLI and IDA cursor-case
+     deep analysis, including generated C++ struct previews
+   - cursor-case analysis resolves the active Hex-Rays pseudocode line through
+     `ida_hexrays.get_widget_vdui(...).cpos.lnnum` first; only the explicit
+     case-value action prompts for a command value
    - preview-only inferred driver device-extension field rendering for common DriverEntry initialization and cleanup offsets
    - 25H2-range `SYSTEM_INFORMATION_CLASS` profile coverage
    - 25H2-range `PROCESSINFOCLASS` profile coverage through `ProcessAvailableCpus`
@@ -133,6 +144,44 @@ Implemented in this folder:
    - builtin rules mirror low-risk local rename, assignment rename, and call-presence semantic comment rules while keeping existing hard-coded deterministic passes in place
    - rule-based rename suggestions still pass through `validate_renames()`
    - export bundles include `<function>.rule-report.json`
+   - export bundles include `<function>.buffer-contracts.md` and
+     `<function>.buffer-contracts.json`
+   - export bundles include `<function>.buffer-structs.hpp` packed C++ ABI
+     sketches generated from recovered command buffer contracts, including
+     observed/valid predicate comments, size constants, inline size validators,
+     and directional byte windows for size-only contracts when rejection guards
+     are recognized
+   - focused IDA buffer-contract preview also reports selected-case context
+     for non-buffer cases: shared-tail labels, cleanup classification, and
+     generic cast-offset context accesses are shown separately from command
+     input/output buffer ABI sketches
+   - focused IDA helper capture now scans selected-case call-sites for recovered
+     buffer or length arguments before the deep pass, so helper-only cases do
+     not depend on a pre-existing local buffer contract
+   - focused IDA preview and trace output include helper candidate counts before
+     helper capture, making candidate discovery failures distinct from capture
+     or decompilation failures
+   - focused IDA preview reports captured helpers that are not linked back to
+     the selected buffer path, making unrelated helper captures distinct from
+     missing propagation
+   - selected-case context preview includes case body line counts and a short
+     excerpt, with a recovered source-line anchor fallback when dispatcher-name
+     body slicing is unavailable
+   - helper candidate and helper-edge matching now tolerate narrow casts on
+     buffer arguments without relying on sample variable names: helper-only
+     calls use length-adjacent pointer arguments as provisional buffer evidence,
+     then promote them only when helper bodies expose matching size guards or
+     field accesses. Helper evidence is merged back into the caller-side buffer
+     contract role, length variables, source evidence, and derived valid
+     predicates, so METHOD_BUFFERED helper-only cases can render as `INOUT` when
+     input and output lengths guard the same system buffer. Direct IRP ABI
+     assignments such as `AssociatedIrp.MasterIrp` or `AssociatedIrp.SystemBuffer`
+     are treated as ABI evidence rather than variable-name shortcuts.
+   - size-only buffer contracts no longer collapse generated C++ sketches to a
+     single anonymous reserved array. When no fixed-offset fields are recovered,
+     the sketch emits input/output size constants, an inline size validator, and
+     directional byte windows such as shared inout bytes plus input/output
+     extension ranges without inventing field names.
    - export bundles are documented as durable review, audit, sharing, and regression artifacts rather than an IDB write path
 
 4. Offline CLI
@@ -195,6 +244,7 @@ Implemented in this folder:
 
 6. Tests
    - `tests/test_ida_plugin_safety.py`
+   - `tests/test_buffer_contracts.py`
    - `tests/test_render_callbacks.py`
    - `tests/test_render_call_args.py`
    - `tests/test_render_dispatcher.py`
@@ -710,6 +760,8 @@ Edit/PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Analyze buffer contract for cursor case
+  Analyze buffer contract by case value...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -727,6 +779,8 @@ PseudoForge/
   Show current analysis result
   Analyzed functions...
   Export cleaned pseudocode
+  Analyze buffer contract for cursor case
+  Analyze buffer contract by case value...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -743,6 +797,7 @@ Ctrl+Alt+F        Analyze current function
 Ctrl+Alt+P        Show current analysis result
 Ctrl+Alt+Shift+P  Analyzed functions...
 Ctrl+Alt+Shift+F  Export cleaned pseudocode
+Ctrl+Alt+B        Analyze buffer contract for cursor case
 Ctrl+Alt+Shift+V  Configure preview mode
 ```
 
@@ -764,6 +819,9 @@ The `.forge` file is sectioned by function EA. Re-analyzing one function replace
 <function>.switch-outline.cpp
 <function>.rename-map.json
 <function>.flow-report.md
+<function>.buffer-contracts.md
+<function>.buffer-contracts.json
+<function>.buffer-structs.hpp
 <function>.rule-report.json
 ```
 
@@ -776,6 +834,8 @@ pseudocode.
 Commands that passed:
 
 ```powershell
+python -B -m unittest tests.test_render_ioctl tests.test_render_ntset tests.test_render_flow -v
+python -B -m unittest tests.test_buffer_contracts -v
 python -B -m unittest discover -s tests -v
 python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools
 python -B -m json.tool .\ida-plugin.json
@@ -789,13 +849,19 @@ python -B .\tools\build_status_codes_profile.py --version 10.0.26100.0 --dry-run
 python -B .\tools\pseudoforge_cli.py --version
 python -B .\tools\release_pseudoforge.py --dry-run
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_claude_hidden_existing_cli_smoke
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_contract_smoke
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_struct_smoke
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_case_0x18_smoke --buffer-contract-case 0x18
 python -B .\tools\pseudoforge_free_cli.py --version
 python -B .\tools\pseudoforge_free_cli.py --help
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_claude_hidden_free_cli_smoke
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_contract_free_smoke --format json --no-progress
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_struct_free_smoke --format json --no-progress
+python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_buffer_case_0x18_free_smoke --buffer-contract-case 0x18 --format json --no-progress
 git diff --check -- .
 ```
 
-Latest unit test count: 402 tests.
+Latest unit test count: 433 tests.
 
 Latest no-PDB kernel pattern driver quality loop:
 

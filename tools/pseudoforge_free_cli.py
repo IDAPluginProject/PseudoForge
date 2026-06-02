@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -155,6 +156,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--llm-model", default="")
     parser.add_argument("--llm-command", default="")
     parser.add_argument("--llm-timeout", type=int, default=60)
+    parser.add_argument(
+        "--buffer-contract-case",
+        action="append",
+        default=[],
+        type=_case_value_arg,
+        help="Recover deep buffer contracts only for this case value. Accepts hex or decimal; can be repeated.",
+    )
+    parser.add_argument(
+        "--buffer-contract-helper-depth",
+        type=int,
+        default=2,
+        help="Maximum helper/subhandler depth for buffer contract recovery.",
+    )
     return parser
 
 
@@ -299,13 +313,29 @@ def _rule_dirs(args: argparse.Namespace) -> list[str]:
 
 def _build_plan(capture: Any, args: argparse.Namespace, deps: _Deps, rule_dirs: list[str]) -> tuple[Any, str]:
     if not args.llm:
-        return deps.build_clean_plan(capture, rule_dirs=rule_dirs), "disabled"
+        return deps.build_clean_plan(
+            capture,
+            rule_dirs=rule_dirs,
+            buffer_contract_case_values=args.buffer_contract_case or None,
+            buffer_contract_helper_depth=max(0, args.buffer_contract_helper_depth),
+        ), "disabled"
 
     try:
         provider = _build_cli_provider(args, deps)
-        return deps.build_clean_plan(capture, rename_provider=provider, rule_dirs=rule_dirs), "ok"
+        return deps.build_clean_plan(
+            capture,
+            rename_provider=provider,
+            rule_dirs=rule_dirs,
+            buffer_contract_case_values=args.buffer_contract_case or None,
+            buffer_contract_helper_depth=max(0, args.buffer_contract_helper_depth),
+        ), "ok"
     except Exception as exc:
-        plan = deps.build_clean_plan(capture, rule_dirs=rule_dirs)
+        plan = deps.build_clean_plan(
+            capture,
+            rule_dirs=rule_dirs,
+            buffer_contract_case_values=args.buffer_contract_case or None,
+            buffer_contract_helper_depth=max(0, args.buffer_contract_helper_depth),
+        )
         plan.warnings.insert(0, format_llm_fallback_warning(exc))
         return plan, "failed_fallback"
 
@@ -399,6 +429,15 @@ def _safe_file_stem(name: str) -> str:
         for char in str(name or "")
     )
     return cleaned.strip("._") or "function"
+
+
+def _case_value_arg(value: str) -> int:
+    text = str(value or "").strip()
+    cleaned = re.sub(r"(?i)(ui64|i64|ull|llu|ll|ul|lu|u|l)$", "", text)
+    try:
+        return int(cleaned, 0)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("case value must be a C integer literal") from exc
 
 
 def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:

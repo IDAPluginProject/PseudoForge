@@ -11,6 +11,7 @@ except Exception:
 
 from ida_pseudoforge.ida.actions import (
     AnalyzeCurrentFunctionHandler,
+    AnalyzeBufferContractCaseHandler,
     ApplySelectedRenamesHandler,
     CancelCurrentTaskHandler,
     ConfigureLlmHandler,
@@ -38,6 +39,8 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
     preview_current_action_name = "pseudoforge:preview_current_analyzed_function"
     analyzed_functions_action_name = "pseudoforge:analyzed_functions"
     export_action_name = "pseudoforge:export_cleaned_pseudocode"
+    buffer_contract_cursor_action_name = "pseudoforge:analyze_buffer_contract_cursor_case"
+    buffer_contract_value_action_name = "pseudoforge:analyze_buffer_contract_case_value"
     cancel_action_name = "pseudoforge:cancel_current_task"
     apply_renames_action_name = "pseudoforge:apply_selected_renames"
     configure_llm_action_name = "pseudoforge:configure_llm"
@@ -73,6 +76,20 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
             ExportCleanedPseudocodeHandler(),
             "Ctrl+Alt+Shift+F",
             "Export a readable pseudocode bundle",
+        )
+        self._actions.register(
+            self.buffer_contract_cursor_action_name,
+            "Analyze buffer contract for cursor case",
+            AnalyzeBufferContractCaseHandler(prompt_always=False),
+            "Ctrl+Alt+B",
+            "Deep-analyze command buffer contracts for the switch case under the cursor",
+        )
+        self._actions.register(
+            self.buffer_contract_value_action_name,
+            "Analyze buffer contract by case value...",
+            AnalyzeBufferContractCaseHandler(prompt_always=True),
+            "",
+            "Deep-analyze command buffer contracts for a specific switch case value",
         )
         self._actions.register(
             self.cancel_action_name,
@@ -146,6 +163,14 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
         self._actions.attach_menu(
             "Edit/PseudoForge/",
             self.export_action_name,
+        )
+        self._actions.attach_menu(
+            "Edit/PseudoForge/",
+            self.buffer_contract_cursor_action_name,
+        )
+        self._actions.attach_menu(
+            "Edit/PseudoForge/",
+            self.buffer_contract_value_action_name,
         )
         self._actions.attach_menu(
             "Edit/PseudoForge/",
@@ -271,6 +296,18 @@ class ContextMenuHooks(idaapi.UI_Hooks if idaapi else object):
                 form,
                 popup,
                 PseudoForgePlugin.export_action_name,
+                "PseudoForge/",
+            )
+            idaapi.attach_action_to_popup(
+                form,
+                popup,
+                PseudoForgePlugin.buffer_contract_cursor_action_name,
+                "PseudoForge/",
+            )
+            idaapi.attach_action_to_popup(
+                form,
+                popup,
+                PseudoForgePlugin.buffer_contract_value_action_name,
                 "PseudoForge/",
             )
             idaapi.attach_action_to_popup(

@@ -4,6 +4,11 @@ import difflib
 import json
 from pathlib import Path
 
+from ida_pseudoforge.core.buffer_contracts import (
+    buffer_contracts_json_payload,
+    render_buffer_contract_report,
+    render_buffer_struct_header,
+)
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render import (
     _safe_file_stem,
@@ -36,6 +41,9 @@ def write_export_bundle(
     switch_outline_path = output_path / f"{safe_name}.switch-outline.cpp"
     rename_map_path = output_path / f"{safe_name}.rename-map.json"
     flow_report_path = output_path / f"{safe_name}.flow-report.md"
+    buffer_contract_report_path = output_path / f"{safe_name}.buffer-contracts.md"
+    buffer_contract_json_path = output_path / f"{safe_name}.buffer-contracts.json"
+    buffer_struct_header_path = output_path / f"{safe_name}.buffer-structs.hpp"
     rule_report_path = output_path / f"{safe_name}.rule-report.json"
     raw_path = output_path / f"{safe_name}.raw.cpp"
     warnings_path = output_path / f"{safe_name}.warnings.json"
@@ -46,6 +54,8 @@ def write_export_bundle(
     raw_text = capture.pseudocode.rstrip() + "\n"
     switch_outline_text = render_switch_outline(capture, plan)
     flow_report_text = render_flow_report(capture, plan)
+    buffer_contract_report_text = render_buffer_contract_report(capture, plan.buffer_contracts)
+    buffer_struct_header_text = render_buffer_struct_header(capture, plan.buffer_contracts)
     warnings = _combined_export_warnings(plan)
 
     cleaned_path.write_text(cleaned_text, encoding="utf-8")
@@ -55,6 +65,12 @@ def write_export_bundle(
         encoding="utf-8",
     )
     flow_report_path.write_text(flow_report_text, encoding="utf-8")
+    buffer_contract_report_path.write_text(buffer_contract_report_text, encoding="utf-8")
+    buffer_contract_json_path.write_text(
+        json.dumps(buffer_contracts_json_payload(plan.buffer_contracts), indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    buffer_struct_header_path.write_text(buffer_struct_header_text, encoding="utf-8")
     rule_report_path.write_text(
         json.dumps(plan.rule_report or {}, indent=2, ensure_ascii=True),
         encoding="utf-8",
@@ -68,6 +84,9 @@ def write_export_bundle(
         "switch_outline": str(switch_outline_path),
         "rename_map": str(rename_map_path),
         "flow_report": str(flow_report_path),
+        "buffer_contract_report": str(buffer_contract_report_path),
+        "buffer_contracts": str(buffer_contract_json_path),
+        "buffer_structs": str(buffer_struct_header_path),
         "rule_report": str(rule_report_path),
         "raw_pseudocode": str(raw_path),
         "warnings": str(warnings_path),
@@ -127,6 +146,7 @@ def _export_summary_payload(
         "rename_candidates": len(plan.renames),
         "renames": len(plan.active_renames()),
         "flow_rewrites": len(plan.flow_rewrites),
+        "buffer_contracts": len(plan.buffer_contracts),
         "warnings": len(warnings),
         "rule_diagnostics": rule_diagnostics,
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),

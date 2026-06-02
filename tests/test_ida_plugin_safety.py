@@ -10,9 +10,13 @@ from ida_pseudoforge.config import (
     PreviewConfig,
     PseudoForgeConfig,
 )
+from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
+    CommandBufferContract,
     FunctionCapture,
+    HelperContractEdge,
     LocalVariable,
     RenameSuggestion,
     make_lvar_identity,
@@ -131,6 +135,47 @@ class FakeContextMenuHooks:
 
     def unhook(self):
         return True
+
+
+class FakePseudocodeLine:
+    def __init__(self, line: str) -> None:
+        self.line = line
+
+
+class FakeCpos:
+    def __init__(self, lnnum: int) -> None:
+        self.lnnum = lnnum
+
+
+class FakeCfunc:
+    def __init__(self, lines: list[str]) -> None:
+        self._lines = [FakePseudocodeLine(line) for line in lines]
+
+    def get_pseudocode(self):
+        return self._lines
+
+
+class FakeVdui:
+    def __init__(self, lines: list[str], line_index: int) -> None:
+        self.cpos = FakeCpos(line_index)
+        self.cfunc = FakeCfunc(lines)
+
+
+class FakeHexraysCursor:
+    def __init__(self, widget, vdui) -> None:
+        self.widget = widget
+        self.vdui = vdui
+
+    def get_widget_vdui(self, widget):
+        return self.vdui if widget is self.widget else None
+
+
+class FakeKernwinCursor:
+    def __init__(self, widget) -> None:
+        self.widget = widget
+
+    def get_current_widget(self):
+        return self.widget
 
 
 class IdaPluginSafetyTests(unittest.TestCase):
@@ -935,6 +980,245 @@ __int64 __fastcall sub_140001000(int argument)
         self.assertEqual(len(messages), 1)
         self.assertIn("cancellation requested for analyze", messages[0])
 
+    def test_buffer_contract_case_value_parser_accepts_c_literals(self):
+        self.assertEqual(0x91234004, actions_module._parse_buffer_contract_case_value("0x91234004u"))
+        self.assertEqual(29, actions_module._parse_buffer_contract_case_value("29"))
+        self.assertIsNone(actions_module._parse_buffer_contract_case_value("not_a_case"))
+
+    def test_buffer_contract_cursor_location_prefers_hexrays_vdui(self):
+        widget = object()
+        lines = [
+            "NTSTATUS __fastcall Dispatch(int code)",
+            "{",
+            "  switch ( code )",
+            "  {",
+            "    case 0x91234004:",
+            "      if ( outputBufferLength < 24 )",
+            "      {",
+        ]
+        old_hexrays = actions_module.ida_hexrays
+        old_kernwin = actions_module.ida_kernwin
+        actions_module.ida_hexrays = FakeHexraysCursor(widget, FakeVdui(lines, 5))
+        actions_module.ida_kernwin = FakeKernwinCursor(widget)
+        try:
+            line_index, line_text = actions_module._current_pseudocode_cursor_location(None)
+        finally:
+            actions_module.ida_hexrays = old_hexrays
+            actions_module.ida_kernwin = old_kernwin
+
+        self.assertEqual(5, line_index)
+        self.assertEqual("      if ( outputBufferLength < 24 )", line_text)
+
+    def test_buffer_contract_cursor_resolution_uses_enclosing_case_without_prompt(self):
+        pseudocode = "\n".join(
+            [
+                "NTSTATUS __fastcall Dispatch(int code)",
+                "{",
+                "  switch ( code )",
+                "  {",
+                "    case 0x91234004:",
+                "      if ( outputBufferLength < 24 )",
+                "      {",
+                "        return STATUS_BUFFER_TOO_SMALL;",
+                "      }",
+                "      return 0;",
+                "    default:",
+                "      return STATUS_INVALID_DEVICE_REQUEST;",
+                "  }",
+                "}",
+            ]
+        )
+        capture = FunctionCapture(
+            ea=0x140001000,
+            name="Dispatch",
+            prototype="NTSTATUS __fastcall Dispatch(int code)",
+            pseudocode=pseudocode,
+        )
+        old_location = actions_module._current_pseudocode_cursor_location
+        old_capture = actions_module.capture_current_function
+        actions_module._current_pseudocode_cursor_location = lambda ctx: (5, "      if ( outputBufferLength < 24 )")
+        actions_module.capture_current_function = lambda: (capture, object())
+        try:
+            value, resolved_capture = actions_module._resolve_buffer_contract_case_from_cursor(object())
+        finally:
+            actions_module._current_pseudocode_cursor_location = old_location
+            actions_module.capture_current_function = old_capture
+
+        self.assertEqual(0x91234004, value)
+        self.assertIs(resolved_capture, capture)
+
+    def test_buffer_contract_cursor_action_does_not_prompt_when_cursor_unresolved(self):
+        handler = actions_module.AnalyzeBufferContractCaseHandler(prompt_always=False)
+        old_resolve = actions_module._resolve_buffer_contract_case_from_cursor
+        old_ask = actions_module._ask_buffer_contract_case_value
+        old_warning = actions_module.warning
+        old_run = actions_module.run_background
+        asks = []
+        warnings = []
+        runs = []
+        actions_module._resolve_buffer_contract_case_from_cursor = lambda ctx: (None, None)
+        actions_module._ask_buffer_contract_case_value = lambda: asks.append(True) or 0x91234004
+        actions_module.warning = warnings.append
+        actions_module.run_background = lambda *args, **kwargs: runs.append((args, kwargs)) or True
+        try:
+            self.assertEqual(handler.activate(object()), 1)
+        finally:
+            actions_module._resolve_buffer_contract_case_from_cursor = old_resolve
+            actions_module._ask_buffer_contract_case_value = old_ask
+            actions_module.warning = old_warning
+            actions_module.run_background = old_run
+
+        self.assertFalse(asks)
+        self.assertFalse(runs)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("could not resolve the switch case under the cursor", warnings[0])
+
+    def test_buffer_contract_value_action_prompts_for_case_value(self):
+        handler = actions_module.AnalyzeBufferContractCaseHandler(prompt_always=True)
+        old_ask = actions_module._ask_buffer_contract_case_value
+        old_run = actions_module.run_background
+        asks = []
+        runs = []
+        actions_module._ask_buffer_contract_case_value = lambda: asks.append(True) or 0x91234004
+        actions_module.run_background = lambda *args, **kwargs: runs.append((args, kwargs)) or True
+        try:
+            self.assertEqual(handler.activate(object()), 1)
+        finally:
+            actions_module._ask_buffer_contract_case_value = old_ask
+            actions_module.run_background = old_run
+
+        self.assertEqual(asks, [True])
+        self.assertEqual(len(runs), 1)
+
+    def test_buffer_contract_case_analysis_captures_helper_from_selected_case_body(self):
+        pseudocode = r"""
+NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
+{
+  NTSTATUS status;
+  PVOID payload;
+  ULONG inputLength;
+  ULONG outputLength;
+  ULONG controlCode;
+  ULONG_PTR information;
+  _DWORD *stack;
+
+  stack = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  payload = irp->AssociatedIrp.MasterIrp;
+  inputLength = stack[2];
+  outputLength = stack[4];
+  controlCode = stack[6];
+  information = 0;
+  switch ( controlCode )
+  {
+    case 0x91236000:
+      status = HandlePayload(payload, inputLength, outputLength, &information);
+      break;
+    case 0x91236004:
+      status = 0;
+      break;
+    case 0x91236008:
+      status = 0;
+      break;
+    case 0x9123600C:
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  irp->IoStatus.Information = information;
+  irp->IoStatus.Status = status;
+  IofCompleteRequest(irp, 0);
+  return status;
+}
+"""
+        capture = capture_from_pseudocode(pseudocode)
+        initial_plan = build_clean_plan(capture, buffer_contract_case_values=[0x91236000])
+        initial_plan.buffer_contracts = []
+        captured_helper_names = []
+        old_build = actions_module._build_plan_with_config
+        old_capture_helpers = actions_module._capture_buffer_contract_helpers
+        old_set_source = actions_module._set_capture_source_path
+
+        def fake_build(*args, **kwargs):
+            return initial_plan
+
+        def fake_capture_helpers(helper_names, **kwargs):
+            captured_helper_names.extend(helper_names)
+            return {}
+
+        actions_module._build_plan_with_config = fake_build
+        actions_module._capture_buffer_contract_helpers = fake_capture_helpers
+        actions_module._set_capture_source_path = lambda captured: None
+        try:
+            actions_module.analyze_current_buffer_contract_case(0x91236000, capture=capture)
+        finally:
+            actions_module._build_plan_with_config = old_build
+            actions_module._capture_buffer_contract_helpers = old_capture_helpers
+            actions_module._set_capture_source_path = old_set_source
+
+        self.assertEqual(["HandlePayload"], captured_helper_names)
+
+    def test_buffer_contract_preview_reports_unlinked_helper_captures(self):
+        capture = FunctionCapture(
+            ea=0x140001000,
+            name="Dispatch",
+            pseudocode="NTSTATUS Dispatch(void)\n{\n  return 0;\n}\n",
+        )
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            buffer_contracts=[
+                CommandBufferContract(
+                    dispatcher_kind="ioctl",
+                    dispatcher="ioControlCode",
+                    command_value=0x91236000,
+                    helper_edges=[
+                        HelperContractEdge(callee="LinkedHelper", resolved=True),
+                    ],
+                )
+            ],
+        )
+        text = actions_module._format_buffer_contract_case_preview(
+            capture,
+            plan,
+            0x91236000,
+            {
+                "LinkedHelper": FunctionCapture(name="LinkedHelper"),
+                "UnlinkedHelper": FunctionCapture(name="UnlinkedHelper"),
+            },
+            ["LinkedHelper"],
+        )
+
+        self.assertIn("Captured helpers not linked to selected buffer path", text)
+        unlinked_section = text.split("Captured helpers not linked to selected buffer path:", 1)[1].split("# Buffer Contract Report", 1)[0]
+        self.assertIn("`UnlinkedHelper`", unlinked_section)
+        self.assertNotIn("`LinkedHelper`", unlinked_section)
+
+    def test_buffer_contract_helper_capture_preserves_call_site_name(self):
+        helper_capture = FunctionCapture(
+            ea=0x140002000,
+            name="RenamedHelper",
+            prototype="NTSTATUS __fastcall RenamedHelper(PVOID buffer)",
+            pseudocode="NTSTATUS __fastcall RenamedHelper(PVOID buffer)\n{\n  return 0;\n}\n",
+        )
+        old_capture = actions_module.capture_function_by_name
+        actions_module.capture_function_by_name = lambda name: helper_capture if name == "sub_140002000" else None
+        try:
+            captures = actions_module._capture_buffer_contract_helpers(
+                ["sub_140002000"],
+                caller_ea=0x140001000,
+                max_depth=1,
+                max_helpers=4,
+            )
+        finally:
+            actions_module.capture_function_by_name = old_capture
+
+        self.assertIn("sub_140002000", captures)
+        self.assertIs(helper_capture, captures["sub_140002000"])
+        self.assertNotIn("RenamedHelper", captures)
+
     def test_action_registry_tracks_and_unregisters_actions(self):
         fake_idaapi = FakeIdaApi()
         registry = ActionRegistry(fake_idaapi)
@@ -969,6 +1253,8 @@ __int64 __fastcall sub_140001000(int argument)
             attached_paths = [item[0] for item in fake_idaapi.attached]
             self.assertIn(plugin_module.PseudoForgePlugin.preview_current_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.analyzed_functions_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.buffer_contract_cursor_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.buffer_contract_value_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.cancel_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_preview_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_profile_action_name, fake_idaapi.registered)
@@ -979,6 +1265,8 @@ __int64 __fastcall sub_140001000(int argument)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.analyze_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.preview_current_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.analyzed_functions_action_name), attached_menu_actions)
+            self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.buffer_contract_cursor_action_name), attached_menu_actions)
+            self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.buffer_contract_value_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.cancel_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.configure_preview_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.configure_profile_action_name), attached_menu_actions)
@@ -1190,7 +1478,7 @@ __int64 __fastcall sub_140001000(int argument)
             profile_dir=selected,
         )
         actions_module.configure_profile_dir = lambda profile_dir: configured.append(profile_dir) or Path(profile_dir)
-        actions_module.build_clean_plan = lambda captured: _plan(captured)
+        actions_module.build_clean_plan = lambda captured, **_kwargs: _plan(captured)
         try:
             plan = actions_module._build_plan_with_config(capture)
         finally:
@@ -1216,7 +1504,7 @@ __int64 __fastcall sub_140001000(int argument)
             "Request ID: req_policy_456"
         )
 
-        def fake_build(captured, rename_provider=None):
+        def fake_build(captured, rename_provider=None, **_kwargs):
             if rename_provider is not None:
                 raise RuntimeError(error)
             return _plan(captured)

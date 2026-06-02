@@ -10,6 +10,13 @@ from ida_pseudoforge.config import (
     save_config,
 )
 from ida_pseudoforge.core.export_bundle import write_export_bundle
+from ida_pseudoforge.core.buffer_contracts import (
+    find_case_value_near_line,
+    helper_names_for_selected_case,
+    render_buffer_contract_report,
+    render_case_context_report,
+    render_buffer_struct_header,
+)
 from ida_pseudoforge.core.forge_store import (
     ForgeFunctionSection,
     find_forge_function_section,
@@ -27,6 +34,7 @@ from ida_pseudoforge.core.llm_failures import (
     is_llm_provider_cyber_policy_block,
     summarize_llm_failure,
 )
+from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
@@ -64,11 +72,13 @@ from ida_pseudoforge.profiles.loader import DEFAULT_PROFILE_DIR, active_profile_
 from ida_pseudoforge.version import VERSION
 
 try:
+    import ida_hexrays  # type: ignore
     import ida_nalt  # type: ignore
     import ida_kernwin  # type: ignore
     import idaapi  # type: ignore
     import ida_funcs  # type: ignore
 except Exception:
+    ida_hexrays = None
     ida_nalt = None
     ida_kernwin = None
     idaapi = None
@@ -136,6 +146,69 @@ def export_current_function() -> dict[str, str]:
             paths = write_export_bundle(output_dir, capture, plan, entrypoint="ida_interactive")
         log_event("export.done function=\"%s\" output_dir=\"%s\"" % (_ascii_for_log(capture.name), output_dir))
         return paths
+
+
+def analyze_current_buffer_contract_case(
+    command_value: int,
+    capture: FunctionCapture | None = None,
+) -> tuple[FunctionCapture, CleanPlan, str]:
+    purpose = "buffer_contract_case"
+    with trace_scope(purpose, command_value="0x%X" % command_value):
+        _raise_if_task_cancelled(purpose, "before capture")
+        if capture is None:
+            with trace_scope("buffer_contract_case.capture"):
+                capture, _cfunc = capture_current_function()
+        _set_capture_source_path(capture)
+        _raise_if_task_cancelled(purpose, "after capture")
+        log_event(
+            "buffer_contract_case.capture function=\"%s\" ea=0x%X case=0x%X"
+            % (_ascii_for_log(capture.name), capture.ea, command_value)
+        )
+        with trace_scope("buffer_contract_case.initial_plan", function=capture.name, case="0x%X" % command_value):
+            initial_plan = _build_plan_with_config(
+                capture,
+                task_name=purpose,
+                force_deterministic=True,
+                buffer_contract_case_values=[command_value],
+                buffer_contract_helper_depth=1,
+            )
+        helper_names = _dedupe_helper_names(
+            _helper_names_from_contracts(initial_plan)
+            + helper_names_for_selected_case(capture, initial_plan, command_value)
+        )
+        log_event(
+            "buffer_contract_case.helper_candidates function=\"%s\" ea=0x%X case=0x%X count=%d names=\"%s\""
+            % (
+                _ascii_for_log(capture.name),
+                capture.ea,
+                command_value,
+                len(helper_names),
+                ",".join(_ascii_for_log(name) for name in helper_names),
+            )
+        )
+        _raise_if_task_cancelled(purpose, "after initial plan")
+        helper_captures = _capture_buffer_contract_helpers(
+            helper_names,
+            caller_ea=capture.ea,
+            max_depth=2,
+            max_helpers=12,
+        )
+        _raise_if_task_cancelled(purpose, "after helper capture")
+        with trace_scope("buffer_contract_case.deep_plan", helpers=len(helper_captures), case="0x%X" % command_value):
+            plan = _build_plan_with_config(
+                capture,
+                task_name=purpose,
+                force_deterministic=True,
+                helper_captures=helper_captures,
+                buffer_contract_case_values=[command_value],
+                buffer_contract_helper_depth=2,
+            )
+        text = _format_buffer_contract_case_preview(capture, plan, command_value, helper_captures, helper_names)
+        log_event(
+            "buffer_contract_case.done function=\"%s\" ea=0x%X case=0x%X contracts=%d helpers=%d"
+            % (_ascii_for_log(capture.name), capture.ea, command_value, len(plan.buffer_contracts), len(helper_captures))
+        )
+        return capture, plan, text
 
 
 def _store_analysis_session(
@@ -261,6 +334,64 @@ class ExportCleanedPseudocodeHandler(idaapi.action_handler_t if idaapi else obje
 
         run_background("export", export_current_function, on_success, group_name=PLUGIN_STATE_GROUP)
         log_checkpoint("action.export.activate.after")
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
+class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else object):
+    def __init__(self, prompt_always: bool = False) -> None:
+        self.prompt_always = prompt_always
+
+    def activate(self, ctx):
+        log_checkpoint("action.buffer_contract_case.activate.before", prompt=int(self.prompt_always))
+        capture = None
+        if self.prompt_always:
+            command_value = _ask_buffer_contract_case_value()
+        else:
+            command_value, capture = _resolve_buffer_contract_case_from_cursor(ctx)
+        if command_value is None:
+            if self.prompt_always:
+                info("PseudoForge buffer contract case analysis cancelled.")
+                log_checkpoint("action.buffer_contract_case.cancelled")
+            else:
+                warning(
+                    "PseudoForge could not resolve the switch case under the cursor. "
+                    "Place the cursor inside a concrete case body or use "
+                    "Analyze buffer contract by case value..."
+                )
+                log_checkpoint("action.buffer_contract_case.cursor_unresolved")
+            return 1
+        log_output("PseudoForge buffer contract deep analysis is running for case 0x%X." % command_value)
+
+        def on_success(result):
+            log_checkpoint("action.buffer_contract_case.on_success.before")
+            capture, plan, text = result
+            title = "PseudoForge buffer contract: %s case 0x%X" % (capture.name or "function", command_value)
+            show_text_view(
+                title,
+                text,
+                suggested_filename=build_save_as_filename("pseudoforge-buffer-contract", capture.name, capture.ea),
+                copy_from_source=False,
+                reference_text=capture.pseudocode,
+                reference_title="Raw Hex-Rays pseudocode",
+                content_title="PseudoForge buffer contract deep analysis",
+                summary_text="PseudoForge analyzed case 0x%X: %d buffer contract(s)" % (
+                    command_value,
+                    len(plan.buffer_contracts),
+                ),
+            )
+            log_output("PseudoForge buffer contract deep analysis completed for case 0x%X." % command_value)
+            log_checkpoint("action.buffer_contract_case.on_success.after")
+
+        run_background(
+            "buffer-contract-case",
+            lambda: analyze_current_buffer_contract_case(command_value, capture=capture),
+            on_success,
+            group_name=PLUGIN_STATE_GROUP,
+        )
+        log_checkpoint("action.buffer_contract_case.activate.after", case="0x%X" % command_value)
         return 1
 
     def update(self, ctx):
@@ -957,20 +1088,35 @@ def _current_function_identity() -> tuple[int, str] | None:
         return None
 
 
-def _build_plan_with_config(capture: FunctionCapture, task_name: str = "") -> CleanPlan:
+def _build_plan_with_config(
+    capture: FunctionCapture,
+    task_name: str = "",
+    helper_captures: dict[str, FunctionCapture] | None = None,
+    buffer_contract_case_values: list[int] | None = None,
+    buffer_contract_helper_depth: int = 2,
+    force_deterministic: bool = False,
+) -> CleanPlan:
     log_checkpoint("build_plan.load_config.before", function=capture.name, ea="0x%X" % capture.ea)
     config = load_config()
     profile_root = _configure_profile_dir_for_analysis(config.profile_dir)
     log_checkpoint("build_plan.load_config.after", llm_enabled=config.llm.enabled, profile_root=str(profile_root))
     _raise_if_task_cancelled(task_name, "after config load")
-    if not config.llm.enabled:
-        log_output("PseudoForge LLM rename assist is disabled. Running deterministic analysis only.")
+    if force_deterministic or not config.llm.enabled:
+        if force_deterministic and config.llm.enabled:
+            log_output("PseudoForge targeted buffer contract analysis uses deterministic analysis only.")
+        else:
+            log_output("PseudoForge LLM rename assist is disabled. Running deterministic analysis only.")
         log_event(
             "llm.disabled function=\"%s\" ea=0x%X deterministic=true"
             % (_ascii_for_log(capture.name), capture.ea)
         )
         with trace_scope("build_plan.deterministic", function=capture.name, ea="0x%X" % capture.ea):
-            plan = build_clean_plan(capture)
+            plan = build_clean_plan(
+                capture,
+                helper_captures=helper_captures,
+                buffer_contract_case_values=buffer_contract_case_values,
+                buffer_contract_helper_depth=buffer_contract_helper_depth,
+            )
         _raise_if_task_cancelled(task_name, "after deterministic plan")
         return plan
 
@@ -998,7 +1144,13 @@ def _build_plan_with_config(capture: FunctionCapture, task_name: str = "") -> Cl
 
     try:
         with trace_scope("build_plan.llm", provider=provider_name, model=config.llm.model, function=capture.name):
-            plan = build_clean_plan(capture, rename_provider=provider)
+            plan = build_clean_plan(
+                capture,
+                rename_provider=provider,
+                helper_captures=helper_captures,
+                buffer_contract_case_values=buffer_contract_case_values,
+                buffer_contract_helper_depth=buffer_contract_helper_depth,
+            )
         _raise_if_task_cancelled(task_name, "after llm provider")
         log_event(
             "llm.plan.done provider=%s model=\"%s\" renames=%d warnings=%d"
@@ -1041,7 +1193,12 @@ def _build_plan_with_config(capture: FunctionCapture, task_name: str = "") -> Cl
                 % failure_summary
             )
         with trace_scope("build_plan.fallback", function=capture.name, ea="0x%X" % capture.ea):
-            plan = build_clean_plan(capture)
+            plan = build_clean_plan(
+                capture,
+                helper_captures=helper_captures,
+                buffer_contract_case_values=buffer_contract_case_values,
+                buffer_contract_helper_depth=buffer_contract_helper_depth,
+            )
         _raise_if_task_cancelled(task_name, "after fallback plan")
         plan.warnings.insert(0, fallback_warning)
         return plan
@@ -1088,6 +1245,311 @@ def _format_warning(item: object) -> str:
         if old and reason:
             return "Potential bad call target %s: %s" % (old, reason)
     return str(item)
+
+
+def _resolve_buffer_contract_case_from_cursor(ctx) -> tuple[int | None, FunctionCapture | None]:
+    line_index, line_text = _current_pseudocode_cursor_location(ctx)
+    value = find_case_value_near_line("", line_text=line_text)
+    if value is not None:
+        log_checkpoint("buffer_contract_case.cursor.resolved_line", case="0x%X" % value)
+        return value, None
+    if line_index < 0:
+        log_checkpoint("buffer_contract_case.cursor.no_line")
+        return None, None
+    try:
+        capture, _cfunc = capture_current_function()
+        _set_capture_source_path(capture)
+    except Exception as exc:
+        log_checkpoint("buffer_contract_case.cursor.capture_failed", error=str(exc))
+        return None, None
+    value = find_case_value_near_line(capture.pseudocode, line_index=line_index, line_text=line_text)
+    if value is None:
+        log_checkpoint("buffer_contract_case.cursor.unresolved", line=line_index)
+        return None, capture
+    log_checkpoint("buffer_contract_case.cursor.resolved_context", line=line_index, case="0x%X" % value)
+    return value, capture
+
+
+def _current_pseudocode_cursor_location(ctx) -> tuple[int, str]:
+    if ida_kernwin is None:
+        return -1, ""
+    widget = _context_widget(ctx)
+    if widget is None:
+        for getter_name in ("get_current_viewer", "get_current_widget"):
+            getter = getattr(ida_kernwin, getter_name, None)
+            if not callable(getter):
+                continue
+            try:
+                widget = getter()
+            except Exception:
+                widget = None
+            if widget is not None:
+                break
+    line_index, line_text = _hexrays_viewer_cursor_location(widget)
+    if line_index >= 0 or line_text:
+        return line_index, line_text
+    line_text = _current_viewer_line_text(widget)
+    line_index = _current_viewer_line_index(widget)
+    return line_index, line_text
+
+
+def _context_widget(ctx) -> object | None:
+    if ctx is None:
+        return None
+    for attr in ("widget", "form", "viewer"):
+        try:
+            value = getattr(ctx, attr, None)
+        except Exception:
+            continue
+        if value is not None:
+            return value
+    return None
+
+
+def _hexrays_viewer_cursor_location(widget) -> tuple[int, str]:
+    if ida_hexrays is None or widget is None:
+        return -1, ""
+    getter = getattr(ida_hexrays, "get_widget_vdui", None)
+    if not callable(getter):
+        return -1, ""
+    try:
+        vdui = getter(widget)
+    except Exception:
+        return -1, ""
+    if vdui is None:
+        return -1, ""
+    line_index = _line_index_from_place(getattr(vdui, "cpos", None))
+    line_text = _pseudocode_line_from_vdui(vdui, line_index)
+    return line_index, line_text
+
+
+def _pseudocode_line_from_vdui(vdui, line_index: int) -> str:
+    if line_index < 0:
+        return ""
+    cfunc = getattr(vdui, "cfunc", None)
+    getter = getattr(cfunc, "get_pseudocode", None)
+    if not callable(getter):
+        return ""
+    try:
+        pseudocode = getter()
+        line = pseudocode[line_index]
+    except Exception:
+        return ""
+    raw = getattr(line, "line", line)
+    return _strip_ida_tags(raw)
+
+
+def _current_viewer_line_text(widget) -> str:
+    getter = getattr(ida_kernwin, "get_custom_viewer_curline", None) if ida_kernwin is not None else None
+    if not callable(getter) or widget is None:
+        return ""
+    for mouse in (True, False):
+        try:
+            line = getter(widget, mouse)
+        except Exception:
+            continue
+        if line:
+            return _strip_ida_tags(line)
+    return ""
+
+
+def _current_viewer_line_index(widget) -> int:
+    getter = getattr(ida_kernwin, "get_custom_viewer_place", None) if ida_kernwin is not None else None
+    if not callable(getter) or widget is None:
+        return -1
+    for mouse in (True, False):
+        try:
+            place_info = getter(widget, mouse)
+        except Exception:
+            continue
+        place = place_info[0] if isinstance(place_info, tuple) and place_info else place_info
+        line_index = _line_index_from_place(place)
+        if line_index >= 0:
+            return line_index
+    return -1
+
+
+def _line_index_from_place(place) -> int:
+    if place is None:
+        return -1
+    for attr in ("lnnum", "line", "n", "num"):
+        try:
+            value = getattr(place, attr, None)
+        except Exception:
+            continue
+        if callable(value):
+            try:
+                value = value()
+            except Exception:
+                continue
+        try:
+            number = int(value)
+        except Exception:
+            continue
+        if number >= 0:
+            return number
+    return -1
+
+
+def _strip_ida_tags(text: object) -> str:
+    result = str(text or "")
+    for owner in (idaapi, ida_kernwin):
+        remover = getattr(owner, "tag_remove", None) if owner is not None else None
+        if not callable(remover):
+            continue
+        try:
+            result = str(remover(result))
+        except Exception:
+            continue
+    return result
+
+
+def _ask_buffer_contract_case_value() -> int | None:
+    if ida_kernwin is None:
+        return None
+    asker = getattr(ida_kernwin, "ask_str", None)
+    if not callable(asker):
+        return None
+    try:
+        text = asker("0x0", 0, "PseudoForge command/case value for buffer contract analysis")
+    except Exception as exc:
+        log_checkpoint("buffer_contract_case.ask.failed", error=str(exc))
+        return None
+    value = _parse_buffer_contract_case_value(text)
+    if value is None and text:
+        warning("PseudoForge could not parse case value: %s" % text)
+    return value
+
+
+def _parse_buffer_contract_case_value(text: str | None) -> int | None:
+    if text is None:
+        return None
+    return parse_c_integer_literal(str(text).strip())
+
+
+def _helper_names_from_contracts(plan: CleanPlan) -> list[str]:
+    result: list[str] = []
+    seen = set()
+    for contract in plan.buffer_contracts:
+        for edge in contract.helper_edges:
+            if edge.callee and edge.callee not in seen:
+                seen.add(edge.callee)
+                result.append(edge.callee)
+    return result
+
+
+def _dedupe_helper_names(names: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result.append(name)
+    return result
+
+
+def _capture_buffer_contract_helpers(
+    helper_names: list[str],
+    caller_ea: int,
+    max_depth: int,
+    max_helpers: int,
+) -> dict[str, FunctionCapture]:
+    result: dict[str, FunctionCapture] = {}
+    queue = [(name, 1) for name in helper_names if name]
+    seen = set()
+    while queue and len(result) < max_helpers:
+        name, depth = queue.pop(0)
+        if name in seen:
+            continue
+        seen.add(name)
+        try:
+            helper_capture = capture_function_by_name(name)
+        except Exception as exc:
+            log_checkpoint("buffer_contract_case.helper.capture_failed", helper=name, error=str(exc))
+            continue
+        if helper_capture is None or helper_capture.ea == caller_ea:
+            continue
+        result[name] = helper_capture
+        if depth >= max_depth:
+            continue
+        for call_name in helper_capture.calls:
+            if call_name not in seen:
+                queue.append((call_name, depth + 1))
+    return result
+
+
+def _format_buffer_contract_case_preview(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+    command_value: int,
+    helper_captures: dict[str, FunctionCapture],
+    helper_candidates: list[str] | None = None,
+) -> str:
+    contracts = [contract for contract in plan.buffer_contracts if contract.command_value == command_value]
+    report = render_buffer_contract_report(capture, contracts)
+    context_report = render_case_context_report(capture, plan, command_value)
+    header = render_buffer_struct_header(capture, contracts)
+    lines = [
+        "# PseudoForge Buffer Contract Deep Analysis",
+        "",
+        "- Function: `%s`" % (capture.name or "function"),
+        "- EA: `0x%X`" % capture.ea,
+        "- Case: `0x%X`" % command_value,
+        "- Contracts: `%d`" % len(contracts),
+        "- Helper candidates: `%d`" % len(helper_candidates or []),
+        "- Helper captures: `%d`" % len(helper_captures),
+        "",
+    ]
+    if helper_candidates:
+        lines.append("Helper candidate set:")
+        lines.append("")
+        for name in helper_candidates:
+            suffix = "" if name in helper_captures else " (capture unavailable)"
+            lines.append("- `%s`%s" % (name, suffix))
+        lines.append("")
+    if helper_captures:
+        lines.append("Helper capture set:")
+        lines.append("")
+        for name in sorted(helper_captures):
+            lines.append("- `%s`" % name)
+        lines.append("")
+        unlinked_helpers = _unlinked_helper_capture_names(contracts, helper_captures)
+        if unlinked_helpers:
+            lines.append("Captured helpers not linked to selected buffer path:")
+            lines.append("")
+            for name in unlinked_helpers:
+                lines.append("- `%s`" % name)
+            lines.append("")
+    lines.append(report.rstrip())
+    lines.append("")
+    if context_report:
+        lines.append(context_report.rstrip())
+        lines.append("")
+    lines.append("# C++ Struct Sketch")
+    lines.append("")
+    lines.append(header.rstrip())
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _unlinked_helper_capture_names(
+    contracts: list[object],
+    helper_captures: dict[str, FunctionCapture],
+) -> list[str]:
+    linked: set[str] = set()
+    for contract in contracts:
+        for edge in getattr(contract, "helper_edges", []):
+            _collect_linked_helper_names(edge, linked)
+    return [name for name in sorted(helper_captures) if name not in linked]
+
+
+def _collect_linked_helper_names(edge: object, linked: set[str]) -> None:
+    callee = getattr(edge, "callee", "")
+    if callee:
+        linked.add(callee)
+    for nested in getattr(edge, "nested_edges", []):
+        _collect_linked_helper_names(nested, linked)
 
 
 def _raise_if_task_cancelled(task_name: str, phase: str) -> None:

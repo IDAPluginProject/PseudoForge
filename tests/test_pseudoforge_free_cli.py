@@ -9,6 +9,7 @@ from pathlib import Path
 from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
 from ida_pseudoforge.models.provider_registry import PROVIDER_OPENAI_COMPATIBLE, PROVIDER_ORDER
 from ida_pseudoforge.version import VERSION
+from tests.test_buffer_contracts import IOCTL_CONTRACT_SAMPLE
 from tools import pseudoforge_cli
 from tools import pseudoforge_free_console
 from tools import pseudoforge_free_cli
@@ -23,7 +24,6 @@ __int64 __fastcall free_sample(__int64 a1)
   return v1;
 }
 """
-
 
 class PseudoForgeFreeCliTests(unittest.TestCase):
     def test_free_cli_import_does_not_load_ida_modules(self):
@@ -89,6 +89,7 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
             {
                 "warnings": "warnings.json",
                 "cleaned_pseudocode": "cleaned.cpp",
+                "buffer_structs": "buffer-structs.hpp",
                 "extra": "extra.txt",
                 "rename_map": "rename-map.json",
             }
@@ -97,6 +98,7 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
             [
                 ("cleaned_pseudocode", "cleaned.cpp"),
                 ("rename_map", "rename-map.json"),
+                ("buffer_structs", "buffer-structs.hpp"),
                 ("warnings", "warnings.json"),
                 ("extra", "extra.txt"),
             ],
@@ -389,6 +391,57 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
             self.assertIn("PseudoForge export complete", stdout.getvalue())
             self.assertIn("Version: %s" % VERSION, stdout.getvalue())
             self.assertTrue(any(output_dir.glob("*.cleaned.cpp")))
+
+    def test_existing_cli_filters_buffer_contract_case(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_path = temp_path / "ioctl.cpp"
+            output_dir = temp_path / "out"
+            input_path.write_text(IOCTL_CONTRACT_SAMPLE, encoding="utf-8")
+            stdout = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout):
+                exit_code = pseudoforge_cli.main(
+                    [
+                        str(input_path),
+                        "--out",
+                        str(output_dir),
+                        "--buffer-contract-case",
+                        "0x91234004",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("Buffer contract case filter: 0x91234004", stdout.getvalue())
+            payload_path = next(output_dir.glob("*.buffer-contracts.json"))
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            self.assertEqual([0x91234004], [item["command_value"] for item in payload])
+
+    def test_free_cli_filters_buffer_contract_case(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_path = temp_path / "ioctl.cpp"
+            output_dir = temp_path / "out"
+            input_path.write_text(IOCTL_CONTRACT_SAMPLE, encoding="utf-8")
+
+            result = _run_free_cli(
+                [
+                    str(input_path),
+                    "--out",
+                    str(output_dir),
+                    "--buffer-contract-case",
+                    "0x91234000",
+                    "--format",
+                    "json",
+                    "--no-progress",
+                ]
+            )
+
+            self.assertEqual(result.exit_code, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            artifact = Path(payload["results"][0]["artifacts"]["buffer_contracts"])
+            contracts = json.loads(artifact.read_text(encoding="utf-8"))
+            self.assertEqual([0x91234000], [item["command_value"] for item in contracts])
 
     def test_existing_cli_reports_version(self):
         stdout = io.StringIO()

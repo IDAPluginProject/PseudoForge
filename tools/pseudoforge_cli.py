@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
+from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.profiles.loader import configure_profile_dir, profile_load_warnings
 from ida_pseudoforge.config import LlmConfig
@@ -56,6 +57,19 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Optional rule report JSON file or directory.",
     )
+    parser.add_argument(
+        "--buffer-contract-case",
+        action="append",
+        default=[],
+        type=_case_value_arg,
+        help="Recover deep buffer contracts only for this case value. Accepts hex or decimal; can be repeated.",
+    )
+    parser.add_argument(
+        "--buffer-contract-helper-depth",
+        type=int,
+        default=2,
+        help="Maximum helper/subhandler depth for buffer contract recovery.",
+    )
     args = parser.parse_args(argv)
     configure_profile_dir(args.profile_dir)
 
@@ -67,7 +81,13 @@ def main(argv: list[str] | None = None) -> int:
         source_path=str(input_path),
     )
     provider = _build_cli_provider(args) if args.llm_renames else None
-    plan = build_clean_plan(capture, rename_provider=provider, rule_dirs=args.rules_dir)
+    plan = build_clean_plan(
+        capture,
+        rename_provider=provider,
+        rule_dirs=args.rules_dir,
+        buffer_contract_case_values=args.buffer_contract_case or None,
+        buffer_contract_helper_depth=max(0, args.buffer_contract_helper_depth),
+    )
     paths = write_export_bundle(args.out, capture, plan, entrypoint="offline_cli")
     warnings = _combined_warnings(plan.warnings, profile_load_warnings())
     if args.rule_report:
@@ -79,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Function: {capture.name}")
     print(f"Renames: {len(plan.renames)}")
     print(f"Flow rewrites: {len(plan.flow_rewrites)}")
+    if args.buffer_contract_case:
+        print("Buffer contract case filter: %s" % ", ".join("0x%X" % value for value in args.buffer_contract_case))
     if warnings:
         print(f"Warnings: {len(warnings)}")
     for kind, path in paths.items():
@@ -108,6 +130,13 @@ def _write_rule_report(target: str, capture, report: dict) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report or {}, indent=2, ensure_ascii=True), encoding="utf-8")
     return output_path
+
+
+def _case_value_arg(value: str) -> int:
+    parsed = parse_c_integer_literal(value)
+    if parsed is None:
+        raise argparse.ArgumentTypeError("case value must be a C integer literal")
+    return parsed
 
 
 def _safe_file_stem(name: str) -> str:
