@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from ida_pseudoforge.core.deterministic.context import RuleContext
 from ida_pseudoforge.core.deterministic.emitters import build_emission
-from ida_pseudoforge.core.deterministic.matchers.regex import match_regex_rule
+from ida_pseudoforge.core.deterministic.matchers.regex import explain_rule_miss, match_regex_rule
 from ida_pseudoforge.core.deterministic.schema import RulePack, RuleReport, RuleRunResult
 
 
@@ -12,11 +12,19 @@ class RuleEngine:
     def __init__(self, packs: list[RulePack]):
         self._packs = packs
 
-    def run(self, context: RuleContext, phases: set[str] | None = None, report: RuleReport | None = None) -> RuleRunResult:
+    def run(
+        self,
+        context: RuleContext,
+        phases: set[str] | None = None,
+        report: RuleReport | None = None,
+        explain_misses: bool = False,
+    ) -> RuleRunResult:
         run_report = report or RuleReport()
         emissions = []
         for rule in self._ordered_rules():
             if not rule.enabled:
+                if explain_misses:
+                    _record_missed_rule(run_report, rule, ["rule is disabled"])
                 continue
             if phases is not None and rule.phase not in phases:
                 continue
@@ -25,6 +33,8 @@ class RuleEngine:
             except Exception as exc:
                 _reject_rule(run_report, rule, "rule runtime error: %s" % exc)
                 continue
+            if explain_misses and not matches:
+                _record_missed_rule(run_report, rule, explain_rule_miss(rule, context))
             for match in matches:
                 run_report.matched_rules.append(
                     {
@@ -275,6 +285,17 @@ def _reject_rule(report: RuleReport, rule, reason: str) -> None:
                 "source": rule.source_label or rule.pack_id,
             }
         )
+
+
+def _record_missed_rule(report: RuleReport, rule, reasons: list[str]) -> None:
+    report.missed_rules.append(
+        {
+            "rule_id": rule.id,
+            "phase": rule.phase,
+            "source": rule.source_label or rule.pack_id,
+            "reasons": [str(item) for item in reasons if str(item).strip()],
+        }
+    )
 
 
 def _is_rewrite_rule(rule) -> bool:

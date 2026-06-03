@@ -141,8 +141,22 @@ Implemented in this folder:
    - v1 active phases: `rename` and `semantic_comment`
    - v1 supported match operators: `regex`, `assignment_regex`, `text_contains`, and `text_contains_all`
    - v2 supported match gates add `call_arg_count` and `call_arg_literal` for exact call-site argument count and literal argument value checks
+   - v2 typed fact operators add `lvar`, `assignment`, `call_site`, and
+      `profile_function` selectors for scope and match gates over existing
+      `RuleContext` facts
+   - typed fact matches expose deterministic bindings such as `$lvar`,
+      `$assignment_target`, `$call_arg0`, and `$profile_param_name` to reduce
+      fragile regex-only rule authoring
+   - validator rejects ambiguous typed-match plus legacy `call_arg_*`/`flow_*`
+      gate combinations, and accepts `scope.call_site` as an explicit call gate
+      for preview-only call argument rewrite rules
    - builtin rules mirror low-risk local rename, assignment rename, and call-presence semantic comment rules while keeping existing hard-coded deterministic passes in place
    - rule-based rename suggestions still pass through `validate_renames()`
+   - `RuleEngine.run(..., explain_misses=True)` records opt-in
+      `missed_rules` diagnostics for authoring/debug workflows without changing
+      normal IDA or CLI analysis reports
+   - `tools/pseudoforge_rule_author.py` provides `validate`, `facts`, `run`,
+      and `scaffold` commands for project-local rule authoring
    - export bundles include `<function>.rule-report.json`
    - export bundles include `<function>.buffer-contracts.md` and
      `<function>.buffer-contracts.json`

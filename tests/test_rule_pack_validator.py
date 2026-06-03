@@ -120,6 +120,12 @@ class RulePackValidatorTests(unittest.TestCase):
 
             self.assertEqual(validate_rule_pack_file(valid_path), [])
 
+            typed_scope = _call_arg_rewrite_rule()
+            typed_scope["scope"] = {"call_site": {"function_name": "ProbeForRead", "arg_count": 3}}
+            typed_scope_path = temp_path / "valid_v2_call_arg_typed_scope.json"
+            typed_scope_path.write_text(json.dumps(_rule_pack([typed_scope], schema_version=2)), encoding="utf-8")
+            self.assertEqual(validate_rule_pack_file(typed_scope_path), [])
+
             v1_path = temp_path / "v1_call_arg_rejected.json"
             v1_path.write_text(json.dumps(_rule_pack([_call_arg_rewrite_rule()])), encoding="utf-8")
             self.assertTrue(any("phase" in error for error in validate_rule_pack_file(v1_path)))
@@ -258,6 +264,105 @@ class RulePackValidatorTests(unittest.TestCase):
             invalid_count_path = temp_path / "invalid_count.json"
             invalid_count_path.write_text(json.dumps(_rule_pack([invalid_count], schema_version=2)), encoding="utf-8")
             self.assertTrue(any("count must be a non-negative integer" in error for error in validate_rule_pack_file(invalid_count_path)))
+
+    def test_rule_pack_validator_accepts_typed_fact_operators_only_in_v2(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            typed_rule = {
+                "id": "test.rename.typed",
+                "phase": "rename",
+                "priority": 100,
+                "confidence": 0.91,
+                "scope": {
+                    "lvar": {
+                        "name_regex": "^v\\d+$",
+                        "type_contains": "int",
+                        "is_arg": False,
+                    },
+                    "profile_function": {
+                        "function_name": "ProbeForRead",
+                        "param": {
+                            "index": 2,
+                            "type_regex": "^ULONG$",
+                            "kind": "flags",
+                        },
+                    },
+                },
+                "match": {
+                    "assignment": {
+                        "target_regex": "^v\\d+$",
+                        "rhs_call_name": "ProbeForRead",
+                        "rhs_identifier_any": ["inputBuffer"],
+                        "rhs_literal_all": ["8", "1"],
+                        "rhs_call_arg_count": 3,
+                        "rhs_call_arg_regex": {
+                            "argument_index": 0,
+                            "regex": "input",
+                        },
+                    }
+                },
+                "emit": {
+                    "kind": "rename",
+                    "rename_kind": "lvar",
+                    "target": "$assignment_target",
+                    "new_name": "probeStatus",
+                },
+            }
+            valid_path = temp_path / "typed_v2.json"
+            valid_path.write_text(json.dumps(_rule_pack([typed_rule], schema_version=2)), encoding="utf-8")
+            self.assertEqual(validate_rule_pack_file(valid_path), [])
+
+            v1_path = temp_path / "typed_v1.json"
+            v1_path.write_text(json.dumps(_rule_pack([typed_rule], schema_version=1)), encoding="utf-8")
+            self.assertTrue(any("assignment is not supported" in error or "lvar is not supported" in error for error in validate_rule_pack_file(v1_path)))
+
+            ambiguous = dict(typed_rule)
+            ambiguous["match"] = {
+                "assignment": typed_rule["match"]["assignment"],
+                "regex": "ProbeForRead",
+            }
+            ambiguous_path = temp_path / "typed_ambiguous.json"
+            ambiguous_path.write_text(json.dumps(_rule_pack([ambiguous], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("must not combine regex matchers" in error for error in validate_rule_pack_file(ambiguous_path)))
+
+            ambiguous_call_arg_gate = dict(typed_rule)
+            ambiguous_call_arg_gate["match"] = {
+                "call_site": {
+                    "function_name": "ProbeForRead",
+                    "arg_count": 3,
+                },
+                "call_arg_literal": {
+                    "function_name": "ProbeForRead",
+                    "argument_index": 2,
+                    "value": "1",
+                },
+            }
+            ambiguous_call_arg_gate_path = temp_path / "typed_call_arg_gate_ambiguous.json"
+            ambiguous_call_arg_gate_path.write_text(json.dumps(_rule_pack([ambiguous_call_arg_gate], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("typed fact match operators with call_arg" in error for error in validate_rule_pack_file(ambiguous_call_arg_gate_path)))
+
+            ambiguous_flow_gate = dict(typed_rule)
+            ambiguous_flow_gate["match"] = {
+                "assignment": typed_rule["match"]["assignment"],
+                "flow_case_count_min": 4,
+            }
+            ambiguous_flow_gate_path = temp_path / "typed_flow_gate_ambiguous.json"
+            ambiguous_flow_gate_path.write_text(json.dumps(_rule_pack([ambiguous_flow_gate], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("typed fact match operators with call_arg or flow" in error for error in validate_rule_pack_file(ambiguous_flow_gate_path)))
+
+            invalid_inner_regex = dict(typed_rule)
+            invalid_inner_regex["match"] = {
+                "call_site": {
+                    "function_name": "ProbeForRead",
+                    "arg_regex": {
+                        "argument_index": 0,
+                        "regex": "(",
+                    },
+                }
+            }
+            invalid_inner_regex_path = temp_path / "typed_bad_regex.json"
+            invalid_inner_regex_path.write_text(json.dumps(_rule_pack([invalid_inner_regex], schema_version=2)), encoding="utf-8")
+            self.assertTrue(any("arg_regex.regex invalid regex" in error for error in validate_rule_pack_file(invalid_inner_regex_path)))
 
             invalid_literal = _call_arg_rewrite_rule()
             invalid_literal["match"] = {

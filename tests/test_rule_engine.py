@@ -450,6 +450,210 @@ __int64 __fastcall RuleCallArgGateSample(void *inputBuffer)
         self.assertEqual("validated_probe", comments[0]["kind"])
         self.assertIn("expected arity", comments[0]["text"])
 
+    def test_rule_engine_typed_fact_operators_emit_bindings(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleTypedFactsSample(void *inputBuffer)
+{
+  int v1;
+  int v2;
+
+  v1 = 0;
+  v2 = ProbeForRead(inputBuffer, 8, 1);
+  return v2;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.typed",
+            description="typed fact rules",
+            rules=[
+                Rule(
+                    id="test.rename.lvar",
+                    phase="rename",
+                    priority=100,
+                    confidence=0.93,
+                    scope={"lvar": {"name_regex": "^v[12]$"}},
+                    match={"lvar": {"name": "v1", "type_contains": "int", "is_arg": False}},
+                    emit={"kind": "rename", "rename_kind": "lvar", "target": "$lvar", "new_name": "zeroStatus"},
+                ),
+                Rule(
+                    id="test.rename.assignment",
+                    phase="rename",
+                    priority=90,
+                    confidence=0.91,
+                    scope={"assignment": {"rhs_call_name": "ProbeForRead"}},
+                    match={
+                        "assignment": {
+                            "rhs_call_name": "ProbeForRead",
+                            "rhs_identifier_any": ["inputBuffer"],
+                            "rhs_literal_all": ["8", "1"],
+                            "rhs_call_arg_count": 3,
+                            "rhs_call_arg_literal": {"argument_index": 2, "value": "1"},
+                        }
+                    },
+                    emit={
+                        "kind": "rename",
+                        "rename_kind": "lvar",
+                        "target": "$assignment_target",
+                        "new_name": "probeStatus",
+                    },
+                ),
+                Rule(
+                    id="test.comment.call_site",
+                    phase="semantic_comment",
+                    priority=80,
+                    confidence=0.90,
+                    scope={"call_site": {"function_name": "ProbeForRead"}},
+                    match={
+                        "call_site": {
+                            "function_name": "ProbeForRead",
+                            "arg_count": 3,
+                            "arg_contains": {"argument_index": 0, "value": "input"},
+                            "arg_regex": {"argument_index": 1, "regex": "^8$"},
+                        }
+                    },
+                    emit={
+                        "kind": "semantic_comment",
+                        "comment_kind": "probe",
+                        "text": "Probe call uses $call_arg0",
+                    },
+                ),
+            ],
+        )
+
+        rename_result = RuleEngine([pack]).run(build_rule_context(capture), phases={"rename"})
+        comment_result = RuleEngine([pack]).run(build_rule_context(capture), phases={"semantic_comment"})
+        renames = {(item.old, item.new) for item in emissions_to_renames(rename_result.emissions)}
+        comments = emissions_to_comments(comment_result.emissions)
+
+        self.assertEqual({("v1", "zeroStatus"), ("v2", "probeStatus")}, renames)
+        self.assertTrue(any(item["bindings"].get("assignment_target") == "v2" for item in rename_result.report.matched_rules))
+        self.assertEqual("probe", comments[0]["kind"])
+        self.assertIn("inputBuffer", comments[0]["text"])
+
+    def test_rule_engine_profile_function_operator_uses_profile_facts(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleProfileFactsSample(void *inputBuffer)
+{
+  ProbeForRead(inputBuffer, 8, 1);
+  return 0;
+}
+"""
+        )
+
+        def lookup(name: str):
+            if name == "ProbeForRead":
+                return {
+                    "header": "wdm.h",
+                    "return_type": "VOID",
+                    "params": [
+                        {"name": "Address", "type": "PVOID", "kind": "value"},
+                        {"name": "Length", "type": "SIZE_T", "kind": "size"},
+                        {"name": "Alignment", "type": "ULONG", "kind": "flags", "enum": "PROBE_FLAGS"},
+                    ],
+                    "profile_alias_of": "ProbeForRead",
+                    "profile_alias_kind": "explicit",
+                }
+            return {}
+
+        pack = RulePack(
+            schema_version=2,
+            id="test.profile",
+            description="profile fact rule",
+            rules=[
+                Rule(
+                    id="test.comment.profile",
+                    phase="semantic_comment",
+                    priority=100,
+                    confidence=0.92,
+                    scope={"profile_function": {"function_name": "ProbeForRead", "header_contains": "wdm"}},
+                    match={
+                        "profile_function": {
+                            "function_name": "ProbeForRead",
+                            "param_count": 3,
+                            "return_type_contains": "VOID",
+                            "param": {
+                                "index": 2,
+                                "name": "Alignment",
+                                "type_regex": "^ULONG$",
+                                "kind": "flags",
+                                "enum": "PROBE_FLAGS",
+                            },
+                        }
+                    },
+                    emit={
+                        "kind": "semantic_comment",
+                        "comment_kind": "profile_probe",
+                        "text": "$profile_function argument $profile_param_name is $profile_param_kind",
+                    },
+                )
+            ],
+        )
+
+        result = RuleEngine([pack]).run(
+            build_rule_context(capture, profile_function_lookup=lookup),
+            phases={"semantic_comment"},
+        )
+        comments = emissions_to_comments(result.emissions)
+
+        self.assertEqual("profile_probe", comments[0]["kind"])
+        self.assertIn("Alignment is flags", comments[0]["text"])
+        self.assertEqual("Alignment", result.report.matched_rules[0]["bindings"]["profile_param_name"])
+
+    def test_rule_engine_explain_misses_is_opt_in(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall RuleExplainMissSample()
+{
+  int v1;
+
+  return 0;
+}
+"""
+        )
+        pack = RulePack(
+            schema_version=2,
+            id="test.explain",
+            description="explain misses",
+            rules=[
+                Rule(
+                    id="test.rename.missing_lvar",
+                    phase="rename",
+                    priority=100,
+                    confidence=0.90,
+                    scope={"lvar": {"name": "missingLocal"}},
+                    match={"lvar": {"name": "missingLocal"}},
+                    emit={"kind": "rename", "rename_kind": "lvar", "target": "$lvar", "new_name": "missingLocalRole"},
+                ),
+                Rule(
+                    id="test.rename.missing_legacy_lvar_gate",
+                    phase="rename",
+                    priority=90,
+                    confidence=0.90,
+                    scope={"lvars_any": ["legacyMissingLocal"]},
+                    match={"text_contains": "return 0"},
+                    emit={"kind": "rename", "rename_kind": "lvar", "target": "legacyMissingLocal", "new_name": "legacyRole"},
+                )
+            ],
+        )
+
+        normal = RuleEngine([pack]).run(build_rule_context(capture), phases={"rename"})
+        explained = RuleEngine([pack]).run(build_rule_context(capture), phases={"rename"}, explain_misses=True)
+
+        self.assertNotIn("missed_rules", normal.report.to_dict())
+        self.assertEqual("test.rename.missing_lvar", explained.report.missed_rules[0]["rule_id"])
+        self.assertTrue(any("scope.lvar" in reason for reason in explained.report.missed_rules[0]["reasons"]))
+        self.assertTrue(
+            any(
+                item["rule_id"] == "test.rename.missing_legacy_lvar_gate"
+                and any("scope.lvars_any" in reason for reason in item["reasons"])
+                for item in explained.report.missed_rules
+            )
+        )
+
     def test_rule_engine_assignment_regex_binding_and_scope_gate(self) -> None:
         capture = capture_from_pseudocode(
             """

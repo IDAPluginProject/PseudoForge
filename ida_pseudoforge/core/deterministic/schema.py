@@ -43,9 +43,16 @@ SUPPORTED_V1_SCOPE_OPERATORS = {
     "text_contains_all",
 }
 
+SUPPORTED_TYPED_FACT_OPERATORS = {
+    "assignment",
+    "call_site",
+    "lvar",
+    "profile_function",
+}
+
 SUPPORTED_V2_SCOPE_OPERATORS = SUPPORTED_V1_SCOPE_OPERATORS | {
     "requires_comment_kind",
-}
+} | SUPPORTED_TYPED_FACT_OPERATORS
 
 SUPPORTED_SCOPE_OPERATORS = SUPPORTED_V2_SCOPE_OPERATORS
 
@@ -63,7 +70,7 @@ SUPPORTED_V2_MATCH_OPERATORS = SUPPORTED_V1_MATCH_OPERATORS | {
     "flow_body_state_any",
     "flow_case_count_min",
     "flow_dispatcher_regex",
-}
+} | SUPPORTED_TYPED_FACT_OPERATORS
 
 SUPPORTED_MATCH_OPERATORS = SUPPORTED_V2_MATCH_OPERATORS
 
@@ -150,19 +157,23 @@ class RuleEmission:
 @dataclass(slots=True)
 class RuleReport:
     matched_rules: list[dict[str, Any]] = field(default_factory=list)
+    missed_rules: list[dict[str, Any]] = field(default_factory=list)
     rewrite_emissions: list[dict[str, Any]] = field(default_factory=list)
     rejected_emissions: list[dict[str, Any]] = field(default_factory=list)
     load_errors: list[dict[str, Any]] = field(default_factory=list)
     validation_errors: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "matched_rules": list(self.matched_rules),
             "rewrite_emissions": list(self.rewrite_emissions),
             "rejected_emissions": list(self.rejected_emissions),
             "load_errors": list(self.load_errors),
             "validation_errors": list(self.validation_errors),
         }
+        if self.missed_rules:
+            result["missed_rules"] = list(self.missed_rules)
+        return result
 
 
 @dataclass(slots=True)

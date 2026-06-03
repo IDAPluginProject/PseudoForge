@@ -146,6 +146,15 @@ class RuleEmission:
     source_label: str = ""
     source_order: int = 0
     override_of: str = ""
+
+@dataclass(slots=True)
+class RuleReport:
+    matched_rules: list[dict[str, Any]]
+    missed_rules: list[dict[str, Any]]
+    rewrite_emissions: list[dict[str, Any]]
+    rejected_emissions: list[dict[str, Any]]
+    load_errors: list[dict[str, Any]]
+    validation_errors: list[dict[str, Any]]
 ```
 
 `RuleEmission.kind` must be convertible to existing plan model values.
@@ -234,6 +243,19 @@ including dispatcher name, recovered case count, case body states, source line
 anchors, shared-tail labels, confidence, export-only status, and recovery
 evidence. Flow rules consume these facts only after the hard-coded conservative
 flow recovery pass has found enough branch evidence.
+
+Schema version 2 exposes typed fact operators over existing `RuleContext`
+facts. They can be used as `scope` gates or as the primary `match` selector:
+
+```text
+lvar
+assignment
+call_site
+profile_function
+```
+
+Typed operators only consume already extracted facts. They are not a full C/C++
+expression parser and do not add any execution capability.
 
 The first implementation can use regex-based fact extraction. Ctree-identity based facts can be added later.
 
@@ -341,6 +363,55 @@ Assignment-based rename example:
 }
 ```
 
+Typed assignment rename example:
+
+```json
+{
+  "schema_version": 2,
+  "id": "project.kernel_rules",
+  "description": "Project-local typed fact rules.",
+  "rules": [
+    {
+      "id": "project.rename.probe_status",
+      "phase": "rename",
+      "priority": 100,
+      "confidence": 0.92,
+      "scope": {
+        "call_site": {
+          "function_name": "ProbeForRead"
+        }
+      },
+      "match": {
+        "assignment": {
+          "rhs_call_name": "ProbeForRead",
+          "rhs_call_arg_count": 3,
+          "rhs_call_arg_literal": {
+            "argument_index": 2,
+            "value": "1"
+          }
+        }
+      },
+      "emit": {
+        "kind": "rename",
+        "rename_kind": "lvar",
+        "target": "$assignment_target",
+        "new_name": "probeStatus",
+        "evidence": "Local receives ProbeForRead status"
+      }
+    }
+  ]
+}
+```
+
+Common typed bindings:
+
+```text
+lvar: $lvar, $lvar_type, $lvar_index
+assignment: $assignment_target, $assignment_rhs, $rhs_call, $rhs_arg0
+call_site: $call, $call_arg0, $call_arg1
+profile_function: $profile_function, $profile_param_name, $profile_param_kind
+```
+
 Semantic comment rule example:
 
 ```json
@@ -397,9 +468,9 @@ Preview-only v2 call argument rewrite example:
 ```
 
 The validator requires `preview_only: true` and a `calls_any` or `calls_all`
-scope gate. Static `function_name` values must appear in that gate; binding-based
-function names are allowed only with an explicit call scope gate for later typed
-matchers.
+scope gate, or an equivalent `scope.call_site` function gate. Static
+`function_name` values must appear in that gate; binding-based function names
+are allowed only with an explicit call scope gate for later typed matchers.
 
 Preview-only v2 flow report example:
 
@@ -506,6 +577,12 @@ Operator behavior:
 - `flow_dispatcher_regex`: matches the recovered dispatcher name.
 - `flow_body_state_any`: matches if any recovered case body state is present.
 
+Typed fact match operators are primary matchers. The validator rejects mixing
+typed `match` operators with `call_arg_*` or `flow_*` gates because that would
+allow separate facts to satisfy different parts of one match. Use
+`match.call_site` for same-call-site argument constraints and `match.assignment`
+for RHS-call constraints.
+
 The initial implementation does not build a nested expression parser. Where
 call argument parsing is needed, rule phases should reuse the shared
 parenthesis matching and parameter splitting helpers from
@@ -571,6 +648,14 @@ Current report structure:
       "evidence": ["ObReferenceObjectByHandle call is present"]
     }
   ],
+  "missed_rules": [
+    {
+      "rule_id": "project.rename.foo",
+      "phase": "rename",
+      "source": "project/foo.json",
+      "reasons": ["scope.lvar did not match any fact"]
+    }
+  ],
   "rewrite_emissions": [
     {
       "rule_id": "project.call_arg_rewrite.probe_size",
@@ -597,6 +682,8 @@ Current report structure:
 
 The exported report contains `matched_rules`, `rewrite_emissions`,
 `rejected_emissions`, `load_errors`, and `validation_errors`.
+Authoring/debug runs can also opt into `missed_rules`; normal IDA and CLI
+analysis does not record misses by default.
 `rewrite_emissions` is report-only for v2 `call_arg_rewrite`, `flow`, and
 `text_rewrite` candidates and can record `applied`, `shadowed`, or `rejected`
 status without adding IDB write authority. A future UI summary can show counts
@@ -617,6 +704,9 @@ Recommended CLI:
 ```powershell
 python -B .\tools\validate_pseudoforge_rules.py .\ida_pseudoforge\rules\builtin
 python -B .\tools\validate_pseudoforge_rules.py .\pseudoforge_rules
+python -B .\tools\pseudoforge_rule_author.py facts .\sample.cpp
+python -B .\tools\pseudoforge_rule_author.py run .\sample.cpp --rules .\pseudoforge_rules --phase rename --explain
+python -B .\tools\pseudoforge_rule_author.py scaffold assignment-rename --out .\pseudoforge_rules\project_rules.json
 ```
 
 Validation items:

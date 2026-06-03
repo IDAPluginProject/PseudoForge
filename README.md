@@ -67,6 +67,7 @@ Key documentation:
 - [pseudoforge_improvement_plan.md](pseudoforge_improvement_plan.md): prioritized improvement backlog from the current code and documentation review.
 - [ida_pseudocode_refactor_plugin_design.md](ida_pseudocode_refactor_plugin_design.md): overall product and architecture design.
 - [deterministic_rules_matching_engine_design.md](deterministic_rules_matching_engine_design.md): deterministic JSON rule engine design.
+- [docs/rules.md](docs/rules.md): project-local and user-global rule authoring workflow.
 - [samples/kernel_pattern_driver/README.md](samples/kernel_pattern_driver/README.md): WDK sample corpus for kernel-pattern analysis.
 
 ## Versioning
@@ -1351,7 +1352,7 @@ For unknown third-party binary validation, use `-NoPdb` and review the IDA log f
 
 ## Deterministic Rules
 
-PseudoForge includes a v1 deterministic rules matching engine. The supported production scope is data-only JSON rules for `rename` and `semantic_comment`.
+PseudoForge includes a deterministic rules matching engine. Schema v1 supports data-only JSON rules for `rename` and `semantic_comment`. Schema v2 adds typed fact matching and preview/report-only rewrite phases while preserving the same JSON-only safety boundary.
 
 Rule load paths:
 
@@ -1364,6 +1365,8 @@ ida_pseudoforge/rules/builtin/*.json
 Interactive IDA analysis resolves `.\pseudoforge_rules` relative to the analyzed input binary directory. Offline CLI resolves it relative to the source pseudocode file and also accepts explicit `--rules-dir`.
 
 Builtin rules currently mirror low-risk deterministic hard-coded passes for report/parity visibility. They do not replace existing hard-coded rename validation, cleanup classification, flow recovery, or kernel API rewrite behavior.
+
+Detailed rule authoring documentation lives in [docs/rules.md](docs/rules.md).
 
 Authoring workflow:
 
@@ -1379,6 +1382,14 @@ Validation:
 New-Item -ItemType Directory -Force .\pseudoforge_rules
 python -B .\tools\validate_pseudoforge_rules.py .\ida_pseudoforge\rules\builtin
 python -B .\tools\validate_pseudoforge_rules.py .\pseudoforge_rules
+```
+
+Authoring/debug helper:
+
+```powershell
+python -B .\tools\pseudoforge_rule_author.py facts .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp
+python -B .\tools\pseudoforge_rule_author.py scaffold assignment-rename --out .\pseudoforge_rules\project_rules.json
+python -B .\tools\pseudoforge_rule_author.py run .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --rules .\pseudoforge_rules --phase rename --explain
 ```
 
 Project-local rule pack example:
@@ -1505,9 +1516,14 @@ Supported scope operators:
 ```text
 calls_any
 calls_all
+assignment
+call_site
 lvars_any
+lvar
 function_name_regex
+profile_function
 prototype_contains
+requires_comment_kind
 text_contains
 text_contains_all
 ```
@@ -1517,6 +1533,10 @@ Supported match operators:
 ```text
 regex
 assignment_regex
+assignment
+call_site
+lvar
+profile_function
 text_contains
 text_contains_all
 ```
@@ -1527,6 +1547,13 @@ Schema version 2 also supports preview/export-oriented call argument gates:
 call_arg_count
 call_arg_literal
 ```
+
+Schema version 2 typed fact operators can be used in both `scope` and `match`:
+`lvar`, `assignment`, `call_site`, and `profile_function`. Typed match
+bindings include names such as `$lvar`, `$assignment_target`, `$call_arg0`, and
+`$profile_param_name`, reducing the need for broad text regexes. Typed match
+operators are primary fact matchers; do not combine them with legacy
+`call_arg_*` or `flow_*` match gates.
 
 Supported v1 emissions:
 
@@ -1542,7 +1569,8 @@ The builtin v2 report-only rules currently mirror the low-risk
 remove-argument cleanup so reports can compare rule candidates against the
 existing hard-coded kernel API renderer path. `text_rewrite` candidates require
 `before_regex`, `replacement`, `preview_only: true`, and a
-`requires_comment_kind` semantic gate. `flow` candidates require already
+`requires_comment_kind` semantic gate. `call_arg_rewrite` candidates require a
+call gate through `calls_any`, `calls_all`, or `scope.call_site`. `flow` candidates require already
 recovered dispatcher evidence through `flow_case_count_min` and remain rule
 report entries only.
 
@@ -1574,6 +1602,7 @@ Report fields:
 
 ```text
 matched_rules: rules that passed scope/match and emitted data
+missed_rules: opt-in authoring/debug miss reasons from pseudoforge_rule_author.py --explain
 rewrite_emissions: preview/export-only rewrite emissions with applied, shadowed, or rejected status
 rejected_emissions: emissions rejected by conflict, validation, or runtime guards
 load_errors: JSON read or parse failures

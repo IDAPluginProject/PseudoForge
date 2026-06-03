@@ -9,6 +9,7 @@ from ida_pseudoforge.core.deterministic.schema import (
     FORBIDDEN_RULE_KEYS,
     SUPPORTED_SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
+    SUPPORTED_TYPED_FACT_OPERATORS,
     SUPPORTED_V1_EMISSION_KINDS,
     SUPPORTED_V1_MATCH_OPERATORS,
     SUPPORTED_V1_PHASES,
@@ -182,6 +183,7 @@ def _validate_scope_values(scope: dict[str, Any], prefix: str) -> list[str]:
     for key in ("prototype_contains", "text_contains"):
         if key in scope:
             errors.extend(_validate_non_empty_string(scope.get(key), "%s.%s" % (prefix, key)))
+    errors.extend(_validate_typed_fact_values(scope, prefix))
     return errors
 
 
@@ -199,6 +201,7 @@ def _validate_match_values(match: dict[str, Any], prefix: str) -> list[str]:
         errors.extend(_validate_flow_case_count_min(match.get("flow_case_count_min"), "%s.flow_case_count_min" % prefix))
     if "flow_body_state_any" in match:
         errors.extend(_validate_string_or_string_list(match.get("flow_body_state_any"), "%s.flow_body_state_any" % prefix))
+    errors.extend(_validate_typed_fact_values(match, prefix))
     return errors
 
 
@@ -206,6 +209,20 @@ def _validate_match_shape(match: dict[str, Any], prefix: str) -> list[str]:
     primary_regexes = [key for key in ("regex", "assignment_regex", "before_regex") if key in match]
     if len(primary_regexes) > 1:
         return ["%s must not combine regex, assignment_regex, and before_regex" % prefix]
+    primary_typed = [key for key in SUPPORTED_TYPED_FACT_OPERATORS if key in match]
+    if len(primary_typed) > 1:
+        return ["%s must not combine typed fact match operators" % prefix]
+    if primary_regexes and primary_typed:
+        return ["%s must not combine regex matchers with typed fact match operators" % prefix]
+    fact_gate_operators = {
+        "call_arg_count",
+        "call_arg_literal",
+        "flow_body_state_any",
+        "flow_case_count_min",
+        "flow_dispatcher_regex",
+    }
+    if primary_typed and any(key in match for key in fact_gate_operators):
+        return ["%s must not combine typed fact match operators with call_arg or flow match gates" % prefix]
     return []
 
 
@@ -222,7 +239,211 @@ def _validate_flow_match(match: dict[str, Any], prefix: str) -> list[str]:
     for key in ("regex", "assignment_regex", "before_regex", "call_arg_count", "call_arg_literal"):
         if key in match:
             errors.append("%s.%s is not supported for flow" % (prefix, key))
+    for key in SUPPORTED_TYPED_FACT_OPERATORS:
+        if key in match:
+            errors.append("%s.%s is not supported for flow" % (prefix, key))
     return errors
+
+
+def _validate_typed_fact_values(data: dict[str, Any], prefix: str) -> list[str]:
+    errors: list[str] = []
+    if "lvar" in data:
+        errors.extend(_validate_lvar_selector(data.get("lvar"), "%s.lvar" % prefix))
+    if "assignment" in data:
+        errors.extend(_validate_assignment_selector(data.get("assignment"), "%s.assignment" % prefix))
+    if "call_site" in data:
+        errors.extend(_validate_call_site_selector(data.get("call_site"), "%s.call_site" % prefix))
+    if "profile_function" in data:
+        errors.extend(_validate_profile_function_selector(data.get("profile_function"), "%s.profile_function" % prefix))
+    return errors
+
+
+def _validate_lvar_selector(value: object, prefix: str) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    allowed = {"index", "is_arg", "name", "name_regex", "type_contains", "type_regex"}
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    errors.extend(_validate_selector_non_empty(data, prefix))
+    for key in ("name", "type_contains"):
+        if key in data:
+            errors.extend(_validate_non_empty_string(data.get(key), "%s.%s" % (prefix, key)))
+    for key in ("name_regex", "type_regex"):
+        if key in data:
+            errors.extend(_validate_regex_string(data.get(key), "%s.%s" % (prefix, key)))
+    if "is_arg" in data and not isinstance(data.get("is_arg"), bool):
+        errors.append("%s.is_arg must be a boolean" % prefix)
+    if "index" in data:
+        errors.extend(_validate_non_negative_integer(data.get("index"), "%s.index" % prefix))
+    return errors
+
+
+def _validate_assignment_selector(value: object, prefix: str) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    allowed = {
+        "rhs_call_arg_contains",
+        "rhs_call_arg_count",
+        "rhs_call_arg_literal",
+        "rhs_call_arg_regex",
+        "rhs_call_name",
+        "rhs_identifier_all",
+        "rhs_identifier_any",
+        "rhs_literal_all",
+        "rhs_literal_any",
+        "target",
+        "target_regex",
+    }
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    errors.extend(_validate_selector_non_empty(data, prefix))
+    for key in ("target", "rhs_call_name"):
+        if key in data:
+            errors.extend(_validate_non_empty_string(data.get(key), "%s.%s" % (prefix, key)))
+    for key in ("target_regex",):
+        if key in data:
+            errors.extend(_validate_regex_string(data.get(key), "%s.%s" % (prefix, key)))
+    for key in ("rhs_identifier_any", "rhs_identifier_all", "rhs_literal_any", "rhs_literal_all"):
+        if key in data:
+            errors.extend(_validate_string_or_string_list(data.get(key), "%s.%s" % (prefix, key)))
+    if "rhs_call_arg_count" in data:
+        errors.extend(_validate_non_negative_integer(data.get("rhs_call_arg_count"), "%s.rhs_call_arg_count" % prefix))
+    for key in ("rhs_call_arg_literal", "rhs_call_arg_contains"):
+        if key in data:
+            errors.extend(_validate_argument_value_selector(data.get(key), "%s.%s" % (prefix, key), regex=False))
+    if "rhs_call_arg_regex" in data:
+        errors.extend(_validate_argument_value_selector(data.get("rhs_call_arg_regex"), "%s.rhs_call_arg_regex" % prefix, regex=True))
+    return errors
+
+
+def _validate_call_site_selector(value: object, prefix: str) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    allowed = {
+        "arg_contains",
+        "arg_count",
+        "arg_literal",
+        "arg_regex",
+        "function_name",
+        "function_name_regex",
+    }
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    errors.extend(_validate_selector_non_empty(data, prefix))
+    if "function_name" in data:
+        errors.extend(_validate_non_empty_string(data.get("function_name"), "%s.function_name" % prefix))
+    if "function_name_regex" in data:
+        errors.extend(_validate_regex_string(data.get("function_name_regex"), "%s.function_name_regex" % prefix))
+    if "arg_count" in data:
+        errors.extend(_validate_non_negative_integer(data.get("arg_count"), "%s.arg_count" % prefix))
+    for key in ("arg_literal", "arg_contains"):
+        if key in data:
+            errors.extend(_validate_argument_value_selector(data.get(key), "%s.%s" % (prefix, key), regex=False))
+    if "arg_regex" in data:
+        errors.extend(_validate_argument_value_selector(data.get("arg_regex"), "%s.arg_regex" % prefix, regex=True))
+    return errors
+
+
+def _validate_profile_function_selector(value: object, prefix: str) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    allowed = {
+        "alias_kind",
+        "alias_of",
+        "function_name",
+        "function_name_regex",
+        "header_contains",
+        "param",
+        "param_count",
+        "return_type_contains",
+        "return_type_regex",
+    }
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    errors.extend(_validate_selector_non_empty(data, prefix))
+    for key in ("alias_kind", "alias_of", "function_name", "header_contains", "return_type_contains"):
+        if key in data:
+            errors.extend(_validate_non_empty_string(data.get(key), "%s.%s" % (prefix, key)))
+    for key in ("function_name_regex", "return_type_regex"):
+        if key in data:
+            errors.extend(_validate_regex_string(data.get(key), "%s.%s" % (prefix, key)))
+    if "param_count" in data:
+        errors.extend(_validate_non_negative_integer(data.get("param_count"), "%s.param_count" % prefix))
+    if "param" in data:
+        errors.extend(_validate_profile_param_selector(data.get("param"), "%s.param" % prefix))
+    return errors
+
+
+def _validate_profile_param_selector(value: object, prefix: str) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    allowed = {"enum", "index", "kind", "name", "type_contains", "type_regex"}
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    errors.extend(_validate_selector_non_empty(data, prefix))
+    if "index" not in data:
+        errors.append("%s.index is required" % prefix)
+    else:
+        errors.extend(_validate_non_negative_integer(data.get("index"), "%s.index" % prefix))
+    for key in ("enum", "kind", "name", "type_contains"):
+        if key in data:
+            errors.extend(_validate_non_empty_string(data.get(key), "%s.%s" % (prefix, key)))
+    if "type_regex" in data:
+        errors.extend(_validate_regex_string(data.get("type_regex"), "%s.type_regex" % prefix))
+    return errors
+
+
+def _validate_argument_value_selector(value: object, prefix: str, regex: bool) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    value_key = "regex" if regex else "value"
+    allowed = {"argument_index", value_key}
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    if "argument_index" not in data:
+        errors.append("%s.argument_index is required" % prefix)
+    else:
+        errors.extend(_validate_non_negative_integer(data.get("argument_index"), "%s.argument_index" % prefix))
+    if value_key not in data:
+        errors.append("%s.%s is required" % (prefix, value_key))
+    elif regex:
+        errors.extend(_validate_regex_string(data.get(value_key), "%s.%s" % (prefix, value_key)))
+    else:
+        errors.extend(_validate_non_empty_string(data.get(value_key), "%s.%s" % (prefix, value_key)))
+    return errors
+
+
+def _selector_object(value: object, prefix: str) -> tuple[dict[str, Any] | None, list[str]]:
+    if isinstance(value, dict):
+        return value, []
+    return None, ["%s must be an object" % prefix]
+
+
+def _validate_selector_keys(data: dict[str, Any], allowed: set[str], prefix: str) -> list[str]:
+    return ["%s.%s is not supported" % (prefix, key) for key in data if key not in allowed]
+
+
+def _validate_selector_non_empty(data: dict[str, Any], prefix: str) -> list[str]:
+    if data:
+        return []
+    return ["%s must define at least one selector field" % prefix]
+
+
+def _validate_regex_string(value: object, prefix: str) -> list[str]:
+    errors = _validate_non_empty_string(value, prefix)
+    if errors:
+        return errors
+    try:
+        re.compile(str(value))
+    except re.error as exc:
+        return ["%s invalid regex: %s" % (prefix, exc)]
+    return []
+
+
+def _validate_non_negative_integer(value: object, prefix: str) -> list[str]:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return []
+    return ["%s must be a non-negative integer" % prefix]
 
 
 def _validate_scope_regexes(scope: dict[str, Any], prefix: str) -> list[str]:
@@ -359,12 +580,14 @@ def _validate_call_arg_rewrite_scope(scope: dict[str, Any], emit: dict[str, Any]
     if "$" in function_name:
         if _has_call_scope_gate(scope):
             return []
-        return ["%s must gate call_arg_rewrite with calls_any/calls_all" % prefix]
+        return ["%s must gate call_arg_rewrite with calls_any/calls_all or call_site" % prefix]
     if _scope_calls_include(scope.get("calls_any"), function_name):
         return []
     if _scope_calls_include(scope.get("calls_all"), function_name):
         return []
-    return ["%s must gate call_arg_rewrite with calls_any/calls_all for %s" % (prefix, function_name)]
+    if _scope_call_site_includes(scope.get("call_site"), function_name):
+        return []
+    return ["%s must gate call_arg_rewrite with calls_any/calls_all or call_site for %s" % (prefix, function_name)]
 
 
 def _validate_text_rewrite_scope(scope: dict[str, Any], prefix: str) -> list[str]:
@@ -374,7 +597,7 @@ def _validate_text_rewrite_scope(scope: dict[str, Any], prefix: str) -> list[str
 
 
 def _has_call_scope_gate(scope: dict[str, Any]) -> bool:
-    return "calls_any" in scope or "calls_all" in scope
+    return "calls_any" in scope or "calls_all" in scope or _scope_has_call_site_function_gate(scope.get("call_site"))
 
 
 def _scope_calls_include(value: object, function_name: str) -> bool:
@@ -382,6 +605,29 @@ def _scope_calls_include(value: object, function_name: str) -> bool:
         return value == function_name
     if isinstance(value, list):
         return function_name in value
+    return False
+
+
+def _scope_has_call_site_function_gate(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    function_name = value.get("function_name")
+    function_name_regex = value.get("function_name_regex")
+    return bool(function_name) or bool(function_name_regex)
+
+
+def _scope_call_site_includes(value: object, function_name: str) -> bool:
+    if not isinstance(value, dict):
+        return False
+    exact = value.get("function_name")
+    if isinstance(exact, str) and exact == function_name:
+        return True
+    pattern = value.get("function_name_regex")
+    if isinstance(pattern, str) and pattern:
+        try:
+            return re.search(pattern, function_name) is not None
+        except re.error:
+            return False
     return False
 
 

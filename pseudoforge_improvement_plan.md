@@ -645,6 +645,52 @@ duplicate parsing bugs.
 - Existing v1 rule packs behave exactly as before.
 - Malformed pseudocode produces partial facts, not runtime crashes.
 
+## P2: Typed Rule Authoring And Explain Diagnostics
+
+Status: Completed.
+
+Completed:
+
+- [x] Added v2 typed fact operators for `lvar`, `assignment`, `call_site`, and
+  `profile_function` over existing `RuleContext` facts.
+- [x] Allowed typed operators in both `scope` and `match` while keeping v1 rule
+  packs backward compatible.
+- [x] Added deterministic bindings such as `$lvar`, `$assignment_target`,
+  `$call_arg0`, and `$profile_param_name` for typed match emissions.
+- [x] Added opt-in `RuleEngine.run(..., explain_misses=True)` diagnostics that
+  write `missed_rules` only for authoring/debug runs.
+- [x] Added `tools/pseudoforge_rule_author.py` with `validate`, `facts`, `run`,
+  and `scaffold` commands.
+- [x] Added `docs/rules.md` as the detailed rule authoring guide and kept README
+  as the entrypoint.
+- [x] Fixed binding substitution so longer binding names such as `$call_arg0`
+  are resolved before prefix bindings such as `$call`.
+- [x] Review pass: rejected ambiguous typed-match plus legacy `call_arg_*` or
+  `flow_*` gate combinations, allowed `scope.call_site` as a call rewrite gate,
+  and preserved authoring CLI source order when files and directories are mixed.
+
+### Current Evidence
+
+- `ida_pseudoforge/core/deterministic/schema.py` exposes the new v2 typed
+  operator names and optional `missed_rules` report field.
+- `ida_pseudoforge/core/deterministic/matchers/regex.py` evaluates typed
+  selectors against existing lvar, assignment, call-site, and profile facts.
+- `tools/pseudoforge_rule_author.py` provides fact dumps, scaffolds, validation,
+  rule execution, and opt-in miss explanations.
+- `tests/test_rule_engine.py`, `tests/test_rule_pack_validator.py`, and
+  `tests/test_rule_authoring.py` cover typed operators, validation, miss
+  diagnostics, source redaction, and authoring CLI output.
+- Full review validation reached 442 tests after adding regression coverage for
+  ambiguous fact-gate rejection and mixed file/directory rule source ordering.
+
+### Safety Boundary
+
+- Rules remain JSON data only.
+- Invalid typed selectors fail validation or no-match at runtime.
+- Normal IDA and CLI analysis reports do not include missed-rule traces unless
+  the authoring/debug path explicitly requests them.
+- `call_arg_rewrite`, `text_rewrite`, and `flow` remain preview/report-only.
+
 ## P2: Conservative Switch Body Reconstruction
 
 Status: Completed.

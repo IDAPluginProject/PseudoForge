@@ -228,7 +228,7 @@ def _build_flow_emission(rule: Rule, match: RuleMatch, report: RuleReport) -> Ru
 
 def _resolve_binding(value: str, bindings: dict[str, str]) -> str:
     result = value
-    for key, replacement in bindings.items():
+    for key, replacement in sorted(bindings.items(), key=lambda item: len(item[0]), reverse=True):
         result = result.replace("$" + key, replacement)
     if re.search(r"\$[A-Za-z_][A-Za-z0-9_]*", result):
         return ""
