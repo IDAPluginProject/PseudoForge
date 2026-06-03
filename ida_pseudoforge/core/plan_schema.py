@@ -128,6 +128,7 @@ class HelperContractEdge:
     depth: int = 0
     evidence: str = ""
     propagated_size_constraints: list[BufferSizeConstraint] = field(default_factory=list)
+    propagated_field_accesses: list[FieldAccess] = field(default_factory=list)
     propagated_field_constraints: list[FieldConstraint] = field(default_factory=list)
     nested_edges: list["HelperContractEdge"] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)

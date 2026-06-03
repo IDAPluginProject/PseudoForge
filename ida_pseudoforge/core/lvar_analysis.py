@@ -30,6 +30,7 @@ from ida_pseudoforge.core.normalize import (
     safe_identifier_replace,
 )
 from ida_pseudoforge.core.pattern_renames import pattern_renames
+from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
 from ida_pseudoforge.core.validation import validate_renames
 
@@ -41,6 +42,7 @@ def build_clean_plan(
     helper_captures: dict[str, FunctionCapture] | list[FunctionCapture] | None = None,
     buffer_contract_case_values: list[int] | None = None,
     buffer_contract_helper_depth: int = 2,
+    buffer_contract_disasm_slices: list[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None = None,
 ) -> CleanPlan:
     rule_report = RuleReport()
     rule_engine = _build_rule_engine(rule_report, rule_dirs, capture)
@@ -66,6 +68,7 @@ def build_clean_plan(
         helper_captures=helper_captures,
         max_depth=buffer_contract_helper_depth,
         case_values=buffer_contract_case_values,
+        disasm_case_slices=buffer_contract_disasm_slices,
     )
     cleanup_labels = classify_cleanup_labels(capture)
     comments = _dedupe_comments(

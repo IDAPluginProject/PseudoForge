@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.normalize import extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import FlowRewrite, FunctionCapture
 from ida_pseudoforge.profiles.loader import (
@@ -16,9 +17,6 @@ from ida_pseudoforge.profiles.loader import (
 
 
 _CAST_PREFIX = r"(?:\(\s*(?:_DWORD|int|unsigned\s+int|ULONG|LONG|DWORD|PROCESSINFOCLASS|SYSTEM_INFORMATION_CLASS|THREADINFOCLASS)\s*\)\s*)*"
-_CASE_INTEGER_SUFFIX = r"ui64|i64|u?ll|llu|ul|lu|u|l"
-_CASE_LITERAL = r"(?:(?:0x[0-9A-Fa-f]+|\d+)(?i:%s)?|'[^'\\]')" % _CASE_INTEGER_SUFFIX
-_CASE_INTEGER_SUFFIX_RE = re.compile(r"(?:%s)$" % _CASE_INTEGER_SUFFIX, re.IGNORECASE)
 COMPARE_RE = re.compile(
     r"(?<![A-Za-z0-9_])%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=|>=|<=|>|<)\s*(?P<value>\d+)\b"
     % _CAST_PREFIX
@@ -532,20 +530,10 @@ def _parse_case_label(value: str) -> int | None:
                 return None
             result |= parsed
         return result
-    if token.startswith("'") and token.endswith("'") and len(token) == 3:
-        return ord(token[1])
-    parsed = _parse_c_integer_literal(token)
+    parsed = parse_c_integer_literal(token)
     if parsed is not None:
         return parsed
     return _information_class_value(token)
-
-
-def _parse_c_integer_literal(value: str) -> int | None:
-    token = _CASE_INTEGER_SUFFIX_RE.sub("", (value or "").strip())
-    try:
-        return int(token, 0)
-    except ValueError:
-        return None
 
 
 def _information_class_value(name: str) -> int | None:

@@ -3,14 +3,23 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from typing import Iterable
 
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, format_ctl_code, parse_c_integer_literal
+from ida_pseudoforge.core.disasm_contracts import (
+    DisasmCaseContractEvidence,
+    DisasmCaseSlice,
+    normalize_disasm_slices,
+    recover_disasm_case_evidence,
+)
 from ida_pseudoforge.core.normalize import (
-    extract_call_arguments,
     extract_function_signature,
+    extract_function_name,
     extract_parameters_from_signature,
+    find_matching_paren,
     safe_identifier_replace,
+    split_parameters,
 )
 from ida_pseudoforge.core.plan_schema import (
     BufferContract,
@@ -24,9 +33,13 @@ from ida_pseudoforge.core.plan_schema import (
     HelperContractEdge,
 )
 from ida_pseudoforge.profiles.loader import (
+    get_process_information_class_name,
     get_process_information_class_value,
+    get_system_information_class_name,
     get_system_information_class_value,
+    get_thread_information_class_name,
     get_thread_information_class_value,
+    load_kernel_api_family,
 )
 
 
@@ -63,6 +76,7 @@ _INDEXED_MEMBER_RE = re.compile(
 )
 _ASSIGNMENT_RE = re.compile(r"(?P<left>[^=<>!]+?)\s*=\s*(?!=)(?P<right>.+?);")
 _CALL_NAME_RE = re.compile(r"\b(?P<name>%s)\s*\(" % _IDENT_RE)
+_INDIRECT_CALL_TARGET_RE = re.compile(r"\)\s*(?P<name>%s)\s*\)\s*\(" % _IDENT_RE)
 _CAST_OFFSET_ACCESS_RE = re.compile(
     r"\(\s*(?P<type>[_A-Za-z][A-Za-z0-9_\s]*?(?:\s*\*+)*)\s*\)\s*"
     r"\(\s*(?P<base>%s)\s*\+\s*(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
@@ -72,6 +86,53 @@ _GOTO_LABEL_RE = re.compile(r"\bgoto\s+(?P<label>[A-Za-z_][A-Za-z0-9_]*)\s*;")
 _RETURN_STATUS_LITERAL_RE = re.compile(r"\breturn\s+(?P<value>%s)\s*;" % _C_INTEGER_LITERAL_VALUE_RE)
 _ASSIGN_STATUS_LITERAL_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?P<value>%s)\s*;" % _C_INTEGER_LITERAL_VALUE_RE)
 _KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof", "do", "else"}
+_DECOMPILER_ACCESSOR_CALL_RE = re.compile(
+    r"^(?:(?:LO|HI)(?:BYTE|WORD|DWORD)|(?:BYTE|WORD|DWORD|QWORD)\d+)$"
+)
+_CALLING_CONVENTION_TOKENS = {"__cdecl", "__fastcall", "__stdcall", "__thiscall", "__vectorcall"}
+_TYPE_LIKE_CALL_TOKENS = {
+    "void",
+    "char",
+    "short",
+    "int",
+    "long",
+    "float",
+    "double",
+    "bool",
+    "signed",
+    "unsigned",
+    "_BYTE",
+    "_WORD",
+    "_DWORD",
+    "_QWORD",
+    "_OWORD",
+    "_BOOL1",
+    "_BOOL2",
+    "_BOOL4",
+    "_BOOL8",
+    "BYTE",
+    "WORD",
+    "DWORD",
+    "QWORD",
+    "BOOL",
+    "BOOLEAN",
+    "NTSTATUS",
+    "PVOID",
+    "PCHAR",
+    "PWCHAR",
+    "HANDLE",
+    "ULONG",
+    "LONG",
+    "ULONGLONG",
+    "LONGLONG",
+    "ULONG_PTR",
+    "LONG_PTR",
+    "SIZE_T",
+    "SSIZE_T",
+    "UINT_PTR",
+    "INT_PTR",
+}
+_TYPE_LIKE_CALL_RE = re.compile(r"^_{1,2}(?:u?int(?:8|16|32|64)|m(?:64|128i?|256i?|512i?))$")
 _IRP_ASSOCIATED_IRP_OFFSET_X64 = 0x18
 
 
@@ -94,6 +155,14 @@ class _SizePredicate:
     value: int
 
 
+@dataclass(slots=True)
+class _HelperCallSite:
+    callee: str
+    arguments: list[str]
+    evidence: str
+    indirect: bool = False
+
+
 def recover_buffer_contracts(
     capture: FunctionCapture,
     flow_rewrites: list[FlowRewrite],
@@ -101,15 +170,26 @@ def recover_buffer_contracts(
     helper_captures: dict[str, FunctionCapture] | Iterable[FunctionCapture] | None = None,
     max_depth: int = 2,
     case_values: Iterable[int] | None = None,
+    disasm_case_slices: Iterable[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None = None,
 ) -> list[CommandBufferContract]:
-    if not flow_rewrites:
-        return []
-
     text = safe_identifier_replace(capture.pseudocode, rename_map or {})
     helper_map = _normalize_helper_captures(helper_captures)
     buffer_sources = _infer_buffer_sources(text, capture)
     length_aliases = _infer_length_aliases(text)
+    helper_interesting_names = (
+        set(buffer_sources)
+        | _length_names_from_sources(buffer_sources)
+        | _length_like_names(text)
+    )
     case_filter = {int(value) for value in case_values} if case_values is not None else None
+    disasm_evidence_by_case = _recover_disasm_evidence_by_case(
+        disasm_case_slices,
+        buffer_sources,
+        length_aliases,
+        rename_map or {},
+        case_filter,
+    )
+    disasm_helper_slices = _disasm_helper_slices_by_name(disasm_case_slices, capture)
     result: list[CommandBufferContract] = []
 
     for flow in flow_rewrites:
@@ -140,6 +220,22 @@ def recover_buffer_contracts(
                 length_aliases,
             )
             if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+                body_lines = _body_lines_with_goto_label_tail_context(
+                    text,
+                    body_lines,
+                    buffer_sources,
+                    length_aliases,
+                )
+            if (
+                not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases)
+                and not _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
+            ):
+                body_lines = _body_lines_with_goto_label_helper_context(
+                    text,
+                    body_lines,
+                    helper_interesting_names,
+                )
+            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
                 body_lines = _body_lines_with_dispatcher_condition_context(
                     text,
                     flow.dispatcher,
@@ -162,9 +258,44 @@ def recover_buffer_contracts(
                 depth=0,
                 visited={capture.name},
                 length_aliases=length_aliases,
+                disasm_evidence=disasm_evidence_by_case.get(value),
+                disasm_helper_slices=disasm_helper_slices,
             )
             if command.buffers or command.helper_edges:
                 result.append(command)
+
+    if case_filter is not None:
+        missing_values = [value for value in sorted(case_filter) if value not in {item.command_value for item in result}]
+        if missing_values:
+            result.extend(
+                _recover_focused_native_switch_contracts(
+                    capture,
+                    text,
+                    missing_values,
+                    buffer_sources,
+                    helper_map,
+                    max_depth,
+                    length_aliases,
+                    helper_interesting_names,
+                    disasm_evidence_by_case,
+                    disasm_helper_slices,
+                )
+            )
+        missing_values = [value for value in sorted(case_filter) if value not in {item.command_value for item in result}]
+        if missing_values:
+            result.extend(
+                _recover_focused_disasm_contracts(
+                    capture,
+                    text,
+                    missing_values,
+                    buffer_sources,
+                    helper_map,
+                    max_depth,
+                    length_aliases,
+                    disasm_evidence_by_case,
+                    disasm_helper_slices,
+                )
+            )
 
     return result
 
@@ -285,6 +416,18 @@ def render_buffer_contract_report(capture: FunctionCapture, contracts: list[Comm
                             "  - propagated valid size: `%s %s %s`"
                             % (size.length, size.valid_relation, size.valid_value)
                         )
+                for access in edge.propagated_field_accesses:
+                    lines.append(
+                        "  - propagated field %s: `%s %s` `%s` at `0x%X` (%s)"
+                        % (
+                            access.access,
+                            access.type or "unknown",
+                            access.field,
+                            access.buffer,
+                            access.offset,
+                            access.evidence,
+                        )
+                    )
                 for field in edge.propagated_field_constraints:
                     detail = field.value if field.value else field.mask
                     lines.append(
@@ -389,36 +532,136 @@ def render_case_context_report(capture: FunctionCapture, plan: CleanPlan, comman
 
 def helper_names_for_selected_case(capture: FunctionCapture, plan: CleanPlan, command_value: int) -> list[str]:
     rename_map = {item.old: item.new for item in plan.active_renames()}
-    _flow, body_lines = _selected_case_body(capture, plan, command_value, rename_map=rename_map)
-    if not body_lines:
-        return []
-
-    raw_body_text = "\n".join(body_lines)
-    renamed_body_text = safe_identifier_replace(raw_body_text, rename_map)
-    raw_sources = _infer_buffer_sources(capture.pseudocode or "", capture)
-    renamed_sources = _infer_buffer_sources(safe_identifier_replace(capture.pseudocode or "", rename_map), capture)
-    buffer_names = set(raw_sources) | set(renamed_sources)
-    length_names = (
-        _length_names_from_sources(raw_sources)
-        | _length_names_from_sources(renamed_sources)
-        | _length_like_names(capture.pseudocode or "")
-        | _length_like_names(safe_identifier_replace(capture.pseudocode or "", rename_map))
+    raw_text = capture.pseudocode or ""
+    renamed_text = safe_identifier_replace(raw_text, rename_map)
+    _raw_flow, raw_body_lines = _selected_case_body(capture, plan, command_value)
+    _renamed_flow, renamed_body_lines = _selected_case_body(
+        capture,
+        plan,
+        command_value,
+        rename_map=rename_map,
     )
-    interesting_names = buffer_names | length_names
-    if not interesting_names:
-        return []
+
+    raw_sources = _infer_buffer_sources(raw_text, capture)
+    renamed_sources = _infer_buffer_sources(renamed_text, capture)
+    raw_interesting_names = set(raw_sources) | _length_names_from_sources(raw_sources) | _length_like_names(raw_text)
+    renamed_interesting_names = (
+        set(renamed_sources)
+        | _length_names_from_sources(renamed_sources)
+        | _length_like_names(renamed_text)
+    )
 
     result: list[str] = []
     seen: set[str] = set()
-    for match in _CALL_NAME_RE.finditer(raw_body_text):
-        callee = match.group("name")
-        if callee in _KEYWORDS or callee in seen:
+    variants = [
+        (raw_text, raw_body_lines, raw_interesting_names),
+        (renamed_text, renamed_body_lines, renamed_interesting_names),
+    ]
+    for full_text, body_lines, interesting_names in variants:
+        if not body_lines or not interesting_names:
             continue
-        if not _call_arguments_reference_names(raw_body_text, renamed_body_text, callee, interesting_names):
-            continue
-        seen.add(callee)
-        result.append(callee)
+        candidate_lines = _body_lines_with_goto_label_helper_context(
+            full_text,
+            body_lines,
+            interesting_names,
+        )
+        for site in _iter_helper_call_sites("\n".join(candidate_lines)):
+            callee = site.callee
+            if callee in seen:
+                continue
+            if not _arguments_reference_names(site.arguments, interesting_names):
+                continue
+            seen.add(callee)
+            result.append(callee)
     return result
+
+
+def _iter_helper_call_sites(text: str) -> list[_HelperCallSite]:
+    result: list[_HelperCallSite] = []
+    seen: set[tuple[str, tuple[str, ...], bool]] = set()
+    for site in _direct_helper_call_sites(text):
+        key = (site.callee, tuple(site.arguments), site.indirect)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(site)
+    for site in _indirect_helper_call_sites(text):
+        key = (site.callee, tuple(site.arguments), site.indirect)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(site)
+    return result
+
+
+def _direct_helper_call_sites(text: str) -> list[_HelperCallSite]:
+    result: list[_HelperCallSite] = []
+    for match in _CALL_NAME_RE.finditer(text or ""):
+        callee = match.group("name")
+        if _is_ignored_helper_call_name(callee):
+            continue
+        open_index = match.end() - 1
+        close_index = find_matching_paren(text or "", open_index)
+        if close_index < 0:
+            continue
+        arguments = split_parameters((text or "")[open_index + 1:close_index])
+        result.append(
+            _HelperCallSite(
+                callee=callee,
+                arguments=arguments,
+                evidence=_call_site_evidence(callee, arguments),
+            )
+        )
+    return result
+
+
+def _indirect_helper_call_sites(text: str) -> list[_HelperCallSite]:
+    result: list[_HelperCallSite] = []
+    source = text or ""
+    for match in _INDIRECT_CALL_TARGET_RE.finditer(source):
+        callee = match.group("name")
+        if _is_ignored_helper_call_name(callee):
+            continue
+        open_index = match.end() - 1
+        close_index = find_matching_paren(source, open_index)
+        if close_index < 0:
+            continue
+        arguments = split_parameters(source[open_index + 1:close_index])
+        result.append(
+            _HelperCallSite(
+                callee=callee,
+                arguments=arguments,
+                evidence=_call_site_evidence(callee, arguments),
+                indirect=True,
+            )
+        )
+    return result
+
+
+def _is_ignored_helper_call_name(name: str) -> bool:
+    if name in _KEYWORDS:
+        return True
+    if name in _CALLING_CONVENTION_TOKENS:
+        return True
+    if name in _TYPE_LIKE_CALL_TOKENS:
+        return True
+    if _TYPE_LIKE_CALL_RE.fullmatch(name or ""):
+        return True
+    return bool(_DECOMPILER_ACCESSOR_CALL_RE.fullmatch(name or ""))
+
+
+def _call_site_evidence(callee: str, arguments: list[str]) -> str:
+    return "%s(%s)" % (callee, ", ".join(arguments))
+
+
+def _arguments_reference_names(arguments: list[str], names: set[str]) -> bool:
+    for argument in arguments:
+        identifier = _argument_identifier(argument)
+        if identifier in names:
+            return True
+        if _argument_references_any_name(argument, names):
+            return True
+    return False
 
 
 def _body_lines_with_shared_tail_size_guards(
@@ -441,6 +684,58 @@ def _body_lines_with_shared_tail_size_guards(
     if not extra:
         return body_lines
     return list(body_lines) + extra
+
+
+def _body_lines_with_goto_label_tail_context(
+    text: str,
+    body_lines: list[str],
+    buffer_sources: dict[str, dict[str, str]],
+    length_aliases: dict[str, str] | None = None,
+    max_tail_lines: int = 160,
+) -> list[str]:
+    labels = _case_goto_labels(body_lines)
+    if not labels:
+        return body_lines
+    lines = (text or "").splitlines()
+    for label in labels:
+        tail = _goto_label_tail_context(lines, label, max_tail_lines)
+        if not tail:
+            continue
+        merged = _merge_unique_context_lines(body_lines, tail)
+        if _case_body_has_contract_evidence(merged, buffer_sources, length_aliases):
+            return merged
+    return body_lines
+
+
+def _body_lines_with_goto_label_helper_context(
+    text: str,
+    body_lines: list[str],
+    interesting_names: set[str],
+    max_tail_lines: int = 160,
+) -> list[str]:
+    labels = _case_goto_labels(body_lines)
+    if not labels:
+        return body_lines
+    lines = (text or "").splitlines()
+    for label in labels:
+        tail = _goto_label_tail_context(lines, label, max_tail_lines)
+        if not tail:
+            continue
+        if _case_body_has_helper_argument_evidence(tail, interesting_names):
+            return _merge_unique_context_lines(body_lines, tail)
+    return body_lines
+
+
+def _merge_unique_context_lines(body_lines: list[str], context_lines: list[str]) -> list[str]:
+    merged = list(body_lines)
+    seen = {line.strip() for line in merged if line.strip()}
+    for line in context_lines:
+        stripped = line.strip()
+        if not stripped or stripped in seen:
+            continue
+        merged.append(stripped)
+        seen.add(stripped)
+    return merged
 
 
 def _literal_assignments_from_lines(lines: list[str]) -> dict[str, str]:
@@ -557,9 +852,22 @@ def _case_body_has_contract_evidence(
     length_aliases: dict[str, str] | None,
 ) -> bool:
     return bool(
-        _recover_size_constraints(body_lines, length_aliases=length_aliases)
+        _recover_size_constraints(
+            body_lines,
+            length_aliases=length_aliases,
+            known_lengths=_length_names_from_sources(buffer_sources),
+        )
         or _recover_field_accesses(body_lines, buffer_sources)
     )
+
+
+def _case_body_has_helper_argument_evidence(body_lines: list[str], interesting_names: set[str]) -> bool:
+    if not body_lines or not interesting_names:
+        return False
+    for site in _iter_helper_call_sites("\n".join(body_lines)):
+        if _arguments_reference_names(site.arguments, interesting_names):
+            return True
+    return False
 
 
 def _body_lines_with_dispatcher_condition_context(
@@ -572,15 +880,7 @@ def _body_lines_with_dispatcher_condition_context(
     context = _dispatcher_condition_context_lines(text, dispatcher, command_value, command_name)
     if not context:
         return body_lines
-    merged = list(body_lines)
-    seen = {line.strip() for line in merged if line.strip()}
-    for line in context:
-        stripped = line.strip()
-        if not stripped or stripped in seen:
-            continue
-        merged.append(stripped)
-        seen.add(stripped)
-    return merged
+    return _merge_unique_context_lines(body_lines, context)
 
 
 def _dispatcher_condition_context_lines(
@@ -794,6 +1094,45 @@ def _label_tail_context(lines: list[str], label: str, max_lines: int) -> list[st
     return []
 
 
+def _goto_label_tail_context(lines: list[str], label: str, max_lines: int) -> list[str]:
+    label_re = re.compile(r"^\s*%s\s*:" % re.escape(label))
+    for index, line in enumerate(lines):
+        if not label_re.match(line):
+            continue
+        return _join_goto_tail_lines(lines, index, max_lines)
+    return []
+
+
+def _join_goto_tail_lines(lines: list[str], start: int, max_lines: int) -> list[str]:
+    result: list[str] = []
+    depth = 0
+    previous = ""
+    label_re = re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*:")
+    for index in range(start, min(len(lines), start + max_lines)):
+        stripped = lines[index].strip()
+        if not stripped:
+            continue
+        if index > start and depth <= 0 and label_re.match(stripped):
+            break
+        result.append(stripped)
+        opens = stripped.count("{")
+        closes = stripped.count("}")
+        depth += opens - closes
+        if depth <= 0 and _is_terminal_return_line(stripped, previous):
+            break
+        previous = stripped
+    return result
+
+
+def _is_terminal_return_line(line: str, previous: str) -> bool:
+    stripped = (line or "").strip()
+    if not (stripped.startswith("return ") or stripped == "return;"):
+        return False
+    if (previous or "").strip().startswith("if"):
+        return False
+    return stripped.endswith(";")
+
+
 def _join_context_lines(lines: list[str], start: int, max_lines: int) -> list[str]:
     result: list[str] = []
     depth = 0
@@ -961,23 +1300,6 @@ def _length_like_names(text: str) -> set[str]:
         for name in set(re.findall(r"\b%s\b" % _IDENT_RE, text or ""))
         if _looks_like_length_name(name)
     }
-
-
-def _call_arguments_reference_names(
-    raw_body_text: str,
-    renamed_body_text: str,
-    callee: str,
-    interesting_names: set[str],
-) -> bool:
-    for text in (raw_body_text, renamed_body_text):
-        for arguments in extract_call_arguments(text, callee):
-            for argument in arguments:
-                identifier = _argument_identifier(argument)
-                if identifier in interesting_names:
-                    return True
-                if _argument_references_any_name(argument, interesting_names):
-                    return True
-    return False
 
 
 def _argument_references_any_name(argument: str, names: set[str]) -> bool:
@@ -1180,10 +1502,12 @@ def buffer_contracts_json_payload(contracts: list[CommandBufferContract]) -> lis
 
 def _render_single_buffer_struct(contract: CommandBufferContract, buffer: BufferContract) -> list[str]:
     helper_sizes = _helper_size_constraints_for_buffer(contract.helper_edges, buffer.variable)
+    helper_accesses = _helper_field_accesses_for_buffer(contract.helper_edges, buffer.variable)
     helper_fields = _helper_field_constraints_for_buffer(contract.helper_edges, buffer.variable)
     all_size_constraints = buffer.size_constraints + helper_sizes
+    all_field_accesses = buffer.field_accesses + helper_accesses
     all_field_constraints = buffer.field_constraints + helper_fields
-    fields = _build_cpp_fields(buffer.field_accesses, all_field_constraints)
+    fields = _build_cpp_fields(all_field_accesses, all_field_constraints)
     size_hint = _struct_size_hint(fields, all_size_constraints)
     exact_hint = _struct_exact_size_hint(all_size_constraints)
     size_predicates = _size_predicates_for_constraints(all_size_constraints)
@@ -1215,7 +1539,7 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
                     _cpp_comment(item.source),
                 )
             )
-    named_unknowns = _named_unknown_field_notes(buffer.field_accesses)
+    named_unknowns = _named_unknown_field_notes(all_field_accesses)
     if named_unknowns:
         lines.append("// Named fields with unknown offsets:")
         for note in named_unknowns:
@@ -1310,8 +1634,13 @@ def _build_cpp_fields(
             continue
         item = fields.setdefault(access.offset, _new_cpp_field(access.offset))
         item["name"] = _cpp_field_name(access.field, access.offset)
-        item["type"] = _preferred_cpp_type(str(item["type"]), access.type)
-        item["size"] = max(int(item["size"]), _cpp_type_size(str(item["type"])))
+        candidate_type = _cpp_type(access.type)
+        if not item["accesses"] and not item["constraints"] and not item["sources"]:
+            item["type"] = candidate_type
+            item["size"] = _cpp_type_size(candidate_type)
+        else:
+            item["type"] = _preferred_cpp_type(str(item["type"]), access.type)
+            item["size"] = max(int(item["size"]), _cpp_type_size(str(item["type"])))
         _append_unique(item["accesses"], access.access)
         _append_unique(item["sources"], access.source)
         if access.evidence:
@@ -1379,8 +1708,10 @@ def _render_cpp_field_layout(
             % (cursor, target_size - cursor)
         )
         reserved_index += 1
-    if not fields and target_size <= 0:
+    if not fields and target_size <= 0 and _has_exact_zero_size_predicate(size_predicates or []):
         lines.append("    // No bytes are accepted for this buffer role.")
+    elif not fields and target_size <= 0:
+        lines.append("    // Layout was not recovered for this buffer role.")
     elif not fields and reserved_index == 0:
         lines.append("    std::uint8_t reserved_0x00[%d];" % target_size)
     return lines
@@ -1447,6 +1778,10 @@ def _lower_size_bounds_by_role(size_predicates: list[_SizePredicate]) -> dict[st
     return result
 
 
+def _has_exact_zero_size_predicate(size_predicates: list[_SizePredicate]) -> bool:
+    return any(predicate.relation == "==" and predicate.value == 0 for predicate in size_predicates)
+
+
 def _extend_field_comments(lines: list[str], field: dict[str, object]) -> None:
     comments = []
     accesses = ", ".join(str(item) for item in field["accesses"])
@@ -1458,6 +1793,9 @@ def _extend_field_comments(lines: list[str], field: dict[str, object]) -> None:
     sources = ", ".join(str(item) for item in field["sources"])
     if sources:
         comments.append("source: %s" % sources)
+    evidence = "; ".join(str(item) for item in list(field["evidence"])[:2])
+    if evidence:
+        comments.append("evidence: %s" % evidence)
     if comments:
         lines.append("    // %s" % _cpp_comment(" | ".join(comments)))
 
@@ -1469,6 +1807,16 @@ def _helper_size_constraints_for_buffer(edges: list[HelperContractEdge], buffer:
             if item.buffer == buffer:
                 result.append(item)
         result.extend(_helper_size_constraints_for_buffer(edge.nested_edges, buffer))
+    return result
+
+
+def _helper_field_accesses_for_buffer(edges: list[HelperContractEdge], buffer: str) -> list[FieldAccess]:
+    result: list[FieldAccess] = []
+    for edge in edges:
+        for item in edge.propagated_field_accesses:
+            if item.buffer == buffer:
+                result.append(item)
+        result.extend(_helper_field_accesses_for_buffer(edge.nested_edges, buffer))
     return result
 
 
@@ -1524,9 +1872,13 @@ def _size_predicates_for_constraints(constraints: list[BufferSizeConstraint]) ->
     result: list[_SizePredicate] = []
     for role in sorted(set(exact_by_role) | set(min_by_role) | set(max_by_role), key=_size_role_sort_key):
         exacts = exact_by_role.get(role, [])
-        exact_values = {item.value for item in exacts}
-        if len(exact_values) == 1 and exacts:
-            result.append(exacts[0])
+        if exacts:
+            seen_exact_values: set[int] = set()
+            for item in sorted(exacts, key=lambda predicate: predicate.value):
+                if item.value in seen_exact_values:
+                    continue
+                seen_exact_values.add(item.value)
+                result.append(item)
             continue
         if role in min_by_role:
             result.append(min_by_role[role])
@@ -1538,6 +1890,9 @@ def _size_predicates_for_constraints(constraints: list[BufferSizeConstraint]) ->
 def _size_predicate_from_constraint(constraint: BufferSizeConstraint) -> _SizePredicate | None:
     relation = constraint.valid_relation
     value_text = constraint.valid_value
+    if not relation and constraint.relation == "==":
+        relation = constraint.relation
+        value_text = constraint.value
     if not relation or not value_text:
         return None
     value = _parse_constraint_integer(value_text)
@@ -1585,6 +1940,8 @@ def _parse_constraint_integer(value: str) -> int | None:
 
 def _access_has_layout_offset(access: FieldAccess) -> bool:
     if access.field.startswith("field_0x"):
+        return True
+    if "profile:" in (access.source or "") and access.type and access.type != "unknown":
         return True
     return bool("*" in access.evidence and access.type and access.type != "unknown")
 
@@ -1685,7 +2042,7 @@ def _render_cpp_size_constants(structure_name: str, predicates: list[_SizePredic
         lines.append(
             "static constexpr std::size_t %s = %s;"
             % (
-                _size_constant_name(structure_name, predicate),
+                _size_constant_name(structure_name, predicate, predicates),
                 _format_cpp_size_literal(predicate.value),
             )
         )
@@ -1697,7 +2054,8 @@ def _render_cpp_size_validator(structure_name: str, predicates: list[_SizePredic
     parameters: list[str] = []
     used_parameter_names: set[str] = set()
     parameter_by_key: dict[tuple[str, str], str] = {}
-    conditions: list[str] = []
+    exact_conditions: dict[str, list[str]] = {}
+    range_conditions: list[str] = []
     for predicate in predicates:
         parameter_key = (predicate.role, predicate.length)
         parameter_name = parameter_by_key.get(parameter_key, "")
@@ -1705,14 +2063,26 @@ def _render_cpp_size_validator(structure_name: str, predicates: list[_SizePredic
             parameter_name = _size_parameter_name(predicate, used_parameter_names)
             parameter_by_key[parameter_key] = parameter_name
             parameters.append("std::size_t %s" % parameter_name)
-        conditions.append(
+        condition = (
             "%s %s %s"
             % (
                 parameter_name,
                 predicate.relation,
-                _size_constant_name(structure_name, predicate),
+                _size_constant_name(structure_name, predicate, predicates),
             )
         )
+        if predicate.relation == "==":
+            exact_conditions.setdefault(parameter_name, []).append(condition)
+        else:
+            range_conditions.append(condition)
+    conditions: list[str] = []
+    for parameter_name in parameter_by_key.values():
+        alternatives = exact_conditions.get(parameter_name, [])
+        if len(alternatives) > 1:
+            conditions.append("(%s)" % " || ".join(alternatives))
+        elif alternatives:
+            conditions.append(alternatives[0])
+    conditions.extend(range_conditions)
     lines = [
         "inline bool IsValid%sSize(%s)" % (structure_name, ", ".join(parameters)),
         "{",
@@ -1730,15 +2100,30 @@ def _render_cpp_size_validator(structure_name: str, predicates: list[_SizePredic
     return lines
 
 
-def _size_constant_name(structure_name: str, predicate: _SizePredicate) -> str:
+def _size_constant_name(
+    structure_name: str,
+    predicate: _SizePredicate,
+    predicates: list[_SizePredicate] | None = None,
+) -> str:
     relation_prefix = {
         "==": "",
         ">=": "MIN_",
         "<=": "MAX_",
     }.get(predicate.relation, "")
+    if predicate.relation == "==" and _has_multiple_exact_sizes_for_role(predicates or [], predicate.role):
+        return "%s_%s_SIZE_0x%X" % (structure_name, predicate.role.upper(), predicate.value)
     if predicate.relation == "==" and structure_name.upper().endswith("_%s" % predicate.role.upper()):
         return "%s_SIZE" % structure_name
     return "%s_%s%s_SIZE" % (structure_name, relation_prefix, predicate.role.upper())
+
+
+def _has_multiple_exact_sizes_for_role(predicates: list[_SizePredicate], role: str) -> bool:
+    values = {
+        predicate.value
+        for predicate in predicates
+        if predicate.relation == "==" and predicate.role == role
+    }
+    return len(values) > 1
 
 
 def _size_parameter_name(predicate: _SizePredicate, used_names: set[str]) -> str:
@@ -1778,9 +2163,15 @@ def _analyze_command_case(
     depth: int,
     visited: set[str],
     length_aliases: dict[str, str] | None = None,
+    disasm_evidence: DisasmCaseContractEvidence | None = None,
+    disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
 ) -> CommandBufferContract:
     body_text = "\n".join(body_lines)
-    size_constraints = _recover_size_constraints(body_lines, length_aliases=length_aliases)
+    size_constraints = _recover_size_constraints(
+        body_lines,
+        length_aliases=length_aliases,
+        known_lengths=_length_names_from_sources(buffer_sources),
+    )
     field_accesses = _recover_field_accesses(body_lines, buffer_sources)
     field_constraints = _recover_field_constraints(body_lines, field_accesses)
     helper_edges = _recover_helper_edges(
@@ -1791,6 +2182,30 @@ def _analyze_command_case(
         depth=depth,
         visited=visited,
     )
+    merge_warnings: list[str] = []
+    if disasm_evidence is not None:
+        disasm_edges = _resolve_disasm_helper_edges(
+            disasm_evidence.helper_edges,
+            helper_map,
+            max_depth=max_depth,
+            depth=depth,
+            visited=visited,
+            disasm_helper_slices=disasm_helper_slices,
+        )
+        merge_warnings = _disasm_merge_warnings(
+            size_constraints,
+            disasm_evidence.size_constraints,
+            field_accesses,
+            disasm_evidence.field_accesses,
+            field_constraints,
+            disasm_evidence.field_constraints,
+        )
+        size_constraints = _merge_size_constraints(size_constraints, disasm_evidence.size_constraints)
+        field_accesses = _merge_field_access_lists(field_accesses, disasm_evidence.field_accesses)
+        field_constraints = _dedupe_field_constraints(field_constraints + disasm_evidence.field_constraints)
+        helper_edges = _merge_helper_edge_lists(helper_edges, disasm_edges)
+    alias_roots = _buffer_alias_roots(buffer_sources)
+    helper_edges = [_canonical_helper_edge(edge, alias_roots) for edge in helper_edges]
     buffers = _build_buffer_contracts(
         kind,
         command_value,
@@ -1802,7 +2217,13 @@ def _analyze_command_case(
         helper_edges,
     )
     warnings = _contract_warnings(kind, command_value, buffers, size_constraints, field_accesses, helper_edges)
+    warnings = _dedupe_strings(warnings + merge_warnings + (disasm_evidence.warnings if disasm_evidence else []))
     confidence = _command_confidence(buffers, helper_edges, warnings)
+    if disasm_evidence is not None and _has_pseudocode_disasm_agreement(size_constraints, field_accesses):
+        confidence = round(min(0.95, confidence + 0.04), 2)
+    evidence = "Recovered from case body predicates and buffer field accesses"
+    if disasm_evidence is not None:
+        evidence = "Recovered from merged pseudocode and disassembly evidence"
     return CommandBufferContract(
         dispatcher_kind=kind,
         dispatcher=dispatcher,
@@ -1812,14 +2233,587 @@ def _analyze_command_case(
         helper_edges=helper_edges,
         warnings=warnings,
         confidence=confidence,
-        evidence="Recovered from case body predicates and buffer field accesses",
+        evidence=evidence,
     )
+
+
+def _recover_focused_native_switch_contracts(
+    capture: FunctionCapture,
+    text: str,
+    case_values: list[int],
+    buffer_sources: dict[str, dict[str, str]],
+    helper_map: dict[str, FunctionCapture],
+    max_depth: int,
+    length_aliases: dict[str, str],
+    helper_interesting_names: set[str],
+    disasm_evidence_by_case: dict[int, DisasmCaseContractEvidence] | None = None,
+    disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+) -> list[CommandBufferContract]:
+    result: list[CommandBufferContract] = []
+    recovered: set[int] = set()
+    for dispatcher in _native_switch_dispatchers(text):
+        flow = FlowRewrite(
+            kind="native_switch_focused_fallback",
+            dispatcher=dispatcher,
+            recovered_cases=list(case_values),
+            confidence=0.45,
+            evidence="Focused fallback recovered native switch case body",
+        )
+        kind = _dispatcher_kind(capture, flow)
+        if kind == "generic" and not _has_strong_generic_buffer_evidence(text):
+            continue
+        case_bodies = _native_switch_case_bodies(text, dispatcher)
+        if not case_bodies:
+            continue
+        for value in case_values:
+            if value in recovered:
+                continue
+            body_lines = case_bodies.get(value)
+            if not body_lines:
+                continue
+            body_lines = _body_lines_with_shared_tail_size_guards(
+                text,
+                dispatcher,
+                body_lines,
+                buffer_sources,
+                length_aliases,
+            )
+            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+                body_lines = _body_lines_with_goto_label_tail_context(
+                    text,
+                    body_lines,
+                    buffer_sources,
+                    length_aliases,
+                )
+            if (
+                not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases)
+                and not _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
+            ):
+                body_lines = _body_lines_with_goto_label_helper_context(
+                    text,
+                    body_lines,
+                    helper_interesting_names,
+                )
+            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+                body_lines = _body_lines_with_dispatcher_condition_context(
+                    text,
+                    dispatcher,
+                    value,
+                    _command_name_for_kind(kind, value),
+                    body_lines,
+                )
+            command_name = _command_name_for_kind(kind, value)
+            if not command_name and kind == "ioctl":
+                command_name = format_ctl_code(value)
+            command = _analyze_command_case(
+                kind,
+                dispatcher,
+                value,
+                command_name,
+                body_lines,
+                buffer_sources,
+                helper_map,
+                max_depth=max_depth,
+                depth=0,
+                visited={capture.name},
+                length_aliases=length_aliases,
+                disasm_evidence=(disasm_evidence_by_case or {}).get(value),
+                disasm_helper_slices=disasm_helper_slices,
+            )
+            if command.buffers or command.helper_edges:
+                result.append(command)
+                recovered.add(value)
+    return result
+
+
+def _recover_focused_disasm_contracts(
+    capture: FunctionCapture,
+    text: str,
+    case_values: list[int],
+    buffer_sources: dict[str, dict[str, str]],
+    helper_map: dict[str, FunctionCapture],
+    max_depth: int,
+    length_aliases: dict[str, str],
+    disasm_evidence_by_case: dict[int, DisasmCaseContractEvidence],
+    disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+) -> list[CommandBufferContract]:
+    result: list[CommandBufferContract] = []
+    native_dispatchers = _native_switch_dispatchers(text)
+    for value in case_values:
+        evidence = disasm_evidence_by_case.get(value)
+        if evidence is None:
+            continue
+        dispatcher = evidence.dispatcher or (native_dispatchers[0] if native_dispatchers else "")
+        flow = FlowRewrite(
+            kind="disasm_focused_fallback",
+            dispatcher=dispatcher,
+            recovered_cases=[value],
+            confidence=0.50,
+            evidence=evidence.evidence or "Focused fallback recovered disassembly case evidence",
+        )
+        kind = _dispatcher_kind(capture, flow)
+        command_name = _command_name_for_kind(kind, value)
+        if not command_name and kind == "ioctl":
+            command_name = format_ctl_code(value)
+        command = _analyze_command_case(
+            kind,
+            dispatcher,
+            value,
+            command_name,
+            [],
+            buffer_sources,
+            helper_map,
+            max_depth=max_depth,
+            depth=0,
+            visited={capture.name},
+            length_aliases=length_aliases,
+            disasm_evidence=evidence,
+            disasm_helper_slices=disasm_helper_slices,
+        )
+        if command.buffers or command.helper_edges:
+            result.append(command)
+    return result
+
+
+def _recover_disasm_evidence_by_case(
+    disasm_case_slices: Iterable[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None,
+    buffer_sources: dict[str, dict[str, str]],
+    length_aliases: dict[str, str],
+    rename_map: dict[str, str],
+    case_filter: set[int] | None,
+) -> dict[int, DisasmCaseContractEvidence]:
+    if case_filter is None:
+        return {}
+    slice_map = normalize_disasm_slices(disasm_case_slices)
+    if not slice_map:
+        return {}
+    result: dict[int, DisasmCaseContractEvidence] = {}
+    for value in sorted(case_filter):
+        case_slice = slice_map.get(value)
+        if case_slice is None:
+            continue
+        evidence = recover_disasm_case_evidence(
+            case_slice,
+            buffer_sources,
+            length_aliases=length_aliases,
+            rename_map=rename_map,
+        )
+        if (
+            evidence.size_constraints
+            or evidence.field_accesses
+            or evidence.field_constraints
+            or evidence.helper_edges
+            or evidence.warnings
+        ):
+            result[value] = evidence
+    return result
+
+
+def _disasm_helper_slices_by_name(
+    disasm_case_slices: Iterable[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None,
+    capture: FunctionCapture,
+) -> dict[str, DisasmCaseSlice]:
+    result: dict[str, DisasmCaseSlice] = {}
+    for item in _iter_disasm_slices(disasm_case_slices):
+        name = (item.function_name or "").strip()
+        if not name or name == capture.name:
+            continue
+        result[name] = item
+    return result
+
+
+def _iter_disasm_slices(
+    disasm_case_slices: Iterable[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None,
+) -> list[DisasmCaseSlice]:
+    if disasm_case_slices is None:
+        return []
+    if isinstance(disasm_case_slices, dict):
+        return [item for item in disasm_case_slices.values() if item is not None]
+    return [item for item in disasm_case_slices if item is not None]
+
+
+def _resolve_disasm_helper_edges(
+    edges: list[HelperContractEdge],
+    helper_map: dict[str, FunctionCapture],
+    max_depth: int,
+    depth: int,
+    visited: set[str],
+    disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+) -> list[HelperContractEdge]:
+    result: list[HelperContractEdge] = []
+    for edge in edges:
+        helper = helper_map.get(edge.callee)
+        if helper is None and depth < max_depth:
+            helper_slice = (disasm_helper_slices or {}).get(edge.callee)
+            if helper_slice is not None:
+                result.append(
+                    _analyze_disasm_helper_edge(
+                        helper_slice,
+                        edge,
+                        max_depth=max_depth,
+                        depth=depth + 1,
+                    )
+                )
+                continue
+        if helper is None or depth >= max_depth:
+            result.append(edge)
+            continue
+        if helper.name in visited:
+            result.append(
+                HelperContractEdge(
+                    callee=edge.callee,
+                    arguments=list(edge.arguments),
+                    passed_buffers=list(edge.passed_buffers),
+                    resolved=False,
+                    depth=depth + 1,
+                    evidence=edge.evidence,
+                    warnings=["recursive helper edge skipped"],
+                    confidence=0.40,
+                )
+            )
+            continue
+        resolved = _analyze_helper_edge(
+            helper,
+            list(edge.arguments),
+            list(edge.passed_buffers),
+            helper_map,
+            max_depth,
+            depth + 1,
+            visited | {helper.name},
+        )
+        resolved.evidence = edge.evidence
+        result.append(resolved)
+    return result
+
+
+def _analyze_disasm_helper_edge(
+    helper_slice: DisasmCaseSlice,
+    edge: HelperContractEdge,
+    max_depth: int,
+    depth: int,
+) -> HelperContractEdge:
+    helper_sources: dict[str, dict[str, str]] = {}
+    for buffer in edge.passed_buffers:
+        _add_buffer_source(
+            helper_sources,
+            buffer,
+            "inout",
+            "helper disasm argument",
+            _length_arguments_for_buffer(edge.arguments, buffer),
+        )
+    initial_aliases = _x64_call_initial_aliases(edge.arguments)
+    evidence = recover_disasm_case_evidence(
+        helper_slice,
+        helper_sources,
+        initial_aliases=initial_aliases,
+        max_instructions=512,
+    )
+    nested_edges = []
+    if depth < max_depth:
+        nested_edges = list(evidence.helper_edges)
+    return HelperContractEdge(
+        callee=edge.callee,
+        arguments=list(edge.arguments),
+        passed_buffers=list(edge.passed_buffers),
+        resolved=True,
+        depth=depth,
+        evidence=edge.evidence,
+        propagated_size_constraints=[
+            _constraint_for_buffer(item, _constraint_buffer_from_sources(item, helper_sources))
+            for item in evidence.size_constraints
+            if _constraint_buffer_from_sources(item, helper_sources)
+        ],
+        propagated_field_accesses=list(evidence.field_accesses),
+        propagated_field_constraints=list(evidence.field_constraints),
+        nested_edges=nested_edges,
+        warnings=list(evidence.warnings),
+        confidence=0.74
+        if evidence.size_constraints or evidence.field_accesses or evidence.field_constraints or evidence.helper_edges
+        else 0.55,
+    )
+
+
+def _x64_call_initial_aliases(arguments: list[str]) -> dict[str, str]:
+    registers = ("rcx", "rdx", "r8", "r9")
+    result: dict[str, str] = {}
+    for index, argument in enumerate(arguments[:len(registers)]):
+        identifier = _argument_identifier(argument) or argument
+        if identifier:
+            result[registers[index]] = identifier
+    for index, argument in enumerate(arguments[len(registers):]):
+        identifier = _argument_identifier(argument) or argument
+        if identifier:
+            result["[rsp+0x%X]" % (0x20 + index * 8)] = identifier
+    return result
+
+
+def _merge_size_constraints(
+    primary: list[BufferSizeConstraint],
+    secondary: list[BufferSizeConstraint],
+) -> list[BufferSizeConstraint]:
+    result: list[BufferSizeConstraint] = []
+    for item in primary + secondary:
+        current = _find_equivalent_size_constraint(result, item)
+        if current is None:
+            result.append(item)
+            continue
+        current.source = _merge_source_text(current.source, item.source)
+        current.confidence = max(current.confidence, item.confidence)
+        if _source_is_disasm(item.source) and item.evidence:
+            current.evidence = _merge_evidence_text(current.evidence, item.evidence)
+    return result
+
+
+def _find_equivalent_size_constraint(
+    items: list[BufferSizeConstraint],
+    candidate: BufferSizeConstraint,
+) -> BufferSizeConstraint | None:
+    for item in items:
+        if (
+            item.length == candidate.length
+            and item.relation == candidate.relation
+            and item.value == candidate.value
+            and item.valid_relation == candidate.valid_relation
+            and item.valid_value == candidate.valid_value
+            and item.role == candidate.role
+        ):
+            return item
+    return None
+
+
+def _merge_field_access_lists(
+    primary: list[FieldAccess],
+    secondary: list[FieldAccess],
+) -> list[FieldAccess]:
+    result: dict[tuple[str, int, str, str], FieldAccess] = {}
+    for item in primary + secondary:
+        key = (item.buffer, item.offset, item.field, item.type)
+        current = result.get(key)
+        if current is None:
+            result[key] = item
+            continue
+        if current.access != item.access:
+            current.access = "read_write"
+        current.source = _merge_source_text(current.source, item.source)
+        current.confidence = max(current.confidence, item.confidence)
+        if _source_is_disasm(item.source) and item.evidence:
+            current.evidence = _merge_evidence_text(current.evidence, item.evidence)
+    return list(result.values())
+
+
+def _merge_helper_edge_lists(
+    primary: list[HelperContractEdge],
+    secondary: list[HelperContractEdge],
+) -> list[HelperContractEdge]:
+    result: list[HelperContractEdge] = []
+    for item in primary + secondary:
+        current = _find_equivalent_helper_edge(result, item)
+        if current is None:
+            result.append(item)
+            continue
+        if item.resolved and not current.resolved:
+            current.resolved = True
+            current.propagated_size_constraints = list(item.propagated_size_constraints)
+            current.propagated_field_accesses = list(item.propagated_field_accesses)
+            current.propagated_field_constraints = list(item.propagated_field_constraints)
+            current.nested_edges = list(item.nested_edges)
+            current.warnings = list(item.warnings)
+        else:
+            current.propagated_size_constraints = _merge_size_constraints(
+                current.propagated_size_constraints,
+                item.propagated_size_constraints,
+            )
+            current.propagated_field_accesses = _merge_field_access_lists(
+                current.propagated_field_accesses,
+                item.propagated_field_accesses,
+            )
+            current.propagated_field_constraints = _dedupe_field_constraints(
+                current.propagated_field_constraints + item.propagated_field_constraints
+            )
+            current.nested_edges = _merge_helper_edge_lists(current.nested_edges, item.nested_edges)
+            current.warnings = _dedupe_strings(current.warnings + item.warnings)
+        current.confidence = max(current.confidence, item.confidence)
+        current.evidence = _merge_evidence_text(current.evidence, item.evidence)
+    return result
+
+
+def _find_equivalent_helper_edge(
+    items: list[HelperContractEdge],
+    candidate: HelperContractEdge,
+) -> HelperContractEdge | None:
+    key = (candidate.callee, tuple(candidate.arguments), tuple(candidate.passed_buffers))
+    for item in items:
+        if (item.callee, tuple(item.arguments), tuple(item.passed_buffers)) == key:
+            return item
+    return None
+
+
+def _disasm_merge_warnings(
+    local_sizes: list[BufferSizeConstraint],
+    disasm_sizes: list[BufferSizeConstraint],
+    local_accesses: list[FieldAccess],
+    disasm_accesses: list[FieldAccess],
+    local_constraints: list[FieldConstraint],
+    disasm_constraints: list[FieldConstraint],
+) -> list[str]:
+    warnings: list[str] = []
+    for local in local_sizes:
+        if _source_is_disasm(local.source):
+            continue
+        for disasm in disasm_sizes:
+            if _size_constraints_conflict(local, disasm):
+                warnings.append(
+                    "pseudocode/disassembly size conflict for %s: %s %s versus %s %s"
+                    % (local.length, local.relation, local.value, disasm.relation, disasm.value)
+                )
+    for local in local_accesses:
+        if _source_is_disasm(local.source):
+            continue
+        for disasm in disasm_accesses:
+            if local.buffer == disasm.buffer and local.offset == disasm.offset and local.type != disasm.type:
+                warnings.append(
+                    "pseudocode/disassembly field type conflict for %s+0x%X: %s versus %s"
+                    % (local.buffer, local.offset, local.type or "unknown", disasm.type or "unknown")
+                )
+    for local in local_constraints:
+        if _source_is_disasm(local.source):
+            continue
+        for disasm in disasm_constraints:
+            if _field_constraints_conflict(local, disasm):
+                warnings.append(
+                    "pseudocode/disassembly field predicate conflict for %s+0x%X: %s %s versus %s %s"
+                    % (
+                        local.buffer,
+                        local.offset,
+                        local.relation,
+                        local.value or local.mask,
+                        disasm.relation,
+                        disasm.value or disasm.mask,
+                    )
+                )
+    return _dedupe_strings(warnings)
+
+
+def _size_constraints_conflict(left: BufferSizeConstraint, right: BufferSizeConstraint) -> bool:
+    if left.length != right.length:
+        return False
+    left_relation, left_value = _effective_size_constraint(left)
+    right_relation, right_value = _effective_size_constraint(right)
+    if not left_relation or not right_relation:
+        return False
+    return left_relation == right_relation and left_value != right_value
+
+
+def _effective_size_constraint(item: BufferSizeConstraint) -> tuple[str, str]:
+    if item.valid_relation and item.valid_value:
+        return item.valid_relation, item.valid_value
+    return item.relation, item.value
+
+
+def _field_constraints_conflict(left: FieldConstraint, right: FieldConstraint) -> bool:
+    if left.buffer != right.buffer or left.offset != right.offset:
+        return False
+    left_relation, left_value = _effective_field_constraint(left)
+    right_relation, right_value = _effective_field_constraint(right)
+    if not left_relation or not right_relation:
+        return False
+    return left_relation == right_relation and left_value != right_value
+
+
+def _effective_field_constraint(item: FieldConstraint) -> tuple[str, str]:
+    if item.valid_relation and item.valid_value:
+        return item.valid_relation, item.valid_value
+    return item.relation, item.value or item.mask
+
+
+def _has_pseudocode_disasm_agreement(
+    size_constraints: list[BufferSizeConstraint],
+    field_accesses: list[FieldAccess],
+) -> bool:
+    for item in size_constraints:
+        if _source_has_merged_disasm(item.source):
+            return True
+    for item in field_accesses:
+        if _source_has_merged_disasm(item.source):
+            return True
+    return False
+
+
+def _source_is_disasm(source: str) -> bool:
+    return str(source or "").startswith("disasm")
+
+
+def _source_has_merged_disasm(source: str) -> bool:
+    parts = [part.strip() for part in str(source or "").split(",") if part.strip()]
+    return any(_source_is_disasm(part) for part in parts) and any(not _source_is_disasm(part) for part in parts)
+
+
+def _merge_source_text(left: str, right: str) -> str:
+    values: list[str] = []
+    for value in (left, right):
+        for item in str(value or "").split(","):
+            item = item.strip()
+            if item and item not in values:
+                values.append(item)
+    return ", ".join(values)
+
+
+def _merge_evidence_text(left: str, right: str) -> str:
+    if not left:
+        return right
+    if not right or right in left:
+        return left
+    return "%s | %s" % (left, right)
+
+
+def _dedupe_strings(items: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _native_switch_dispatchers(text: str) -> list[str]:
+    result: list[str] = []
+    source = text or ""
+    for match in re.finditer(r"\bswitch\s*\(", source):
+        open_index = match.end() - 1
+        close_index = find_matching_paren(source, open_index)
+        if close_index < 0:
+            continue
+        dispatcher = _switch_dispatcher_identifier(source[open_index + 1:close_index])
+        if dispatcher and dispatcher not in result:
+            result.append(dispatcher)
+    return result
+
+
+def _switch_dispatcher_identifier(expression: str) -> str:
+    identifier = _argument_identifier(expression or "")
+    if identifier:
+        return identifier
+    return ""
+
+
+def _command_name_for_kind(kind: str, value: int) -> str:
+    if kind == "ntset_system":
+        return get_system_information_class_name(value)
+    if kind == "ntset_process":
+        return get_process_information_class_name(value)
+    if kind == "ntset_thread":
+        return get_thread_information_class_name(value)
+    return ""
 
 
 def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict[str, str]]:
     sources: dict[str, dict[str, str]] = {}
     signature = extract_function_signature(text) or safe_identifier_replace(capture.prototype, {})
     parameters = extract_parameters_from_signature(signature)
+    function_name = capture.name or extract_function_name(signature) or extract_function_name(capture.prototype)
     for name, type_text in parameters:
         lowered = name.lower()
         if _looks_like_dispatcher_parameter_name(name):
@@ -1828,6 +2822,7 @@ def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict
             _add_buffer_source(sources, name, "input", "parameter", _matching_length_variable(text, name))
         elif "buffer" in lowered or ("information" in lowered and _looks_like_pointer_type(type_text)):
             _add_buffer_source(sources, name, "input", "parameter", _matching_length_variable(text, name))
+    _add_ntset_parameter_buffer_source(sources, function_name, parameters)
 
     for match in re.finditer(
         r"\b(?P<var>%s)\s*=\s*(?P<irp>%s)->AssociatedIrp\.(?:MasterIrp|SystemBuffer)\s*;"
@@ -1852,6 +2847,8 @@ def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict
     for name in sorted(set(re.findall(r"\b%s\b" % _IDENT_RE, text or ""))):
         if _looks_like_length_name(name):
             continue
+        if _identifier_is_called(text, name):
+            continue
         if not _identifier_has_value_use(text, name):
             continue
         lowered = name.lower()
@@ -1862,6 +2859,33 @@ def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict
             _add_buffer_source(sources, name, role, "name", _matching_length_variable(text, name))
     _propagate_buffer_source_aliases(text, sources)
     return sources
+
+
+def _add_ntset_parameter_buffer_source(
+    sources: dict[str, dict[str, str]],
+    function_name: str,
+    parameters: list[tuple[str, str]],
+) -> None:
+    compact = re.sub(r"[^A-Za-z0-9]", "", function_name or "").lower()
+    if compact == "ntsetsysteminformation":
+        buffer_index = 1
+        length_index = 2
+    elif compact in {"ntsetinformationprocess", "ntsetinformationthread"}:
+        buffer_index = 2
+        length_index = 3
+    else:
+        return
+    if len(parameters) <= buffer_index:
+        return
+    buffer_name = parameters[buffer_index][0]
+    length_name = parameters[length_index][0] if len(parameters) > length_index else ""
+    _add_buffer_source(
+        sources,
+        buffer_name,
+        "input",
+        "NtSetInformation parameter position",
+        length_name,
+    )
 
 
 def _looks_like_dispatcher_parameter_name(name: str) -> bool:
@@ -1933,6 +2957,12 @@ def _identifier_has_value_use(text: str, name: str) -> bool:
             continue
         return True
     return False
+
+
+def _identifier_is_called(text: str, name: str) -> bool:
+    if not text or not name:
+        return False
+    return bool(re.search(r"\b%s\s*\(" % re.escape(name), text))
 
 
 def _add_buffer_source(
@@ -2028,9 +3058,11 @@ def _recover_size_constraints(
     lines: list[str],
     source: str = "local",
     length_aliases: dict[str, str] | None = None,
+    known_lengths: set[str] | None = None,
 ) -> list[BufferSizeConstraint]:
     result: list[BufferSizeConstraint] = []
     seen = set()
+    known_lengths = known_lengths or set()
     for index, line in enumerate(lines):
         stripped = line.strip()
         valid_from_reject = _line_has_reject_outcome(lines, index)
@@ -2038,9 +3070,9 @@ def _recover_size_constraints(
             left = _canonical_length_operand(_clean_operand(match.group("left")), length_aliases)
             right = _canonical_length_operand(_clean_operand(match.group("right")), length_aliases)
             op = match.group("op")
-            if _looks_like_length_name(left) and _looks_like_constraint_value(right):
+            if _is_known_length_operand(left, known_lengths) and _looks_like_constraint_value(right):
                 length, relation, value = left, op, right
-            elif _looks_like_length_name(right) and _looks_like_constraint_value(left):
+            elif _is_known_length_operand(right, known_lengths) and _looks_like_constraint_value(left):
                 length, relation, value = right, _invert_relation(op), left
             else:
                 continue
@@ -2063,7 +3095,7 @@ def _recover_size_constraints(
                     confidence=0.82,
                 )
             )
-        truthy_constraint = _truthy_length_constraint(stripped, valid_from_reject, length_aliases, source)
+        truthy_constraint = _truthy_length_constraint(stripped, valid_from_reject, length_aliases, source, known_lengths)
         if truthy_constraint is not None:
             key = (
                 truthy_constraint.length,
@@ -2083,6 +3115,7 @@ def _truthy_length_constraint(
     valid_from_reject: bool,
     length_aliases: dict[str, str] | None,
     source: str,
+    known_lengths: set[str] | None = None,
 ) -> BufferSizeConstraint | None:
     if not valid_from_reject:
         return None
@@ -2090,7 +3123,7 @@ def _truthy_length_constraint(
     if not match:
         return None
     length = _canonical_length_operand(match.group("length"), length_aliases)
-    if not _looks_like_length_name(length):
+    if not _is_known_length_operand(length, known_lengths or set()):
         return None
     relation = "==" if match.group("negate") else "!="
     valid_relation = _valid_relation_for_reject_guard(relation)
@@ -2106,6 +3139,10 @@ def _truthy_length_constraint(
         source=source,
         confidence=0.78,
     )
+
+
+def _is_known_length_operand(name: str, known_lengths: set[str]) -> bool:
+    return _looks_like_length_name(name) or name in known_lengths
 
 
 def _canonical_length_operand(value: str, aliases: dict[str, str] | None) -> str:
@@ -2208,10 +3245,12 @@ def _recover_field_accesses(
     lines: list[str],
     buffer_sources: dict[str, dict[str, str]],
     source: str = "local",
+    typed_field_layouts: dict[str, dict[str, dict[str, object]]] | None = None,
 ) -> list[FieldAccess]:
     result: list[FieldAccess] = []
     access_by_key: dict[tuple[str, int, str, str], FieldAccess] = {}
     known_buffers = set(buffer_sources)
+    typed_field_layouts = typed_field_layouts or {}
     for line in lines:
         stripped = line.strip()
         left_expr = _assignment_left(stripped)
@@ -2220,17 +3259,18 @@ def _recover_field_accesses(
             if buffer not in known_buffers and not _looks_like_buffer_name(buffer):
                 continue
             field = match.group("field")
+            field_layout = typed_field_layouts.get(buffer, {}).get(field, {})
             access = _access_kind(match.group(0), left_expr)
             item = FieldAccess(
                 buffer=buffer,
-                structure="",
-                offset=0,
-                type="unknown",
+                structure=str(field_layout.get("structure", "")),
+                offset=int(field_layout.get("offset", 0)),
+                type=str(field_layout.get("type", "unknown") or "unknown"),
                 field=field,
                 access=access,
                 evidence=stripped,
-                source=source,
-                confidence=0.78,
+                source=_merge_source_text(source, str(field_layout.get("source", ""))),
+                confidence=0.86 if field_layout else 0.78,
             )
             _merge_field_access(access_by_key, item)
         for match in _DEREF_OFFSET_RE.finditer(stripped):
@@ -2497,9 +3537,12 @@ def _build_buffer_contracts(
     for buffer in buffers:
         info = buffer_sources.get(buffer, {})
         helper_info = _helper_buffer_info(helper_edges, buffer)
+        buffer_field_accesses = [item for item in field_accesses if item.buffer == buffer]
+        buffer_field_constraints = [item for item in field_constraints if item.buffer == buffer]
         role = _merge_buffer_roles(
             info.get("role", ""),
             helper_info.get("role", ""),
+            _role_from_field_accesses(buffer_field_accesses),
             _role_from_buffer_name(buffer),
         )
         structure_name = _structure_name(kind, command_value, command_name, role)
@@ -2514,16 +3557,18 @@ def _build_buffer_contracts(
             for item in size_constraints
             if _constraint_matches_buffer(item, info, role)
         ]
-        buffer_field_accesses = [item for item in field_accesses if item.buffer == buffer]
-        buffer_field_constraints = [item for item in field_constraints if item.buffer == buffer]
         helper_size_constraints = _helper_size_constraints_for_buffer(helper_edges, buffer)
+        helper_field_accesses = _helper_field_accesses_for_buffer(helper_edges, buffer)
         helper_field_constraints = _helper_field_constraints_for_buffer(helper_edges, buffer)
         if (
             not buffer_size_constraints
             and not buffer_field_accesses
             and not buffer_field_constraints
             and not helper_size_constraints
+            and not helper_field_accesses
             and not helper_field_constraints
+            and not helper_info.get("length", "")
+            and not helper_info.get("source", "")
         ):
             continue
         result.append(
@@ -2541,6 +3586,7 @@ def _build_buffer_contracts(
                     buffer_field_accesses,
                     buffer_field_constraints,
                     helper_size_constraints,
+                    helper_field_accesses,
                     helper_field_constraints,
                 ),
                 evidence="Buffer referenced by case predicates, field accesses, or helper propagation",
@@ -2631,16 +3677,21 @@ def _canonical_helper_edge(edge: HelperContractEdge, alias_roots: dict[str, str]
     passed_buffers: list[str] = []
     for buffer in edge.passed_buffers:
         _append_unique(passed_buffers, _canonical_buffer_name(buffer, alias_roots))
+    arguments = [_canonical_argument_expr(argument, alias_roots) for argument in edge.arguments]
     return HelperContractEdge(
         callee=edge.callee,
-        arguments=list(edge.arguments),
+        arguments=arguments,
         passed_buffers=passed_buffers,
         resolved=edge.resolved,
         depth=edge.depth,
-        evidence=edge.evidence,
+        evidence=edge.evidence or _call_site_evidence(edge.callee, arguments),
         propagated_size_constraints=[
             _canonical_size_constraint(item, alias_roots)
             for item in edge.propagated_size_constraints
+        ],
+        propagated_field_accesses=[
+            _canonical_field_access(item, alias_roots)
+            for item in edge.propagated_field_accesses
         ],
         propagated_field_constraints=[
             _canonical_field_constraint(item, alias_roots)
@@ -2655,6 +3706,16 @@ def _canonical_helper_edge(edge: HelperContractEdge, alias_roots: dict[str, str]
     )
 
 
+def _canonical_argument_expr(argument: str, alias_roots: dict[str, str]) -> str:
+    identifier = _argument_identifier(argument)
+    if not identifier:
+        return argument
+    canonical = _canonical_buffer_name(identifier, alias_roots)
+    if canonical == identifier:
+        return argument
+    return re.sub(r"\b%s\b" % re.escape(identifier), canonical, argument, count=1)
+
+
 def _candidate_contract_buffers(
     buffer_sources: dict[str, dict[str, str]],
     size_constraints: list[BufferSizeConstraint],
@@ -2666,7 +3727,7 @@ def _candidate_contract_buffers(
         item.buffer
         for item in field_accesses + field_constraints
         if item.buffer
-    } | _helper_buffers_with_contract_evidence(helper_edges)
+    } | _helper_buffers_with_contract_evidence(helper_edges) | _helper_buffers_with_escape_evidence(helper_edges)
     if evidence_buffers:
         return sorted(evidence_buffers)
     primary = {
@@ -2696,11 +3757,12 @@ def _buffer_confidence(
     field_accesses: list[FieldAccess],
     field_constraints: list[FieldConstraint],
     helper_size_constraints: list[BufferSizeConstraint],
+    helper_field_accesses: list[FieldAccess],
     helper_field_constraints: list[FieldConstraint],
 ) -> float:
     if field_accesses or field_constraints or size_constraints:
         return 0.82
-    if helper_field_constraints:
+    if helper_field_accesses or helper_field_constraints:
         return 0.76
     if helper_size_constraints:
         return 0.72
@@ -2716,6 +3778,16 @@ def _merge_buffer_roles(*roles: str) -> str:
     if "input" in role_set:
         return "input"
     return ""
+
+
+def _role_from_field_accesses(accesses: list[FieldAccess]) -> str:
+    access_roles: set[str] = set()
+    for item in accesses:
+        if item.access in {"write", "read_write"}:
+            access_roles.add("output")
+        if item.access in {"read", "read_write"}:
+            access_roles.add("input")
+    return _merge_buffer_roles(*access_roles)
 
 
 def _merge_csv_values(*values: str) -> str:
@@ -2750,11 +3822,17 @@ def _collect_helper_buffer_info(
     for edge in edges:
         if buffer in edge.passed_buffers:
             _append_unique(sources, "helper:%s argument" % edge.callee)
+            for length in _helper_call_lengths_for_buffer(edge, buffer):
+                _append_unique(lengths, length)
+                _append_unique(roles, _role_from_length(length))
         for item in edge.propagated_size_constraints:
             if item.buffer != buffer:
                 continue
             _append_unique(lengths, item.length)
             _append_unique(roles, item.role)
+        for item in edge.propagated_field_accesses:
+            if item.buffer == buffer:
+                _append_unique(roles, _role_from_field_accesses([item]))
         for item in edge.propagated_field_constraints:
             if item.buffer == buffer:
                 _append_unique(roles, "input")
@@ -2775,11 +3853,29 @@ def _combined_buffer_role(roles: list[str]) -> str:
 def _helper_buffers_with_contract_evidence(edges: list[HelperContractEdge]) -> set[str]:
     result: set[str] = set()
     for edge in edges:
-        if edge.propagated_size_constraints or edge.propagated_field_constraints:
+        if edge.propagated_size_constraints or edge.propagated_field_accesses or edge.propagated_field_constraints:
             result.update(edge.passed_buffers)
             result.update(item.buffer for item in edge.propagated_size_constraints if item.buffer)
+            result.update(item.buffer for item in edge.propagated_field_accesses if item.buffer)
             result.update(item.buffer for item in edge.propagated_field_constraints if item.buffer)
         result.update(_helper_buffers_with_contract_evidence(edge.nested_edges))
+    return result
+
+
+def _helper_buffers_with_escape_evidence(edges: list[HelperContractEdge]) -> set[str]:
+    result: set[str] = set()
+    for edge in edges:
+        result.update(edge.passed_buffers)
+        result.update(_helper_buffers_with_escape_evidence(edge.nested_edges))
+    return result
+
+
+def _helper_call_lengths_for_buffer(edge: HelperContractEdge, buffer: str) -> list[str]:
+    result: list[str] = []
+    for length in _length_arguments_for_buffer(edge.arguments, buffer).split(","):
+        length = length.strip()
+        if length:
+            _append_unique(result, length)
     return result
 
 
@@ -2795,66 +3891,59 @@ def _recover_helper_edges(
         return []
     known_buffers = set(buffer_sources)
     result: list[HelperContractEdge] = []
-    seen_callees: set[str] = set()
     seen_edges: set[tuple[str, tuple[str, ...]]] = set()
-    for match in _CALL_NAME_RE.finditer(body_text):
-        callee = match.group("name")
-        if callee in _KEYWORDS:
+    for site in _iter_helper_call_sites(body_text):
+        callee = site.callee
+        arguments = site.arguments
+        edge_key = (callee, tuple(arguments))
+        if edge_key in seen_edges:
             continue
-        if callee in seen_callees:
+        seen_edges.add(edge_key)
+        passed_buffers = _passed_buffer_arguments(arguments, known_buffers)
+        if not passed_buffers:
             continue
-        seen_callees.add(callee)
-        for arguments in extract_call_arguments(body_text, callee):
-            edge_key = (callee, tuple(arguments))
-            if edge_key in seen_edges:
-                continue
-            seen_edges.add(edge_key)
-            passed = [_argument_identifier(arg) for arg in arguments]
-            passed_buffers = _passed_buffer_arguments(arguments, known_buffers)
-            if not passed_buffers:
-                continue
-            helper = helper_map.get(callee)
-            if helper is None:
-                result.append(
-                    HelperContractEdge(
-                        callee=callee,
-                        arguments=arguments,
-                        passed_buffers=passed_buffers,
-                        resolved=False,
-                        depth=depth + 1,
-                        evidence="%s(%s)" % (callee, ", ".join(arguments)),
-                        warnings=[
-                            "helper not available for buffer contract analysis",
-                            "buffer pointer escapes to unknown function",
-                        ],
-                        confidence=0.45,
-                    )
+        helper = helper_map.get(callee)
+        if helper is None:
+            result.append(
+                HelperContractEdge(
+                    callee=callee,
+                    arguments=arguments,
+                    passed_buffers=passed_buffers,
+                    resolved=False,
+                    depth=depth + 1,
+                    evidence=site.evidence,
+                    warnings=[
+                        "helper not available for buffer contract analysis",
+                        "buffer pointer escapes to unknown function",
+                    ],
+                    confidence=0.45,
                 )
-                continue
-            if helper.name in visited:
-                result.append(
-                    HelperContractEdge(
-                        callee=callee,
-                        arguments=arguments,
-                        passed_buffers=passed_buffers,
-                        resolved=False,
-                        depth=depth + 1,
-                        evidence="%s(%s)" % (callee, ", ".join(arguments)),
-                        warnings=["recursive helper edge skipped"],
-                        confidence=0.40,
-                    )
-                )
-                continue
-            edge = _analyze_helper_edge(
-                helper,
-                arguments,
-                passed_buffers,
-                helper_map,
-                max_depth,
-                depth + 1,
-                visited | {helper.name},
             )
-            result.append(edge)
+            continue
+        if helper.name in visited:
+            result.append(
+                HelperContractEdge(
+                    callee=callee,
+                    arguments=arguments,
+                    passed_buffers=passed_buffers,
+                    resolved=False,
+                    depth=depth + 1,
+                    evidence=site.evidence,
+                    warnings=["recursive helper edge skipped"],
+                    confidence=0.40,
+                )
+            )
+            continue
+        edge = _analyze_helper_edge(
+            helper,
+            arguments,
+            passed_buffers,
+            helper_map,
+            max_depth,
+            depth + 1,
+            visited | {helper.name},
+        )
+        result.append(edge)
     return result
 
 
@@ -2879,6 +3968,8 @@ def _is_provisional_buffer_argument(arguments: list[str], identifiers: list[str]
         return False
     if _argument_is_output_reference(arguments[index]):
         return False
+    if _argument_has_integer_cast(arguments[index]):
+        return False
     next_identifier = _next_identifier(identifiers, index + 1)
     return bool(next_identifier and _looks_like_length_name(next_identifier))
 
@@ -2893,6 +3984,19 @@ def _next_identifier(identifiers: list[str], start: int) -> str:
 def _argument_is_output_reference(argument: str) -> bool:
     value = _strip_leading_casts(argument or "")
     return value.strip().startswith("&")
+
+
+def _argument_has_integer_cast(argument: str) -> bool:
+    return bool(
+        re.match(
+            r"^\s*\(\s*(?:"
+            r"unsigned\s+int|signed\s+int|int|UINT|UINT32|ULONG|LONG|DWORD|SIZE_T|"
+            r"ULONG_PTR|LONG_PTR|UINT_PTR|DWORD_PTR|_DWORD|_QWORD|__int64|unsigned\s+__int64"
+            r")\s*\)",
+            argument or "",
+            re.IGNORECASE,
+        )
+    )
 
 
 def _length_arguments_for_buffer(arguments: list[str], buffer: str) -> str:
@@ -2912,6 +4016,227 @@ def _length_arguments_for_buffer(arguments: list[str], buffer: str) -> str:
     return ", ".join(result)
 
 
+def _length_arguments_for_buffer_with_params(
+    arguments: list[str],
+    params: list[tuple[str, str]],
+    buffer: str,
+) -> str:
+    if not buffer:
+        return ""
+    identifiers = [_argument_identifier(argument) for argument in arguments]
+    result: list[str] = []
+    for index, identifier in enumerate(identifiers):
+        if identifier != buffer:
+            continue
+        for arg_index in range(index + 1, min(len(arguments), len(params))):
+            candidate = identifiers[arg_index]
+            param_name, param_type = params[arg_index]
+            if not candidate:
+                continue
+            if not _helper_param_looks_like_length(param_name, param_type):
+                break
+            _append_unique(result, candidate)
+    return ", ".join(result)
+
+
+def _helper_param_looks_like_length(name: str, _type_text: str) -> bool:
+    return _looks_like_length_name(name)
+
+
+def _typed_field_layouts_for_params(
+    params: list[tuple[str, str]],
+    rename_map: dict[str, str],
+) -> dict[str, dict[str, dict[str, object]]]:
+    result: dict[str, dict[str, dict[str, object]]] = {}
+    for param_name, type_text in params:
+        buffer = rename_map.get(param_name, param_name)
+        if not buffer:
+            continue
+        layout = _profile_field_layout_for_pointer_type(type_text)
+        if layout:
+            result[buffer] = layout
+    return result
+
+
+@lru_cache(maxsize=512)
+def _profile_field_layout_for_pointer_type(type_text: str) -> dict[str, dict[str, object]]:
+    structure_name = _profile_structure_name_from_pointer_type(type_text)
+    if not structure_name:
+        return {}
+    return _profile_structure_field_layout(structure_name)
+
+
+def _profile_structure_name_from_pointer_type(type_text: str) -> str:
+    raw = str(type_text or "").strip()
+    cleaned = _clean_profile_type(raw)
+    if not cleaned:
+        return ""
+    structures = load_kernel_api_family("structures")
+    aliases = load_kernel_api_family("aliases")
+    candidates: list[str] = []
+    if "*" in raw:
+        candidates.append(cleaned.replace("*", "").strip())
+    alias = aliases.get(cleaned, {}) if isinstance(aliases, dict) else {}
+    if isinstance(alias, dict):
+        target = _clean_profile_type(str(alias.get("target", "")))
+        if target:
+            candidates.append(target.replace("*", "").strip())
+    if cleaned.startswith("P") and len(cleaned) > 1:
+        candidates.append(cleaned[1:])
+    for candidate in candidates:
+        name = _profile_structure_name(candidate, structures)
+        if name:
+            return name
+    return ""
+
+
+@lru_cache(maxsize=512)
+def _profile_structure_field_layout(structure_name: str) -> dict[str, dict[str, object]]:
+    structures = load_kernel_api_family("structures")
+    name = _profile_structure_name(structure_name, structures)
+    if not name:
+        return {}
+    payload = structures.get(name, {}) if isinstance(structures, dict) else {}
+    fields = payload.get("fields", []) if isinstance(payload, dict) else []
+    if not isinstance(fields, list):
+        return {}
+    result: dict[str, dict[str, object]] = {}
+    offset = 0
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        field_name = str(field.get("name", "") or "").strip()
+        if not field_name:
+            continue
+        field_type = _clean_profile_type(str(field.get("type", "") or ""))
+        field_size, field_align = _profile_type_size_align(field_type)
+        count = _profile_array_count(str(field.get("array", "") or ""))
+        offset = _align_up(offset, field_align)
+        result[field_name] = {
+            "structure": name,
+            "offset": offset,
+            "type": field_type or "unknown",
+            "size": max(1, field_size) * count,
+            "source": "profile:%s" % name,
+        }
+        offset += max(1, field_size) * count
+    return result
+
+
+def _profile_structure_name(candidate: str, structures: dict[str, object]) -> str:
+    token = _clean_profile_type(candidate).replace("*", "").strip()
+    if not token or not isinstance(structures, dict):
+        return ""
+    candidates = [token]
+    if token.startswith("_"):
+        candidates.append(token[1:])
+    else:
+        candidates.append("_" + token)
+    for item in candidates:
+        if item in structures:
+            return item
+    return ""
+
+
+def _profile_type_size_align(type_text: str) -> tuple[int, int]:
+    cleaned = _clean_profile_type(type_text)
+    return _profile_type_size_align_inner(cleaned, set())
+
+
+def _profile_type_size_align_inner(cleaned: str, seen: set[str]) -> tuple[int, int]:
+    if not cleaned:
+        return 4, 4
+    if _profile_type_is_pointer(cleaned):
+        return 8, 8
+    normalized = _normalize_c_type(cleaned)
+    if normalized in {"UCHAR", "CHAR", "BOOLEAN"}:
+        return 1, 1
+    if normalized in {"USHORT", "SHORT", "WCHAR"}:
+        return 2, 2
+    if normalized in {"ULONG", "LONG", "DWORD", "_DWORD", "int", "unsigned int", "NTSTATUS"}:
+        return 4, 4
+    if normalized in {
+        "ULONGLONG",
+        "LONGLONG",
+        "ULONG_PTR",
+        "LONG_PTR",
+        "UINT_PTR",
+        "INT_PTR",
+        "SIZE_T",
+        "SSIZE_T",
+    }:
+        return 8, 8
+    if _profile_enum_exists(cleaned):
+        return 4, 4
+    structure_size = _profile_structure_size(cleaned)
+    if structure_size:
+        return structure_size, min(8, max(1, structure_size))
+    aliases = load_kernel_api_family("aliases")
+    alias = aliases.get(cleaned, {}) if isinstance(aliases, dict) else {}
+    if isinstance(alias, dict):
+        target = _clean_profile_type(str(alias.get("target", "") or ""))
+        if target and target != cleaned and target not in seen:
+            return _profile_type_size_align_inner(target, seen | {cleaned})
+    return 4, 4
+
+
+def _profile_type_is_pointer(type_text: str) -> bool:
+    cleaned = _clean_profile_type(type_text)
+    if "*" in cleaned:
+        return True
+    if cleaned in {"HANDLE", "PVOID", "PCHAR", "PWCHAR", "PSTR", "PWSTR"}:
+        return True
+    if cleaned.startswith("PFN"):
+        return True
+    structures = load_kernel_api_family("structures")
+    if cleaned.startswith("P") and len(cleaned) > 1 and _profile_structure_name(cleaned[1:], structures):
+        return True
+    return False
+
+
+@lru_cache(maxsize=512)
+def _profile_structure_size(structure_name: str) -> int:
+    layout = _profile_structure_field_layout(structure_name)
+    if not layout:
+        return 0
+    size = 0
+    max_align = 1
+    for field in layout.values():
+        field_size = int(field.get("size", 1) or 1)
+        offset = int(field.get("offset", 0) or 0)
+        size = max(size, offset + field_size)
+        max_align = max(max_align, min(8, field_size))
+    return _align_up(size, max_align)
+
+
+def _profile_enum_exists(enum_name: str) -> bool:
+    enums = load_kernel_api_family("enums")
+    return isinstance(enums, dict) and enum_name in enums
+
+
+def _clean_profile_type(type_text: str) -> str:
+    text = str(type_text or "").strip()
+    text = re.sub(r"\b_[A-Za-z0-9_]*_\b(?:\([^)]*\))?", " ", text)
+    text = re.sub(r"\b(?:const|volatile|struct|enum|union)\b", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _profile_array_count(array_text: str) -> int:
+    match = re.search(r"\[(?P<count>\d+)\]", array_text or "")
+    if not match:
+        return 1
+    try:
+        return max(1, int(match.group("count"), 10))
+    except ValueError:
+        return 1
+
+
+def _align_up(value: int, alignment: int) -> int:
+    alignment = max(1, alignment)
+    return (value + alignment - 1) // alignment * alignment
+
+
 def _analyze_helper_edge(
     helper: FunctionCapture,
     arguments: list[str],
@@ -2927,21 +4252,32 @@ def _analyze_helper_edge(
         if index >= len(arguments):
             break
         identifier = _argument_identifier(arguments[index])
-        if identifier:
+        if identifier and _should_rename_helper_param(param_name, _type_text, identifier, passed_buffers):
             rename_map[param_name] = identifier
     helper_text = safe_identifier_replace(helper.pseudocode, rename_map)
     helper_lines = helper_text.splitlines()
     helper_length_aliases = _infer_length_aliases(helper_text)
+    typed_field_layouts = _typed_field_layouts_for_params(params, rename_map)
     helper_sources: dict[str, dict[str, str]] = {}
     for name in set(passed_buffers):
-        length = _length_arguments_for_buffer(arguments, name) or _matching_length_variable(helper_text, name)
+        length = (
+            _length_arguments_for_buffer_with_params(arguments, params, name)
+            or _length_arguments_for_buffer(arguments, name)
+            or _matching_length_variable(helper_text, name)
+        )
         _add_buffer_source(helper_sources, name, "inout", "helper argument", length)
     size_constraints = _recover_size_constraints(
         helper_lines,
         source="helper:%s" % helper.name,
         length_aliases=helper_length_aliases,
+        known_lengths=_length_names_from_sources(helper_sources),
     )
-    field_accesses = _recover_field_accesses(helper_lines, helper_sources, source="helper:%s" % helper.name)
+    field_accesses = _recover_field_accesses(
+        helper_lines,
+        helper_sources,
+        source="helper:%s" % helper.name,
+        typed_field_layouts=typed_field_layouts,
+    )
     field_constraints = _recover_field_constraints(helper_lines, field_accesses, source="helper:%s" % helper.name)
     propagated_sizes = [
         _constraint_for_buffer(item, _constraint_buffer_from_sources(item, helper_sources))
@@ -2964,11 +4300,25 @@ def _analyze_helper_edge(
         depth=depth,
         evidence="%s(%s)" % (helper.name, ", ".join(arguments)),
         propagated_size_constraints=propagated_sizes,
+        propagated_field_accesses=field_accesses,
         propagated_field_constraints=field_constraints,
         nested_edges=nested_edges,
         warnings=[],
-        confidence=0.78 if propagated_sizes or field_constraints or nested_edges else 0.55,
+        confidence=0.78 if propagated_sizes or field_accesses or field_constraints or nested_edges else 0.55,
     )
+
+
+def _should_rename_helper_param(
+    param_name: str,
+    type_text: str,
+    argument_identifier: str,
+    passed_buffers: list[str],
+) -> bool:
+    if argument_identifier in set(passed_buffers):
+        return True
+    if _helper_param_looks_like_length(param_name, type_text):
+        return True
+    return bool(_profile_structure_name_from_pointer_type(type_text))
 
 
 def _native_switch_case_bodies(text: str, dispatcher: str) -> dict[int, list[str]]:

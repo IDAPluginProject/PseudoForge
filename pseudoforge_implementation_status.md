@@ -60,6 +60,20 @@ Implemented in this folder:
      predicates, derived valid predicates for common rejection branches,
      inferred field accesses, synthetic structure names, helper edges,
      confidence, and evidence
+   - focused disassembly-assisted buffer contract evidence under
+     `ida_pseudoforge/core/disasm_contracts.py`, using an injectable offline
+     `DisasmCaseSlice` model to recover selected-case size guards, fixed-offset
+     field reads/writes, field predicates, x64 register/stack call arguments,
+     and direct or indirect helper edges before merging into the existing
+     `CommandBufferContract` schema
+   - IDA focused buffer-contract analysis can capture a bounded disassembly CFG
+     slice through `ida_pseudoforge/ida/disasm_capture.py` without modifying the
+     IDB. Cursor mode starts from the current EA; explicit value mode also tries
+     a generic immediate-compare/conditional-branch case-entry fallback when no
+     cursor entry EA is available.
+   - disassembly evidence is used only for focused case analysis and injected
+     focused CLI/test paths; full all-case recovery remains pseudocode-first
+     unless a selected-case disassembly slice is explicitly supplied
    - selected-case buffer contract recovery for focused CLI and IDA cursor-case
      deep analysis, including generated C++ struct previews
    - cursor-case analysis resolves the active Hex-Rays pseudocode line through
@@ -319,9 +333,48 @@ Implemented in this folder:
    - `tests/test_render_cleanup.py`
    - `tests/test_rule_diagnostics.py`
    - renderer golden snapshots under `tests/snapshots`
-   - current suite covers 402 unit tests
+   - current suite covers 463 unit tests
 
 ## Latest Implementation Notes
+
+Focused disassembly-assisted buffer contract recovery:
+
+- Added `ida_pseudoforge/core/disasm_contracts.py` with an offline
+  `DisasmCaseSlice` / `DisasmInstruction` model so tests and CLI-adjacent
+  workflows can inject disassembly evidence without importing IDA modules.
+- The disassembly analyzer tracks simple aliases from moves/loads, maps x64
+  Windows call arguments from `RCX`, `RDX`, `R8`, `R9`, and available
+  `[rsp+20h...]` stack arguments, and resolves `mov rax, Helper; call rax`
+  style indirect helper targets without naming any specific kernel helper.
+- Selected-case disassembly evidence recovers `cmp`/`test` plus conditional
+  branch size guards, fixed-offset buffer memory reads/writes, field predicates,
+  bitmask predicates, and helper call edges. Rejection branches derive valid
+  predicates such as `length >= min` or `field == expected`.
+- `recover_buffer_contracts()` now accepts focused disassembly slices and merges
+  them into the existing `BufferSizeConstraint`, `FieldAccess`,
+  `FieldConstraint`, and `HelperContractEdge` data model. Matching pseudocode
+  and disassembly evidence raises confidence slightly; conflicting size or
+  field predicate evidence is retained and reported as a warning instead of
+  silently overwriting either source.
+- Disassembly helper edges are resolved through the existing helper pseudocode
+  capture path when available, or through an injected helper disassembly slice
+  when pseudocode is not available. Both paths preserve the configured helper
+  depth limit and keep unresolved helper escapes explicit.
+- IDA focused analysis captures bounded basic-block CFG slices from the selected
+  case entry when possible. Cursor mode uses the active screen EA; explicit
+  value mode can fall back to a generic immediate-compare/conditional-branch
+  target search. If no reliable native entry is found, analysis remains
+  pseudocode-first and unchanged.
+- C++ struct sketches now benefit directly from disassembly-derived field
+  offsets and predicates because the merged evidence feeds the existing struct
+  renderer. Size-only cases still render size constants and byte windows rather
+  than invented field names.
+- Current limitations: the IDA value-mode native-entry fallback is intentionally
+  conservative and does not fully decode every compiler jump-table layout yet;
+  helper field writes are represented as caller-visible fields only when the
+  merged selected-case evidence or propagated helper predicates expose a fixed
+  offset; unsupported/no-evidence cases still prefer an explicit no-contract
+  report over fabricated structure fields.
 
 P1 renderer snapshot protection update:
 
@@ -714,7 +767,7 @@ regression pass:
   current contract coverage is:
   `NtSetInformationProcess` 58 contracts from 70 recovered cases,
   `NtSetInformationThread` 26 contracts from 31 recovered cases, and
-  `NtSetSystemInformation` 48 contracts from 56 recovered cases. No
+  `NtSetSystemInformation` 49 contracts from 56 recovered cases. No
   `*InformationClass` dispatcher parameter is emitted as a buffer source in
   these exports.
 - The latest `NtSetSystemInformation` export newly recovers
@@ -722,14 +775,70 @@ regression pass:
   shared-tail/typed-array evidence. `SystemFileCacheInformation` now emits a
   `systemInformationLength >= 0x40` size validator and fields at offsets
   `0x18` and `0x20`.
+- `NtSetSystemInformation` buffer-contract recovery now follows selected
+  `goto LABEL_x` shared-tail joins when the selected case body has no direct
+  local buffer evidence but the joined label tail exposes length or field
+  evidence. This recovers `SystemLoadGdiDriverInSystemSpace` from the 26200.8457
+  IDB without matching that case value or label name: the current replay records
+  accepted `systemInformationLength` forms of `48` and `56`, plus returned
+  output fields at offsets `0x10`, `0x18`, `0x20`, `0x28`, and `0x30`.
+- Buffer roles now merge selected-case field access direction with ABI/source
+  role evidence, so an input parameter that is also written by the selected
+  case renders as `INOUT` instead of hiding output fields under an input-only
+  structure name.
+- C++ size validators now preserve multiple exact accepted sizes for the same
+  length parameter as alternatives, for example `systemInformationLength == 0x30
+  || systemInformationLength == 0x38`, instead of collapsing the validator to
+  only one exact branch.
 - Review-mode regression coverage now verifies that helper-local aliases such as
   `localInput = inputBufferLength` are propagated back to caller length names,
   and that dispatcher-condition fallback context does not pollute a selected case
   that already has direct size/field evidence.
+- Buffer-contract helper discovery now handles casted function-pointer style
+  invocations and ignores Hex-Rays byte/word accessor pseudo-calls plus
+  C/Hex-Rays type and calling-convention tokens when building helper
+  candidates. The 26200.8457 raw `NtSetSystemInformation` replay for
+  `SystemRegisterFirmwareTableInformationHandler` now records the
+  `systemInformation` buffer escaping to `ExpRegisterFirmwareTableInformationHandler`
+  with caller-side `systemInformationLength`/`inputLength` evidence instead of
+  reporting `LOBYTE` as the only helper candidate.
+- Focused helper-candidate discovery now follows selected `goto LABEL_x`
+  shared tails when the tail helper receives the active buffer or length
+  arguments, so cursor-case analysis can capture helper-only shared-tail paths
+  before the deep pass. The contract pass uses the same helper-tail evidence
+  without relaxing the stricter size/field evidence gate for structure layout
+  recovery.
+- Focused buffer-contract recovery now has a native-switch fallback for explicit
+  case filters. If flow recovery misses or omits the selected case body, the
+  focused pass scans native `switch` bodies directly and still applies the same
+  profile-backed dispatcher kind, helper-edge, shared-tail, and C++ structure
+  recovery logic. This prevents `NtSetSystemInformation` case `75` from
+  collapsing to zero contracts when the recovered flow is incomplete.
+- Fallback buffer-source inference now skips identifiers that are used as call
+  targets, preventing helper names such as `ValidateTailSystemBuffer` from being
+  promoted to fake buffer variables merely because their names contain
+  `Buffer`.
 - Remaining no-contract cases are left untyped when the selected body has no
   direct information-buffer/length evidence or only unsupported/no-op return
   behavior. This is intentional: the contract pass prefers an explicit
-  selected-case context report over inventing an input/output structure.
+  selected-case context report over inventing an input/output structure. In the
+  26200.8457 `NtSetSystemInformation` replay the remaining untyped recovered
+  cases are `SystemMirrorMemoryInformation`,
+  `SystemWow64SharedInformationObsolete`, `SystemCoverageInformation`,
+  `SystemVirtualAddressInformation`, `SystemRegistryAppendString`,
+  `SystemHypervisorDetailInformation`, and
+  `SystemTrustedAppsRuntimeInformation`.
+
+Review-mode validation for this buffer-contract pass:
+
+```text
+python -B -m unittest tests.test_buffer_contracts -v: 36 tests OK
+python -B -m unittest discover -v: 463 tests OK
+python -B -m compileall .\ida_pseudoforge: passed
+git diff --check -- .: passed with CRLF normalization warning for pseudoforge_implementation_status.md
+hardcoding scan over production buffer-contract paths: no sample-specific hits outside profile data
+NtSetSystemInformation raw replay: focused case 75 produces 1 contract for case 0x4B and captures ExpRegisterFirmwareTableInformationHandler escape; focused shared-tail case 54 produces 1 INOUT contract and keeps exact 0x30/0x38 size alternatives in the generated C++ validator
+```
 - Casted native switches such as `switch ((int)a2)` are recognized as native dispatchers, so length/alignment comparisons on `ProcessInformationLength` are not promoted into auxiliary switch recovery.
 - Switch outline generation is intentionally conservative: only single-statement
   returns and complete local branch slices are expanded, while complex or shared
@@ -1627,6 +1736,70 @@ For the historical ntoskrnl GPT batches, keep LLM path enabled with
 -LlmProvider codex_cli -LlmModel gpt-5.5. For current Claude-login validation,
 use -LlmProvider claude_login_via_claude_cli -LlmModel claude-opus-4-8 and a
 command template containing --setting-sources project,local.
+```
+
+NtSet focused buffer-contract recheck against 26200.8457 ntoskrnl:
+
+```text
+implemented:
+- Added tools/pseudoforge_ida_case_contract_batch.py for headless IDA focused
+  buffer-contract case analysis using FunctionName:caseValue targets.
+- Helper contract edges now preserve propagated field accesses, not only size
+  and field predicates.
+- Helper typed pointer parameters can use profile structure layouts to map
+  param->Field accesses back to caller buffer offsets.
+- Profile layout sizing uses x64 alignment and guards against alias cycles such
+  as ULONG <-> DWORD.
+- C++ struct rendering now keeps byte-sized profile fields such as BOOLEAN from
+  being widened to the default 32-bit placeholder field size.
+- Helper length propagation now prefers helper parameter names, so mode/flag
+  arguments passed in variables with length-like caller names are not treated as
+  buffer lengths.
+- C character case labels such as case 'K': are parsed through the shared C
+  literal parser, and NtSet* parameter-position fallback registers raw
+  a1/a2/a3-style system/process/thread information buffers without relying on
+  recovered parameter names.
+- Helper analysis now treats caller temporaries as length operands when the
+  helper parameter name/type identifies a size argument, while integer-cast
+  arguments such as (unsigned int)v3 are not promoted to provisional buffers.
+
+validated:
+- IDA Professional 9.0 opened D:\bin\os\26200.8457\ntoskrnl.exe.i64 with
+  -Opdb:off and processed NtSetInformationProcess, NtSetInformationThread, and
+  NtSetSystemInformation by NameRegex: processed=3, succeeded=3.
+- Full-function CLI replay on the fresh raw Hex-Rays output kept the expected
+  contract counts: Process=58, Thread=26, System=49.
+- Focused IDA case batch processed representative cases:
+  NtSetSystemInformation 0x4B/0x36/0x50, NtSetInformationProcess 0x8/0x9/0x4D,
+  NtSetInformationThread 0x3/0x4/0x1E: processed=9, succeeded=9.
+- NtSetSystemInformation case 0x4B now captures
+  ExpRegisterFirmwareTableInformationHandler and emits a
+  PF_SYSTEM_SystemRegisterFirmwareTableInformationHandler_INPUT sketch with
+  SYSTEM_FIRMWARE_TABLE_HANDLER fields ProviderSignature@0, Register@4,
+  FirmwareTableHandler@8, and DriverObject@0x10 instead of a size-only reserved
+  byte blob.
+- The raw-argument form `case 'K': return
+  ExpRegisterFirmwareTableInformationHandler(a2, (unsigned int)v3, a3, 1LL);`
+  is covered by regression tests and recovers the same helper-backed structure.
+- IDA focused case batch rechecked NtSetSystemInformation:0x4B after the
+  char-literal fix: contracts=1, helpers=1, buffers=1.
+- python -B -m unittest tests.test_buffer_contracts -v: 38 tests OK.
+- python -B -m unittest discover -v: 465 tests OK.
+
+review follow-up:
+- Tightened helper length propagation so integer parameters such as ULONG flags
+  are not treated as buffer lengths merely because of their type; helper
+  length mapping now requires length/size/bytes-style parameter names.
+- NtSet* parameter-position fallback now uses the prototype/signature function
+  name when FunctionCapture.name is empty, preserving raw/offline captures that
+  still contain an NtSet* signature.
+- Added regressions for Helper(buffer, flags, inputLength) and empty-name
+  NtSetSystemInformation captures.
+- Production code hardcoding scan found no embedded 26200.8457 paths, ntoskrnl
+  EAs, case 0x4B literals, or firmware-specific helper/structure names outside
+  generated profiles/tests.
+- python -B -m unittest tests.test_buffer_contracts -v: 40 tests OK.
+- python -B -m unittest discover -v: 467 tests OK.
 ```
 
 ## Known Limits

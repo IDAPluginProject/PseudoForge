@@ -7,12 +7,15 @@ from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.buffer_contracts import (
+    _infer_buffer_sources,
+    _iter_helper_call_sites,
     find_case_value_near_line,
     helper_names_for_selected_case,
     recover_buffer_contracts,
     render_buffer_struct_header,
     render_case_context_report,
 )
+from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice, DisasmInstruction
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
@@ -525,6 +528,271 @@ NTSTATUS NTAPI NtSetSystemInformation(
 """
 
 
+NTSET_SYSTEM_CASTED_HANDLER_ESCAPE_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        PVOID systemInformation,
+        __int64 systemInformationLength)
+{
+  NTSTATUS status;
+  SYSTEM_INFORMATION_CLASS infoClass;
+  unsigned int inputLength;
+  KPROCESSOR_MODE previousMode;
+
+  infoClass = systemInformationClass;
+  inputLength = systemInformationLength;
+  switch ( infoClass )
+  {
+    case SystemRegisterFirmwareTableInformationHandler:
+      LOBYTE(systemInformationLength) = previousMode;
+      return (unsigned int)((__int64 (__fastcall *)(__int64, _QWORD, __int64, __int64))FirmwareTableRegistrationHandler)(
+        systemInformation,
+        (unsigned int)inputLength,
+        systemInformationLength,
+        1LL);
+    case SystemFirmwareTableInformation:
+      status = STATUS_SUCCESS;
+      break;
+    case SystemModuleInformationEx:
+      status = STATUS_SUCCESS;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      break;
+  }
+  return status;
+}
+"""
+
+
+NTSET_SYSTEM_CHAR_LITERAL_RAW_ARGS_SAMPLE = r"""
+__int64 __fastcall NtSetSystemInformation(int a1, __int64 a2, __int64 a3)
+{
+  unsigned int v3;
+  char PreviousMode;
+
+  v3 = a3;
+  switch ( a1 )
+  {
+    case 'K':
+      LOBYTE(a3) = PreviousMode;
+      return (unsigned int)ExpRegisterFirmwareTableInformationHandler(a2, (unsigned int)v3, a3, 1LL);
+    case 0x4C:
+      return 0LL;
+    default:
+      return 0xC0000003LL;
+  }
+}
+"""
+
+
+NTSET_SYSTEM_ALIAS_HELPER_ESCAPE_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        PVOID systemInformation,
+        __int64 systemInformationLength)
+{
+  NTSTATUS status;
+  SYSTEM_INFORMATION_CLASS infoClass;
+  PVOID infoBuffer;
+  unsigned int inputLength;
+
+  infoClass = systemInformationClass;
+  infoBuffer = systemInformation;
+  inputLength = systemInformationLength;
+  switch ( infoClass )
+  {
+    case SystemVerifierAddDriverInformation:
+      status = RegisterNameOnlyBuffer((PCUNICODE_STRING)infoBuffer);
+      break;
+    case SystemBootMetadataInformation:
+      status = RegisterLengthBearingBuffer(infoBuffer, (unsigned int)inputLength);
+      break;
+    case SystemFirmwareTableInformation:
+      status = STATUS_SUCCESS;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      break;
+  }
+  return status;
+}
+"""
+
+
+NTSET_SYSTEM_GOTO_LABEL_TAIL_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        __m128i *systemInformation,
+        __int64 systemInformationLength)
+{
+  NTSTATUS status;
+  SYSTEM_INFORMATION_CLASS infoClass;
+  int loadFlags;
+  int extendedLayout;
+  __int64 imageBase;
+  char imageName[56];
+
+  infoClass = systemInformationClass;
+  imageBase = 0;
+  switch ( infoClass )
+  {
+    case SystemLoadGdiDriverInSystemSpace:
+      LODWORD(loadFlags) = 0;
+      goto LABEL_LOAD_IMAGE;
+    case SystemPrefetcherInformation:
+      return PrefetchInformation(systemInformation, (unsigned int)systemInformationLength);
+    case SystemFirmwareTableInformation:
+      return STATUS_NOT_SUPPORTED;
+    default:
+      return STATUS_INVALID_INFO_CLASS;
+  }
+LABEL_LOAD_IMAGE:
+  if ( (_DWORD)systemInformationLength == 48 )
+  {
+    extendedLayout = 0;
+  }
+  else
+  {
+    if ( (_DWORD)systemInformationLength != 56 )
+      return STATUS_INFO_LENGTH_MISMATCH;
+    extendedLayout = 1;
+  }
+  *(__m128i *)imageName = *systemInformation;
+  if ( extendedLayout )
+  {
+    systemInformation[1].m128i_i64[0] = imageBase;
+    return LoadSystemImageEx((unsigned int)imageName, loadFlags);
+  }
+  systemInformation[1].m128i_i64[0] = imageBase;
+  return LoadSystemImage((unsigned int)imageName, loadFlags);
+}
+"""
+
+
+GOTO_HELPER_TAIL_CASE_SAMPLE = r"""
+NTSTATUS __fastcall DispatchGotoHelperTail(PDEVICE_OBJECT deviceObject, PIRP irp)
+{
+  SYSTEM_INFORMATION_CLASS infoClass;
+  NTSTATUS status;
+  PVOID payload;
+  ULONG inputLength;
+  ULONG ioControlCode;
+  ULONG_PTR information;
+  _DWORD *stack;
+
+  stack = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  payload = irp->AssociatedIrp.MasterIrp;
+  inputLength = stack[2];
+  ioControlCode = stack[6];
+  information = 0;
+  switch ( ioControlCode )
+  {
+    case 0x9123C000:
+      goto LABEL_HELPER_TAIL;
+    case 0x9123C004:
+      if ( inputLength != 8 )
+      {
+        return STATUS_INFO_LENGTH_MISMATCH;
+      }
+      status = STATUS_SUCCESS;
+      break;
+    case 0x9123C008:
+      status = STATUS_SUCCESS;
+      break;
+    case 0x9123C00C:
+      status = STATUS_SUCCESS;
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  irp->IoStatus.Information = information;
+  irp->IoStatus.Status = status;
+  IofCompleteRequest(irp, 0);
+  return status;
+LABEL_HELPER_TAIL:
+  return ValidateTailSystemBuffer(payload, inputLength);
+}
+"""
+
+
+TAIL_SYSTEM_BUFFER_HELPER_SAMPLE = r"""
+NTSTATUS __fastcall ValidateTailSystemBuffer(PVOID input, ULONG inputLength)
+{
+  if ( inputLength < 16 )
+  {
+    return STATUS_INFO_LENGTH_MISMATCH;
+  }
+  if ( *(_DWORD *)input != 7 )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  return STATUS_SUCCESS;
+}
+"""
+
+
+FIRMWARE_TABLE_HANDLER_HELPER_SAMPLE = r"""
+NTSTATUS __fastcall FirmwareTableRegistrationHandler(
+        SYSTEM_FIRMWARE_TABLE_HANDLER *pTableHandler,
+        unsigned int tableHandlerSize,
+        KPROCESSOR_MODE previousMode)
+{
+  ULONG providerSignature;
+  PFNFTH firmwareTableHandler;
+  PVOID driverObject;
+
+  if ( previousMode )
+  {
+    return STATUS_PRIVILEGE_NOT_HELD;
+  }
+  if ( !pTableHandler || tableHandlerSize < 0x18 )
+  {
+    return STATUS_INFO_LENGTH_MISMATCH;
+  }
+  providerSignature = pTableHandler->ProviderSignature;
+  if ( pTableHandler->Register )
+  {
+    firmwareTableHandler = pTableHandler->FirmwareTableHandler;
+    driverObject = pTableHandler->DriverObject;
+    return RegisterProvider(providerSignature, firmwareTableHandler, driverObject);
+  }
+  return UnregisterProvider(providerSignature, pTableHandler->DriverObject);
+}
+"""
+
+
+EXP_FIRMWARE_TABLE_HANDLER_HELPER_SAMPLE = r"""
+NTSTATUS __fastcall ExpRegisterFirmwareTableInformationHandler(
+        SYSTEM_FIRMWARE_TABLE_HANDLER *pTableHandler,
+        unsigned int tableHandlerSize,
+        KPROCESSOR_MODE previousMode)
+{
+  ULONG providerSignature;
+  PFNFTH firmwareTableHandler;
+  PVOID driverObject;
+
+  if ( previousMode )
+  {
+    return STATUS_PRIVILEGE_NOT_HELD;
+  }
+  if ( !pTableHandler || tableHandlerSize < 0x18 )
+  {
+    return STATUS_INFO_LENGTH_MISMATCH;
+  }
+  providerSignature = pTableHandler->ProviderSignature;
+  if ( pTableHandler->Register )
+  {
+    firmwareTableHandler = pTableHandler->FirmwareTableHandler;
+    driverObject = pTableHandler->DriverObject;
+    return RegisterProvider(providerSignature, firmwareTableHandler, driverObject);
+  }
+  return UnregisterProvider(providerSignature, pTableHandler->DriverObject);
+}
+"""
+
+
 NESTED_SWITCH_SAMPLE = r"""
 NTSTATUS __fastcall DispatchNested(PDEVICE_OBJECT deviceObject, PIRP irp)
 {
@@ -872,6 +1140,146 @@ NTSTATUS __fastcall ValidateAliasedLength(PVOID buffer, ULONG inputLength, ULONG
 """
 
 
+HELPER_FLAGS_BEFORE_LENGTH_CASE_SAMPLE = r"""
+NTSTATUS __fastcall DispatchFlagsBeforeLength(PDEVICE_OBJECT deviceObject, PIRP irp)
+{
+  NTSTATUS status;
+  PVOID systemBuffer;
+  ULONG flags;
+  ULONG inputBufferLength;
+  ULONG ioControlCode;
+  _DWORD *stack;
+
+  stack = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  systemBuffer = irp->AssociatedIrp.MasterIrp;
+  flags = stack[1];
+  inputBufferLength = stack[2];
+  ioControlCode = stack[6];
+  switch ( ioControlCode )
+  {
+    case 0x9123B100:
+      status = ValidateFlagsBeforeLength(systemBuffer, flags, inputBufferLength);
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  return status;
+}
+"""
+
+
+HELPER_FLAGS_BEFORE_LENGTH_HELPER_SAMPLE = r"""
+NTSTATUS __fastcall ValidateFlagsBeforeLength(PVOID buffer, ULONG flags, ULONG inputLength)
+{
+  if ( flags )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  if ( inputLength < 0x20 )
+  {
+    return STATUS_INFO_LENGTH_MISMATCH;
+  }
+  if ( *(_DWORD *)buffer != 3 )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  return STATUS_SUCCESS;
+}
+"""
+
+
+DISASM_WEAK_CASE_SAMPLE = r"""
+NTSTATUS __fastcall DispatchDisasmWeak(PDEVICE_OBJECT deviceObject, PIRP irp)
+{
+  NTSTATUS status;
+  PVOID systemBuffer;
+  ULONG inputBufferLength;
+  ULONG outputBufferLength;
+  ULONG ioControlCode;
+  _DWORD *ioStackLocation;
+
+  ioStackLocation = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  systemBuffer = irp->AssociatedIrp.MasterIrp;
+  inputBufferLength = ioStackLocation[2];
+  outputBufferLength = ioStackLocation[4];
+  ioControlCode = ioStackLocation[6];
+  switch ( ioControlCode )
+  {
+    case 0x9123D000:
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  return status;
+}
+"""
+
+
+DISASM_SHARED_TAIL_SAMPLE = r"""
+NTSTATUS __fastcall DispatchDisasmTail(PIRP irp)
+{
+  NTSTATUS status;
+  PVOID systemBuffer;
+  ULONG inputBufferLength;
+  ULONG outputBufferLength;
+  ULONG ioControlCode;
+  _DWORD *ioStackLocation;
+
+  ioStackLocation = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  systemBuffer = irp->AssociatedIrp.MasterIrp;
+  inputBufferLength = ioStackLocation[2];
+  outputBufferLength = ioStackLocation[4];
+  ioControlCode = ioStackLocation[6];
+  switch ( ioControlCode )
+  {
+    case 0x9123D010:
+      goto LABEL_TAIL;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+LABEL_TAIL:
+  status = 0;
+  return status;
+}
+"""
+
+
+DISASM_CONFLICT_CASE_SAMPLE = r"""
+NTSTATUS __fastcall DispatchDisasmConflict(PIRP irp)
+{
+  NTSTATUS status;
+  PVOID systemBuffer;
+  ULONG inputBufferLength;
+  ULONG ioControlCode;
+  _DWORD *ioStackLocation;
+
+  ioStackLocation = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  systemBuffer = irp->AssociatedIrp.MasterIrp;
+  inputBufferLength = ioStackLocation[2];
+  ioControlCode = ioStackLocation[6];
+  switch ( ioControlCode )
+  {
+    case 0x9123D020:
+      if ( inputBufferLength != 0x10 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  return status;
+}
+"""
+
+
 class BufferContractTests(unittest.TestCase):
     def test_ioctl_contract_recovers_sizes_fields_and_helper_edges(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
@@ -1018,6 +1426,29 @@ class BufferContractTests(unittest.TestCase):
         self.assertFalse(
             any(item.length in {"localInput", "localOutput"} for item in helper_edge.propagated_size_constraints)
         )
+
+    def test_helper_integer_flags_before_length_are_not_treated_as_size(self) -> None:
+        capture = capture_from_pseudocode(HELPER_FLAGS_BEFORE_LENGTH_CASE_SAMPLE)
+        helper_capture = capture_from_pseudocode(HELPER_FLAGS_BEFORE_LENGTH_HELPER_SAMPLE)
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"ValidateFlagsBeforeLength": helper_capture},
+            buffer_contract_case_values=[0x9123B100],
+        )
+
+        self.assertEqual([0x9123B100], [contract.command_value for contract in plan.buffer_contracts])
+        helper_edge = plan.buffer_contracts[0].helper_edges[0]
+        self.assertEqual("ValidateFlagsBeforeLength", helper_edge.callee)
+        self.assertTrue(
+            any(
+                item.length == "inputBufferLength"
+                and item.relation == "<"
+                and item.value == "0x20"
+                and item.valid_relation == ">="
+                for item in helper_edge.propagated_size_constraints
+            )
+        )
+        self.assertFalse(any(item.length == "flags" for item in helper_edge.propagated_size_constraints))
 
     def test_ntset_process_contract_uses_process_information_names(self) -> None:
         capture = capture_from_pseudocode(NTSET_PROCESS_CONTRACT_SAMPLE)
@@ -1173,6 +1604,471 @@ class BufferContractTests(unittest.TestCase):
         self.assertIn(0x10, offsets)
         self.assertNotIn(0x18, offsets)
         self.assertNotIn(0x20, offsets)
+
+    def test_ntset_system_goto_label_tail_recovers_selected_case_sizes(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_GOTO_LABEL_TAIL_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[54])
+
+        self.assertEqual([54], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual("SystemLoadGdiDriverInSystemSpace", contract.command_name)
+        buffer = contract.buffers[0]
+        self.assertEqual("inout", buffer.role)
+        self.assertEqual("systemInformation", buffer.variable)
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "=="
+                and item.value == "48"
+                for item in buffer.size_constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "!="
+                and item.value == "56"
+                and item.valid_relation == "=="
+                and item.valid_value == "56"
+                for item in buffer.size_constraints
+            )
+        )
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("PF_SYSTEM_SystemLoadGdiDriverInSystemSpace_INOUT", header)
+        self.assertIn("PF_SYSTEM_SystemLoadGdiDriverInSystemSpace_INOUT_INPUT_SIZE_0x30", header)
+        self.assertIn("PF_SYSTEM_SystemLoadGdiDriverInSystemSpace_INOUT_INPUT_SIZE_0x38", header)
+        self.assertIn(" || ", header)
+        self.assertIn("valid systemInformationLength == 56", header)
+
+    def test_goto_label_tail_helper_is_used_for_focused_capture_and_contract(self) -> None:
+        capture = capture_from_pseudocode(GOTO_HELPER_TAIL_CASE_SAMPLE)
+        helper = capture_from_pseudocode(TAIL_SYSTEM_BUFFER_HELPER_SAMPLE)
+        initial_plan = build_clean_plan(capture, buffer_contract_case_values=[0x9123C000])
+
+        self.assertNotIn("ValidateTailSystemBuffer", _infer_buffer_sources(capture.pseudocode or "", capture))
+        self.assertEqual(
+            ["ValidateTailSystemBuffer"],
+            helper_names_for_selected_case(capture, initial_plan, 0x9123C000),
+        )
+
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"ValidateTailSystemBuffer": helper},
+            buffer_contract_case_values=[0x9123C000],
+        )
+
+        self.assertEqual([0x9123C000], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual(1, len(contract.helper_edges))
+        edge = contract.helper_edges[0]
+        self.assertTrue(edge.resolved)
+        self.assertEqual(["payload"], edge.passed_buffers)
+        self.assertTrue(
+            any(
+                item.length == "outputBufferLength"
+                and item.value == "16"
+                and item.valid_relation == ">="
+                for item in edge.propagated_size_constraints
+            )
+        )
+        self.assertTrue(any(item.field == "field_0x00" for item in edge.propagated_field_constraints))
+
+    def test_ntset_system_casted_handler_call_records_buffer_escape_contract(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_CASTED_HANDLER_ESCAPE_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[75])
+
+        self.assertEqual(
+            ["FirmwareTableRegistrationHandler"],
+            helper_names_for_selected_case(capture, plan, 75),
+        )
+        self.assertEqual([75], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual("SystemRegisterFirmwareTableInformationHandler", contract.command_name)
+        self.assertEqual(1, len(contract.helper_edges))
+        edge = contract.helper_edges[0]
+        self.assertEqual("FirmwareTableRegistrationHandler", edge.callee)
+        self.assertFalse(edge.resolved)
+        self.assertEqual(["systemInformation"], edge.passed_buffers)
+        buffer = contract.buffers[0]
+        self.assertEqual("systemInformation", buffer.variable)
+        self.assertIn("inputLength", buffer.length_variable)
+        self.assertIn("systemInformationLength", buffer.length_variable)
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("struct PF_SYSTEM_SystemRegisterFirmwareTableInformationHandler_INPUT", header)
+        self.assertIn("Layout was not recovered for this buffer role.", header)
+        self.assertNotIn("No bytes are accepted for this buffer role.", header)
+
+    def test_focused_case_contract_falls_back_to_native_switch_without_flow(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_CASTED_HANDLER_ESCAPE_SAMPLE)
+
+        contracts = recover_buffer_contracts(capture, [], case_values=[75])
+
+        self.assertEqual([75], [contract.command_value for contract in contracts])
+        contract = contracts[0]
+        self.assertEqual("SystemRegisterFirmwareTableInformationHandler", contract.command_name)
+        self.assertEqual(1, len(contract.helper_edges))
+        self.assertEqual("FirmwareTableRegistrationHandler", contract.helper_edges[0].callee)
+        self.assertEqual(["systemInformation"], contract.helper_edges[0].passed_buffers)
+        self.assertEqual("systemInformation", contract.buffers[0].variable)
+
+    def test_helper_typed_struct_arrow_fields_propagate_to_caller_buffer(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_CASTED_HANDLER_ESCAPE_SAMPLE)
+        helper = capture_from_pseudocode(FIRMWARE_TABLE_HANDLER_HELPER_SAMPLE)
+
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"FirmwareTableRegistrationHandler": helper},
+            buffer_contract_case_values=[75],
+        )
+
+        self.assertEqual([75], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        edge = contract.helper_edges[0]
+        self.assertTrue(edge.resolved)
+        fields_by_name = {access.field: access for access in edge.propagated_field_accesses}
+        self.assertEqual(0, fields_by_name["ProviderSignature"].offset)
+        self.assertEqual(4, fields_by_name["Register"].offset)
+        self.assertEqual(8, fields_by_name["FirmwareTableHandler"].offset)
+        self.assertEqual(16, fields_by_name["DriverObject"].offset)
+        self.assertTrue(any("profile:SYSTEM_FIRMWARE_TABLE_HANDLER" in item.source for item in fields_by_name.values()))
+
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("std::uint32_t ProviderSignature;", header)
+        self.assertIn("std::uint8_t Register;", header)
+        self.assertIn("std::uint8_t reserved_0x05[3];", header)
+        self.assertIn("PFNFTH FirmwareTableHandler;", header)
+        self.assertIn("void * DriverObject;", header)
+        self.assertNotIn("std::uint8_t reserved_0x00[24];", header)
+
+    def test_ntset_system_char_literal_raw_args_resolves_helper_contract(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_CHAR_LITERAL_RAW_ARGS_SAMPLE)
+        helper = capture_from_pseudocode(EXP_FIRMWARE_TABLE_HANDLER_HELPER_SAMPLE)
+
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"ExpRegisterFirmwareTableInformationHandler": helper},
+            buffer_contract_case_values=[75],
+        )
+
+        self.assertEqual(75, find_case_value_near_line("", line_text="    case 'K':"))
+        self.assertEqual([75], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual("SystemRegisterFirmwareTableInformationHandler", contract.command_name)
+        self.assertEqual(["systemInformation"], [buffer.variable for buffer in contract.buffers])
+        self.assertIn("systemInformationLength", contract.buffers[0].length_variable)
+        self.assertIn("v3", contract.buffers[0].length_variable)
+        edge = contract.helper_edges[0]
+        self.assertTrue(edge.resolved)
+        self.assertEqual("ExpRegisterFirmwareTableInformationHandler", edge.callee)
+        self.assertEqual(["systemInformation"], edge.passed_buffers)
+        self.assertTrue(
+            any(
+                item.length == "v3"
+                and item.value == "0x18"
+                and item.valid_relation == ">="
+                for item in edge.propagated_size_constraints
+            )
+        )
+        fields_by_name = {access.field: access for access in edge.propagated_field_accesses}
+        self.assertEqual(0, fields_by_name["ProviderSignature"].offset)
+        self.assertEqual(4, fields_by_name["Register"].offset)
+        self.assertEqual(8, fields_by_name["FirmwareTableHandler"].offset)
+        self.assertEqual(16, fields_by_name["DriverObject"].offset)
+
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("struct PF_SYSTEM_SystemRegisterFirmwareTableInformationHandler_INPUT", header)
+        self.assertIn("std::uint32_t ProviderSignature;", header)
+        self.assertIn("std::uint8_t Register;", header)
+        self.assertIn("PFNFTH FirmwareTableHandler;", header)
+        self.assertIn("void * DriverObject;", header)
+
+    def test_ntset_parameter_fallback_uses_prototype_name_when_capture_name_empty(self) -> None:
+        capture = FunctionCapture(
+            name="",
+            prototype="__int64 __fastcall NtSetSystemInformation(int a1, __int64 a2, __int64 a3)",
+            pseudocode=NTSET_SYSTEM_CHAR_LITERAL_RAW_ARGS_SAMPLE,
+        )
+
+        sources = _infer_buffer_sources(capture.pseudocode, capture)
+
+        self.assertIn("a2", sources)
+        self.assertEqual("input", sources["a2"]["role"])
+        self.assertEqual("a3", sources["a2"]["length"])
+
+    def test_disasm_slice_recovers_size_guard_and_field_writes_for_weak_case(self) -> None:
+        capture = capture_from_pseudocode(DISASM_WEAK_CASE_SAMPLE)
+        case_slice = DisasmCaseSlice(
+            command_value=0x9123D000,
+            instructions=[
+                DisasmInstruction(mnemonic="mov", operands=["rbx", "systemBuffer"], text="mov rbx, systemBuffer"),
+                DisasmInstruction(mnemonic="mov", operands=["ecx", "inputBufferLength"], text="mov ecx, inputBufferLength"),
+                DisasmInstruction(mnemonic="cmp", operands=["ecx", "0x10"], text="cmp ecx, 0x10"),
+                DisasmInstruction(mnemonic="jb", operands=["reject"], text="jb reject", branch_taken_reject=True),
+                DisasmInstruction(
+                    mnemonic="mov",
+                    operands=["dword ptr [rbx+4]", "eax"],
+                    text="mov dword ptr [rbx+4], eax",
+                ),
+                DisasmInstruction(
+                    mnemonic="cmp",
+                    operands=["dword ptr [rbx+8]", "0x22"],
+                    text="cmp dword ptr [rbx+8], 0x22",
+                ),
+                DisasmInstruction(mnemonic="jne", operands=["reject"], text="jne reject", branch_taken_reject=True),
+                DisasmInstruction(
+                    mnemonic="test",
+                    operands=["dword ptr [rbx+0xC]", "0xF0"],
+                    text="test dword ptr [rbx+0xC], 0xF0",
+                ),
+                DisasmInstruction(mnemonic="jnz", operands=["reject"], text="jnz reject", branch_taken_reject=True),
+            ],
+        )
+
+        plan = build_clean_plan(
+            capture,
+            buffer_contract_case_values=[0x9123D000],
+            buffer_contract_disasm_slices={0x9123D000: case_slice},
+        )
+
+        self.assertEqual([0x9123D000], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        buffer = contract.buffers[0]
+        self.assertEqual("systemBuffer", buffer.variable)
+        self.assertTrue(
+            any(
+                item.length == "inputBufferLength"
+                and item.relation == "<"
+                and item.value == "0x10"
+                and item.valid_relation == ">="
+                for item in buffer.size_constraints
+            )
+        )
+        self.assertTrue(any(item.offset == 4 and item.access == "write" for item in buffer.field_accesses))
+        self.assertTrue(
+            any(
+                item.offset == 8
+                and item.relation == "!="
+                and item.value == "0x22"
+                and item.valid_relation == "=="
+                for item in buffer.field_constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.offset == 0xC
+                and item.relation == "mask_!="
+                and item.mask == "0xF0"
+                and item.valid_relation == "mask_=="
+                for item in buffer.field_constraints
+            )
+        )
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("std::uint32_t field_0x04;", header)
+        self.assertIn("std::uint32_t field_0x08;", header)
+        self.assertIn("std::uint32_t field_0x0C;", header)
+        self.assertIn("source: disasm", header)
+        self.assertIn("evidence: mov dword ptr [rbx+4], eax", header)
+        self.assertNotIn("Size-only byte range", header)
+
+    def test_disasm_indirect_helper_call_recovers_target_arguments_and_propagates(self) -> None:
+        capture = capture_from_pseudocode(DISASM_WEAK_CASE_SAMPLE)
+        helper = capture_from_pseudocode(
+            r"""
+NTSTATUS __fastcall ValidateDisasmHelper(PVOID buffer, ULONG length)
+{
+  if ( length < 0x30 )
+  {
+    return STATUS_INFO_LENGTH_MISMATCH;
+  }
+  if ( *(_DWORD *)(buffer + 0xC) != 1 )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  return STATUS_SUCCESS;
+}
+"""
+        )
+        case_slice = DisasmCaseSlice(
+            command_value=0x9123D000,
+            instructions=[
+                DisasmInstruction(mnemonic="mov", operands=["rax", "ValidateDisasmHelper"], text="mov rax, ValidateDisasmHelper"),
+                DisasmInstruction(mnemonic="mov", operands=["rcx", "systemBuffer"], text="mov rcx, systemBuffer"),
+                DisasmInstruction(mnemonic="mov", operands=["edx", "inputBufferLength"], text="mov edx, inputBufferLength"),
+                DisasmInstruction(
+                    mnemonic="mov",
+                    operands=["qword ptr [rsp+20h]", "outputBufferLength"],
+                    text="mov qword ptr [rsp+20h], outputBufferLength",
+                ),
+                DisasmInstruction(mnemonic="call", operands=["rax"], text="call rax"),
+                DisasmInstruction(mnemonic="call", operands=["OtherHelper"], text="call OtherHelper"),
+            ],
+        )
+
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"ValidateDisasmHelper": helper},
+            buffer_contract_case_values=[0x9123D000],
+            buffer_contract_disasm_slices={0x9123D000: case_slice},
+        )
+
+        self.assertEqual([0x9123D000], [contract.command_value for contract in plan.buffer_contracts])
+        self.assertEqual(1, len(plan.buffer_contracts[0].helper_edges))
+        edge = plan.buffer_contracts[0].helper_edges[0]
+        self.assertTrue(edge.resolved)
+        self.assertEqual("ValidateDisasmHelper", edge.callee)
+        self.assertEqual(["systemBuffer"], edge.passed_buffers)
+        self.assertEqual(["systemBuffer", "inputBufferLength", "outputBufferLength"], edge.arguments)
+        self.assertTrue(any(item.length == "inputBufferLength" and item.value == "0x30" for item in edge.propagated_size_constraints))
+        self.assertTrue(any(item.offset == 0xC for item in edge.propagated_field_constraints))
+
+    def test_disasm_helper_slice_propagates_without_pseudocode_capture(self) -> None:
+        capture = capture_from_pseudocode(DISASM_WEAK_CASE_SAMPLE)
+        case_slice = DisasmCaseSlice(
+            command_value=0x9123D000,
+            function_name="DispatchDisasmWeak",
+            instructions=[
+                DisasmInstruction(mnemonic="mov", operands=["rax", "ValidateDisasmOnly"], text="mov rax, ValidateDisasmOnly"),
+                DisasmInstruction(mnemonic="mov", operands=["rcx", "systemBuffer"], text="mov rcx, systemBuffer"),
+                DisasmInstruction(mnemonic="mov", operands=["edx", "inputBufferLength"], text="mov edx, inputBufferLength"),
+                DisasmInstruction(mnemonic="call", operands=["rax"], text="call rax"),
+            ],
+        )
+        helper_slice = DisasmCaseSlice(
+            command_value=0,
+            function_name="ValidateDisasmOnly",
+            instructions=[
+                DisasmInstruction(mnemonic="cmp", operands=["edx", "0x40"], text="cmp edx, 0x40"),
+                DisasmInstruction(mnemonic="jb", operands=["reject"], text="jb reject", branch_taken_reject=True),
+                DisasmInstruction(
+                    mnemonic="cmp",
+                    operands=["dword ptr [rcx+0x10]", "3"],
+                    text="cmp dword ptr [rcx+0x10], 3",
+                ),
+                DisasmInstruction(mnemonic="jne", operands=["reject"], text="jne reject", branch_taken_reject=True),
+            ],
+        )
+
+        plan = build_clean_plan(
+            capture,
+            buffer_contract_case_values=[0x9123D000],
+            buffer_contract_disasm_slices=[case_slice, helper_slice],
+        )
+
+        self.assertEqual([0x9123D000], [contract.command_value for contract in plan.buffer_contracts])
+        edge = plan.buffer_contracts[0].helper_edges[0]
+        self.assertTrue(edge.resolved)
+        self.assertEqual("ValidateDisasmOnly", edge.callee)
+        self.assertTrue(
+            any(
+                item.length == "inputBufferLength"
+                and item.value == "0x40"
+                and item.valid_relation == ">="
+                for item in edge.propagated_size_constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.offset == 0x10
+                and item.value == "3"
+                and item.valid_relation == "=="
+                for item in edge.propagated_field_constraints
+            )
+        )
+
+    def test_disasm_shared_tail_slice_adds_selected_case_tail_fields(self) -> None:
+        capture = capture_from_pseudocode(DISASM_SHARED_TAIL_SAMPLE)
+        case_slice = DisasmCaseSlice(
+            command_value=0x9123D010,
+            instructions=[
+                DisasmInstruction(mnemonic="mov", operands=["rbx", "systemBuffer"], text="mov rbx, systemBuffer"),
+                DisasmInstruction(mnemonic="mov", operands=["ecx", "outputBufferLength"], text="mov ecx, outputBufferLength"),
+                DisasmInstruction(mnemonic="cmp", operands=["ecx", "0x20"], text="cmp ecx, 0x20"),
+                DisasmInstruction(mnemonic="jb", operands=["reject"], text="jb reject", branch_taken_reject=True),
+                DisasmInstruction(
+                    mnemonic="mov",
+                    operands=["qword ptr [rbx+0x10]", "rax"],
+                    text="mov qword ptr [rbx+0x10], rax",
+                ),
+            ],
+            evidence="offline shared-tail CFG slice",
+        )
+
+        plan = build_clean_plan(
+            capture,
+            buffer_contract_case_values=[0x9123D010],
+            buffer_contract_disasm_slices={0x9123D010: case_slice},
+        )
+
+        self.assertEqual([0x9123D010], [contract.command_value for contract in plan.buffer_contracts])
+        buffer = plan.buffer_contracts[0].buffers[0]
+        self.assertTrue(any(item.length == "outputBufferLength" and item.valid_relation == ">=" for item in buffer.size_constraints))
+        self.assertTrue(any(item.offset == 0x10 and item.type == "ULONGLONG" for item in buffer.field_accesses))
+
+    def test_pseudocode_disasm_size_conflict_warns_without_overwrite(self) -> None:
+        capture = capture_from_pseudocode(DISASM_CONFLICT_CASE_SAMPLE)
+        case_slice = DisasmCaseSlice(
+            command_value=0x9123D020,
+            instructions=[
+                DisasmInstruction(mnemonic="mov", operands=["ecx", "inputBufferLength"], text="mov ecx, inputBufferLength"),
+                DisasmInstruction(mnemonic="cmp", operands=["ecx", "0x18"], text="cmp ecx, 0x18"),
+                DisasmInstruction(mnemonic="jne", operands=["reject"], text="jne reject", branch_taken_reject=True),
+            ],
+        )
+
+        plan = build_clean_plan(
+            capture,
+            buffer_contract_case_values=[0x9123D020],
+            buffer_contract_disasm_slices={0x9123D020: case_slice},
+        )
+
+        contract = plan.buffer_contracts[0]
+        buffer = contract.buffers[0]
+        self.assertTrue(any(item.value == "0x10" for item in buffer.size_constraints))
+        self.assertTrue(any(item.value == "0x18" for item in buffer.size_constraints))
+        self.assertTrue(any("pseudocode/disassembly size conflict" in warning for warning in contract.warnings))
+
+    def test_offline_focused_case_without_disasm_keeps_existing_behavior(self) -> None:
+        capture = capture_from_pseudocode(DISASM_WEAK_CASE_SAMPLE)
+
+        plan = build_clean_plan(capture, buffer_contract_case_values=[0x9123D000])
+
+        self.assertEqual([], plan.buffer_contracts)
+
+    def test_casted_indirect_call_parser_ignores_type_tokens(self) -> None:
+        text = (
+            "return ((__int64 (__fastcall *)(PVOID, ULONG_PTR))RealIndirectHandler)"
+            "(systemInformation, systemInformationLength);"
+        )
+
+        call_sites = _iter_helper_call_sites(text)
+
+        self.assertEqual(["RealIndirectHandler"], [site.callee for site in call_sites])
+        self.assertEqual(["systemInformation", "systemInformationLength"], call_sites[0].arguments)
+        self.assertTrue(call_sites[0].indirect)
+
+    def test_ntset_system_alias_helper_escape_records_canonical_buffer_contract(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_ALIAS_HELPER_ESCAPE_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[40, 150])
+
+        contracts = {contract.command_value: contract for contract in plan.buffer_contracts}
+        self.assertIn(40, contracts)
+        self.assertIn(150, contracts)
+        verifier_buffer = contracts[40].buffers[0]
+        self.assertEqual("systemInformation", verifier_buffer.variable)
+        self.assertIn("systemInformationLength", verifier_buffer.length_variable)
+        self.assertEqual(["systemInformation"], contracts[40].helper_edges[0].passed_buffers)
+        self.assertEqual(
+            ["(PCUNICODE_STRING)systemInformation"],
+            contracts[40].helper_edges[0].arguments,
+        )
+        metadata_buffer = contracts[150].buffers[0]
+        self.assertEqual("systemInformation", metadata_buffer.variable)
+        self.assertIn("inputLength", metadata_buffer.length_variable)
+        self.assertEqual(["systemInformation"], contracts[150].helper_edges[0].passed_buffers)
+        self.assertEqual(
+            ["systemInformation", "(unsigned int)inputLength"],
+            contracts[150].helper_edges[0].arguments,
+        )
 
     def test_flow_recovered_raw_case_body_uses_rename_map_for_ntset_system_contract(self) -> None:
         capture = FunctionCapture(

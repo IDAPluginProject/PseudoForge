@@ -49,6 +49,7 @@ from ida_pseudoforge.ida.async_runner import (
     run_background,
 )
 from ida_pseudoforge.ida.decompiler import capture_current_function, capture_current_lvars, capture_function_by_name
+from ida_pseudoforge.ida.disasm_capture import capture_disasm_case_slice
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
 from ida_pseudoforge.ida.preview_config_dialog import ask_preview_config, format_preview_summary
 from ida_pseudoforge.ida.profile_config_dialog import ask_profile_dir, format_profile_summary
@@ -151,6 +152,7 @@ def export_current_function() -> dict[str, str]:
 def analyze_current_buffer_contract_case(
     command_value: int,
     capture: FunctionCapture | None = None,
+    case_entry_ea: int | None = None,
 ) -> tuple[FunctionCapture, CleanPlan, str]:
     purpose = "buffer_contract_case"
     with trace_scope(purpose, command_value="0x%X" % command_value):
@@ -194,6 +196,8 @@ def analyze_current_buffer_contract_case(
             max_helpers=12,
         )
         _raise_if_task_cancelled(purpose, "after helper capture")
+        disasm_slices = _capture_buffer_contract_case_disasm(capture, command_value, case_entry_ea)
+        _raise_if_task_cancelled(purpose, "after disasm capture")
         with trace_scope("buffer_contract_case.deep_plan", helpers=len(helper_captures), case="0x%X" % command_value):
             plan = _build_plan_with_config(
                 capture,
@@ -202,6 +206,7 @@ def analyze_current_buffer_contract_case(
                 helper_captures=helper_captures,
                 buffer_contract_case_values=[command_value],
                 buffer_contract_helper_depth=2,
+                buffer_contract_disasm_slices=disasm_slices,
             )
         text = _format_buffer_contract_case_preview(capture, plan, command_value, helper_captures, helper_names)
         log_event(
@@ -347,9 +352,11 @@ class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else ob
     def activate(self, ctx):
         log_checkpoint("action.buffer_contract_case.activate.before", prompt=int(self.prompt_always))
         capture = None
+        case_entry_ea = None
         if self.prompt_always:
             command_value = _ask_buffer_contract_case_value()
         else:
+            case_entry_ea = _current_screen_ea()
             command_value, capture = _resolve_buffer_contract_case_from_cursor(ctx)
         if command_value is None:
             if self.prompt_always:
@@ -387,7 +394,7 @@ class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else ob
 
         run_background(
             "buffer-contract-case",
-            lambda: analyze_current_buffer_contract_case(command_value, capture=capture),
+            lambda: analyze_current_buffer_contract_case(command_value, capture=capture, case_entry_ea=case_entry_ea),
             on_success,
             group_name=PLUGIN_STATE_GROUP,
         )
@@ -1088,12 +1095,60 @@ def _current_function_identity() -> tuple[int, str] | None:
         return None
 
 
+def _current_screen_ea() -> int | None:
+    if ida_kernwin is None or idaapi is None:
+        return None
+    try:
+        ea = int(ida_kernwin.get_screen_ea())
+    except Exception:
+        return None
+    try:
+        if ea == int(idaapi.BADADDR):
+            return None
+    except Exception:
+        pass
+    return ea
+
+
+def _capture_buffer_contract_case_disasm(
+    capture: FunctionCapture,
+    command_value: int,
+    case_entry_ea: int | None,
+) -> dict[int, object]:
+    if case_entry_ea is None:
+        log_checkpoint("buffer_contract_case.disasm_capture.entry_search", case="0x%X" % command_value)
+    with trace_scope("buffer_contract_case.disasm_capture", function=capture.name, case="0x%X" % command_value):
+        case_slice = capture_disasm_case_slice(
+            capture.ea,
+            command_value,
+            entry_ea=case_entry_ea,
+            max_blocks=32,
+            max_instructions=512,
+        )
+    if case_slice is None:
+        log_checkpoint("buffer_contract_case.disasm_capture.empty", case="0x%X" % command_value)
+        return {}
+    entry_ea = int(case_slice.entry_ea or case_entry_ea or 0)
+    log_event(
+        "buffer_contract_case.disasm_capture function=\"%s\" ea=0x%X case=0x%X entry=0x%X instructions=%d"
+        % (
+            _ascii_for_log(capture.name),
+            capture.ea,
+            command_value,
+            entry_ea,
+            len(case_slice.instructions),
+        )
+    )
+    return {command_value: case_slice}
+
+
 def _build_plan_with_config(
     capture: FunctionCapture,
     task_name: str = "",
     helper_captures: dict[str, FunctionCapture] | None = None,
     buffer_contract_case_values: list[int] | None = None,
     buffer_contract_helper_depth: int = 2,
+    buffer_contract_disasm_slices: dict[int, object] | None = None,
     force_deterministic: bool = False,
 ) -> CleanPlan:
     log_checkpoint("build_plan.load_config.before", function=capture.name, ea="0x%X" % capture.ea)
@@ -1116,6 +1171,7 @@ def _build_plan_with_config(
                 helper_captures=helper_captures,
                 buffer_contract_case_values=buffer_contract_case_values,
                 buffer_contract_helper_depth=buffer_contract_helper_depth,
+                buffer_contract_disasm_slices=buffer_contract_disasm_slices,
             )
         _raise_if_task_cancelled(task_name, "after deterministic plan")
         return plan
@@ -1150,6 +1206,7 @@ def _build_plan_with_config(
                 helper_captures=helper_captures,
                 buffer_contract_case_values=buffer_contract_case_values,
                 buffer_contract_helper_depth=buffer_contract_helper_depth,
+                buffer_contract_disasm_slices=buffer_contract_disasm_slices,
             )
         _raise_if_task_cancelled(task_name, "after llm provider")
         log_event(
@@ -1198,6 +1255,7 @@ def _build_plan_with_config(
                 helper_captures=helper_captures,
                 buffer_contract_case_values=buffer_contract_case_values,
                 buffer_contract_helper_depth=buffer_contract_helper_depth,
+                buffer_contract_disasm_slices=buffer_contract_disasm_slices,
             )
         _raise_if_task_cancelled(task_name, "after fallback plan")
         plan.warnings.insert(0, fallback_warning)

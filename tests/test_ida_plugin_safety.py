@@ -983,6 +983,8 @@ __int64 __fastcall sub_140001000(int argument)
     def test_buffer_contract_case_value_parser_accepts_c_literals(self):
         self.assertEqual(0x91234004, actions_module._parse_buffer_contract_case_value("0x91234004u"))
         self.assertEqual(29, actions_module._parse_buffer_contract_case_value("29"))
+        self.assertEqual(75, actions_module._parse_buffer_contract_case_value("'K'"))
+        self.assertEqual(75, actions_module._parse_buffer_contract_case_value(r"'\x4B'"))
         self.assertIsNone(actions_module._parse_buffer_contract_case_value("not_a_case"))
 
     def test_buffer_contract_cursor_location_prefers_hexrays_vdui(self):
@@ -1195,6 +1197,27 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         unlinked_section = text.split("Captured helpers not linked to selected buffer path:", 1)[1].split("# Buffer Contract Report", 1)[0]
         self.assertIn("`UnlinkedHelper`", unlinked_section)
         self.assertNotIn("`LinkedHelper`", unlinked_section)
+
+    def test_buffer_contract_value_disasm_capture_attempts_entry_search(self):
+        capture = FunctionCapture(ea=0x140001000, name="Dispatch")
+        calls = []
+        old_capture = actions_module.capture_disasm_case_slice
+
+        def fake_capture(function_ea, command_value, entry_ea=None, **kwargs):
+            calls.append((function_ea, command_value, entry_ea, kwargs))
+            return None
+
+        actions_module.capture_disasm_case_slice = fake_capture
+        try:
+            result = actions_module._capture_buffer_contract_case_disasm(capture, 0x91236000, None)
+        finally:
+            actions_module.capture_disasm_case_slice = old_capture
+
+        self.assertEqual({}, result)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(0x140001000, calls[0][0])
+        self.assertEqual(0x91236000, calls[0][1])
+        self.assertIsNone(calls[0][2])
 
     def test_buffer_contract_helper_capture_preserves_call_site_name(self):
         helper_capture = FunctionCapture(
