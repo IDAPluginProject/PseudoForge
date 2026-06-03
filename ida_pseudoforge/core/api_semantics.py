@@ -13,6 +13,12 @@ FUNCTION_PARAMETER_NAMES = {
         "processInformation",
         "processInformationLength",
     ],
+    "NtSetInformationThread": [
+        "threadHandle",
+        "threadInformationClass",
+        "threadInformation",
+        "threadInformationLength",
+    ],
 }
 
 
@@ -29,6 +35,13 @@ FUNCTION_SIGNATURE_OVERRIDES = {
         "        PROCESSINFOCLASS processInformationClass,",
         "        PVOID processInformation,",
         "        ULONG processInformationLength)",
+    ],
+    "NtSetInformationThread": [
+        "NTSTATUS NTAPI NtSetInformationThread(",
+        "        HANDLE threadHandle,",
+        "        THREADINFOCLASS threadInformationClass,",
+        "        PVOID threadInformation,",
+        "        ULONG threadInformationLength)",
     ],
 }
 

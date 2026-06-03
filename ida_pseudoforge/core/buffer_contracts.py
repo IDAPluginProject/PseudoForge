@@ -8,6 +8,7 @@ from typing import Iterable
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, format_ctl_code, parse_c_integer_literal
 from ida_pseudoforge.core.normalize import (
     extract_call_arguments,
+    extract_function_signature,
     extract_parameters_from_signature,
     safe_identifier_replace,
 )
@@ -22,16 +23,26 @@ from ida_pseudoforge.core.plan_schema import (
     FunctionCapture,
     HelperContractEdge,
 )
+from ida_pseudoforge.profiles.loader import (
+    get_process_information_class_value,
+    get_system_information_class_value,
+    get_thread_information_class_value,
+)
 
 
 _CASE_INTEGER_SUFFIX = r"(?i:ui64|i64|u?ll|llu|ul|lu|u|l)"
-_CASE_LITERAL_RE = re.compile(r"case\s+(?P<value>0x[0-9A-Fa-f]+|\d+)(?:%s)?\s*:" % _CASE_INTEGER_SUFFIX)
+_CASE_LABEL_RE = re.compile(r"case\s+(?P<value>[^:]+?)\s*:")
 _C_VALUE_RE = r"(?:sizeof\s*\([^)]+\)|0x[0-9A-Fa-f]+|\d+)(?:%s)?" % _CASE_INTEGER_SUFFIX
 _C_INTEGER_LITERAL_VALUE_RE = r"-?(?:0x[0-9A-Fa-f]+|\d+)(?:%s)?" % _CASE_INTEGER_SUFFIX
 _IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]*"
 _LENGTH_COMPARE_RE = re.compile(
     r"(?P<left>%s|%s)\s*(?P<op>==|!=|<=|>=|<|>)\s*(?P<right>%s|%s)"
     % (_IDENT_RE, _C_VALUE_RE, _IDENT_RE, _C_VALUE_RE)
+)
+_LENGTH_TRUTHY_IF_RE = re.compile(
+    r"^if\s*\(\s*(?P<negate>!)?\s*"
+    r"(?:\(\s*(?:_DWORD|unsigned\s+int|int|ULONG|SIZE_T|DWORD)\s*\)\s*)?"
+    r"(?P<length>%s)\s*\)" % _IDENT_RE
 )
 _ARROW_FIELD_RE = re.compile(r"\b(?P<buffer>%s)\s*->\s*(?P<field>%s)\b" % (_IDENT_RE, _IDENT_RE))
 _DEREF_OFFSET_RE = re.compile(
@@ -45,6 +56,10 @@ _DEREF_PLAIN_RE = re.compile(
 _CAST_INDEX_RE = re.compile(
     r"\*\s*\(\s*\(\s*(?P<type>[_A-Za-z][A-Za-z0-9_\s]*?)\s*\*+\s*\)\s*"
     r"(?P<buffer>%s)\s*\+\s*(?P<index>\d+)\s*\)" % _IDENT_RE
+)
+_INDEXED_MEMBER_RE = re.compile(
+    r"\b(?P<buffer>%s)\s*\[\s*(?P<index>\d+)\s*\]\s*\.\s*"
+    r"(?P<member>%s)\s*\[\s*(?P<member_index>\d+)\s*\]" % (_IDENT_RE, _IDENT_RE)
 )
 _ASSIGNMENT_RE = re.compile(r"(?P<left>[^=<>!]+?)\s*=\s*(?!=)(?P<right>.+?);")
 _CALL_NAME_RE = re.compile(r"\b(?P<name>%s)\s*\(" % _IDENT_RE)
@@ -93,6 +108,7 @@ def recover_buffer_contracts(
     text = safe_identifier_replace(capture.pseudocode, rename_map or {})
     helper_map = _normalize_helper_captures(helper_captures)
     buffer_sources = _infer_buffer_sources(text, capture)
+    length_aliases = _infer_length_aliases(text)
     case_filter = {int(value) for value in case_values} if case_values is not None else None
     result: list[CommandBufferContract] = []
 
@@ -100,9 +116,13 @@ def recover_buffer_contracts(
         kind = _dispatcher_kind(capture, flow)
         if kind == "generic" and not _has_strong_generic_buffer_evidence(text):
             continue
-        case_bodies = _native_switch_case_bodies(text, flow.dispatcher)
-        if not case_bodies:
-            case_bodies = {value: list(lines) for value, lines in flow.case_bodies.items()}
+        case_bodies = _merged_case_bodies(
+            native_bodies=_native_switch_case_bodies(text, flow.dispatcher),
+            flow_bodies={
+                value: _renamed_case_body_lines(lines, rename_map or {})
+                for value, lines in flow.case_bodies.items()
+            },
+        )
         if not case_bodies:
             continue
 
@@ -112,6 +132,21 @@ def recover_buffer_contracts(
             body_lines = case_bodies.get(value, [])
             if not body_lines:
                 continue
+            body_lines = _body_lines_with_shared_tail_size_guards(
+                text,
+                flow.dispatcher,
+                body_lines,
+                buffer_sources,
+                length_aliases,
+            )
+            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+                body_lines = _body_lines_with_dispatcher_condition_context(
+                    text,
+                    flow.dispatcher,
+                    value,
+                    flow.case_names.get(value, ""),
+                    body_lines,
+                )
             command_name = flow.case_names.get(value, "")
             if not command_name and kind == "ioctl":
                 command_name = format_ctl_code(value)
@@ -126,6 +161,7 @@ def recover_buffer_contracts(
                 max_depth=max_depth,
                 depth=0,
                 visited={capture.name},
+                length_aliases=length_aliases,
             )
             if command.buffers or command.helper_edges:
                 result.append(command)
@@ -385,6 +421,417 @@ def helper_names_for_selected_case(capture: FunctionCapture, plan: CleanPlan, co
     return result
 
 
+def _body_lines_with_shared_tail_size_guards(
+    text: str,
+    dispatcher: str,
+    body_lines: list[str],
+    buffer_sources: dict[str, dict[str, str]],
+    length_aliases: dict[str, str] | None = None,
+) -> list[str]:
+    assignments = _literal_assignments_from_lines(body_lines)
+    if not assignments:
+        return body_lines
+    length_names = _length_names_from_sources(buffer_sources) | _length_like_names(text) | set(length_aliases or {})
+    if not length_names:
+        return body_lines
+    tail_lines = _post_switch_tail_lines(text, dispatcher)
+    if not tail_lines:
+        return body_lines
+    extra = _shared_tail_size_guard_blocks(tail_lines, assignments, length_names)
+    if not extra:
+        return body_lines
+    return list(body_lines) + extra
+
+
+def _literal_assignments_from_lines(lines: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in lines:
+        match = re.search(
+            r"^\s*(?P<name>%s)\s*=\s*(?P<value>%s)\s*;"
+            % (_IDENT_RE, _C_INTEGER_LITERAL_VALUE_RE),
+            line or "",
+        )
+        if not match:
+            continue
+        result[match.group("name")] = match.group("value")
+    return result
+
+
+def _post_switch_tail_lines(text: str, dispatcher: str, max_lines: int = 120) -> list[str]:
+    if not dispatcher:
+        return []
+    switch_re = re.compile(r"\bswitch\s*\(\s*(?:\(\s*[^()]+\s*\)\s*)*%s\s*\)" % re.escape(dispatcher))
+    lines = (text or "").splitlines()
+    switch_index = -1
+    for index, line in enumerate(lines):
+        if switch_re.search(line):
+            switch_index = index
+            break
+    if switch_index < 0:
+        return []
+    depth = 0
+    seen_open = False
+    for index in range(switch_index, len(lines)):
+        stripped = lines[index].strip()
+        opens = stripped.count("{")
+        closes = stripped.count("}")
+        if opens:
+            seen_open = True
+        if seen_open:
+            depth += opens - closes
+            if depth <= 0:
+                return lines[index + 1:index + 1 + max_lines]
+    return []
+
+
+def _shared_tail_size_guard_blocks(
+    tail_lines: list[str],
+    assignments: dict[str, str],
+    length_names: set[str],
+) -> list[str]:
+    result: list[str] = []
+    seen: set[tuple[str, ...]] = set()
+    assignment_names = set(assignments)
+    for index, line in enumerate(tail_lines):
+        stripped = line.strip()
+        if not stripped.startswith("if"):
+            continue
+        if not _line_mentions_any_identifier(stripped, length_names):
+            continue
+        if not _line_mentions_any_identifier(stripped, assignment_names):
+            continue
+        block = _control_block_lines(tail_lines, index)
+        replaced = [_replace_literal_assignments(item, assignments) for item in block]
+        key = tuple(replaced)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.extend(replaced)
+    return result
+
+
+def _control_block_lines(lines: list[str], index: int, max_lines: int = 16) -> list[str]:
+    if index < 0 or index >= len(lines):
+        return []
+    result = [lines[index]]
+    depth = 0
+    saw_open = False
+    for offset, line in enumerate(lines[index:]):
+        stripped = line.strip()
+        opens = stripped.count("{")
+        closes = stripped.count("}")
+        if opens:
+            saw_open = True
+        depth += opens - closes
+        if len(result) >= max_lines:
+            break
+        if offset == 0:
+            if not saw_open and stripped.endswith(";"):
+                break
+            continue
+        result.append(line)
+        if saw_open and depth <= 0:
+            break
+        if not saw_open and stripped.endswith(";"):
+            break
+    return result
+
+
+def _replace_literal_assignments(line: str, assignments: dict[str, str]) -> str:
+    result = line
+    for name, value in sorted(assignments.items(), key=lambda item: len(item[0]), reverse=True):
+        result = re.sub(r"\b%s\b" % re.escape(name), value, result)
+    return result
+
+
+def _line_mentions_any_identifier(line: str, names: set[str]) -> bool:
+    if not line or not names:
+        return False
+    identifiers = set(re.findall(r"\b%s\b" % _IDENT_RE, line))
+    return bool(identifiers & names)
+
+
+def _case_body_has_contract_evidence(
+    body_lines: list[str],
+    buffer_sources: dict[str, dict[str, str]],
+    length_aliases: dict[str, str] | None,
+) -> bool:
+    return bool(
+        _recover_size_constraints(body_lines, length_aliases=length_aliases)
+        or _recover_field_accesses(body_lines, buffer_sources)
+    )
+
+
+def _body_lines_with_dispatcher_condition_context(
+    text: str,
+    dispatcher: str,
+    command_value: int,
+    command_name: str,
+    body_lines: list[str],
+) -> list[str]:
+    context = _dispatcher_condition_context_lines(text, dispatcher, command_value, command_name)
+    if not context:
+        return body_lines
+    merged = list(body_lines)
+    seen = {line.strip() for line in merged if line.strip()}
+    for line in context:
+        stripped = line.strip()
+        if not stripped or stripped in seen:
+            continue
+        merged.append(stripped)
+        seen.add(stripped)
+    return merged
+
+
+def _dispatcher_condition_context_lines(
+    text: str,
+    dispatcher: str,
+    command_value: int,
+    command_name: str,
+) -> list[str]:
+    if not text or not dispatcher:
+        return []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not _is_simple_dispatcher_case_condition(line, dispatcher, command_value, command_name):
+            continue
+        prefix = _preceding_guard_context(lines, index)
+        branch = _true_branch_and_join_context(lines, index)
+        context = prefix + branch
+        if _case_context_has_buffer_evidence(context):
+            return context
+    return []
+
+
+def _is_simple_dispatcher_case_condition(
+    line: str,
+    dispatcher: str,
+    command_value: int,
+    command_name: str,
+) -> bool:
+    match = re.match(r"^\s*if\s*\(\s*(?P<left>.+?)\s*==\s*(?P<right>.+?)\s*\)\s*$", line or "")
+    if not match:
+        return False
+    left = _clean_dispatcher_case_operand(match.group("left"))
+    right = _clean_dispatcher_case_operand(match.group("right"))
+    return (
+        _operand_matches_dispatcher(left, dispatcher)
+        and _operand_matches_case(right, command_value, command_name)
+    ) or (
+        _operand_matches_dispatcher(right, dispatcher)
+        and _operand_matches_case(left, command_value, command_name)
+    )
+
+
+def _clean_dispatcher_case_operand(value: str) -> str:
+    token = (value or "").strip()
+    while True:
+        stripped = re.sub(r"^\(\s*[_A-Za-z][A-Za-z0-9_\s]*\s*\)\s*", "", token).strip()
+        if stripped == token:
+            break
+        token = stripped
+    if token.startswith("(") and token.endswith(")"):
+        token = token[1:-1].strip()
+    return token
+
+
+def _operand_matches_dispatcher(value: str, dispatcher: str) -> bool:
+    return (value or "").strip() == dispatcher
+
+
+def _operand_matches_case(value: str, command_value: int, command_name: str) -> bool:
+    token = (value or "").strip()
+    if command_name and token == command_name:
+        return True
+    parsed = _parse_case_label_value(token)
+    return parsed == command_value
+
+
+def _preceding_guard_context(lines: list[str], condition_index: int, max_lines: int = 24) -> list[str]:
+    start = condition_index
+    scanned = 0
+    index = condition_index - 1
+    while index >= 0:
+        stripped = lines[index].strip()
+        if not stripped:
+            break
+        if stripped == "}":
+            block_start = _matching_braced_block_start(lines, index)
+            header_index = _previous_non_empty_index(lines, block_start - 1)
+            if (
+                block_start >= 0
+                and header_index is not None
+                and lines[header_index].strip().startswith("if")
+            ):
+                start = header_index
+                scanned += index - header_index + 1
+                index = header_index - 1
+                if scanned >= max_lines:
+                    break
+                continue
+            break
+        start = index
+        scanned += 1
+        if stripped.endswith(":"):
+            break
+        if stripped in {"{", "}"}:
+            break
+        if scanned >= max_lines:
+            break
+        index -= 1
+    return [line.strip() for line in lines[start:condition_index] if line.strip()]
+
+
+def _true_branch_and_join_context(
+    lines: list[str],
+    condition_index: int,
+    max_join_lines: int = 96,
+) -> list[str]:
+    result = [lines[condition_index].strip()]
+    then_start = _next_non_empty_index(lines, condition_index + 1)
+    if then_start is None:
+        return result
+    then_end = _statement_end_index(lines, then_start)
+    then_lines = _statement_lines(lines, then_start, then_end)
+    result.extend(then_lines)
+    tail_label = _single_goto_label(then_lines)
+    if tail_label:
+        result.extend(_label_tail_context(lines, tail_label, max_join_lines))
+        return result
+
+    join_start = then_end
+    else_index = _next_non_empty_index(lines, then_end)
+    if else_index is not None and lines[else_index].strip().startswith("else"):
+        else_body_start = _next_non_empty_index(lines, else_index + 1)
+        if else_body_start is not None:
+            join_start = _statement_end_index(lines, else_body_start)
+        else:
+            join_start = else_index + 1
+
+    result.extend(_join_context_lines(lines, join_start, max_join_lines))
+    return result
+
+
+def _next_non_empty_index(lines: list[str], start: int) -> int | None:
+    for index in range(start, len(lines)):
+        if lines[index].strip():
+            return index
+    return None
+
+
+def _previous_non_empty_index(lines: list[str], start: int) -> int | None:
+    for index in range(start, -1, -1):
+        if lines[index].strip():
+            return index
+    return None
+
+
+def _statement_end_index(lines: list[str], start: int) -> int:
+    if start < 0 or start >= len(lines):
+        return start
+    stripped = lines[start].strip()
+    if stripped.startswith("{"):
+        return _braced_statement_end_index(lines, start)
+    if stripped.startswith("else"):
+        body_start = _next_non_empty_index(lines, start + 1)
+        return _statement_end_index(lines, body_start) if body_start is not None else start + 1
+    return start + 1
+
+
+def _braced_statement_end_index(lines: list[str], start: int) -> int:
+    depth = 0
+    saw_open = False
+    for index in range(start, len(lines)):
+        stripped = lines[index].strip()
+        opens = stripped.count("{")
+        closes = stripped.count("}")
+        if opens:
+            depth += opens
+            saw_open = True
+        if closes:
+            depth -= closes
+            if saw_open and depth <= 0:
+                return index + 1
+    return len(lines)
+
+
+def _matching_braced_block_start(lines: list[str], end_index: int) -> int:
+    depth = 0
+    for index in range(end_index, -1, -1):
+        stripped = lines[index].strip()
+        depth += stripped.count("}")
+        depth -= stripped.count("{")
+        if depth <= 0 and "{" in stripped:
+            return index
+    return -1
+
+
+def _statement_lines(lines: list[str], start: int, end: int) -> list[str]:
+    result: list[str] = []
+    for line in lines[start:end]:
+        stripped = line.strip()
+        if stripped in {"{", "}"}:
+            continue
+        if stripped:
+            result.append(stripped)
+    return result
+
+
+def _single_goto_label(lines: list[str]) -> str:
+    statements = [line.strip() for line in lines if line.strip() and line.strip() not in {"{", "}"}]
+    if len(statements) != 1:
+        return ""
+    match = _GOTO_LABEL_RE.search(statements[0])
+    return match.group("label") if match else ""
+
+
+def _label_tail_context(lines: list[str], label: str, max_lines: int) -> list[str]:
+    label_re = re.compile(r"^\s*%s\s*:" % re.escape(label))
+    for index, line in enumerate(lines):
+        if not label_re.match(line):
+            continue
+        return _join_context_lines(lines, index, max_lines)
+    return []
+
+
+def _join_context_lines(lines: list[str], start: int, max_lines: int) -> list[str]:
+    result: list[str] = []
+    depth = 0
+    saw_open = False
+    terminal_started = False
+    for index in range(start, min(len(lines), start + max_lines)):
+        stripped = lines[index].strip()
+        if not stripped:
+            continue
+        if stripped in {"{", "}"} and not result:
+            continue
+        result.append(stripped)
+        opens = stripped.count("{")
+        closes = stripped.count("}")
+        if opens:
+            depth += opens
+            saw_open = True
+        if closes:
+            depth -= closes
+            if saw_open and depth <= 0 and stripped == "}":
+                break
+        if stripped.startswith("return ") or stripped == "return;":
+            terminal_started = True
+        if terminal_started and stripped.endswith(";"):
+            break
+    return result
+
+
+def _case_context_has_buffer_evidence(lines: list[str]) -> bool:
+    for line in lines:
+        lowered = line.lower()
+        if "length" in lowered or "buffer" in lowered or "information" in lowered:
+            return True
+        if "*" in line or "->" in line:
+            return True
+    return False
+
+
 def _selected_case_body(
     capture: FunctionCapture,
     plan: CleanPlan,
@@ -406,9 +853,29 @@ def _selected_case_body(
         if body_lines is None and renamed_text != text:
             body_lines = _case_body_from_anchor(renamed_text, command_value, flow.case_anchors.get(command_value, 0))
         if body_lines is None:
-            body_lines = flow.case_bodies.get(command_value, [])
+            body_lines = _renamed_case_body_lines(flow.case_bodies.get(command_value, []), rename_map or {})
         return flow, list(body_lines)
     return None, []
+
+
+def _merged_case_bodies(
+    native_bodies: dict[int, list[str]],
+    flow_bodies: dict[int, list[str]],
+) -> dict[int, list[str]]:
+    merged = {value: list(lines) for value, lines in flow_bodies.items() if lines}
+    for value, body in native_bodies.items():
+        current = merged.get(value)
+        if current is None or _native_case_body_score(body) > _native_case_body_score(current):
+            merged[value] = list(body)
+    return merged
+
+
+def _renamed_case_body_lines(lines: list[str], rename_map: dict[str, str]) -> list[str]:
+    if not lines:
+        return []
+    if not rename_map:
+        return list(lines)
+    return safe_identifier_replace("\n".join(lines), rename_map).splitlines()
 
 
 def _case_body_excerpt(lines: list[str], max_lines: int = 8) -> list[str]:
@@ -459,7 +926,7 @@ def _slice_case_body_from_label(lines: list[str], case_index: int) -> list[str]:
         return []
     result: list[str] = []
     first = lines[case_index].strip()
-    first_match = _CASE_LITERAL_RE.match(first)
+    first_match = _CASE_LABEL_RE.match(first)
     if first_match:
         remainder = first[first_match.end():].strip()
         if remainder and remainder not in {"{", "}"}:
@@ -468,7 +935,7 @@ def _slice_case_body_from_label(lines: list[str], case_index: int) -> list[str]:
     local_depth = 0
     for line in lines[case_index + 1:]:
         stripped = line.strip()
-        if local_depth <= 0 and (_CASE_LITERAL_RE.match(stripped) or _is_default_case_line(stripped)):
+        if local_depth <= 0 and (_CASE_LABEL_RE.match(stripped) or _is_default_case_line(stripped)):
             break
         if local_depth <= 0 and stripped == "}":
             break
@@ -770,18 +1237,21 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
                 field["name"],
             )
         )
-    struct_size = max(size_hint, _fields_end_offset(fields), 1)
-    if exact_hint and exact_hint == struct_size:
+    struct_size = max(size_hint, _fields_end_offset(fields))
+    if exact_hint == 0 and struct_size == 0:
+        lines.append("// Exact-size predicate is 0; C++ empty structs have non-zero sizeof.")
+    elif exact_hint is not None and exact_hint == struct_size:
         lines.append(
             "static_assert(sizeof(%s) == 0x%X, \"%s size mismatch\");"
             % (buffer.structure_name, exact_hint, buffer.structure_name)
         )
     else:
+        minimum_struct_size = max(struct_size, 1)
         lines.append(
             "static_assert(sizeof(%s) >= 0x%X, \"%s minimum size mismatch\");"
-            % (buffer.structure_name, struct_size, buffer.structure_name)
+            % (buffer.structure_name, minimum_struct_size, buffer.structure_name)
         )
-        if exact_hint:
+        if exact_hint is not None:
             lines.append(
                 "// Exact-size predicate observed for 0x%X, but inferred fields require 0x%X bytes."
                 % (exact_hint, struct_size)
@@ -794,10 +1264,36 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
 
 
 def _case_value_from_line(line: str) -> int | None:
-    match = _CASE_LITERAL_RE.search((line or "").strip())
+    match = _CASE_LABEL_RE.search((line or "").strip())
     if not match:
         return None
-    return parse_c_integer_literal(match.group("value"))
+    return _parse_case_label_value(match.group("value"))
+
+
+def _parse_case_label_value(value: str) -> int | None:
+    token = (value or "").strip()
+    if not token:
+        return None
+    if "|" in token:
+        result = 0
+        for term in token.split("|"):
+            parsed = _parse_case_label_value(term)
+            if parsed is None:
+                return None
+            result |= parsed
+        return result
+    parsed = parse_c_integer_literal(token)
+    if parsed is not None:
+        return parsed
+    for resolver in (
+        get_process_information_class_value,
+        get_system_information_class_value,
+        get_thread_information_class_value,
+    ):
+        parsed = resolver(token)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _is_default_case_line(line: str) -> bool:
@@ -884,7 +1380,7 @@ def _render_cpp_field_layout(
         )
         reserved_index += 1
     if not fields and target_size <= 0:
-        lines.append("    std::uint8_t reserved_0x00[1];")
+        lines.append("    // No bytes are accepted for this buffer role.")
     elif not fields and reserved_index == 0:
         lines.append("    std::uint8_t reserved_0x00[%d];" % target_size)
     return lines
@@ -995,7 +1491,7 @@ def _struct_size_hint(fields: list[dict[str, object]], constraints: list[BufferS
     return result
 
 
-def _struct_exact_size_hint(constraints: list[BufferSizeConstraint]) -> int:
+def _struct_exact_size_hint(constraints: list[BufferSizeConstraint]) -> int | None:
     hints = []
     for constraint in constraints:
         if constraint.relation not in {"==", "!="}:
@@ -1003,7 +1499,7 @@ def _struct_exact_size_hint(constraints: list[BufferSizeConstraint]) -> int:
         value = _parse_constraint_integer(constraint.value)
         if value is not None:
             hints.append(value)
-    return hints[0] if len(set(hints)) == 1 else 0
+    return hints[0] if hints and len(set(hints)) == 1 else None
 
 
 def _size_predicates_for_constraints(constraints: list[BufferSizeConstraint]) -> list[_SizePredicate]:
@@ -1129,6 +1625,7 @@ def _cpp_type(type_text: str) -> str:
         "ULONG_PTR": "std::uintptr_t",
         "PVOID": "void *",
         "HANDLE": "void *",
+        "void": "void *",
         "unknown": "std::uint32_t",
         "": "std::uint32_t",
     }
@@ -1239,6 +1736,8 @@ def _size_constant_name(structure_name: str, predicate: _SizePredicate) -> str:
         ">=": "MIN_",
         "<=": "MAX_",
     }.get(predicate.relation, "")
+    if predicate.relation == "==" and structure_name.upper().endswith("_%s" % predicate.role.upper()):
+        return "%s_SIZE" % structure_name
     return "%s_%s%s_SIZE" % (structure_name, relation_prefix, predicate.role.upper())
 
 
@@ -1278,9 +1777,10 @@ def _analyze_command_case(
     max_depth: int,
     depth: int,
     visited: set[str],
+    length_aliases: dict[str, str] | None = None,
 ) -> CommandBufferContract:
     body_text = "\n".join(body_lines)
-    size_constraints = _recover_size_constraints(body_lines)
+    size_constraints = _recover_size_constraints(body_lines, length_aliases=length_aliases)
     field_accesses = _recover_field_accesses(body_lines, buffer_sources)
     field_constraints = _recover_field_constraints(body_lines, field_accesses)
     helper_edges = _recover_helper_edges(
@@ -1318,12 +1818,15 @@ def _analyze_command_case(
 
 def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict[str, str]]:
     sources: dict[str, dict[str, str]] = {}
-    parameters = extract_parameters_from_signature(safe_identifier_replace(capture.prototype, {}))
+    signature = extract_function_signature(text) or safe_identifier_replace(capture.prototype, {})
+    parameters = extract_parameters_from_signature(signature)
     for name, type_text in parameters:
         lowered = name.lower()
-        if lowered in {"processinformation", "systeminformation"}:
+        if _looks_like_dispatcher_parameter_name(name):
+            continue
+        if lowered in {"processinformation", "systeminformation", "threadinformation"}:
             _add_buffer_source(sources, name, "input", "parameter", _matching_length_variable(text, name))
-        elif "buffer" in lowered or "information" in lowered and "*" in type_text:
+        elif "buffer" in lowered or ("information" in lowered and _looks_like_pointer_type(type_text)):
             _add_buffer_source(sources, name, "input", "parameter", _matching_length_variable(text, name))
 
     for match in re.finditer(
@@ -1357,7 +1860,68 @@ def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict
             if "systembuffer" in lowered:
                 role = "inout"
             _add_buffer_source(sources, name, role, "name", _matching_length_variable(text, name))
+    _propagate_buffer_source_aliases(text, sources)
     return sources
+
+
+def _looks_like_dispatcher_parameter_name(name: str) -> bool:
+    compact = re.sub(r"[^A-Za-z0-9]", "", name or "").lower()
+    if compact in {
+        "class",
+        "infoclass",
+        "informationclass",
+        "iocontrolcode",
+        "ioctlcode",
+        "processinformationclass",
+        "systeminformationclass",
+        "threadinformationclass",
+    }:
+        return True
+    return compact.endswith("informationclass") or compact.endswith("infoclass")
+
+
+def _looks_like_pointer_type(type_text: str) -> bool:
+    compact = re.sub(r"\s+", "", type_text or "").upper()
+    if "*" in compact:
+        return True
+    return compact in {
+        "PVOID",
+        "PCVOID",
+        "PCHAR",
+        "PUCHAR",
+        "PBYTE",
+        "PULONG",
+        "PULONG_PTR",
+        "PULONGLONG",
+        "PSIZE_T",
+    }
+
+
+def _propagate_buffer_source_aliases(text: str, sources: dict[str, dict[str, str]]) -> None:
+    assignment_re = re.compile(
+        r"\b(?P<dst>%s)\s*=\s*(?:\(\s*[^()]+\s*\)\s*)*(?P<src>%s)\s*;"
+        % (_IDENT_RE, _IDENT_RE)
+    )
+    for _ in range(4):
+        changed = False
+        for match in assignment_re.finditer(text or ""):
+            dst = match.group("dst")
+            src = match.group("src")
+            if dst == src or src not in sources or _looks_like_length_name(dst):
+                continue
+            info = sources[src]
+            before = dict(sources.get(dst, {}))
+            _add_buffer_source(
+                sources,
+                dst,
+                info.get("role", "input"),
+                "alias:%s" % src,
+                info.get("length", ""),
+            )
+            if sources.get(dst, {}) != before:
+                changed = True
+        if not changed:
+            break
 
 
 def _identifier_has_value_use(text: str, name: str) -> bool:
@@ -1392,6 +1956,36 @@ def _add_buffer_source(
 def _known_length_names(text: str) -> str:
     names = set(re.findall(r"\b%s\b" % _IDENT_RE, text or ""))
     return ", ".join(sorted(name for name in names if _looks_like_length_name(name)))
+
+
+def _infer_length_aliases(text: str) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    assignment_re = re.compile(
+        r"\b(?P<dst>%s)\s*=\s*(?:\(\s*[^()]+\s*\)\s*)*(?P<src>%s)\s*;"
+        % (_IDENT_RE, _IDENT_RE)
+    )
+    canonical_names = _length_like_names(text)
+    for _ in range(4):
+        changed = False
+        for match in assignment_re.finditer(text or ""):
+            dst = match.group("dst")
+            src = match.group("src")
+            if dst == src:
+                continue
+            canonical = ""
+            if src in canonical_names:
+                canonical = src
+            elif src in aliases:
+                canonical = aliases[src]
+            if not canonical:
+                continue
+            if aliases.get(dst) == canonical:
+                continue
+            aliases[dst] = canonical
+            changed = True
+        if not changed:
+            break
+    return aliases
 
 
 def _matching_length_variable(text: str, buffer_name: str) -> str:
@@ -1430,15 +2024,19 @@ def _semantic_name_tokens(name: str) -> list[str]:
     return [part.lower() for part in spaced.split() if part]
 
 
-def _recover_size_constraints(lines: list[str], source: str = "local") -> list[BufferSizeConstraint]:
+def _recover_size_constraints(
+    lines: list[str],
+    source: str = "local",
+    length_aliases: dict[str, str] | None = None,
+) -> list[BufferSizeConstraint]:
     result: list[BufferSizeConstraint] = []
     seen = set()
     for index, line in enumerate(lines):
         stripped = line.strip()
         valid_from_reject = _line_has_reject_outcome(lines, index)
         for match in _LENGTH_COMPARE_RE.finditer(stripped):
-            left = _clean_operand(match.group("left"))
-            right = _clean_operand(match.group("right"))
+            left = _canonical_length_operand(_clean_operand(match.group("left")), length_aliases)
+            right = _canonical_length_operand(_clean_operand(match.group("right")), length_aliases)
             op = match.group("op")
             if _looks_like_length_name(left) and _looks_like_constraint_value(right):
                 length, relation, value = left, op, right
@@ -1465,7 +2063,60 @@ def _recover_size_constraints(lines: list[str], source: str = "local") -> list[B
                     confidence=0.82,
                 )
             )
+        truthy_constraint = _truthy_length_constraint(stripped, valid_from_reject, length_aliases, source)
+        if truthy_constraint is not None:
+            key = (
+                truthy_constraint.length,
+                truthy_constraint.relation,
+                truthy_constraint.value,
+                truthy_constraint.evidence,
+                truthy_constraint.source,
+            )
+            if key not in seen:
+                seen.add(key)
+                result.append(truthy_constraint)
     return result
+
+
+def _truthy_length_constraint(
+    line: str,
+    valid_from_reject: bool,
+    length_aliases: dict[str, str] | None,
+    source: str,
+) -> BufferSizeConstraint | None:
+    if not valid_from_reject:
+        return None
+    match = _LENGTH_TRUTHY_IF_RE.search(line or "")
+    if not match:
+        return None
+    length = _canonical_length_operand(match.group("length"), length_aliases)
+    if not _looks_like_length_name(length):
+        return None
+    relation = "==" if match.group("negate") else "!="
+    valid_relation = _valid_relation_for_reject_guard(relation)
+    return BufferSizeConstraint(
+        buffer="",
+        length=length,
+        relation=relation,
+        value="0",
+        valid_relation=valid_relation,
+        valid_value="0" if valid_relation else "",
+        role=_role_from_length(length),
+        evidence=line,
+        source=source,
+        confidence=0.78,
+    )
+
+
+def _canonical_length_operand(value: str, aliases: dict[str, str] | None) -> str:
+    operand = (value or "").strip()
+    if not aliases:
+        return operand
+    seen: set[str] = set()
+    while operand in aliases and operand not in seen:
+        seen.add(operand)
+        operand = aliases[operand]
+    return operand
 
 
 def _line_has_reject_outcome(lines: list[str], index: int) -> bool:
@@ -1635,7 +2286,54 @@ def _recover_field_accesses(
                 confidence=0.74,
             )
             _merge_field_access(access_by_key, item)
+        for match in _INDEXED_MEMBER_RE.finditer(stripped):
+            buffer = match.group("buffer")
+            if buffer not in known_buffers and not _looks_like_buffer_name(buffer):
+                continue
+            member = match.group("member")
+            member_size = _indexed_member_element_size(member)
+            if member_size <= 0:
+                continue
+            offset = int(match.group("index")) * 16 + int(match.group("member_index")) * member_size
+            item = FieldAccess(
+                buffer=buffer,
+                structure="",
+                offset=offset,
+                type=_indexed_member_element_type(member),
+                field=_field_name(offset),
+                access=_access_kind(match.group(0), left_expr),
+                evidence=stripped,
+                source=source,
+                confidence=0.7,
+            )
+            _merge_field_access(access_by_key, item)
     return list(access_by_key.values())
+
+
+def _indexed_member_element_size(member: str) -> int:
+    return {
+        "m128i_i8": 1,
+        "m128i_u8": 1,
+        "m128i_i16": 2,
+        "m128i_u16": 2,
+        "m128i_i32": 4,
+        "m128i_u32": 4,
+        "m128i_i64": 8,
+        "m128i_u64": 8,
+    }.get(member, 0)
+
+
+def _indexed_member_element_type(member: str) -> str:
+    return {
+        "m128i_i8": "std::int8_t",
+        "m128i_u8": "std::uint8_t",
+        "m128i_i16": "std::int16_t",
+        "m128i_u16": "std::uint16_t",
+        "m128i_i32": "std::int32_t",
+        "m128i_u32": "std::uint32_t",
+        "m128i_i64": "std::int64_t",
+        "m128i_u64": "std::uint64_t",
+    }.get(member, "std::uint32_t")
 
 
 def _recover_field_constraints(
@@ -1784,18 +2482,16 @@ def _build_buffer_contracts(
     field_constraints: list[FieldConstraint],
     helper_edges: list[HelperContractEdge],
 ) -> list[BufferContract]:
-    buffers = sorted(
-        {
-            item.buffer
-            for item in field_accesses + field_constraints
-            if item.buffer
-        }
-        | _helper_buffers_with_contract_evidence(helper_edges)
-        | {
-            info.get("variable", name)
-            for name, info in buffer_sources.items()
-            if _constraints_apply_to_source(info, size_constraints)
-        }
+    alias_roots = _buffer_alias_roots(buffer_sources)
+    field_accesses = [_canonical_field_access(item, alias_roots) for item in field_accesses]
+    field_constraints = [_canonical_field_constraint(item, alias_roots) for item in field_constraints]
+    helper_edges = [_canonical_helper_edge(edge, alias_roots) for edge in helper_edges]
+    buffers = _candidate_contract_buffers(
+        buffer_sources,
+        size_constraints,
+        field_accesses,
+        field_constraints,
+        helper_edges,
     )
     result: list[BufferContract] = []
     for buffer in buffers:
@@ -1851,6 +2547,148 @@ def _build_buffer_contracts(
             )
         )
     return result
+
+
+def _buffer_alias_roots(buffer_sources: dict[str, dict[str, str]]) -> dict[str, str]:
+    return {name: _buffer_alias_root(buffer_sources, name) for name in buffer_sources}
+
+
+def _buffer_alias_root(buffer_sources: dict[str, dict[str, str]], name: str) -> str:
+    current = name
+    seen: set[str] = set()
+    while current and current not in seen:
+        seen.add(current)
+        source = buffer_sources.get(current, {}).get("source", "")
+        if not source.startswith("alias:"):
+            break
+        parent = source.split(":", 1)[1].strip()
+        if not parent or parent not in buffer_sources:
+            break
+        current = parent
+    return current or name
+
+
+def _canonical_buffer_name(name: str, alias_roots: dict[str, str]) -> str:
+    return alias_roots.get(name, name)
+
+
+def _canonical_field_access(item: FieldAccess, alias_roots: dict[str, str]) -> FieldAccess:
+    buffer = _canonical_buffer_name(item.buffer, alias_roots)
+    if buffer == item.buffer:
+        return item
+    return FieldAccess(
+        buffer=buffer,
+        structure=item.structure,
+        offset=item.offset,
+        type=item.type,
+        field=item.field,
+        access=item.access,
+        evidence=item.evidence,
+        source=item.source,
+        confidence=item.confidence,
+    )
+
+
+def _canonical_field_constraint(item: FieldConstraint, alias_roots: dict[str, str]) -> FieldConstraint:
+    buffer = _canonical_buffer_name(item.buffer, alias_roots)
+    if buffer == item.buffer:
+        return item
+    return FieldConstraint(
+        buffer=buffer,
+        structure=item.structure,
+        offset=item.offset,
+        field=item.field,
+        relation=item.relation,
+        value=item.value,
+        mask=item.mask,
+        valid_relation=item.valid_relation,
+        valid_value=item.valid_value,
+        evidence=item.evidence,
+        source=item.source,
+        confidence=item.confidence,
+    )
+
+
+def _canonical_size_constraint(item: BufferSizeConstraint, alias_roots: dict[str, str]) -> BufferSizeConstraint:
+    buffer = _canonical_buffer_name(item.buffer, alias_roots)
+    if buffer == item.buffer:
+        return item
+    return BufferSizeConstraint(
+        buffer=buffer,
+        length=item.length,
+        relation=item.relation,
+        value=item.value,
+        valid_relation=item.valid_relation,
+        valid_value=item.valid_value,
+        role=item.role,
+        evidence=item.evidence,
+        source=item.source,
+        confidence=item.confidence,
+    )
+
+
+def _canonical_helper_edge(edge: HelperContractEdge, alias_roots: dict[str, str]) -> HelperContractEdge:
+    passed_buffers: list[str] = []
+    for buffer in edge.passed_buffers:
+        _append_unique(passed_buffers, _canonical_buffer_name(buffer, alias_roots))
+    return HelperContractEdge(
+        callee=edge.callee,
+        arguments=list(edge.arguments),
+        passed_buffers=passed_buffers,
+        resolved=edge.resolved,
+        depth=edge.depth,
+        evidence=edge.evidence,
+        propagated_size_constraints=[
+            _canonical_size_constraint(item, alias_roots)
+            for item in edge.propagated_size_constraints
+        ],
+        propagated_field_constraints=[
+            _canonical_field_constraint(item, alias_roots)
+            for item in edge.propagated_field_constraints
+        ],
+        nested_edges=[
+            _canonical_helper_edge(item, alias_roots)
+            for item in edge.nested_edges
+        ],
+        warnings=list(edge.warnings),
+        confidence=edge.confidence,
+    )
+
+
+def _candidate_contract_buffers(
+    buffer_sources: dict[str, dict[str, str]],
+    size_constraints: list[BufferSizeConstraint],
+    field_accesses: list[FieldAccess],
+    field_constraints: list[FieldConstraint],
+    helper_edges: list[HelperContractEdge],
+) -> list[str]:
+    evidence_buffers = {
+        item.buffer
+        for item in field_accesses + field_constraints
+        if item.buffer
+    } | _helper_buffers_with_contract_evidence(helper_edges)
+    if evidence_buffers:
+        return sorted(evidence_buffers)
+    primary = {
+        name
+        for name, info in buffer_sources.items()
+        if _constraints_apply_to_source(info, size_constraints) and _is_primary_buffer_source(info)
+    }
+    if primary:
+        return sorted(primary)
+    return sorted(
+        name
+        for name, info in buffer_sources.items()
+        if _constraints_apply_to_source(info, size_constraints)
+    )
+
+
+def _is_primary_buffer_source(info: dict[str, str]) -> bool:
+    source = info.get("source", "")
+    return source in {
+        "parameter",
+        "AssociatedIrp.SystemBuffer",
+    } or source.startswith("IRP offset")
 
 
 def _buffer_confidence(
@@ -2093,11 +2931,16 @@ def _analyze_helper_edge(
             rename_map[param_name] = identifier
     helper_text = safe_identifier_replace(helper.pseudocode, rename_map)
     helper_lines = helper_text.splitlines()
+    helper_length_aliases = _infer_length_aliases(helper_text)
     helper_sources: dict[str, dict[str, str]] = {}
     for name in set(passed_buffers):
         length = _length_arguments_for_buffer(arguments, name) or _matching_length_variable(helper_text, name)
         _add_buffer_source(helper_sources, name, "inout", "helper argument", length)
-    size_constraints = _recover_size_constraints(helper_lines, source="helper:%s" % helper.name)
+    size_constraints = _recover_size_constraints(
+        helper_lines,
+        source="helper:%s" % helper.name,
+        length_aliases=helper_length_aliases,
+    )
     field_accesses = _recover_field_accesses(helper_lines, helper_sources, source="helper:%s" % helper.name)
     field_constraints = _recover_field_constraints(helper_lines, field_accesses, source="helper:%s" % helper.name)
     propagated_sizes = [
@@ -2133,16 +2976,20 @@ def _native_switch_case_bodies(text: str, dispatcher: str) -> dict[int, list[str
         return {}
     switch_re = re.compile(r"\bswitch\s*\(\s*(?:\(\s*[^()]+\s*\)\s*)*%s\s*\)" % re.escape(dispatcher))
     lines = (text or "").splitlines()
-    switch_index = -1
+    cases: dict[int, list[str]] = {}
     for index, line in enumerate(lines):
         if switch_re.search(line):
-            switch_index = index
-            break
-    if switch_index < 0:
-        return {}
+            _collect_native_switch_case_bodies(lines, index, cases)
+    return {value: _trim_case_lines(body) for value, body in cases.items()}
 
-    cases: dict[int, list[str]] = {}
-    current_value: int | None = None
+
+def _collect_native_switch_case_bodies(
+    lines: list[str],
+    switch_index: int,
+    cases: dict[int, list[str]],
+) -> None:
+    current_values: list[int] = []
+    current_body: list[str] = []
     depth = 0
     seen_open = False
     for line in lines[switch_index:]:
@@ -2155,36 +3002,69 @@ def _native_switch_case_bodies(text: str, dispatcher: str) -> dict[int, list[str
             seen_open = True
             depth += opens - closes
             if depth <= 0:
-                break
+                return
             continue
 
-        case_match = _CASE_LITERAL_RE.match(stripped) if depth == 1 else None
+        case_match = _CASE_LABEL_RE.match(stripped) if depth == 1 else None
         if case_match:
-            value = parse_c_integer_literal(case_match.group("value"))
-            current_value = value
+            value = _parse_case_label_value(case_match.group("value"))
+            if current_body:
+                _store_native_case_body(cases, current_values, current_body)
+                current_values = []
+                current_body = []
             if value is not None:
-                cases.setdefault(value, [])
+                current_values.append(value)
                 remainder = stripped[case_match.end():].strip()
                 if remainder and remainder not in {"{", "}"}:
-                    cases[value].append(remainder)
+                    current_body.append(remainder)
             depth += stripped.count("{") - stripped.count("}")
             if depth <= 0:
-                break
+                _store_native_case_body(cases, current_values, current_body)
+                return
             continue
         if depth == 1 and _is_default_case_line(stripped):
-            current_value = None
+            _store_native_case_body(cases, current_values, current_body)
+            current_values = []
+            current_body = []
             depth += stripped.count("{") - stripped.count("}")
             if depth <= 0:
-                break
+                return
             continue
 
-        if current_value is not None and not _CASE_LITERAL_RE.match(stripped):
+        if current_values:
             if stripped not in {"{", "}"} and not _is_default_case_line(stripped):
-                cases.setdefault(current_value, []).append(line)
+                current_body.append(line)
         depth += stripped.count("{") - stripped.count("}")
         if seen_open and depth <= 0:
-            break
-    return {value: _trim_case_lines(body) for value, body in cases.items()}
+            _store_native_case_body(cases, current_values, current_body)
+            return
+
+
+def _store_native_case_body(
+    cases: dict[int, list[str]],
+    values: list[int],
+    body: list[str],
+) -> None:
+    trimmed = _trim_case_lines(body)
+    if not trimmed:
+        return
+    for value in values:
+        current = cases.get(value)
+        if current is None or _native_case_body_score(trimmed) > _native_case_body_score(current):
+            cases[value] = list(trimmed)
+
+
+def _native_case_body_score(lines: list[str]) -> int:
+    score = len([line for line in lines if line.strip()])
+    for line in lines:
+        lowered = line.lower()
+        if "length" in lowered or "size" in lowered or re.search(r"\bv\d+\b", line):
+            score += 1
+        if "*" in line or "->" in line or "memmove" in lowered or "probe" in lowered:
+            score += 3
+        if "status_info_length_mismatch" in lowered or "status_invalid_parameter" in lowered:
+            score += 2
+    return score
 
 
 def _trim_case_lines(lines: list[str]) -> list[str]:
@@ -2208,6 +3088,8 @@ def _dispatcher_kind(capture: FunctionCapture, flow: FlowRewrite) -> str:
         return "ioctl"
     if name == "ntsetinformationprocess" or "PROCESSINFOCLASS" in prototype:
         return "ntset_process"
+    if name == "ntsetinformationthread" or "THREADINFOCLASS" in prototype:
+        return "ntset_thread"
     if name == "ntsetsysteminformation" or "SYSTEM_INFORMATION_CLASS" in prototype:
         return "ntset_system"
     return "generic"
@@ -2405,7 +3287,15 @@ def _structure_name(kind: str, command_value: int, command_name: str, role: str)
     suffix = "INOUT" if role == "inout" else ("OUTPUT" if role == "output" else "INPUT")
     if kind == "ioctl":
         return "PF_IOCTL_%08X_%s" % (command_value & 0xFFFFFFFF, suffix)
-    prefix = "PF_SYSTEM" if kind == "ntset_system" else "PF_PROCESS" if kind == "ntset_process" else "PF_COMMAND"
+    prefix = (
+        "PF_SYSTEM"
+        if kind == "ntset_system"
+        else "PF_PROCESS"
+        if kind == "ntset_process"
+        else "PF_THREAD"
+        if kind == "ntset_thread"
+        else "PF_COMMAND"
+    )
     if command_name:
         name = re.sub(r"[^A-Za-z0-9_]", "_", command_name).strip("_")
         if name:

@@ -7,11 +7,15 @@ from ida_pseudoforge.core.normalize import extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import FlowRewrite, FunctionCapture
 from ida_pseudoforge.profiles.loader import (
     get_process_information_class_name,
+    get_process_information_class_value,
     get_system_information_class_name,
+    get_system_information_class_value,
+    get_thread_information_class_name,
+    get_thread_information_class_value,
 )
 
 
-_CAST_PREFIX = r"(?:\(\s*(?:_DWORD|int|unsigned\s+int|ULONG|LONG|DWORD|PROCESSINFOCLASS|SYSTEM_INFORMATION_CLASS)\s*\)\s*)*"
+_CAST_PREFIX = r"(?:\(\s*(?:_DWORD|int|unsigned\s+int|ULONG|LONG|DWORD|PROCESSINFOCLASS|SYSTEM_INFORMATION_CLASS|THREADINFOCLASS)\s*\)\s*)*"
 _CASE_INTEGER_SUFFIX = r"ui64|i64|u?ll|llu|ul|lu|u|l"
 _CASE_LITERAL = r"(?:(?:0x[0-9A-Fa-f]+|\d+)(?i:%s)?|'[^'\\]')" % _CASE_INTEGER_SUFFIX
 _CASE_INTEGER_SUFFIX_RE = re.compile(r"(?:%s)$" % _CASE_INTEGER_SUFFIX, re.IGNORECASE)
@@ -32,7 +36,7 @@ RANGE_SUB_RE = re.compile(
     r"(?P<base>\d+)\s*\)\s*>\s*(?P<count>\d+)\s*\)"
 )
 SWITCH_RE = re.compile(r"\bswitch\s*\(\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*\)" % _CAST_PREFIX)
-CASE_LABEL_RE = re.compile(r"^\s*case\s+(?P<value>%s)\s*:\s*$" % _CASE_LITERAL)
+CASE_LABEL_RE = re.compile(r"^\s*case\s+(?P<value>[^:]+?)\s*:\s*$")
 DIRECT_IF_EQ_RE = re.compile(
     r"if\s*\(\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*(?P<value>\d+)\s*\)" % _CAST_PREFIX
 )
@@ -57,6 +61,7 @@ def recover_flow(capture: FunctionCapture, rename_map: dict[str, str] | None = N
     renamed_dispatcher = (rename_map or {}).get(dispatcher, dispatcher)
     is_system_information_dispatcher = _is_system_information_dispatcher(capture, dispatcher, renamed_dispatcher)
     is_process_information_dispatcher = _is_process_information_dispatcher(capture, dispatcher, renamed_dispatcher)
+    is_thread_information_dispatcher = _is_thread_information_dispatcher(capture, dispatcher, renamed_dispatcher)
     case_names = {}
     if is_system_information_dispatcher:
         case_names = {
@@ -72,9 +77,20 @@ def recover_flow(capture: FunctionCapture, rename_map: dict[str, str] | None = N
             for name in [get_process_information_class_name(value)]
             if name
         }
+    elif is_thread_information_dispatcher:
+        case_names = {
+            value: name
+            for value in sorted(cases)
+            for name in [get_thread_information_class_name(value)]
+            if name
+        }
     confidence = min(0.98, 0.45 + len(cases) * 0.03)
 
-    minimum_cases = 3 if is_system_information_dispatcher or is_process_information_dispatcher else 4
+    minimum_cases = 3 if (
+        is_system_information_dispatcher
+        or is_process_information_dispatcher
+        or is_thread_information_dispatcher
+    ) else 4
     if len(cases) < minimum_cases:
         return []
 
@@ -141,6 +157,25 @@ def _is_process_information_dispatcher(
     if len(params) < 2:
         return False
     return dispatcher == params[1][0] or renamed_dispatcher == "processInformationClass"
+
+
+def _is_thread_information_dispatcher(
+    capture: FunctionCapture,
+    dispatcher: str,
+    renamed_dispatcher: str,
+) -> bool:
+    dispatcher_names = {dispatcher, renamed_dispatcher}
+    normalized_names = {name.lower() for name in dispatcher_names if name}
+    if "threadinformationclass" in normalized_names:
+        return True
+    if "THREADINFOCLASS" in (capture.prototype or ""):
+        return True
+    if capture.name != "NtSetInformationThread":
+        return False
+    params = extract_parameters_from_signature(capture.prototype)
+    if len(params) < 2:
+        return False
+    return dispatcher == params[1][0] or renamed_dispatcher == "threadInformationClass"
 
 
 def _find_dispatcher(text: str) -> str:
@@ -320,7 +355,9 @@ def _recover_switch_case_anchors(lines: list[str], dispatcher: str) -> dict[int,
 
         case_match = CASE_LABEL_RE.match(line)
         if depth == 1 and case_match:
-            anchors.setdefault(_parse_case_literal(case_match.group("value")), index + 1)
+            value = _parse_case_label(case_match.group("value"))
+            if value is not None:
+                anchors.setdefault(value, index + 1)
 
         opens = stripped.count("{")
         if opens:
@@ -413,7 +450,7 @@ def _recover_switch_case_bodies(
     keep_empty: bool = False,
 ) -> dict[int, list[str]]:
     bodies: dict[int, list[str]] = {}
-    current_case: int | None = None
+    current_cases: list[int] = []
     current_body: list[str] = []
     in_target_switch = False
     depth = 0
@@ -431,9 +468,8 @@ def _recover_switch_case_bodies(
         if closes:
             depth -= closes
             if depth <= 0:
-                if current_case is not None:
-                    bodies[current_case] = _trim_case_body(current_body)
-                current_case = None
+                _store_switch_case_body(bodies, current_cases, current_body, keep_empty)
+                current_cases = []
                 current_body = []
                 in_target_switch = False
                 depth = 0
@@ -441,20 +477,25 @@ def _recover_switch_case_bodies(
 
         case_match = CASE_LABEL_RE.match(line)
         if depth == 1 and case_match:
-            if current_case is not None:
-                bodies[current_case] = _trim_case_body(current_body)
-            current_case = _parse_case_literal(case_match.group("value"))
-            current_body = []
+            value = _parse_case_label(case_match.group("value"))
+            if current_body:
+                _store_switch_case_body(bodies, current_cases, current_body, keep_empty)
+                current_cases = []
+                current_body = []
+            elif keep_empty and current_cases:
+                _store_switch_case_body(bodies, current_cases, current_body, keep_empty)
+                current_cases = []
+            if value is not None:
+                current_cases.append(value)
             continue
 
         if depth == 1 and stripped == "default:":
-            if current_case is not None:
-                bodies[current_case] = _trim_case_body(current_body)
-            current_case = None
+            _store_switch_case_body(bodies, current_cases, current_body, keep_empty)
+            current_cases = []
             current_body = []
             continue
 
-        if current_case is not None and stripped not in {"{", "}"}:
+        if current_cases and stripped not in {"{", "}"}:
             current_body.append(line.rstrip())
 
         opens = stripped.count("{")
@@ -466,14 +507,37 @@ def _recover_switch_case_bodies(
     return {case: body for case, body in bodies.items() if body}
 
 
-def _parse_case_literal(value: str) -> int:
+def _store_switch_case_body(
+    bodies: dict[int, list[str]],
+    case_values: list[int],
+    body: list[str],
+    keep_empty: bool,
+) -> None:
+    trimmed = _trim_case_body(body)
+    if not trimmed and not keep_empty:
+        return
+    for value in case_values:
+        bodies[value] = list(trimmed)
+
+
+def _parse_case_label(value: str) -> int | None:
     token = (value or "").strip()
+    if not token:
+        return None
+    if "|" in token:
+        result = 0
+        for term in token.split("|"):
+            parsed = _parse_case_label(term)
+            if parsed is None:
+                return None
+            result |= parsed
+        return result
     if token.startswith("'") and token.endswith("'") and len(token) == 3:
         return ord(token[1])
     parsed = _parse_c_integer_literal(token)
-    if parsed is None:
-        return int(token, 0)
-    return parsed
+    if parsed is not None:
+        return parsed
+    return _information_class_value(token)
 
 
 def _parse_c_integer_literal(value: str) -> int | None:
@@ -482,6 +546,21 @@ def _parse_c_integer_literal(value: str) -> int | None:
         return int(token, 0)
     except ValueError:
         return None
+
+
+def _information_class_value(name: str) -> int | None:
+    token = str(name or "").strip()
+    if not token:
+        return None
+    for resolver in (
+        get_process_information_class_value,
+        get_system_information_class_value,
+        get_thread_information_class_value,
+    ):
+        value = resolver(token)
+        if value is not None:
+            return value
+    return None
 
 
 def _trim_case_body(body: list[str]) -> list[str]:

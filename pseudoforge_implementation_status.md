@@ -54,11 +54,12 @@ Implemented in this folder:
    - IOCTL dispatcher case constant annotation with exact `CTL_CODE(DeviceType, Function, Method, Access)` bitfield decoding
    - IOCTL-gated `IO_STACK_LOCATION.Parameters.DeviceIoControl` field rendering and deterministic device-control local naming from `_DWORD *` stack-location indexing
    - command buffer contract recovery under `ida_pseudoforge/core/buffer_contracts.py`
-     for IOCTL, `NtSetInformationProcess`, `NtSetSystemInformation`, and
-     strongly evidenced generic switch dispatchers, producing report-only
-     per-case observed size/field guard predicates, derived valid predicates
-     for common rejection branches, inferred field accesses, synthetic
-     structure names, helper edges, confidence, and evidence
+     for IOCTL, `NtSetInformationProcess`, `NtSetInformationThread`,
+     `NtSetSystemInformation`, and strongly evidenced generic switch
+     dispatchers, producing report-only per-case observed size/field guard
+     predicates, derived valid predicates for common rejection branches,
+     inferred field accesses, synthetic structure names, helper edges,
+     confidence, and evidence
    - selected-case buffer contract recovery for focused CLI and IDA cursor-case
      deep analysis, including generated C++ struct previews
    - cursor-case analysis resolves the active Hex-Rays pseudocode line through
@@ -196,6 +197,22 @@ Implemented in this folder:
      the sketch emits input/output size constants, an inline size validator, and
      directional byte windows such as shared inout bytes plus input/output
      extension ranges without inventing field names.
+   - exact zero-length contracts now render as empty reviewed C++ structs plus
+     `length == 0` validators instead of misleading one-byte reserved arrays.
+   - NtSet-style shared-tail cases that assign a literal expected length in the
+     selected case and validate that length after the switch can recover the
+     selected case's size contract without importing unrelated field branches
+     from other shared-tail selector paths.
+   - NtSet buffer-contract recovery now handles enum `case` labels, repeated
+     native switches for the same dispatcher, raw flow-recovered case bodies
+     merged with the active rename map, simple buffer aliases such as
+     `infoBuffer128 = systemInformation`, dispatcher/class parameters that
+     decompile as pointer-looking types, truthy zero-length guards, and C++
+     `void **` field reads without emitting invalid `void` members.
+   - dispatcher equality branches that jump into a shared tail can recover the
+     selected branch and joined tail when the selected body has no direct local
+     contract evidence, and typed vector array reads such as
+     `infoBuffer128[2].m128i_i64[0]` are converted into fixed byte offsets.
    - export bundles are documented as durable review, audit, sharing, and regression artifacts rather than an IDB write path
 
 4. Offline CLI
@@ -681,11 +698,38 @@ P2 long-running operation cancellation/progress update:
   `-CancelFile` option stop at the next function boundary when the sentinel file
   exists and record a `stop` event with `reason=cancel_file`.
 
-The current implementation state reflects the `NtSetSystemInformation` and `NtSetInformationProcess` large-dispatcher regression pass:
+The current implementation state reflects the `NtSetSystemInformation`,
+`NtSetInformationProcess`, and `NtSetInformationThread` large-dispatcher
+regression pass:
 
 - `NtSetSystemInformation` preview now uses the canonical native API signature and introduces typed `__m128i *` aliases without changing the underlying decompiler body semantics.
 - `SYSTEM_INFORMATION_CLASS` literal and delta-chain rewrites are profile-backed, including chained temporaries such as `v86 = v85 - 8` when the rewrite is still structurally tied to the original dispatcher comparison.
 - `NtSetInformationProcess` preview now uses the canonical native API signature with `PROCESSINFOCLASS processInformationClass` and rewrites process-info-class case labels/comparisons through the 25H2 profile.
+- `NtSetInformationThread` preview now uses the canonical native API signature
+  with `THREADINFOCLASS threadInformationClass` and uses WDK-backed
+  `THREADINFOCLASS` enum values for switch recovery and buffer-contract names.
+- The 26200.8457 kernel IDB regression pass loaded
+  `D:\bin\os\26200.8457\ntoskrnl.exe.i64` through IDA batch and then re-ran
+  deterministic contract export on the captured raw Hex-Rays pseudocode. The
+  current contract coverage is:
+  `NtSetInformationProcess` 58 contracts from 70 recovered cases,
+  `NtSetInformationThread` 26 contracts from 31 recovered cases, and
+  `NtSetSystemInformation` 48 contracts from 56 recovered cases. No
+  `*InformationClass` dispatcher parameter is emitted as a buffer source in
+  these exports.
+- The latest `NtSetSystemInformation` export newly recovers
+  `SystemFileCacheInformation` and `SystemWatchdogTimerHandler` contracts from
+  shared-tail/typed-array evidence. `SystemFileCacheInformation` now emits a
+  `systemInformationLength >= 0x40` size validator and fields at offsets
+  `0x18` and `0x20`.
+- Review-mode regression coverage now verifies that helper-local aliases such as
+  `localInput = inputBufferLength` are propagated back to caller length names,
+  and that dispatcher-condition fallback context does not pollute a selected case
+  that already has direct size/field evidence.
+- Remaining no-contract cases are left untyped when the selected body has no
+  direct information-buffer/length evidence or only unsupported/no-op return
+  behavior. This is intentional: the contract pass prefers an explicit
+  selected-case context report over inventing an input/output structure.
 - Casted native switches such as `switch ((int)a2)` are recognized as native dispatchers, so length/alignment comparisons on `ProcessInformationLength` are not promoted into auxiliary switch recovery.
 - Switch outline generation is intentionally conservative: only single-statement
   returns and complete local branch slices are expanded, while complex or shared
@@ -875,7 +919,7 @@ python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInform
 git diff --check -- .
 ```
 
-Latest unit test count: 433 tests.
+Latest unit test count: 448 tests.
 
 Latest no-PDB kernel pattern driver quality loop:
 

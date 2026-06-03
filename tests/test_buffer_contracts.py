@@ -164,9 +164,361 @@ NTSTATUS NTAPI NtSetInformationProcess(
       }
       status = 0;
       break;
+    case ProcessSlistRollbackInformation:
+      if ( processInformationLength )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      status = 0;
+      break;
     default:
       status = STATUS_INVALID_INFO_CLASS;
       break;
+  }
+  return status;
+}
+"""
+
+
+NTSET_PROCESS_SHARED_TAIL_LENGTH_SAMPLE = r"""
+NTSTATUS NTAPI NtSetInformationProcess(
+        HANDLE processHandle,
+        PROCESSINFOCLASS processInformationClass,
+        PVOID processInformation,
+        ULONG processInformationLength)
+{
+  NTSTATUS status;
+  unsigned __int64 expectedLength;
+  int selectedClass;
+
+  expectedLength = 0LL;
+  selectedClass = 0;
+  switch ( processInformationClass )
+  {
+    case 8:
+      expectedLength = 8LL;
+      selectedClass = 8;
+      break;
+    case 29:
+      if ( processInformationLength != 4 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        goto LABEL_DONE;
+      }
+      if ( *(_DWORD *)processInformation > 1 )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        goto LABEL_DONE;
+      }
+      status = 0;
+      goto LABEL_DONE;
+    case 31:
+      expectedLength = 4LL;
+      selectedClass = 31;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      goto LABEL_DONE;
+  }
+  if ( processInformationLength != expectedLength )
+  {
+    status = STATUS_INFO_LENGTH_MISMATCH;
+    goto LABEL_DONE;
+  }
+  if ( selectedClass == 8 )
+  {
+    status = 0;
+    goto LABEL_DONE;
+  }
+  status = STATUS_INVALID_INFO_CLASS;
+LABEL_DONE:
+  return status;
+}
+"""
+
+
+NTSET_PROCESS_MULTI_SWITCH_SAMPLE = r"""
+NTSTATUS NTAPI NtSetInformationProcess(
+        HANDLE processHandle,
+        PROCESSINFOCLASS processInformationClass,
+        PVOID processInformation,
+        ULONG processInformationLength)
+{
+  NTSTATUS status;
+  unsigned __int64 expectedLength;
+
+  expectedLength = 0LL;
+  switch ( processInformationClass )
+  {
+    case ProcessExceptionPort:
+      expectedLength = 16LL;
+      break;
+    case ProcessBreakOnTermination:
+      expectedLength = 4LL;
+      break;
+    case ProcessPriorityClass:
+      expectedLength = 4LL;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      goto LABEL_DONE;
+  }
+  switch ( processInformationClass )
+  {
+    case ProcessExceptionPort:
+      if ( processInformationLength != expectedLength )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        goto LABEL_DONE;
+      }
+      if ( !*(void **)processInformation )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        goto LABEL_DONE;
+      }
+      if ( *((_DWORD *)processInformation + 2) > 3 )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        goto LABEL_DONE;
+      }
+      status = 0;
+      goto LABEL_DONE;
+    case ProcessBreakOnTermination:
+      if ( processInformationLength != 4 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        goto LABEL_DONE;
+      }
+      status = 0;
+      goto LABEL_DONE;
+    case ProcessPriorityClass:
+      status = 0;
+      goto LABEL_DONE;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      goto LABEL_DONE;
+  }
+LABEL_DONE:
+  return status;
+}
+"""
+
+
+NTSET_THREAD_ENUM_LABEL_SAMPLE = r"""
+NTSTATUS NTAPI NtSetInformationThread(
+        HANDLE threadHandle,
+        THREADINFOCLASS ThreadInformationClass,
+        PVOID ThreadInformation,
+        ULONG ThreadInformationLength)
+{
+  NTSTATUS status;
+  unsigned int v4;
+
+  v4 = ThreadInformationLength;
+  switch ( ThreadInformationClass )
+  {
+    case ThreadBasePriority:
+      if ( ThreadInformationLength != 4 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      if ( *(_DWORD *)ThreadInformation < -2 )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        break;
+      }
+      status = 0;
+      break;
+    case ThreadAffinityMask:
+      if ( v4 != 8 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      if ( !*(_QWORD *)ThreadInformation )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        break;
+      }
+      status = 0;
+      break;
+    case ThreadEnableAlignmentFaultFixup:
+    case ThreadCounterProfiling:
+      if ( ThreadInformationLength != 1 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      if ( *(_BYTE *)ThreadInformation > 1u )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        break;
+      }
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      break;
+  }
+  return status;
+}
+"""
+
+
+NTSET_SYSTEM_POINTER_DISPATCHER_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        char *systemInformationClass,
+        __m128i *systemInformation,
+        __int64 systemInformationLength)
+{
+  NTSTATUS status;
+  __m128i *infoBuffer128;
+  char *infoClass;
+
+  infoBuffer128 = systemInformation;
+  infoClass = systemInformationClass;
+  switch ( systemInformationClass )
+  {
+    case SystemVmGenerationCountInformation:
+      if ( systemInformationLength != 8 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      status = 0;
+      break;
+    case SystemCpuSetTagInformation:
+      if ( systemInformationLength < 16 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      if ( *(_DWORD *)infoBuffer128 != 0 )
+      {
+        status = STATUS_INVALID_PARAMETER;
+        break;
+      }
+      status = 0;
+      break;
+    case SystemLeapSecondInformation:
+      if ( systemInformationLength != 8 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      break;
+  }
+  return status;
+}
+"""
+
+
+NTSET_SYSTEM_DISPATCHER_CONDITION_TAIL_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        __m128i *systemInformation,
+        __int64 systemInformationLength)
+{
+  NTSTATUS status;
+  SYSTEM_INFORMATION_CLASS infoClass;
+  __m128i *systemInformation128;
+  int cacheFlags;
+
+  infoClass = systemInformationClass;
+  systemInformation128 = systemInformation;
+  if ( infoClass == 81 )
+  {
+LABEL_175:
+    if ( (unsigned int)systemInformationLength < 0x40 )
+    {
+      return STATUS_INFO_LENGTH_MISMATCH;
+    }
+    if ( infoClass == 21 )
+    {
+      cacheFlags = 0;
+    }
+    else
+    {
+      cacheFlags = systemInformation128[3].m128i_i32[3];
+      if ( (cacheFlags & 0xFFFFFFF0) != 0 )
+      {
+        return STATUS_INVALID_PARAMETER_2;
+      }
+    }
+    return MmAdjustWorkingSetSizeEx(
+        systemInformation128[1].m128i_i64[1],
+        systemInformation128[2].m128i_i64[0],
+        cacheFlags);
+  }
+  if ( infoClass == 21 )
+  {
+    goto LABEL_175;
+  }
+  if ( infoClass == 24 )
+  {
+    if ( systemInformationLength != 20 )
+    {
+      return STATUS_INFO_LENGTH_MISMATCH;
+    }
+    return STATUS_SUCCESS;
+  }
+  return STATUS_INVALID_INFO_CLASS;
+}
+"""
+
+
+NTSET_SYSTEM_CONTEXT_FALLBACK_POLLUTION_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        __m128i *systemInformation,
+        __int64 systemInformationLength)
+{
+  NTSTATUS status;
+  SYSTEM_INFORMATION_CLASS infoClass;
+  __m128i *systemInformation128;
+
+  infoClass = systemInformationClass;
+  systemInformation128 = systemInformation;
+  switch ( infoClass )
+  {
+    case 24:
+      if ( systemInformationLength != 20 )
+      {
+        return STATUS_INFO_LENGTH_MISMATCH;
+      }
+      if ( systemInformation128[1].m128i_i32[0] != 0 )
+      {
+        return STATUS_INVALID_PARAMETER;
+      }
+      return STATUS_SUCCESS;
+    case 21:
+      status = STATUS_SUCCESS;
+      break;
+    case 161:
+      if ( systemInformationLength != 8 )
+      {
+        return STATUS_INFO_LENGTH_MISMATCH;
+      }
+      return STATUS_SUCCESS;
+    default:
+      return STATUS_INVALID_INFO_CLASS;
+  }
+  if ( infoClass == 21 )
+  {
+    if ( systemInformationLength < 0x40 )
+    {
+      return STATUS_INFO_LENGTH_MISMATCH;
+    }
+    return MmAdjustWorkingSetSizeEx(
+        systemInformation128[1].m128i_i64[1],
+        systemInformation128[2].m128i_i64[0],
+        0);
   }
   return status;
 }
@@ -457,6 +809,69 @@ NTSTATUS __fastcall ValidateShortTransfer(PVOID buffer, ULONG inSize, ULONG outS
 """
 
 
+HELPER_LENGTH_ALIAS_CASE_SAMPLE = r"""
+NTSTATUS __fastcall DispatchAliasedHelperLength(PDEVICE_OBJECT deviceObject, PIRP irp)
+{
+  NTSTATUS status;
+  PVOID systemBuffer;
+  ULONG inputBufferLength;
+  ULONG outputBufferLength;
+  ULONG ioControlCode;
+  _DWORD *stack;
+
+  stack = (_DWORD *)IoGetCurrentIrpStackLocation(irp);
+  systemBuffer = irp->AssociatedIrp.MasterIrp;
+  inputBufferLength = stack[2];
+  outputBufferLength = stack[4];
+  ioControlCode = stack[6];
+  switch ( ioControlCode )
+  {
+    case 0x9123B000:
+      status = ValidateAliasedLength(systemBuffer, inputBufferLength, outputBufferLength);
+      break;
+    case 0x9123B004:
+      status = 0;
+      break;
+    case 0x9123B008:
+      status = 0;
+      break;
+    case 0x9123B00C:
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  return status;
+}
+"""
+
+
+HELPER_LENGTH_ALIAS_SAMPLE = r"""
+NTSTATUS __fastcall ValidateAliasedLength(PVOID buffer, ULONG inputLength, ULONG outputLength)
+{
+  ULONG localInput;
+  ULONG localOutput;
+
+  localInput = inputLength;
+  localOutput = outputLength;
+  if ( localInput < 0x18 )
+  {
+    return STATUS_INFO_LENGTH_MISMATCH;
+  }
+  if ( localOutput < 0x20 )
+  {
+    return STATUS_BUFFER_TOO_SMALL;
+  }
+  if ( *(_DWORD *)buffer != 3 )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  return STATUS_SUCCESS;
+}
+"""
+
+
 class BufferContractTests(unittest.TestCase):
     def test_ioctl_contract_recovers_sizes_fields_and_helper_edges(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
@@ -568,6 +983,42 @@ class BufferContractTests(unittest.TestCase):
         self.assertIn("field_0x0C != 5", header)
         self.assertIn("valid field_0x0C == 5", header)
 
+    def test_helper_length_aliases_are_propagated_to_caller_lengths(self) -> None:
+        capture = capture_from_pseudocode(HELPER_LENGTH_ALIAS_CASE_SAMPLE)
+        helper_capture = capture_from_pseudocode(HELPER_LENGTH_ALIAS_SAMPLE)
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"ValidateAliasedLength": helper_capture},
+            buffer_contract_case_values=[0x9123B000],
+        )
+
+        self.assertEqual([0x9123B000], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual(1, len(contract.helper_edges))
+        helper_edge = contract.helper_edges[0]
+        self.assertEqual("ValidateAliasedLength", helper_edge.callee)
+        self.assertTrue(
+            any(
+                item.length == "inputBufferLength"
+                and item.relation == "<"
+                and item.value == "0x18"
+                and item.valid_relation == ">="
+                for item in helper_edge.propagated_size_constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.length == "outputBufferLength"
+                and item.relation == "<"
+                and item.value == "0x20"
+                and item.valid_relation == ">="
+                for item in helper_edge.propagated_size_constraints
+            )
+        )
+        self.assertFalse(
+            any(item.length in {"localInput", "localOutput"} for item in helper_edge.propagated_size_constraints)
+        )
+
     def test_ntset_process_contract_uses_process_information_names(self) -> None:
         capture = capture_from_pseudocode(NTSET_PROCESS_CONTRACT_SAMPLE)
         plan = build_clean_plan(capture)
@@ -582,6 +1033,216 @@ class BufferContractTests(unittest.TestCase):
         self.assertEqual("PF_PROCESS_ProcessBreakOnTermination_INPUT", buffer.structure_name)
         self.assertTrue(any(item.length == "processInformationLength" and item.value == "4" for item in buffer.size_constraints))
         self.assertTrue(any(item.field == "field_0x00" and item.relation == ">" and item.value == "1" for item in buffer.field_constraints))
+        zero_length_buffer = contracts[113].buffers[0]
+        self.assertTrue(
+            any(
+                item.length == "processInformationLength"
+                and item.relation == "!="
+                and item.value == "0"
+                and item.valid_relation == "=="
+                for item in zero_length_buffer.size_constraints
+            )
+        )
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("PF_PROCESS_ProcessSlistRollbackInformation_INPUT_SIZE = 0x0;", header)
+        zero_struct = header[
+            header.index("struct PF_PROCESS_ProcessSlistRollbackInformation_INPUT"):
+            header.index("inline bool IsValidPF_PROCESS_ProcessSlistRollbackInformation_INPUTSize")
+        ]
+        self.assertIn("No bytes are accepted for this buffer role.", zero_struct)
+        self.assertNotIn("std::uint8_t reserved_0x00[1];", zero_struct)
+
+    def test_ntset_shared_tail_length_assignment_recovers_case_contract(self) -> None:
+        capture = capture_from_pseudocode(NTSET_PROCESS_SHARED_TAIL_LENGTH_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[8])
+
+        self.assertEqual([8], [contract.command_value for contract in plan.buffer_contracts])
+        buffer = plan.buffer_contracts[0].buffers[0]
+        self.assertEqual("processInformation", buffer.variable)
+        self.assertTrue(
+            any(
+                item.length == "processInformationLength"
+                and item.relation == "!="
+                and item.value == "8LL"
+                and item.valid_relation == "=="
+                and item.valid_value == "8LL"
+                for item in buffer.size_constraints
+            )
+        )
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("PF_PROCESS_ProcessExceptionPort_INPUT_SIZE = 0x8;", header)
+        self.assertIn("std::uint8_t input_bytes_0x00[0x8];", header)
+
+    def test_ntset_process_duplicate_switch_uses_richer_case_body(self) -> None:
+        capture = capture_from_pseudocode(NTSET_PROCESS_MULTI_SWITCH_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[8])
+
+        self.assertEqual([8], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual("ProcessExceptionPort", contract.command_name)
+        buffer = contract.buffers[0]
+        self.assertEqual("processInformation", buffer.variable)
+        self.assertTrue(any(item.offset == 0 for item in buffer.field_accesses))
+        self.assertTrue(any(item.offset == 8 for item in buffer.field_accesses))
+        self.assertTrue(any(item.field == "field_0x08" and item.relation == ">" for item in buffer.field_constraints))
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertNotIn("void field_0x00;", header)
+        self.assertIn("void * field_0x00;", header)
+
+    def test_ntset_thread_enum_labels_and_length_aliases_recover_contracts(self) -> None:
+        capture = capture_from_pseudocode(NTSET_THREAD_ENUM_LABEL_SAMPLE)
+        plan = build_clean_plan(capture)
+
+        contracts = {contract.command_value: contract for contract in plan.buffer_contracts}
+        self.assertIn(3, contracts)
+        self.assertIn(4, contracts)
+        self.assertIn(7, contracts)
+        self.assertIn(32, contracts)
+        base_contract = contracts[3]
+        self.assertEqual("ntset_thread", base_contract.dispatcher_kind)
+        self.assertEqual("ThreadBasePriority", base_contract.command_name)
+        self.assertEqual("PF_THREAD_ThreadBasePriority_INPUT", base_contract.buffers[0].structure_name)
+        self.assertTrue(
+            any(
+                item.length == "threadInformationLength"
+                and item.relation == "!="
+                and item.value == "4"
+                for item in base_contract.buffers[0].size_constraints
+            )
+        )
+        affinity_buffer = contracts[4].buffers[0]
+        self.assertEqual("threadInformation", affinity_buffer.variable)
+        self.assertTrue(
+            any(
+                item.length == "threadInformationLength"
+                and item.relation == "!="
+                and item.value == "8"
+                for item in affinity_buffer.size_constraints
+            )
+        )
+
+    def test_ntset_system_pointer_typed_dispatcher_is_not_buffer_source(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_POINTER_DISPATCHER_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[161])
+
+        self.assertEqual([161], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual("SystemVmGenerationCountInformation", contract.command_name)
+        self.assertEqual(["systemInformation"], [buffer.variable for buffer in contract.buffers])
+        self.assertNotIn("systemInformationClass", [buffer.variable for buffer in contract.buffers])
+
+    def test_ntset_system_dispatcher_condition_tail_recovers_selected_case_fields(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_DISPATCHER_CONDITION_TAIL_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[21])
+
+        self.assertEqual([21], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        self.assertEqual("SystemFileCacheInformation", contract.command_name)
+        buffer = contract.buffers[0]
+        self.assertEqual("systemInformation", buffer.variable)
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "<"
+                and item.value == "0x40"
+                and item.valid_relation == ">="
+                for item in buffer.size_constraints
+            )
+        )
+        offsets = {item.offset for item in buffer.field_accesses}
+        self.assertIn(0x18, offsets)
+        self.assertIn(0x20, offsets)
+        self.assertNotIn(0x3C, offsets)
+
+    def test_ntset_system_context_fallback_does_not_pollute_existing_case_evidence(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_CONTEXT_FALLBACK_POLLUTION_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[24])
+
+        self.assertEqual([24], [contract.command_value for contract in plan.buffer_contracts])
+        buffer = plan.buffer_contracts[0].buffers[0]
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "!="
+                and item.value == "20"
+                for item in buffer.size_constraints
+            )
+        )
+        self.assertFalse(any(item.value == "0x40" for item in buffer.size_constraints))
+        offsets = {item.offset for item in buffer.field_accesses}
+        self.assertIn(0x10, offsets)
+        self.assertNotIn(0x18, offsets)
+        self.assertNotIn(0x20, offsets)
+
+    def test_flow_recovered_raw_case_body_uses_rename_map_for_ntset_system_contract(self) -> None:
+        capture = FunctionCapture(
+            ea=0x1400AE1320,
+            name="NtSetSystemInformation",
+            prototype="__int64 __fastcall NtSetSystemInformation(char *a1, __m128i *a2, __int64 a3)",
+            pseudocode=r"""
+__int64 __fastcall NtSetSystemInformation(char *a1, __m128i *a2, __int64 a3)
+{
+  __m128i *v4;
+  int v5;
+
+  v4 = a2;
+  v5 = (int)a1;
+  switch ( v5 )
+  {
+    case SystemCpuSetTagInformation:
+      if ( (_DWORD)a3 < 8 )
+      {
+        return 3221225476LL;
+      }
+      return (unsigned int)v4->m128i_i64[0];
+    default:
+      break;
+  }
+  return 0;
+}
+""",
+        )
+        flow = FlowRewrite(
+            kind="switch_recovery",
+            dispatcher="infoClass",
+            recovered_cases=[206],
+            case_names={206: "SystemLeapSecondInformation"},
+            case_bodies={
+                206: [
+                    "if ( (_DWORD)a3 != 8 )",
+                    "return 3221225476LL;",
+                    "if ( !(unsigned __int8)PsIsCurrentThreadInServerSilo(v109, a2, a3, v8) )",
+                    "LOBYTE(v118[0]) = (unsigned __int8)v4->m128i_i64[0] != 0;",
+                    "return updated;",
+                ]
+            },
+        )
+
+        contracts = recover_buffer_contracts(
+            capture,
+            [flow],
+            rename_map={
+                "a1": "systemInformationClass",
+                "a2": "systemInformation",
+                "a3": "systemInformationLength",
+                "v4": "infoBuffer128",
+            },
+            case_values=[206],
+        )
+
+        self.assertEqual([206], [contract.command_value for contract in contracts])
+        buffer = contracts[0].buffers[0]
+        self.assertEqual("SystemLeapSecondInformation", contracts[0].command_name)
+        self.assertEqual("systemInformation", buffer.variable)
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "!="
+                and item.value == "8"
+                for item in buffer.size_constraints
+            )
+        )
+        self.assertTrue(any(item.offset == 0 for item in buffer.field_accesses))
 
     def test_selected_case_filter_limits_buffer_contracts(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)

@@ -191,10 +191,10 @@ Implemented:
     on load; LLM failures are summarized in IDA Output before deterministic
     fallback continues.
 35. Command buffer contract recovery emits per-case input/output buffer
-    contracts for IOCTL, `NtSetInformationProcess`, `NtSetSystemInformation`,
-    and strongly evidenced generic switch dispatchers, plus packed C++ struct
-    sketches that include observed reject guards and derived valid predicates
-    for recovered buffer layouts.
+    contracts for IOCTL, `NtSetInformationProcess`, `NtSetInformationThread`,
+    `NtSetSystemInformation`, and strongly evidenced generic switch
+    dispatchers, plus packed C++ struct sketches that include observed reject
+    guards and derived valid predicates for recovered buffer layouts.
 
 Still pending:
 
@@ -540,7 +540,13 @@ such as `AssociatedIrp.MasterIrp` or `AssociatedIrp.SystemBuffer` remain ABI
 evidence, not variable-name shortcuts. When no fixed-offset fields are recovered
 but size guards are recovered, the generated C++ sketch still emits directional
 byte windows, input/output size constants, and an inline size validator instead
-of collapsing the ABI to a single anonymous reserved array.
+of collapsing the ABI to a single anonymous reserved array. NtSet-style cases
+that set a literal expected length and then break into a shared tail can recover
+the shared-tail length guard for the selected case without importing unrelated
+case-specific field branches. Dispatcher equality branches that jump into a
+shared tail can also recover the selected branch's local guards and joined
+tail, and typed vector array reads such as `infoBuffer128[2].m128i_i64[0]`
+are converted into fixed-offset field evidence.
 
 `Cancel current operation` requests cooperative cancellation for the active analyze, export, or apply-preparation task. Cancellation is checked at safe phase boundaries; an in-flight Hex-Rays decompile or LLM provider call may finish before the task stops.
 
@@ -610,16 +616,24 @@ mode configuration fallback.
 - Driver device flags can render `DO_BUFFERED_IO` and `DO_DEVICE_INITIALIZING`, and `IoCreateDevice` device characteristics can render `FILE_DEVICE_SECURE_OPEN`.
 - Unknown or vendor `DEVICE_TYPE` values, for example `0x8337u`, stay as literals unless a trusted binary/profile source proves a standard `FILE_DEVICE_*` name. PseudoForge does not infer original source macro names.
 - IOCTL dispatcher case constants can be annotated with exact `CTL_CODE(DeviceType, Function, Method, Access)` bitfield decoding, including `METHOD_BUFFERED`, while preserving Hex-Rays integer suffixes and without inventing original `IOCTL_*` macro names.
-- IOCTL, `NtSetInformationProcess`, and `NtSetSystemInformation` switch cases
-  can emit report-only buffer contracts. The contract pass records buffer
-  variables, observed length/field guard predicates, derived valid predicates
-  for common rejection branches, synthetic input/output structure names, fixed
-  offset field reads/writes, helper/subhandler edges, and confidence/evidence
-  without applying IDB types. Export bundles also include a packed C++ header
-  sketch with inferred fields, padding, offset assertions, predicate comments,
-  size constants, and inline validator helpers for review or downstream harness
-  prototyping. Size-only contracts use directional byte windows such as
-  inout/output-extension ranges rather than a single opaque reserved array.
+- IOCTL, `NtSetInformationProcess`, `NtSetInformationThread`, and
+  `NtSetSystemInformation` switch cases can emit report-only buffer contracts.
+  The contract pass records buffer variables, observed length/field guard
+  predicates, derived valid predicates for common rejection branches, synthetic
+  input/output structure names, fixed offset field reads/writes,
+  helper/subhandler edges, and confidence/evidence without applying IDB types.
+  Export bundles also include a packed C++ header sketch with inferred fields,
+  padding, offset assertions, predicate comments, size constants, and inline
+  validator helpers for review or downstream harness prototyping. Size-only
+  contracts use directional byte windows such as inout/output-extension ranges
+  rather than a single opaque reserved array, and exact zero-length contracts
+  render as empty reviewed structs with a `length == 0` validator. Shared-tail
+  dispatchers that assign a literal expected length in the selected case and
+  validate it after the switch are handled by propagating only the matching
+  length guard into that case's contract analysis. Equality-guarded dispatcher
+  branches that jump into a shared tail can recover the selected branch plus
+  the joined tail, including typed vector array member accesses rendered as
+  fixed byte offsets.
 - Focused case analysis keeps command buffer ABI recovery separate from
   context/state analysis. Cases that only inspect a device extension, request
   context, or other non-buffer base can legitimately produce zero buffer
@@ -1018,7 +1032,8 @@ File purposes:
 - `.buffer-structs.hpp`: packed C++ ABI sketch generated from recovered buffer
   contracts, including inferred padding, fixed-offset fields, observed/valid
   predicate comments, size constants, inline size validators, directional
-  byte windows for size-only contracts, and `offsetof`/`sizeof` assertions.
+  byte windows for size-only contracts, exact zero-length validators, and
+  `offsetof`/`sizeof` assertions where C++ object size permits them.
 - `.rule-report.json`: deterministic rule matches, rejected emissions, load errors, and validation errors.
 - `.raw.cpp`: original captured decompiler text used as analysis input.
 - `.warnings.json`: plan and profile-load warnings as reviewable JSON.

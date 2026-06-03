@@ -129,8 +129,11 @@ def clear_profile_caches() -> None:
     load_profile.cache_clear()
     load_kernel_api_family.cache_clear()
     load_profiles_manifest.cache_clear()
+    get_kernel_enum_member_name.cache_clear()
+    get_kernel_enum_member_value.cache_clear()
     get_system_information_class_value.cache_clear()
     get_process_information_class_value.cache_clear()
+    get_thread_information_class_value.cache_clear()
     _PROFILE_LOAD_WARNINGS.clear()
     _ACTIVE_PROFILE_NAMES.clear()
 
@@ -203,6 +206,30 @@ def get_process_information_class_name(value: int) -> str:
     return load_profile("process_information_class.json").get(str(value), "")
 
 
+def get_thread_information_class_name(value: int) -> str:
+    return get_kernel_enum_member_name("THREADINFOCLASS", value)
+
+
+@lru_cache(maxsize=None)
+def get_kernel_enum_member_name(enum_name: str, value: int) -> str:
+    enum = _kernel_enum_members(enum_name)
+    return enum.get(str(value), "")
+
+
+@lru_cache(maxsize=None)
+def get_kernel_enum_member_value(enum_name: str, member_name: str) -> int | None:
+    target = str(member_name or "").strip()
+    if not target:
+        return None
+    for value, name in _kernel_enum_members(enum_name).items():
+        if name == target:
+            try:
+                return int(value)
+            except ValueError:
+                return None
+    return None
+
+
 @lru_cache(maxsize=None)
 def get_system_information_class_value(name: str) -> int | None:
     target = str(name or "").strip()
@@ -229,3 +256,19 @@ def get_process_information_class_value(name: str) -> int | None:
             except ValueError:
                 return None
     return None
+
+
+@lru_cache(maxsize=None)
+def get_thread_information_class_value(name: str) -> int | None:
+    return get_kernel_enum_member_value("THREADINFOCLASS", name)
+
+
+def _kernel_enum_members(enum_name: str) -> dict[str, str]:
+    target = str(enum_name or "").strip()
+    if not target:
+        return {}
+    data = load_kernel_api_family("enums")
+    enum = data.get(target, {}) if isinstance(data, dict) else {}
+    if not isinstance(enum, dict):
+        return {}
+    return {str(key): str(value) for key, value in enum.items()}
