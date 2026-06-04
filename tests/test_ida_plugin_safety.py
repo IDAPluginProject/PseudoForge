@@ -7,6 +7,7 @@ from pathlib import Path
 from ida_pseudoforge.config import (
     LlmConfig,
     PREVIEW_BACKEND_SIDE_BY_SIDE,
+    ProviderCredential,
     PreviewConfig,
     PseudoForgeConfig,
 )
@@ -31,7 +32,13 @@ from ida_pseudoforge.ida import plugin as plugin_module
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.action_registry import ActionRegistry
 from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnalysisState, normalize_source_identity
-from ida_pseudoforge.models.provider_registry import PROVIDER_CODEX_CLI
+from ida_pseudoforge.models.provider_registry import (
+    PROVIDER_CODEX_CLI,
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_LM_STUDIO,
+    PROVIDER_OLLAMA,
+    PROVIDER_VLLM,
+)
 from ida_pseudoforge.version import VERSION
 
 
@@ -1348,6 +1355,22 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertEqual(result.source, "static fallback")
         self.assertIn("model discovery failed", result.warning)
 
+    def test_llm_summary_marks_local_http_provider_api_key_not_required(self):
+        config = PseudoForgeConfig(
+            llm=LlmConfig(
+                enabled=True,
+                provider=PROVIDER_OLLAMA,
+                base_url="http://localhost:11434/v1",
+                model="llama3.2",
+            )
+        )
+
+        summary = llm_config_dialog.format_llm_summary(config.llm, config)
+
+        self.assertIn("Provider: Ollama (ollama)", summary)
+        self.assertIn("Base URL: http://localhost:11434/v1", summary)
+        self.assertIn("API key: not required", summary)
+
     def test_model_discovery_dialog_uses_nonblocking_background_refresh(self):
         old_discover = llm_config_dialog.discover_provider_models
         started = threading.Event()
@@ -1389,6 +1412,46 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             self.assertEqual("test catalog", refreshed.source)
         finally:
             release.set()
+            llm_config_dialog.discover_provider_models = old_discover
+            llm_config_dialog._reset_model_discovery_cache_for_tests()
+
+    def test_http_model_discovery_dialog_prefers_live_catalog_for_current_base_url(self):
+        old_discover = llm_config_dialog.discover_provider_models
+        calls = []
+
+        def fake_discover(provider, base_url="", api_key="", timeout_seconds=15):
+            calls.append((provider, base_url, api_key, timeout_seconds))
+            return llm_config_dialog.ModelDiscoveryResult(
+                models=["%s-live-model" % provider],
+                source="%s/models" % base_url,
+            )
+
+        providers = (
+            (PROVIDER_LM_STUDIO, "http://127.0.0.1:1234/v1"),
+            (PROVIDER_OLLAMA, "http://127.0.0.1:11434/v1"),
+            (PROVIDER_VLLM, "http://127.0.0.1:8000/v1"),
+            (PROVIDER_LLAMA_CPP, "http://127.0.0.1:8080/v1"),
+        )
+
+        llm_config_dialog._reset_model_discovery_cache_for_tests()
+        llm_config_dialog.discover_provider_models = fake_discover
+        try:
+            for provider, base_url in providers:
+                with self.subTest(provider=provider):
+                    result = llm_config_dialog._model_options_for_dialog(
+                        provider,
+                        base_url=base_url,
+                        timeout_seconds=60,
+                        prefer_live=True,
+                    )
+
+                    self.assertEqual(["%s-live-model" % provider], result.models)
+                    self.assertEqual("%s/models" % base_url, result.source)
+
+            self.assertEqual(len(providers), len(calls))
+            for provider, base_url in providers:
+                self.assertIn((provider, base_url, "", 60), calls)
+        finally:
             llm_config_dialog.discover_provider_models = old_discover
             llm_config_dialog._reset_model_discovery_cache_for_tests()
 
@@ -1560,6 +1623,42 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertIn("req_policy_456", "\n".join(messages))
         self.assertIn("blocked by provider cyber policy", plan.warnings[0])
         self.assertIn("req_policy_456", plan.warnings[0])
+
+    def test_build_plan_does_not_pass_stale_api_key_to_local_http_provider(self):
+        capture = _capture()
+        old_load = actions_module.load_config
+        old_configure = actions_module.configure_profile_dir
+        old_active = actions_module.active_profile_root
+        old_provider = actions_module.build_rename_provider
+        old_build = actions_module.build_clean_plan
+        provider_calls = []
+
+        actions_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(
+                enabled=True,
+                provider="ollama",
+                model="llama3.2",
+                base_url="http://localhost:11434/v1",
+            ),
+            credentials={
+                "ollama": ProviderCredential(api_key="stale-local-key"),
+            },
+        )
+        actions_module.configure_profile_dir = lambda profile_dir: Path(r"F:\profiles\default")
+        actions_module.active_profile_root = lambda: Path(r"F:\profiles\default")
+        actions_module.build_rename_provider = lambda config, api_key="": provider_calls.append(api_key) or object()
+        actions_module.build_clean_plan = lambda captured, **_kwargs: _plan(captured)
+        try:
+            plan = actions_module._build_plan_with_config(capture)
+        finally:
+            actions_module.load_config = old_load
+            actions_module.configure_profile_dir = old_configure
+            actions_module.active_profile_root = old_active
+            actions_module.build_rename_provider = old_provider
+            actions_module.build_clean_plan = old_build
+
+        self.assertEqual(provider_calls, [""])
+        self.assertEqual(plan.function_ea, capture.ea)
 
     def test_show_settings_includes_plugin_version(self):
         handler = actions_module.ShowSettingsHandler()

@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.venv-free-gui/
 pseudoforge_out/
 pseudoforge_config.json
 release/

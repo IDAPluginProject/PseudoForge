@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import unittest
 
@@ -41,6 +42,37 @@ from ida_pseudoforge.ida.ui_preview import (
 
 
 class UiPreviewTests(unittest.TestCase):
+    def test_ida_side_by_side_preview_skips_qt6_bindings_inside_ida(self) -> None:
+        old_executable = ui_preview_module.sys.executable
+        old_import = ui_preview_module.importlib.import_module
+        calls = []
+
+        def fake_import(name: str):
+            calls.append(name)
+            raise ModuleNotFoundError(name)
+
+        ui_preview_module.sys.executable = r"C:\IDA\ida.exe"
+        ui_preview_module.importlib.import_module = fake_import
+        try:
+            self.assertEqual(("PyQt5", "PySide2"), ui_preview_module._qt_binding_candidates())
+            self.assertIsNone(ui_preview_module._load_qt_modules())
+        finally:
+            ui_preview_module.sys.executable = old_executable
+            ui_preview_module.importlib.import_module = old_import
+
+        self.assertTrue(calls)
+        self.assertFalse(any("PyQt6" in name for name in calls))
+        self.assertFalse(any("PySide6" in name for name in calls))
+
+    def test_non_ida_side_by_side_preview_keeps_qt6_fallbacks_available(self) -> None:
+        old_executable = ui_preview_module.sys.executable
+        ui_preview_module.sys.executable = sys.executable
+        try:
+            self.assertIn("PySide6", ui_preview_module._qt_binding_candidates())
+            self.assertIn("PyQt6", ui_preview_module._qt_binding_candidates())
+        finally:
+            ui_preview_module.sys.executable = old_executable
+
     def test_preview_syntax_highlighting_marks_cpp_tokens(self) -> None:
         lines = [
             "if ( status == STATUS_SUCCESS )",

@@ -3,19 +3,19 @@ from __future__ import annotations
 import json
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ida_pseudoforge.models.provider_registry import (
+    HTTP_PROVIDERS,
     PROVIDER_CHATGPT_OAUTH_VIA_CODEX_CLI,
     PROVIDER_CLAUDE_CLI,
     PROVIDER_CLAUDE_LOGIN_VIA_CLAUDE_CLI,
     PROVIDER_CODEX_CLI,
-    PROVIDER_DEEPSEEK,
-    PROVIDER_OPENAI_COMPATIBLE,
-    PROVIDER_OPENROUTER,
+    PROVIDER_LM_STUDIO,
     normalize_provider,
     provider_defaults,
     provider_model_options,
@@ -41,7 +41,7 @@ def discover_provider_models(
     if normalized in {PROVIDER_CHATGPT_OAUTH_VIA_CODEX_CLI, PROVIDER_CODEX_CLI}:
         return _discover_codex_models(timeout_seconds)
 
-    if normalized in {PROVIDER_OPENAI_COMPATIBLE, PROVIDER_OPENROUTER, PROVIDER_DEEPSEEK}:
+    if normalized in HTTP_PROVIDERS:
         return _discover_openai_compatible_models(
             provider=normalized,
             base_url=base_url,
@@ -100,23 +100,52 @@ def _discover_openai_compatible_models(
     if api_key:
         headers["Authorization"] = "Bearer %s" % api_key
 
-    request = urllib.request.Request(
-        "%s/models" % resolved_base_url,
-        headers=headers,
-        method="GET",
-    )
+    openai_models_url = "%s/models" % resolved_base_url
+    warning = ""
     try:
-        with urllib.request.urlopen(request, timeout=min(max(timeout_seconds, 5), 60)) as response:
-            models = _extract_model_ids(json.loads(response.read().decode("utf-8")), key="id")
-            if models:
-                return ModelDiscoveryResult(models=models, source="%s/models" % resolved_base_url)
+        models = _request_model_catalog(openai_models_url, headers, timeout_seconds)
+        if models:
+            return ModelDiscoveryResult(models=models, source=openai_models_url)
     except urllib.error.HTTPError as exc:
         warning = "static fallback: model catalog request failed with HTTP %d" % exc.code
-        return _fallback_models(provider, warning)
+        if normalize_provider(provider) != PROVIDER_LM_STUDIO or exc.code not in {404, 405}:
+            return _fallback_models(provider, warning)
     except Exception as exc:
         return _fallback_models(provider, "static fallback: model catalog request failed: %s" % exc)
 
+    if normalize_provider(provider) == PROVIDER_LM_STUDIO:
+        native_models_url = _lm_studio_native_models_url(resolved_base_url)
+        if native_models_url != openai_models_url:
+            try:
+                models = _request_model_catalog(native_models_url, headers, timeout_seconds)
+                if models:
+                    return ModelDiscoveryResult(models=models, source=native_models_url)
+            except urllib.error.HTTPError as exc:
+                warning = "static fallback: LM Studio native model catalog failed with HTTP %d" % exc.code
+            except Exception as exc:
+                warning = "static fallback: LM Studio native model catalog failed: %s" % exc
+
+    if warning:
+        return _fallback_models(provider, warning)
     return _fallback_models(provider, "static fallback: model catalog response was empty")
+
+
+def _request_model_catalog(url: str, headers: dict[str, str], timeout_seconds: int) -> list[str]:
+    request = urllib.request.Request(
+        url,
+        headers=headers,
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=min(max(timeout_seconds, 5), 60)) as response:
+        return _extract_model_ids(json.loads(response.read().decode("utf-8")), key="id")
+
+
+def _lm_studio_native_models_url(base_url: str) -> str:
+    parts = urllib.parse.urlsplit(base_url)
+    if not parts.scheme or not parts.netloc:
+        return "%s/api/v0/models" % base_url.rstrip("/")
+    origin = urllib.parse.urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+    return "%s/api/v0/models" % origin
 
 
 def _extract_model_ids(data: Any, key: str) -> list[str]:

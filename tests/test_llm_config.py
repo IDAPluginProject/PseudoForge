@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import unittest
+from unittest.mock import patch
 
 from ida_pseudoforge.config import (
     LlmConfig,
@@ -22,6 +25,7 @@ from ida_pseudoforge.core.llm_assist import parse_llm_rename_response, suggest_r
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.models.cli_provider import CliRenameProvider
+from ida_pseudoforge.models.openai_compatible import OpenAICompatibleRenameProvider
 from ida_pseudoforge.models.prompting import build_cli_rename_prompt
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -30,11 +34,18 @@ from ida_pseudoforge.models.provider_registry import (
     PROVIDER_CLAUDE_LOGIN_VIA_CLAUDE_CLI,
     PROVIDER_CODEX_CLI,
     PROVIDER_DEEPSEEK,
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_LM_STUDIO,
+    PROVIDER_OLLAMA,
     PROVIDER_OPENROUTER,
+    PROVIDER_VLLM,
     is_known_provider,
     normalize_provider,
     provider_defaults,
     provider_model_options,
+    provider_requires_api_key,
+    provider_uses_cli_settings,
+    provider_uses_http_settings,
 )
 
 
@@ -69,6 +80,20 @@ __int64 __fastcall LargeDispatcherSample(int a1)
 }
 """
 )
+
+
+class _FakeHttpResponse:
+    def __init__(self, payload: str) -> None:
+        self._payload = payload.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._payload
 
 
 class LlmConfigTests(unittest.TestCase):
@@ -296,6 +321,170 @@ class LlmConfigTests(unittest.TestCase):
         self.assertEqual(provider.base_url, "https://openrouter.ai/api/v1")
         self.assertEqual(provider.model, "test-model")
         self.assertEqual(provider.extra_headers["X-Title"], "PseudoForge")
+        self.assertEqual(provider.response_format, {"type": "json_object"})
+
+    def test_local_openai_compatible_provider_defaults_do_not_require_api_key(self) -> None:
+        expected = {
+            PROVIDER_OLLAMA: ("http://localhost:11434/v1", "llama3.2"),
+            PROVIDER_LM_STUDIO: ("http://localhost:1234/v1", "local-model"),
+            PROVIDER_VLLM: ("http://localhost:8000/v1", "Qwen/Qwen2.5-1.5B-Instruct"),
+            PROVIDER_LLAMA_CPP: ("http://localhost:8080/v1", "local-model"),
+        }
+
+        for provider_id, (base_url, model) in expected.items():
+            with self.subTest(provider=provider_id):
+                provider = build_rename_provider(LlmConfig(enabled=True, provider=provider_id))
+
+                self.assertEqual(provider.base_url, base_url)
+                self.assertEqual(provider.model, model)
+                self.assertEqual(provider.api_key, "")
+                self.assertFalse(provider.api_key_required)
+                self.assertTrue(provider_uses_http_settings(provider_id))
+                self.assertFalse(provider_requires_api_key(provider_id))
+                self.assertFalse(provider_uses_cli_settings(provider_id))
+
+    def test_local_openai_compatible_provider_reads_environment_defaults(self) -> None:
+        old_base_url = os.environ.get("PSEUDOFORGE_OLLAMA_BASE_URL")
+        old_model = os.environ.get("PSEUDOFORGE_OLLAMA_MODEL")
+        os.environ["PSEUDOFORGE_OLLAMA_BASE_URL"] = "http://127.0.0.1:11435/v1"
+        os.environ["PSEUDOFORGE_OLLAMA_MODEL"] = "qwen2.5-coder"
+        try:
+            provider = build_rename_provider(
+                LlmConfig(
+                    enabled=True,
+                    provider=PROVIDER_OLLAMA,
+                    base_url="",
+                    model="",
+                )
+            )
+        finally:
+            if old_base_url is None:
+                os.environ.pop("PSEUDOFORGE_OLLAMA_BASE_URL", None)
+            else:
+                os.environ["PSEUDOFORGE_OLLAMA_BASE_URL"] = old_base_url
+            if old_model is None:
+                os.environ.pop("PSEUDOFORGE_OLLAMA_MODEL", None)
+            else:
+                os.environ["PSEUDOFORGE_OLLAMA_MODEL"] = old_model
+
+        self.assertEqual(provider.base_url, "http://127.0.0.1:11435/v1")
+        self.assertEqual(provider.model, "qwen2.5-coder")
+
+    def test_explicit_empty_provider_env_lists_do_not_inherit_openai_environment(self) -> None:
+        old_api_key = os.environ.get("OPENAI_API_KEY")
+        old_base_url = os.environ.get("PSEUDOFORGE_OPENAI_BASE_URL")
+        old_model = os.environ.get("PSEUDOFORGE_OPENAI_MODEL")
+        os.environ["OPENAI_API_KEY"] = "sk-openai-test"
+        os.environ["PSEUDOFORGE_OPENAI_BASE_URL"] = "https://openai-env.example/v1"
+        os.environ["PSEUDOFORGE_OPENAI_MODEL"] = "openai-env-model"
+        try:
+            provider = OpenAICompatibleRenameProvider(
+                api_key_env_vars=[],
+                base_url_env_vars=[],
+                model_env_vars=[],
+                api_key_required=False,
+            )
+        finally:
+            if old_api_key is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = old_api_key
+            if old_base_url is None:
+                os.environ.pop("PSEUDOFORGE_OPENAI_BASE_URL", None)
+            else:
+                os.environ["PSEUDOFORGE_OPENAI_BASE_URL"] = old_base_url
+            if old_model is None:
+                os.environ.pop("PSEUDOFORGE_OPENAI_MODEL", None)
+            else:
+                os.environ["PSEUDOFORGE_OPENAI_MODEL"] = old_model
+
+        self.assertEqual(provider.api_key, "")
+        self.assertEqual(provider.base_url, "https://api.openai.com/v1")
+        self.assertEqual(provider.model, "gpt-5-mini")
+
+    def test_local_openai_compatible_request_omits_authorization_without_api_key(self) -> None:
+        provider = build_rename_provider(
+            LlmConfig(
+                enabled=True,
+                provider=PROVIDER_OLLAMA,
+                model="llama3.2",
+            )
+        )
+
+        with patch(
+            "ida_pseudoforge.models.openai_compatible.urllib.request.urlopen",
+            return_value=_FakeHttpResponse('{"choices":[{"message":{"content":"{\\"renames\\":[]}"}}]}'),
+        ) as urlopen:
+            content = provider.suggest_renames(capture_from_pseudocode(LLM_PLAN_SAMPLE))
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(content, '{"renames":[]}')
+        self.assertEqual(request.full_url, "http://localhost:11434/v1/chat/completions")
+        self.assertIsNone(request.get_header("Authorization"))
+        self.assertEqual(payload["response_format"], {"type": "text"})
+
+    def test_lm_studio_request_uses_text_response_format_for_local_model_compatibility(self) -> None:
+        provider = build_rename_provider(
+            LlmConfig(
+                enabled=True,
+                provider=PROVIDER_LM_STUDIO,
+                base_url="http://192.168.1.28:1234/v1",
+                model="google/gemma-4-12b",
+            )
+        )
+
+        with patch(
+            "ida_pseudoforge.models.openai_compatible.urllib.request.urlopen",
+            return_value=_FakeHttpResponse('{"choices":[{"message":{"content":"{\\"renames\\":[]}"}}]}'),
+        ) as urlopen:
+            content = provider.suggest_renames(capture_from_pseudocode(LLM_PLAN_SAMPLE))
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(content, '{"renames":[]}')
+        self.assertEqual(request.full_url, "http://192.168.1.28:1234/v1/chat/completions")
+        self.assertEqual(payload["model"], "google/gemma-4-12b")
+        self.assertEqual(payload["response_format"], {"type": "text"})
+
+    def test_openai_compatible_retries_text_response_format_when_server_rejects_json_object(self) -> None:
+        provider = OpenAICompatibleRenameProvider(
+            api_key="",
+            base_url="http://local.example/v1",
+            model="google/gemma-4-12b",
+            api_key_required=False,
+        )
+        rejection = urllib.error.HTTPError(
+            "http://local.example/v1/chat/completions",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b'{"error":"response_format.type must be json_schema or text"}'),
+        )
+
+        with patch(
+            "ida_pseudoforge.models.openai_compatible.urllib.request.urlopen",
+            side_effect=[
+                rejection,
+                _FakeHttpResponse('{"choices":[{"message":{"content":"{\\"renames\\":[]}"}}]}'),
+            ],
+        ) as urlopen:
+            content = provider.suggest_renames(capture_from_pseudocode(LLM_PLAN_SAMPLE))
+
+        first_request = urlopen.call_args_list[0].args[0]
+        second_request = urlopen.call_args_list[1].args[0]
+        first_payload = json.loads(first_request.data.decode("utf-8"))
+        second_payload = json.loads(second_request.data.decode("utf-8"))
+        self.assertEqual(content, '{"renames":[]}')
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(first_payload["response_format"], {"type": "json_object"})
+        self.assertEqual(second_payload["response_format"], {"type": "text"})
+
+    def test_cloud_openai_compatible_provider_still_requires_api_key(self) -> None:
+        provider = build_rename_provider(LlmConfig(enabled=True, provider="openai_compatible"))
+
+        with self.assertRaisesRegex(RuntimeError, "No API key configured"):
+            provider.suggest_renames(capture_from_pseudocode(LLM_PLAN_SAMPLE))
 
     def test_chatgpt_oauth_old_alias_is_not_accepted(self) -> None:
         self.assertFalse(is_known_provider("chatgpt_oauth"))
@@ -315,12 +504,23 @@ class LlmConfigTests(unittest.TestCase):
         )
         self.assertTrue(is_known_provider("claude-code-login"))
 
+    def test_local_provider_aliases_are_accepted(self) -> None:
+        self.assertEqual(normalize_provider("ollama-local"), PROVIDER_OLLAMA)
+        self.assertEqual(normalize_provider("lm studio"), PROVIDER_LM_STUDIO)
+        self.assertEqual(normalize_provider("vllm-openai"), PROVIDER_VLLM)
+        self.assertEqual(normalize_provider("llama.cpp"), PROVIDER_LLAMA_CPP)
+        self.assertTrue(is_known_provider("llamacpp"))
+
     def test_provider_model_options(self) -> None:
         openrouter_models = provider_model_options(PROVIDER_OPENROUTER)
         self.assertIn("openrouter/auto", openrouter_models)
         self.assertIn("anthropic/claude-opus-4.8", openrouter_models)
         self.assertNotIn("anthropic/claude-opus-4.6", openrouter_models)
         self.assertIn("deepseek-v4-flash", provider_model_options(PROVIDER_DEEPSEEK))
+        self.assertIn("llama3.2", provider_model_options(PROVIDER_OLLAMA))
+        self.assertIn("local-model", provider_model_options(PROVIDER_LM_STUDIO))
+        self.assertIn("Qwen/Qwen2.5-1.5B-Instruct", provider_model_options(PROVIDER_VLLM))
+        self.assertIn("local-model", provider_model_options(PROVIDER_LLAMA_CPP))
         self.assertIn(
             "gpt-5.5",
             provider_model_options(PROVIDER_CHATGPT_OAUTH_VIA_CODEX_CLI),

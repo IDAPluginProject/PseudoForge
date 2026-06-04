@@ -108,7 +108,6 @@ class FreeAnalysisDeps:
     configure_profile_dir: Any
     LlmConfig: Any
     build_rename_provider: Any
-    provider_defaults: Any
 
 
 @dataclass(slots=True)
@@ -128,7 +127,6 @@ def load_free_analysis_deps() -> FreeAnalysisDeps:
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
         from ida_pseudoforge.core.render import render_cleaned_pseudocode
         from ida_pseudoforge.models.provider_factory import build_rename_provider
-        from ida_pseudoforge.models.provider_registry import provider_defaults
         from ida_pseudoforge.profiles.loader import (
             active_profile_manifests,
             active_profile_names,
@@ -159,7 +157,6 @@ def load_free_analysis_deps() -> FreeAnalysisDeps:
         configure_profile_dir=configure_profile_dir,
         LlmConfig=LlmConfig,
         build_rename_provider=build_rename_provider,
-        provider_defaults=provider_defaults,
     )
 
 
@@ -469,14 +466,13 @@ def _build_plan(
 
 
 def _build_provider(options: FreeAnalysisOptions, deps: FreeAnalysisDeps) -> Any:
-    defaults = deps.provider_defaults(options.llm_provider)
     config = deps.LlmConfig(
         enabled=True,
         provider=options.llm_provider,
-        base_url=options.llm_base_url or defaults.base_url,
-        model=options.llm_model or defaults.model,
+        base_url=options.llm_base_url,
+        model=options.llm_model,
         timeout_seconds=options.llm_timeout,
-        command_template=options.llm_command or defaults.command_template,
+        command_template=options.llm_command,
     )
     return deps.build_rename_provider(config, api_key=options.llm_api_key)
 

@@ -19,7 +19,6 @@ from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
     PROVIDER_OPENAI_COMPATIBLE,
     PROVIDER_ORDER,
-    provider_defaults,
 )
 from ida_pseudoforge.version import VERSION, plugin_title
 
@@ -109,14 +108,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_cli_provider(args: argparse.Namespace):
-    defaults = provider_defaults(args.llm_provider)
     config = LlmConfig(
         enabled=True,
         provider=args.llm_provider,
-        base_url=args.llm_base_url or defaults.base_url,
-        model=args.llm_model or defaults.model,
+        base_url=args.llm_base_url,
+        model=args.llm_model,
         timeout_seconds=args.llm_timeout,
-        command_template=args.llm_command or defaults.command_template,
+        command_template=args.llm_command,
     )
     return build_rename_provider(config, api_key=args.llm_api_key)
 

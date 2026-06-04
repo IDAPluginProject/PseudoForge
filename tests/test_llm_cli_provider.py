@@ -1,4 +1,5 @@
 import subprocess
+import urllib.error
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +12,11 @@ from ida_pseudoforge.models.provider_registry import (
     PROVIDER_CLAUDE_CLI,
     PROVIDER_CLAUDE_LOGIN_VIA_CLAUDE_CLI,
     PROVIDER_CODEX_CLI,
+    PROVIDER_LLAMA_CPP,
+    PROVIDER_LM_STUDIO,
+    PROVIDER_OLLAMA,
+    PROVIDER_VLLM,
+    provider_defaults,
 )
 
 
@@ -118,6 +124,81 @@ class LlmCliProviderTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["creationflags"], hidden_kwargs["creationflags"])
         if "startupinfo" in hidden_kwargs:
             self.assertIn("startupinfo", run.call_args.kwargs)
+
+    def test_local_http_model_discovery_omits_authorization_without_api_key(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return None
+
+            def read(self):
+                return b'{"data":[{"id":"llama3.2"}]}'
+
+        local_providers = (
+            PROVIDER_OLLAMA,
+            PROVIDER_LM_STUDIO,
+            PROVIDER_VLLM,
+            PROVIDER_LLAMA_CPP,
+        )
+
+        with patch(
+            "ida_pseudoforge.models.model_discovery.urllib.request.urlopen",
+            return_value=FakeResponse(),
+        ) as urlopen:
+            for provider in local_providers:
+                with self.subTest(provider=provider):
+                    result = discover_provider_models(provider)
+                    request = urlopen.call_args.args[0]
+
+                    self.assertEqual(result.models, ["llama3.2"])
+                    self.assertEqual(result.source, "%s/models" % provider_defaults(provider).base_url)
+                    self.assertIsNone(request.get_header("Authorization"))
+
+    def test_lm_studio_model_discovery_uses_native_catalog_when_openai_catalog_is_missing(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return None
+
+            def read(self):
+                return b'{"data":[{"id":"native-model"}]}'
+
+        requested_urls = []
+
+        def fake_urlopen(request, timeout=15):
+            requested_urls.append(request.full_url)
+            if request.full_url.endswith("/v1/models"):
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    404,
+                    "not found",
+                    hdrs=None,
+                    fp=None,
+                )
+            return FakeResponse()
+
+        with patch(
+            "ida_pseudoforge.models.model_discovery.urllib.request.urlopen",
+            side_effect=fake_urlopen,
+        ):
+            result = discover_provider_models(
+                PROVIDER_LM_STUDIO,
+                base_url="http://192.168.1.28:1234/v1",
+            )
+
+        self.assertEqual(result.models, ["native-model"])
+        self.assertEqual(result.source, "http://192.168.1.28:1234/api/v0/models")
+        self.assertEqual(
+            requested_urls,
+            [
+                "http://192.168.1.28:1234/v1/models",
+                "http://192.168.1.28:1234/api/v0/models",
+            ],
+        )
 
     def test_claude_login_model_discovery_uses_static_list_without_warning(self):
         result = discover_provider_models(PROVIDER_CLAUDE_LOGIN_VIA_CLAUDE_CLI)

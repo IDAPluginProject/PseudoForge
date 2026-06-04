@@ -33,6 +33,16 @@ matches.
 
 ![PseudoForge side-by-side raw and cleaned pseudocode preview with search highlighting](screenshots/example4.png)
 
+The fifth preview shows focused buffer-contract analysis from the Hex-Rays
+pseudocode context menu. The cursor is on one dispatcher case, PseudoForge runs
+the selected-case deep pass, and the result opens as a generated C++ ABI sketch
+with observed helper-derived fields, size predicates, and review comments.
+
+![PseudoForge focused buffer contract analysis from cursor case to generated C++ struct preview](screenshots/example_buffer_analysis.png)
+
+Standalone IDA Free users can also review the Free Studio GUI walkthrough:
+[IDA-free-gui-demo.mp4](screenshots/IDA-free-gui-demo.mp4).
+
 ## Decompiler Output Dependency
 
 PseudoForge works on Hex-Rays pseudocode output. Its cleanup quality depends heavily on the quality of the initial decompilation.
@@ -61,11 +71,10 @@ For best results:
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_smoke
 ```
 
-6. For the standalone IDA Free GUI, install PySide6 and run:
+6. For the standalone IDA Free GUI, use the isolated venv launcher:
 
 ```powershell
-python -m pip install PySide6
-python -B .\tools\pseudoforge_free_gui.py
+.\tools\run_pseudoforge_free_gui.ps1
 ```
 
 Key documentation:
@@ -173,8 +182,9 @@ Implemented:
     counts.
 27. Export summaries and IDA Free result summaries include deterministic rule
     diagnostic counts plus rule load and validation error details.
-28. IDA LLM model discovery uses a non-blocking background refresh cache so
-    configuration dialogs can open with static or cached model lists.
+28. IDA LLM model discovery queries HTTP providers from the selected base URL
+    before the model chooser opens, while CLI catalog discovery keeps the
+    non-blocking cache path.
 29. IDA analysis preview can try an experimental dockable side-by-side raw vs
     cleaned review panel through the persisted `Configure preview mode` setting
     or temporary `PSEUDOFORGE_PREVIEW_BACKEND` override, with a compact
@@ -246,6 +256,7 @@ Standalone IDA Free GUI:
 Optional LLM rename assist:
 
 - OpenAI-compatible `/chat/completions` endpoint
+- Local OpenAI-compatible endpoints for Ollama, LM Studio, vLLM, and llama.cpp
 - OpenRouter `/chat/completions` endpoint
 - DeepSeek OpenAI-compatible endpoint
 - ChatGPT OAuth via Codex CLI, Codex CLI, Claude login via Claude CLI, or Claude CLI command bridge
@@ -569,6 +580,15 @@ shared tail can also recover the selected branch's local guards and joined
 tail, and typed vector array reads such as `infoBuffer128[2].m128i_i64[0]`
 are converted into fixed-offset field evidence.
 
+Focused cursor-case example:
+
+![PseudoForge focused buffer contract cursor-case menu and generated struct output](screenshots/example_buffer_analysis.png)
+
+In the example, the Hex-Rays cursor is on `case 75`, the PseudoForge context
+menu exposes both cursor-case and explicit case-value analysis, and the preview
+shows the generated buffer-contract C++ sketch for review. The sketch is an
+export/preview artifact only; it is not applied to the IDB as a type definition.
+
 `Cancel current operation` requests cooperative cancellation for the active analyze, export, or apply-preparation task. Cancellation is checked at safe phase boundaries; an in-flight Hex-Rays decompile or LLM provider call may finish before the task stops.
 
 `Advanced/Apply selected renames to IDB` analyzes the function if needed, shows a rename chooser, refuses stale sessions when the current function changed, and applies only user-selected local or argument renames that pass final preflight through `ida_hexrays.rename_lvar()`. This path is intentionally separate from preview/export.
@@ -608,8 +628,9 @@ mode configuration fallback.
   `Side-by-side dockable preview` to persist the experimental dockable
   raw-vs-cleaned review panel in `pseudoforge_config.json`. If IDA `PluginForm`
   or Qt widgets are unavailable, PseudoForge warns with the fallback reason and
-  opens the existing simple custom viewer. The dockable backend accepts PyQt5,
-  PyQt6, PySide6, and PySide2 module layouts when IDA exposes them.
+  opens the existing simple custom viewer. Inside IDA, the dockable backend only
+  uses Qt5-compatible bindings such as IDA's bundled PyQt5 and intentionally
+  skips PyQt6/PySide6 to avoid mixing Qt5 and Qt6 in one IDA process.
 - `PSEUDOFORGE_PREVIEW_BACKEND=side_by_side` remains available as a temporary
   override before launching IDA. Set it to `simple` to temporarily force the
   simple custom viewer even when the saved config enables side-by-side preview.
@@ -618,6 +639,15 @@ mode configuration fallback.
 - Function-section `Save as...` defaults to `PseudoForge__<target>__<function>_0x<EA>.cpp`.
 - `Copy all` uses the Windows Clipboard API with `CF_UNICODETEXT`; it does not shell out or rely on a Qt clipboard.
 - Clipboard status is written to `%TEMP%\pseudoforge_clipboard\copy_all.log`.
+
+### IDA Qt Binding Notes
+
+IDA Pro 9.0 is a Qt5 application. PseudoForge's IDA plugin must not import
+PySide6/PyQt6 inside the IDA process; those bindings are reserved for the
+standalone Free Studio GUI. If an IDA startup or dockable-panel crash appears
+after installing PySide6 into a system Python, inspect other IDA plugins for
+direct `PySide6` imports and update the installed PseudoForge plugin so its
+dockable preview uses only IDA-compatible Qt5 bindings.
 
 ### Kernel Driver Cleanup
 
@@ -840,7 +870,7 @@ LLM rename assist can be configured without a separate CLI.
 2. Choose `Yes` for `Enable PseudoForge LLM rename assist?`.
 3. Select a provider in the read-only provider combo box.
 4. Enter the base URL for HTTP providers.
-5. Enter an API key only if the selected HTTP provider has no stored key.
+5. Enter an API key only if the selected API-backed HTTP provider has no stored key.
 6. Select a model in the provider-specific read-only model combo box.
 7. Enter a command template for CLI providers.
 8. Set the timeout in seconds.
@@ -849,6 +879,7 @@ LLM rename assist can be configured without a separate CLI.
 API key policy:
 
 - `openai_compatible`, `openrouter`, and `deepseek_api` require API keys.
+- `ollama`, `lm_studio`, `vllm`, and `llama_cpp` use local OpenAI-compatible HTTP endpoints and do not require API keys by default.
 - API keys are stored under provider-specific `credentials`, not under `llm`.
 - Existing provider keys are reused when changing models.
 - To replace a key, edit or delete the provider credential in `pseudoforge_config.json`, then run the configuration action again.
@@ -857,6 +888,10 @@ Supported provider IDs:
 
 ```text
 openai_compatible
+ollama
+lm_studio
+vllm
+llama_cpp
 openrouter
 chatgpt_oauth_via_codex_cli
 codex_cli
@@ -870,6 +905,10 @@ Default provider settings:
 | Provider | Default model | Default endpoint or command |
 | --- | --- | --- |
 | `openai_compatible` | `gpt-5-mini` | `https://api.openai.com/v1` |
+| `ollama` | `llama3.2` | `http://localhost:11434/v1` |
+| `lm_studio` | `local-model` | `http://localhost:1234/v1` |
+| `vllm` | `Qwen/Qwen2.5-1.5B-Instruct` | `http://localhost:8000/v1` |
+| `llama_cpp` | `local-model` | `http://localhost:8080/v1` |
 | `openrouter` | `openrouter/auto` | `https://openrouter.ai/api/v1` |
 | `chatgpt_oauth_via_codex_cli` | `gpt-5-mini` | `codex exec -m {model} --skip-git-repo-check --sandbox read-only --output-last-message {output_file} -` |
 | `codex_cli` | `gpt-5-mini` | `codex exec -m {model} --skip-git-repo-check --sandbox read-only --output-last-message {output_file} -` |
@@ -881,16 +920,22 @@ The default timeout is 60 seconds.
 
 Model discovery:
 
-- IDA configuration uses a non-blocking model discovery cache. If no live model
-  catalog is cached yet, the dialog opens with provider static models while a
-  background refresh updates the cache for the next configuration run.
+- IDA configuration queries HTTP providers from the selected base URL's
+  `/models` endpoint before the model chooser opens. This covers
+  OpenAI-compatible, Ollama, LM Studio, vLLM, llama.cpp, OpenRouter, and
+  DeepSeek provider IDs. The live lookup honors the configured timeout with a
+  5 to 60 second bounded range.
+- Free Studio settings refresh HTTP provider model lists in the background when
+  the provider, base URL, or API key changes. The current custom model remains
+  selectable even if it is not returned by `/models`. The background lookup
+  uses the same 5 to 60 second timeout bound.
 - `chatgpt_oauth_via_codex_cli` and `codex_cli` read the Codex model catalog through `codex debug models` using argv-based subprocess execution, not a shell command string.
 - If `codex debug models` fails, `%USERPROFILE%\.codex\models_cache.json` is used.
 - Claude CLI providers use provider-specific static model lists. This is the expected path because Claude CLI does not expose a model catalog command. The static list starts with the current Claude API/Claude Code model IDs and aliases: `claude-opus-4-8`, `claude-sonnet-4-6`, and `claude-haiku-4-5`.
-- HTTP providers query the selected base URL's `/models` endpoint.
-- If an enabled HTTP provider has no stored key, the key prompt appears before model discovery.
+- If an enabled API-backed HTTP provider has no stored key, the key prompt appears before model discovery.
+- Local HTTP providers query `/models` without an Authorization header unless an optional provider-specific key is supplied through CLI options or environment variables.
 - Discovery failures fall back to provider-specific static model lists.
-- A custom model stored in `pseudoforge_config.json` is temporarily added to the combo box on the next configuration run so the current setting is not lost.
+- A custom model stored in `pseudoforge_config.json` is temporarily added to model choosers so the current setting is not lost.
 
 `chatgpt_oauth_via_codex_cli` lets IDA call Codex CLI with the ChatGPT OAuth session saved by `codex login`. `claude_login_via_claude_cli` lets IDA call Claude CLI with the Anthropic account session saved by `claude auth login`. PseudoForge does not implement in-IDA browser login. `codex_cli` and `claude_cli` remain generic local CLI bridges with editable command templates.
 
@@ -978,6 +1023,25 @@ DeepSeek API example:
   }
 }
 ```
+
+Ollama local example:
+
+```json
+{
+  "llm": {
+    "enabled": true,
+    "provider": "ollama",
+    "base_url": "http://localhost:11434/v1",
+    "model": "llama3.2",
+    "timeout_seconds": 60,
+    "command_template": "",
+    "extra_headers": {}
+  },
+  "credentials": {}
+}
+```
+
+LM Studio, vLLM, and llama.cpp use the same OpenAI-compatible shape with provider IDs `lm_studio`, `vllm`, or `llama_cpp`. Use the model identifier shown by the local server or returned by its `/models` endpoint.
 
 Codex CLI / ChatGPT OAuth via Codex CLI example:
 
@@ -1149,6 +1213,31 @@ $env:PSEUDOFORGE_DEEPSEEK_API_KEY = "<deepseek-api-key>"
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --llm-renames --llm-provider deepseek_api --out $env:TEMP\pseudoforge_cli_smoke
 ```
 
+Ollama:
+
+```powershell
+ollama pull llama3.2
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --llm-renames --llm-provider ollama --out $env:TEMP\pseudoforge_cli_smoke
+```
+
+LM Studio:
+
+```powershell
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --llm-renames --llm-provider lm_studio --llm-model local-model --out $env:TEMP\pseudoforge_cli_smoke
+```
+
+vLLM:
+
+```powershell
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --llm-renames --llm-provider vllm --llm-base-url http://localhost:8000/v1 --llm-model Qwen/Qwen2.5-1.5B-Instruct --out $env:TEMP\pseudoforge_cli_smoke
+```
+
+llama.cpp:
+
+```powershell
+python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --llm-renames --llm-provider llama_cpp --llm-base-url http://localhost:8080/v1 --llm-model local-model --out $env:TEMP\pseudoforge_cli_smoke
+```
+
 Codex CLI:
 
 ```powershell
@@ -1175,6 +1264,18 @@ PSEUDOFORGE_OPENROUTER_MODEL
 PSEUDOFORGE_DEEPSEEK_API_KEY
 PSEUDOFORGE_DEEPSEEK_BASE_URL
 PSEUDOFORGE_DEEPSEEK_MODEL
+PSEUDOFORGE_OLLAMA_API_KEY
+PSEUDOFORGE_OLLAMA_BASE_URL
+PSEUDOFORGE_OLLAMA_MODEL
+PSEUDOFORGE_LM_STUDIO_API_KEY
+PSEUDOFORGE_LM_STUDIO_BASE_URL
+PSEUDOFORGE_LM_STUDIO_MODEL
+PSEUDOFORGE_VLLM_API_KEY
+PSEUDOFORGE_VLLM_BASE_URL
+PSEUDOFORGE_VLLM_MODEL
+PSEUDOFORGE_LLAMA_CPP_API_KEY
+PSEUDOFORGE_LLAMA_CPP_BASE_URL
+PSEUDOFORGE_LLAMA_CPP_MODEL
 ```
 
 Default values:
@@ -1186,7 +1287,17 @@ PSEUDOFORGE_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 PSEUDOFORGE_OPENROUTER_MODEL=openrouter/auto
 PSEUDOFORGE_DEEPSEEK_BASE_URL=https://api.deepseek.com
 PSEUDOFORGE_DEEPSEEK_MODEL=deepseek-v4-flash
+PSEUDOFORGE_OLLAMA_BASE_URL=http://localhost:11434/v1
+PSEUDOFORGE_OLLAMA_MODEL=llama3.2
+PSEUDOFORGE_LM_STUDIO_BASE_URL=http://localhost:1234/v1
+PSEUDOFORGE_LM_STUDIO_MODEL=local-model
+PSEUDOFORGE_VLLM_BASE_URL=http://localhost:8000/v1
+PSEUDOFORGE_VLLM_MODEL=Qwen/Qwen2.5-1.5B-Instruct
+PSEUDOFORGE_LLAMA_CPP_BASE_URL=http://localhost:8080/v1
+PSEUDOFORGE_LLAMA_CPP_MODEL=local-model
 ```
+
+For local providers, API key variables are optional and are only sent if present. If your local endpoint is behind an authenticated proxy and you want the GUI API-key field, use `openai_compatible` with the local base URL. Local providers send `response_format: {"type": "text"}` for broad LM Studio, Ollama, vLLM, and llama.cpp compatibility. The generic `openai_compatible` path keeps JSON object mode by default, but retries once with text mode when a local server rejects that response format. PseudoForge still extracts and validates only the rename JSON object from the model text.
 
 LLM rename assist only adds candidate names to the deterministic rename plan. LLM output must still pass JSON parsing, confidence thresholding, and rename validation.
 
@@ -1195,18 +1306,52 @@ LLM rename assist only adds candidate names to the deterministic rename plan. LL
 IDA Free is still not an interactive plugin target for PseudoForge. The standalone Free Studio GUI gives IDA Free users the same offline analysis path without requiring IDAPython, IDA SDK, or local Hex-Rays APIs:
 
 ```powershell
-python -m pip install PySide6
-python -B .\tools\pseudoforge_free_gui.py
+.\tools\run_pseudoforge_free_gui.ps1
+```
+
+The PowerShell launcher creates `.venv-free-gui`, installs PySide6 there, and
+runs `tools/pseudoforge_free_gui.py` from that isolated interpreter. This keeps
+PySide6 out of the global Python environment that IDA Pro plugins may see.
+
+Manual setup is still possible if you want to manage the environment yourself:
+
+```powershell
+python -m venv .venv-free-gui
+.\.venv-free-gui\Scripts\python.exe -m pip install PySide6
+.\.venv-free-gui\Scripts\python.exe -B .\tools\pseudoforge_free_gui.py
+```
+
+Avoid installing PySide6 into the same global Python environment used by IDA
+Pro 9.0 plugins. IDA 9.0 is a Qt5 process, and third-party IDA plugins that
+import PySide6 can crash after PySide6 becomes globally visible. If PySide6 was
+already installed globally for Free Studio and IDA starts crashing, move Free
+Studio to the venv launcher above and remove or hide the global PySide6 install
+from IDA's Python environment.
+
+If PySide6 is installed in another isolated interpreter, launch with that
+interpreter directly:
+
+```powershell
+.\.venv-free-gui\Scripts\python.exe -B .\tools\pseudoforge_free_gui.py
 ```
 
 The main window is a side-by-side review surface:
 
 - Left pane: raw pseudocode copied or opened from IDA Free cloud decompiler output.
 - Right pane: cleaned PseudoForge output.
+- Raw and cleaned code editors use C-like syntax highlighting for keywords, types, constants, numbers, strings, characters, comments, and call-like identifiers.
 - Toolbar: `Paste`, `Open`, `Analyze`, `Stop`, `Copy Cleaned`, `Save Bundle`, and `Settings`.
 - Bottom tabs: warnings, accepted/skipped renames, raw-vs-cleaned diff, rule report, and artifact paths.
 
-The Settings dialog reuses the existing provider configuration model. It supports OpenAI-compatible, OpenRouter, DeepSeek, Codex CLI, Claude CLI, `chatgpt_oauth_via_codex_cli`, and `claude_login_via_claude_cli` provider paths. LLM rename assist is optional, disabled by default, and still feeds only validator-gated rename candidates into the deterministic plan. Provider failures are shown as warnings and fall back to deterministic output.
+A recorded walkthrough is included at
+[screenshots/IDA-free-gui-demo.mp4](screenshots/IDA-free-gui-demo.mp4). It
+shows the standalone Free Studio flow for loading IDA Free cloud-decompiled
+pseudocode, configuring the analysis surface, running cleanup, reviewing the
+right-side output and bottom tabs, and saving the review bundle.
+
+The Settings dialog reuses the existing provider configuration model. It supports OpenAI-compatible, Ollama, LM Studio, vLLM, llama.cpp, OpenRouter, DeepSeek, Codex CLI, Claude CLI, `chatgpt_oauth_via_codex_cli`, and `claude_login_via_claude_cli` provider paths. LLM rename assist is optional, disabled by default, and still feeds only validator-gated rename candidates into the deterministic plan. Provider failures are shown as warnings and fall back to deterministic output.
+Provider-specific fields are enabled only when relevant: HTTP providers use `Base URL`, API-backed HTTP providers additionally use `API key`, local HTTP providers leave `API key` disabled, and local CLI providers use `CLI command`.
+For HTTP providers, the model combo refreshes from the selected `/models` endpoint when the provider, base URL, or API key changes. This includes LM Studio, Ollama, vLLM, and llama.cpp local runtimes. The `Model catalog` row reports loading, loaded, or fallback status, and `Refresh` retries the current endpoint without reopening the dialog. Model catalog lookups use the configured timeout with a 5 to 60 second bound.
 
 Free Studio writes a review bundle for each analysis under a timestamped default session directory such as:
 
@@ -1246,6 +1391,15 @@ Optional offline LLM rename assist:
 
 ```powershell
 python -B .\tools\pseudoforge_free_cli.py .\copied_from_ida_free.cpp --llm --llm-provider claude_login_via_claude_cli --llm-timeout 120 --out $env:TEMP\pseudoforge_free_cli_llm
+```
+
+Local OpenAI-compatible providers are available in the IDA Free CLI as named providers:
+
+```powershell
+python -B .\tools\pseudoforge_free_cli.py .\copied_from_ida_free.cpp --llm --llm-provider ollama --llm-model llama3.2 --out $env:TEMP\pseudoforge_free_cli_ollama
+python -B .\tools\pseudoforge_free_cli.py .\copied_from_ida_free.cpp --llm --llm-provider lm_studio --llm-base-url http://localhost:1234/v1 --llm-model local-model --out $env:TEMP\pseudoforge_free_cli_lmstudio
+python -B .\tools\pseudoforge_free_cli.py .\copied_from_ida_free.cpp --llm --llm-provider vllm --llm-base-url http://localhost:8000/v1 --llm-model Qwen/Qwen2.5-1.5B-Instruct --out $env:TEMP\pseudoforge_free_cli_vllm
+python -B .\tools\pseudoforge_free_cli.py .\copied_from_ida_free.cpp --llm --llm-provider llama_cpp --llm-base-url http://localhost:8080/v1 --llm-model local-model --out $env:TEMP\pseudoforge_free_cli_llamacpp
 ```
 
 Project-local rules and LLM rename assist together:
@@ -1743,13 +1897,14 @@ IDA Free service and GUI-targeted checks:
 
 ```powershell
 python -B -m unittest tests.test_free_service tests.test_free_gui tests.test_pseudoforge_free_cli -v
-python -B .\tools\pseudoforge_free_gui.py
+.\tools\run_pseudoforge_free_gui.ps1
 ```
 
-If PySide6 is not installed, the GUI command exits with installation guidance. Install PySide6 before using the desktop app:
+The launcher installs PySide6 into `.venv-free-gui` instead of the global
+Python environment:
 
 ```powershell
-python -m pip install PySide6
+.\tools\run_pseudoforge_free_gui.ps1
 ```
 
 IDA identity apply smoke:

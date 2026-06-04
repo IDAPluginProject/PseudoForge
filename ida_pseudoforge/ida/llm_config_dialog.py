@@ -15,13 +15,14 @@ from ida_pseudoforge.config import (
 from ida_pseudoforge.logging import log_checkpoint, trace_scope
 from ida_pseudoforge.models.model_discovery import ModelDiscoveryResult, discover_provider_models
 from ida_pseudoforge.models.provider_registry import (
-    CLI_PROVIDERS,
-    HTTP_PROVIDERS,
     PROVIDER_ORDER,
     normalize_provider,
     provider_defaults,
     provider_label,
     provider_model_options,
+    provider_requires_api_key,
+    provider_uses_cli_settings,
+    provider_uses_http_settings,
 )
 
 try:
@@ -63,7 +64,7 @@ def ask_llm_config(current_config: PseudoForgeConfig, warn) -> PseudoForgeConfig
     base_url = ""
     command_template = ""
 
-    if provider in HTTP_PROVIDERS:
+    if provider_uses_http_settings(provider):
         log_checkpoint("config.ask_base_url.before", provider=provider)
         base_url = ida_kernwin.ask_str(
             _current_or_default(current.base_url, defaults.base_url, provider_changed),
@@ -74,7 +75,11 @@ def ask_llm_config(current_config: PseudoForgeConfig, warn) -> PseudoForgeConfig
         if base_url is None:
             return None
 
-        if enabled_choice == 1 and not get_provider_api_key(updated_config, provider):
+        if (
+            provider_requires_api_key(provider)
+            and enabled_choice == 1
+            and not get_provider_api_key(updated_config, provider)
+        ):
             log_checkpoint("config.ask_api_key.before", provider=provider)
             key_prompt = "%s API key (required to fetch model list)" % provider_label(provider)
             api_key_input = ida_kernwin.ask_str("", 0, key_prompt)
@@ -90,8 +95,9 @@ def ask_llm_config(current_config: PseudoForgeConfig, warn) -> PseudoForgeConfig
         model_options = _model_options_for_dialog(
             provider,
             base_url=base_url or defaults.base_url,
-            api_key=get_provider_api_key(updated_config, provider),
+            api_key=get_provider_api_key(updated_config, provider) if provider_requires_api_key(provider) else "",
             timeout_seconds=min(max(current.timeout_seconds, 5), 60),
+            prefer_live=provider_uses_http_settings(provider),
         )
     if model_options.warning:
         warn(
@@ -111,7 +117,7 @@ def ask_llm_config(current_config: PseudoForgeConfig, warn) -> PseudoForgeConfig
     if model is None:
         return None
 
-    if provider in CLI_PROVIDERS:
+    if provider_uses_cli_settings(provider):
         log_checkpoint("config.ask_command.before", provider=provider)
         command_template = ida_kernwin.ask_str(
             _current_or_default(current.command_template, defaults.command_template, provider_changed),
@@ -138,7 +144,7 @@ def ask_llm_config(current_config: PseudoForgeConfig, warn) -> PseudoForgeConfig
         timeout_seconds = current.timeout_seconds
     timeout_seconds = min(max(timeout_seconds, 5), 600)
 
-    configured_base_url = (base_url or defaults.base_url).rstrip("/") if provider in HTTP_PROVIDERS else ""
+    configured_base_url = (base_url or defaults.base_url).rstrip("/") if provider_uses_http_settings(provider) else ""
 
     updated_config.llm = LlmConfig(
         enabled=enabled_choice == 1,
@@ -255,11 +261,14 @@ def format_llm_summary(config: LlmConfig, full_config: PseudoForgeConfig | None 
         "Model: %s" % config.model,
         "Timeout: %d seconds" % config.timeout_seconds,
     ]
-    if provider in HTTP_PROVIDERS:
+    if provider_uses_http_settings(provider):
         lines.append("Base URL: %s" % config.base_url)
-        api_key = get_provider_api_key(full_config, provider) if full_config is not None else ""
-        lines.append("API key: %s" % masked_key(api_key))
-    if provider in CLI_PROVIDERS:
+        if provider_requires_api_key(provider):
+            api_key = get_provider_api_key(full_config, provider) if full_config is not None else ""
+            lines.append("API key: %s" % masked_key(api_key))
+        else:
+            lines.append("API key: not required")
+    if provider_uses_cli_settings(provider):
         lines.append("Command: %s" % (config.command_template or "(not set)"))
     return "\n".join(lines)
 
@@ -290,9 +299,21 @@ def _model_options_for_dialog(
     base_url: str = "",
     api_key: str = "",
     timeout_seconds: int = 15,
+    prefer_live: bool = False,
 ) -> ModelDiscoveryResult:
     normalized = normalize_provider(provider)
     key = _model_discovery_cache_key(normalized, base_url, api_key)
+    if prefer_live:
+        result = _safe_discover_models(
+            normalized,
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=_model_discovery_timeout_seconds(timeout_seconds),
+        )
+        with _MODEL_DISCOVERY_LOCK:
+            _MODEL_DISCOVERY_CACHE[key] = result
+        return result
+
     with _MODEL_DISCOVERY_LOCK:
         cached = _MODEL_DISCOVERY_CACHE.get(key)
     if cached is not None:
@@ -374,6 +395,10 @@ def _reset_model_discovery_cache_for_tests() -> None:
     with _MODEL_DISCOVERY_LOCK:
         _MODEL_DISCOVERY_CACHE.clear()
         _MODEL_DISCOVERY_INFLIGHT.clear()
+
+
+def _model_discovery_timeout_seconds(timeout_seconds: int) -> int:
+    return min(max(int(timeout_seconds), 5), 60)
 
 
 def _current_or_default(current_value: str, default_value: str, provider_changed: bool) -> str:

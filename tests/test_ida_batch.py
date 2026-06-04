@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import tempfile
 import unittest
 from pathlib import Path
 
+from ida_pseudoforge.config import LlmConfig, ProviderCredential, PseudoForgeConfig
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
@@ -17,6 +19,7 @@ from tools.pseudoforge_ida_batch import (
     _render_cleaned_with_ida_postprocess,
     _write_compare_artifacts,
 )
+from tools import pseudoforge_ida_batch as ida_batch_module
 from tools.summarize_pseudoforge_ida_batch import summarize_records
 
 
@@ -135,6 +138,49 @@ __int64 __fastcall LlmBatchSample(int a1)
         self.assertEqual(error_class, "cyber_policy_block")
         self.assertEqual(error_summary, "provider cyber policy block request_id=req_policy_123")
         self.assertIn("blocked by provider cyber policy", plan.warnings[0])
+
+    def test_ida_batch_llm_context_drops_saved_local_key_but_keeps_explicit_override(self) -> None:
+        old_load = ida_batch_module.load_config
+        old_provider = ida_batch_module.build_rename_provider
+        provider_calls = []
+
+        ida_batch_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(
+                enabled=True,
+                provider="ollama",
+                base_url="http://localhost:11434/v1",
+                model="llama3.2",
+            ),
+            credentials={
+                "ollama": ProviderCredential(api_key="stale-local-key"),
+            },
+        )
+        ida_batch_module.build_rename_provider = (
+            lambda config, api_key="": provider_calls.append(api_key) or object()
+        )
+        try:
+            args = argparse.Namespace(
+                llm_renames=True,
+                llm_provider="",
+                llm_api_key="",
+                llm_base_url="",
+                llm_model="",
+                llm_command="",
+                llm_timeout=0,
+            )
+            provider, info = ida_batch_module._build_llm_context(args)
+            self.assertIsNotNone(provider)
+            self.assertEqual(info["provider"], "ollama")
+
+            args.llm_api_key = "explicit-local-key"
+            provider, info = ida_batch_module._build_llm_context(args)
+            self.assertIsNotNone(provider)
+            self.assertEqual(info["provider"], "ollama")
+        finally:
+            ida_batch_module.load_config = old_load
+            ida_batch_module.build_rename_provider = old_provider
+
+        self.assertEqual(provider_calls, ["", "explicit-local-key"])
 
     def test_ida_batch_compare_artifacts_include_raw_cleaned_and_diff(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -52,6 +52,7 @@ from ida_pseudoforge.models.provider_registry import (
     PROVIDER_ORDER,
     normalize_provider,
     provider_defaults,
+    provider_requires_api_key,
 )
 
 try:
@@ -409,7 +410,12 @@ def _build_llm_context(args: argparse.Namespace) -> tuple[Any | None, dict[str, 
         command_template=args.llm_command or saved_config.llm.command_template or defaults.command_template,
         extra_headers=saved_config.llm.extra_headers,
     )
-    api_key = args.llm_api_key or get_provider_api_key(saved_config, provider)
+    if args.llm_api_key:
+        api_key = args.llm_api_key
+    elif provider_requires_api_key(provider):
+        api_key = get_provider_api_key(saved_config, provider)
+    else:
+        api_key = ""
     provider_instance = build_rename_provider(llm_config, api_key=api_key)
     return provider_instance, {
         "enabled": True,

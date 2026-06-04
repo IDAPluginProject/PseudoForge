@@ -68,6 +68,7 @@ from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
     normalize_provider,
     provider_label,
+    provider_requires_api_key,
 )
 from ida_pseudoforge.profiles.loader import DEFAULT_PROFILE_DIR, active_profile_root, configure_profile_dir
 from ida_pseudoforge.version import VERSION
@@ -1194,7 +1195,7 @@ def _build_plan_with_config(
     with trace_scope("build_plan.provider_factory", provider=provider_name, model=config.llm.model):
         provider = build_rename_provider(
             config.llm,
-            api_key=get_provider_api_key(config, config.llm.provider),
+            api_key=get_provider_api_key(config, config.llm.provider) if provider_requires_api_key(provider_name) else "",
         )
     _raise_if_task_cancelled(task_name, "before llm provider")
 

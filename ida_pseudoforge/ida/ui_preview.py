@@ -5,6 +5,7 @@ import ctypes.wintypes as wintypes
 import importlib
 import os
 import re
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -287,7 +288,9 @@ def _try_show_side_by_side_view(
         return False
     qt_modules = _load_qt_modules()
     if qt_modules is None:
-        reason = "Qt widgets are unavailable; tried PyQt5, PyQt6, PySide6, and PySide2"
+        reason = "Qt widgets are unavailable; tried %s" % ", ".join(_qt_binding_candidates())
+        if _running_inside_ida_process():
+            reason += "; Qt6 bindings are skipped inside IDA to avoid Qt5/Qt6 mixing"
         _trace_checkpoint("side_by_side.unavailable", title=title, reason=reason)
         _warn_side_by_side_fallback(title, reason)
         return False
@@ -347,7 +350,7 @@ def _warn_side_by_side_fallback(title: str, reason: str) -> None:
 
 
 def _load_qt_modules():
-    for module_name in ("PyQt5", "PyQt6", "PySide6", "PySide2"):
+    for module_name in _qt_binding_candidates():
         try:
             qt_core = importlib.import_module("%s.QtCore" % module_name)
             qt_gui = importlib.import_module("%s.QtGui" % module_name)
@@ -356,6 +359,17 @@ def _load_qt_modules():
         except Exception:
             pass
     return None
+
+
+def _qt_binding_candidates() -> tuple[str, ...]:
+    if _running_inside_ida_process():
+        return ("PyQt5", "PySide2")
+    return ("PyQt5", "PyQt6", "PySide6", "PySide2")
+
+
+def _running_inside_ida_process() -> bool:
+    executable = Path(str(sys.executable or "")).name.lower()
+    return executable in {"ida.exe", "ida64.exe", "idat.exe", "idat64.exe"}
 
 
 def _qt_horizontal_orientation(qt_core):
