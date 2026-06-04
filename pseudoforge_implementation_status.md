@@ -232,6 +232,7 @@ Implemented in this folder:
 4. Offline CLI
    - `tools/pseudoforge_cli.py`
    - `tools/pseudoforge_free_cli.py`
+   - `ida_pseudoforge/free/service.py`
    - `tools/pseudoforge_ida_batch.py`
    - `tools/run_pseudoforge_ida_batch.ps1`
    - `tools/summarize_pseudoforge_ida_batch.py`
@@ -243,6 +244,7 @@ Implemented in this folder:
    - optional `--rules-dir` for additional deterministic rule directories
    - optional `--rule-report` for writing a rule report JSON file or directory
    - IDA Free-compatible offline CLI path for copied or saved cloud-decompiled pseudocode text
+   - shared IDA Free analysis service for CLI and standalone GUI callers
    - IDA Free CLI path uses `ida_pseudoforge/core/offline_input.py` for conservative single-function extraction
    - IDA Free CLI path rejects no-function and multiple-function inputs with actionable diagnostics
    - IDA Free CLI path emits cleaned pseudocode, raw pseudocode, raw-vs-cleaned diff, rename map, warnings, rule report, and summary artifacts
@@ -262,7 +264,22 @@ Implemented in this folder:
      or Markdown summaries of remaining artifacts and recovery signals
    - Hex-Rays decompile-unavailable functions are recorded as `skipped` instead of PseudoForge failures
 
-5. Optional LLM assist
+5. IDA Free Studio standalone GUI
+   - `tools/pseudoforge_free_gui.py`
+   - `ida_pseudoforge/gui/free_app.py`
+   - PySide6 desktop entrypoint for IDA Free users
+   - side-by-side raw and cleaned pseudocode panes
+   - toolbar actions for Paste, Open, Analyze, Stop, Copy Cleaned, Save Bundle, and Settings
+   - bottom tabs for warnings, accepted/skipped renames, raw-vs-cleaned diff, rule report, and artifact paths
+   - background worker thread for deterministic analysis and optional provider calls
+   - cooperative cancellation at safe analysis service boundaries; active provider calls are not force-killed
+   - Settings dialog reuses the existing provider registry/factory/config model for OpenAI-compatible, OpenRouter, DeepSeek, Codex CLI, Claude CLI, `chatgpt_oauth_via_codex_cli`, and `claude_login_via_claude_cli`
+   - default review bundles are written under `%LOCALAPPDATA%\PseudoForge\sessions\<timestamp>_<input>` when available
+   - Save Bundle rewrites the current result to a user-selected directory without rerunning analysis
+   - PySide6 is an optional GUI dependency; the CLI and deterministic core remain usable without it
+   - Free Studio does not import IDA-only modules, does not use IDAPython/local Hex-Rays APIs, and does not modify an IDB
+
+6. Optional LLM assist
    - `ida_pseudoforge/models/openai_compatible.py`
    - `ida_pseudoforge/models/cli_provider.py`
    - `ida_pseudoforge/models/provider_factory.py`
@@ -287,9 +304,11 @@ Implemented in this folder:
    - disabled by default
    - IDA LLM configuration dialog logic is isolated in `ida_pseudoforge/ida/llm_config_dialog.py`, and model-discovery exceptions fall back to static model lists without saving corrupt config
 
-6. Tests
+7. Tests
    - `tests/test_ida_plugin_safety.py`
    - `tests/test_buffer_contracts.py`
+   - `tests/test_free_service.py`
+   - `tests/test_free_gui.py`
    - `tests/test_render_callbacks.py`
    - `tests/test_render_call_args.py`
    - `tests/test_render_dispatcher.py`
@@ -1527,6 +1546,34 @@ unsupported:
 - No apply-renames action.
 - No direct cloud decompiler API integration.
 - No multi-function splitting in a single pasted file in this first slice.
+```
+
+IDA Free Studio GUI update:
+
+```text
+implemented:
+- Added ida_pseudoforge/free/service.py as the shared IDA Free analysis service for the CLI and standalone GUI.
+- tools/pseudoforge_free_cli.py now delegates analysis orchestration to the shared service while preserving its flags, JSON/text output, artifact names, and fail-closed IDA-only module checks.
+- Added tools/pseudoforge_free_gui.py and ida_pseudoforge/gui/free_app.py as the PseudoForge Free Studio desktop entrypoint.
+- The GUI provides left raw pseudocode and right cleaned pseudocode panes, Paste/Open/Analyze/Stop/Copy Cleaned/Save Bundle/Settings actions, and warnings/renames/diff/rule-report/artifacts tabs.
+- The GUI uses a background worker thread and cooperative cancellation checks between safe service phases.
+- LLM settings reuse the existing provider registry/factory/config storage, with static provider model choices and no API-key logging.
+- Save Bundle reuses the current CleanPlan and capture to write the same IDA Free artifact bundle into a user-selected directory without rerunning analysis.
+- PySide6 is required only for the GUI; tools/pseudoforge_free_gui.py exits with an actionable install message when PySide6 is unavailable.
+- Added focused tests in tests/test_free_service.py and tests/test_free_gui.py.
+- Review mode fixed direct service callers so FreeAnalysisOptions.profile_dir is applied inside the shared service with call-scoped profile restoration instead of relying on CLI/GUI preconfiguration.
+- Review mode fixed stale GUI result state so Paste/Open/new Analyze clears cleaned output, tabs, and Save Bundle state before a new analysis succeeds.
+- Review mode fixed Save Bundle summary metadata so re-saving an existing result preserves the original profile root, active profiles, and profile manifests without rerunning analysis.
+- Review mode hardened PySide6 enum compatibility helpers and delayed optional service-summary imports away from the GUI import path.
+
+validated:
+- python -B -m unittest tests.test_free_service tests.test_free_gui tests.test_pseudoforge_free_cli -v: 39 tests OK, 1 PySide6-dependent GUI construction test skipped when PySide6 is not installed.
+- python -B -m unittest discover -s tests -v: 480 tests OK, 1 PySide6-dependent GUI construction test skipped when PySide6 is not installed.
+- python -B -m compileall .\ida_pseudoforge\free .\ida_pseudoforge\gui .\tools\pseudoforge_free_cli.py .\tools\pseudoforge_free_gui.py .\tests\test_free_service.py .\tests\test_free_gui.py: passed.
+- python -B -m compileall .\pseudoforge.py .\ida_pseudoforge .\tests .\tools: passed.
+- git diff --check -- .: passed with CRLF normalization warnings only.
+- python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_smoke --format json --no-progress: succeeded.
+- python -B .\tools\pseudoforge_free_gui.py on a machine without PySide6: exits with the expected install guidance.
 ```
 
 Interactive plugin safety update:

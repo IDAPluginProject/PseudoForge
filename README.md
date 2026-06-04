@@ -61,6 +61,13 @@ For best results:
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_smoke
 ```
 
+6. For the standalone IDA Free GUI, install PySide6 and run:
+
+```powershell
+python -m pip install PySide6
+python -B .\tools\pseudoforge_free_gui.py
+```
+
 Key documentation:
 
 - [pseudoforge_implementation_status.md](pseudoforge_implementation_status.md): current implemented scope and validation history.
@@ -226,8 +233,15 @@ IDA Free:
 
 - Not supported as an interactive PseudoForge plugin target.
 - IDA Free does not provide the IDAPython and local Hex-Rays APIs required by the plugin actions.
-- Supported only through the offline CLI workflow where copied or saved cloud-decompiled pseudocode text is processed outside IDA.
-- The IDA Free CLI path does not modify an IDB and does not apply renames back into IDA.
+- Supported through standalone offline workflows where copied or saved cloud-decompiled pseudocode text is processed outside IDA.
+- The IDA Free CLI and Free Studio GUI paths do not modify an IDB and do not apply renames back into IDA.
+
+Standalone IDA Free GUI:
+
+- Validated analysis path with Python 3.11.
+- Requires PySide6 for the desktop UI.
+- Reuses the same IDA Free offline analysis service as the CLI.
+- Does not require PySide6 for the core CLI or deterministic engine.
 
 Optional LLM rename assist:
 
@@ -296,6 +310,10 @@ ida_pseudoforge/
     render_zw.py
     plan_schema.py
     api_semantics.py
+  free/
+    service.py
+  gui/
+    free_app.py
   profiles/
     loader.py
     profiles_manifest.json
@@ -337,6 +355,7 @@ tools/
   pseudoforge_cli.py
   pseudoforge_free_console.py
   pseudoforge_free_cli.py
+  pseudoforge_free_gui.py
   pseudoforge_ida_batch.py
   pseudoforge_ida_identity_apply_smoke.py
   release_pseudoforge.py
@@ -350,6 +369,8 @@ samples/
   kernel_pattern_driver/
 tests/
   test_export_bundle.py
+  test_free_gui.py
+  test_free_service.py
   test_forge_store.py
   test_helper_aliases.py
   test_ida_batch.py
@@ -1169,6 +1190,41 @@ PSEUDOFORGE_DEEPSEEK_MODEL=deepseek-v4-flash
 
 LLM rename assist only adds candidate names to the deterministic rename plan. LLM output must still pass JSON parsing, confidence thresholding, and rename validation.
 
+## IDA Free Studio GUI
+
+IDA Free is still not an interactive plugin target for PseudoForge. The standalone Free Studio GUI gives IDA Free users the same offline analysis path without requiring IDAPython, IDA SDK, or local Hex-Rays APIs:
+
+```powershell
+python -m pip install PySide6
+python -B .\tools\pseudoforge_free_gui.py
+```
+
+The main window is a side-by-side review surface:
+
+- Left pane: raw pseudocode copied or opened from IDA Free cloud decompiler output.
+- Right pane: cleaned PseudoForge output.
+- Toolbar: `Paste`, `Open`, `Analyze`, `Stop`, `Copy Cleaned`, `Save Bundle`, and `Settings`.
+- Bottom tabs: warnings, accepted/skipped renames, raw-vs-cleaned diff, rule report, and artifact paths.
+
+The Settings dialog reuses the existing provider configuration model. It supports OpenAI-compatible, OpenRouter, DeepSeek, Codex CLI, Claude CLI, `chatgpt_oauth_via_codex_cli`, and `claude_login_via_claude_cli` provider paths. LLM rename assist is optional, disabled by default, and still feeds only validator-gated rename candidates into the deterministic plan. Provider failures are shown as warnings and fall back to deterministic output.
+
+Free Studio writes a review bundle for each analysis under a timestamped default session directory such as:
+
+```text
+%LOCALAPPDATA%\PseudoForge\sessions\<timestamp>_<input>
+```
+
+`Save Bundle` can copy the current analysis result to a user-selected directory without rerunning the analysis. The saved bundle uses the same artifact contract as the IDA Free CLI: cleaned pseudocode, raw pseudocode, raw-vs-cleaned diff, rename map, warnings, rule report, summary JSON, and buffer-contract artifacts when available.
+
+Free Studio limitations:
+
+- No IDA Free menu integration.
+- No IDB writes.
+- No direct IDAPython, IDA SDK, or local Hex-Rays API access.
+- One complete function per analysis.
+- Output quality depends on the copied cloud decompiler text quality.
+- Inferred structure rewrites and semantic comments still require review against the original pseudocode.
+
 ## IDA Free Offline CLI
 
 IDA Free is not a supported interactive plugin target for PseudoForge. The interactive actions require IDAPython and local Hex-Rays pseudocode APIs, which are not available in IDA Free. Users can still copy or save a single cloud-decompiled pseudocode function and process that text outside IDA:
@@ -1177,7 +1233,7 @@ IDA Free is not a supported interactive plugin target for PseudoForge. The inter
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_smoke
 ```
 
-The IDA Free CLI accepts one or more text files. Each file should contain one complete function. Leading or trailing copied text is tolerated when the function boundary is unambiguous. Multiple functions in one file fail closed with an actionable error.
+The IDA Free CLI uses the same reusable offline analysis service as Free Studio. It accepts one or more text files. Each file should contain one complete function. Leading or trailing copied text is tolerated when the function boundary is unambiguous. Multiple functions in one file fail closed with an actionable error.
 Use `--buffer-contract-case 0x...` to restrict buffer contract artifacts to one command case.
 
 Project-local deterministic rules:
@@ -1681,6 +1737,19 @@ Offline export smoke:
 ```powershell
 python -B .\tools\pseudoforge_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_cli_smoke
 python -B .\tools\pseudoforge_free_cli.py .\samples\pseudocode\NtSetSystemInformation_switch_renamed.cpp --out $env:TEMP\pseudoforge_free_cli_smoke
+```
+
+IDA Free service and GUI-targeted checks:
+
+```powershell
+python -B -m unittest tests.test_free_service tests.test_free_gui tests.test_pseudoforge_free_cli -v
+python -B .\tools\pseudoforge_free_gui.py
+```
+
+If PySide6 is not installed, the GUI command exits with installation guidance. Install PySide6 before using the desktop app:
+
+```powershell
+python -m pip install PySide6
 ```
 
 IDA identity apply smoke:
