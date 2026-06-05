@@ -39,37 +39,52 @@ class OpenAICompatibleRenameProvider:
         self.response_format = response_format if response_format is not None else {"type": "json_object"}
 
     def suggest_renames(self, capture: FunctionCapture) -> str:
+        return self.complete(
+            SYSTEM_RENAME_PROMPT,
+            build_rename_prompt(capture),
+            response_format=self.response_format,
+            task_name=capture.name or "rename",
+        )
+
+    def complete(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_format: dict[str, object] | None = None,
+        task_name: str = "text",
+    ) -> str:
         if self.api_key_required and not self.api_key:
-            raise RuntimeError("No API key configured for OpenAI-compatible rename provider")
+            raise RuntimeError("No API key configured for OpenAI-compatible provider")
 
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "system",
-                    "content": SYSTEM_RENAME_PROMPT,
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
-                    "content": build_rename_prompt(capture),
+                    "content": user_prompt,
                 },
             ],
         }
-        if self.response_format:
-            payload["response_format"] = self.response_format
+        effective_response_format = self.response_format if response_format is None else response_format
+        if effective_response_format:
+            payload["response_format"] = effective_response_format
 
         log_event(
-            "llm.http.start function=\"%s\" model=\"%s\" base_url=\"%s\""
-            % (_ascii_for_log(capture.name), _ascii_for_log(self.model), _ascii_for_log(self.base_url))
+            "llm.http.start task=\"%s\" model=\"%s\" base_url=\"%s\""
+            % (_ascii_for_log(task_name), _ascii_for_log(self.model), _ascii_for_log(self.base_url))
         )
         try:
             data = self._post_chat_completion(payload)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            if _should_retry_with_text_response_format(exc.code, detail, self.response_format):
+            if _should_retry_with_text_response_format(exc.code, detail, effective_response_format):
                 log_event(
-                    "llm.http.retry_text_response_format function=\"%s\" model=\"%s\""
-                    % (_ascii_for_log(capture.name), _ascii_for_log(self.model))
+                    "llm.http.retry_text_response_format task=\"%s\" model=\"%s\""
+                    % (_ascii_for_log(task_name), _ascii_for_log(self.model))
                 )
                 retry_payload = dict(payload)
                 retry_payload["response_format"] = {"type": "text"}
@@ -78,24 +93,24 @@ class OpenAICompatibleRenameProvider:
                 except urllib.error.HTTPError as retry_exc:
                     retry_detail = retry_exc.read().decode("utf-8", errors="replace")
                     log_event(
-                        "llm.http.failed function=\"%s\" model=\"%s\" http=%d"
-                        % (_ascii_for_log(capture.name), _ascii_for_log(self.model), retry_exc.code)
+                        "llm.http.failed task=\"%s\" model=\"%s\" http=%d"
+                        % (_ascii_for_log(task_name), _ascii_for_log(self.model), retry_exc.code)
                     )
                     raise RuntimeError(
                         f"LLM request failed: HTTP {retry_exc.code}: {retry_detail}"
                     ) from retry_exc
             else:
                 log_event(
-                    "llm.http.failed function=\"%s\" model=\"%s\" http=%d"
-                    % (_ascii_for_log(capture.name), _ascii_for_log(self.model), exc.code)
+                    "llm.http.failed task=\"%s\" model=\"%s\" http=%d"
+                    % (_ascii_for_log(task_name), _ascii_for_log(self.model), exc.code)
                 )
                 raise RuntimeError(f"LLM request failed: HTTP {exc.code}: {detail}") from exc
 
         try:
             content = data["choices"][0]["message"]["content"] or "{}"
             log_event(
-                "llm.http.done function=\"%s\" model=\"%s\" output_chars=%d"
-                % (_ascii_for_log(capture.name), _ascii_for_log(self.model), len(content))
+                "llm.http.done task=\"%s\" model=\"%s\" output_chars=%d"
+                % (_ascii_for_log(task_name), _ascii_for_log(self.model), len(content))
             )
             return content
         except (KeyError, IndexError, TypeError) as exc:

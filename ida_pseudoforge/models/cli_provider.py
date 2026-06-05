@@ -32,10 +32,22 @@ class CliRenameProvider:
         self.model = model
 
     def suggest_renames(self, capture: FunctionCapture) -> str:
-        if not self.command_template:
-            raise RuntimeError("No command template configured for CLI rename provider")
+        return self.complete(build_cli_rename_prompt(capture), task_name="rename")
 
-        prompt = build_cli_rename_prompt(capture)
+    def complete(
+        self,
+        system_prompt: str,
+        user_prompt: str = "",
+        response_format: dict[str, object] | None = None,
+        task_name: str = "text",
+    ) -> str:
+        if not self.command_template:
+            raise RuntimeError("No command template configured for CLI provider")
+
+        del response_format
+        prompt = system_prompt
+        if user_prompt:
+            prompt = system_prompt.rstrip() + "\n\n" + user_prompt
         with tempfile.TemporaryDirectory(prefix="pseudoforge_llm_") as temp_dir_text:
             temp_dir = Path(temp_dir_text)
             prompt_file = temp_dir / "prompt.txt"
@@ -44,9 +56,9 @@ class CliRenameProvider:
 
             command = self._render_command(prompt_file, output_file)
             log_event(
-                "llm.cli.start function=\"%s\" model=\"%s\" prompt_file=\"%s\" output_file=\"%s\""
+                "llm.cli.start task=\"%s\" model=\"%s\" prompt_file=\"%s\" output_file=\"%s\""
                 % (
-                    _ascii_for_log(capture.name),
+                    _ascii_for_log(task_name),
                     _ascii_for_log(self.model),
                     _ascii_for_log(str(prompt_file)),
                     _ascii_for_log(str(output_file)),
@@ -67,24 +79,24 @@ class CliRenameProvider:
             if result.returncode != 0:
                 detail = (result.stderr or result.stdout or "").strip()
                 log_event(
-                    "llm.cli.failed function=\"%s\" model=\"%s\" exit=%d"
-                    % (_ascii_for_log(capture.name), _ascii_for_log(self.model), result.returncode)
+                    "llm.cli.failed task=\"%s\" model=\"%s\" exit=%d"
+                    % (_ascii_for_log(task_name), _ascii_for_log(self.model), result.returncode)
                 )
-                raise RuntimeError(f"CLI rename provider failed with exit {result.returncode}: {detail}")
+                raise RuntimeError(f"CLI provider failed with exit {result.returncode}: {detail}")
 
             if "{output_file}" in self.command_template and output_file.exists():
                 output = output_file.read_text(encoding="utf-8", errors="replace")
                 if output.strip():
                     log_event(
-                        "llm.cli.done function=\"%s\" model=\"%s\" output_chars=%d source=output_file"
-                        % (_ascii_for_log(capture.name), _ascii_for_log(self.model), len(output))
+                        "llm.cli.done task=\"%s\" model=\"%s\" output_chars=%d source=output_file"
+                        % (_ascii_for_log(task_name), _ascii_for_log(self.model), len(output))
                     )
                     return output
 
             output = result.stdout or "{}"
             log_event(
-                "llm.cli.done function=\"%s\" model=\"%s\" output_chars=%d source=stdout"
-                % (_ascii_for_log(capture.name), _ascii_for_log(self.model), len(output))
+                "llm.cli.done task=\"%s\" model=\"%s\" output_chars=%d source=stdout"
+                % (_ascii_for_log(task_name), _ascii_for_log(self.model), len(output))
             )
             return output
 

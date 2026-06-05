@@ -233,7 +233,10 @@ Implemented in this folder:
    - `tools/pseudoforge_cli.py`
    - `tools/pseudoforge_free_cli.py`
    - `ida_pseudoforge/free/service.py`
+   - `tools/pseudoforge_corpus_index.py`
+   - `tools/pseudoforge_corpus_qa.py`
    - `tools/pseudoforge_ida_batch.py`
+   - `tools/pseudoforge_ida_cli.py`
    - `tools/run_pseudoforge_ida_batch.ps1`
    - `tools/summarize_pseudoforge_ida_batch.py`
    - `tools/empty_llm_rename_provider.py`
@@ -253,6 +256,14 @@ Implemented in this folder:
    - IDA Free CLI JSON mode keeps stdout machine-readable and writes progress to stderr unless `--no-progress` is used
    - IDA Free CLI path does not import IDA-only modules, does not use IDAPython or local Hex-Rays APIs, and does not modify an IDB
    - headless IDA batch mode can iterate `.i64`/`.idb` functions, call Hex-Rays decompile, analyze through PseudoForge, append `.forge` sections, and write JSONL progress reports
+   - external IDA CLI path accepts `ida_path`, `idb_path`, and `output_dir`, launches IDA batch mode, auto-uses saved plugin LLM settings inside IDA, and writes full per-function export bundles under `functions\<ea>_<function>`
+   - batch mode supports `--llm-renames-auto` for saved plugin config reuse and `--require-configured-llm` for fail-closed LLM-included runs
+   - batch mode supports `--export-dir` for full per-function cleaned, raw, diff, rename-map, rule-report, buffer-contract, warning, and summary artifacts
+   - batch mode supports `--corpus-metadata` to export IDA-level segments, imports, exports, strings, names, per-function call edges, import calls, string references, caller/callee names, and function flags for downstream corpus understanding
+   - external IDA CLI now writes `pseudoforge-corpus-metadata.json`, builds `pseudoforge-corpus-index.json`, and writes `pseudoforge-corpus-overview.md` by default after a completed run
+   - corpus index builder merges function bundles, metadata, report summaries, warnings, deterministic rule diagnostics, buffer contracts, tags, imports, strings, and call relationships into a searchable JSON artifact
+   - corpus Q&A CLI retrieves relevant functions from the index, emits an evidence context pack without requiring LLM calls, and can use saved/overridden LLM provider settings for evidence-cited answers
+   - corpus artifacts are agent-agnostic handoff files: external agents can read the corpus index, metadata, overview, per-function bundles, or focused `qa-context.md` files without IDA or PseudoForge runtime access
    - optional `--compare-dir` / `-CompareDir` emits per-function raw Hex-Rays text, PseudoForge cleaned output, full `.forge` section, and raw-vs-cleaned unified diff artifacts
    - batch compare JSONL records include shared-style artifact keys while preserving legacy path fields
    - optional `--llm-renames` / `-LlmRenames` routes batch analysis through the same rename provider/fallback path as interactive IDA Analyze

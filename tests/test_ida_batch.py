@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,11 +14,13 @@ from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tools.pseudoforge_ida_batch import (
     _apply_runtime_helper_aliases_to_batch_outputs,
     _batch_progress_record,
+    _build_corpus_metadata,
     _build_plan_with_optional_llm,
     _cancel_file_requested,
     _function_file_stem,
     _render_cleaned_with_ida_postprocess,
     _write_compare_artifacts,
+    _write_export_artifacts,
 )
 from tools import pseudoforge_ida_batch as ida_batch_module
 from tools.summarize_pseudoforge_ida_batch import summarize_records
@@ -83,6 +86,20 @@ class IdaBatchTests(unittest.TestCase):
         self.assertEqual(summary["slow_functions"][0]["name"], "C")
         self.assertEqual(summary["comparison_records"], 1)
         self.assertEqual(summary["llm_status_counts"]["ok"], 1)
+
+    def test_ida_batch_corpus_metadata_degrades_without_ida_modules(self) -> None:
+        metadata = _build_corpus_metadata(
+            idb_path=None,
+            target_path=Path("sample.i64"),
+            selected_eas=[],
+            max_strings=10,
+            max_names=10,
+        )
+
+        self.assertEqual("pseudoforge_corpus_metadata_v1", metadata["schema"])
+        self.assertEqual([], metadata["functions"])
+        self.assertIn("imports", metadata)
+        self.assertIn("segments", metadata)
 
     def test_ida_batch_optional_llm_plan_records_ok_status(self) -> None:
         class FakeProvider:
@@ -182,6 +199,80 @@ __int64 __fastcall LlmBatchSample(int a1)
 
         self.assertEqual(provider_calls, ["", "explicit-local-key"])
 
+    def test_ida_batch_llm_context_auto_uses_enabled_plugin_config(self) -> None:
+        old_load = ida_batch_module.load_config
+        old_provider = ida_batch_module.build_rename_provider
+        provider_configs = []
+
+        ida_batch_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(
+                enabled=True,
+                provider="lm_studio",
+                base_url="http://localhost:1234/v1",
+                model="local-test-model",
+                timeout_seconds=77,
+            )
+        )
+        ida_batch_module.build_rename_provider = (
+            lambda config, api_key="": provider_configs.append(config) or object()
+        )
+        try:
+            args = argparse.Namespace(
+                llm_renames=False,
+                llm_renames_auto=True,
+                require_configured_llm=True,
+                llm_provider="",
+                llm_api_key="",
+                llm_base_url="",
+                llm_model="",
+                llm_command="",
+                llm_timeout=0,
+            )
+
+            provider, info = ida_batch_module._build_llm_context(args)
+        finally:
+            ida_batch_module.load_config = old_load
+            ida_batch_module.build_rename_provider = old_provider
+
+        self.assertIsNotNone(provider)
+        self.assertEqual(info["provider"], "lm_studio")
+        self.assertEqual(info["model"], "local-test-model")
+        self.assertEqual(info["timeout_seconds"], 77)
+        self.assertEqual(provider_configs[0].base_url, "http://localhost:1234/v1")
+
+    def test_ida_batch_llm_context_auto_fails_when_required_and_disabled(self) -> None:
+        old_load = ida_batch_module.load_config
+        ida_batch_module.load_config = lambda: PseudoForgeConfig(llm=LlmConfig(enabled=False))
+        try:
+            args = argparse.Namespace(
+                llm_renames=False,
+                llm_renames_auto=True,
+                require_configured_llm=True,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "disabled"):
+                ida_batch_module._build_llm_context(args)
+        finally:
+            ida_batch_module.load_config = old_load
+
+    def test_ida_batch_llm_context_auto_can_be_optional_when_disabled(self) -> None:
+        old_load = ida_batch_module.load_config
+        ida_batch_module.load_config = lambda: PseudoForgeConfig(llm=LlmConfig(enabled=False))
+        try:
+            args = argparse.Namespace(
+                llm_renames=False,
+                llm_renames_auto=True,
+                require_configured_llm=False,
+            )
+
+            provider, info = ida_batch_module._build_llm_context(args)
+        finally:
+            ida_batch_module.load_config = old_load
+
+        self.assertIsNone(provider)
+        self.assertFalse(info["enabled"])
+        self.assertEqual(info["reason"], "plugin_llm_disabled")
+
     def test_ida_batch_compare_artifacts_include_raw_cleaned_and_diff(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             capture = capture_from_pseudocode(
@@ -218,6 +309,40 @@ __int64 __fastcall LlmBatchSample(int a1)
             self.assertIn("+  PsSetCreateProcessNotifyRoutine(NotifyRoutine, TRUE);", diff_text)
             self.assertGreater(comparison["diff_lines"], 0)
             self.assertEqual(len(comparison["raw_sha256"]), 64)
+
+    def test_ida_batch_export_artifacts_include_full_bundle_and_llm_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                BATCH_BOOLEAN_SAMPLE,
+                name="BatchExport",
+                ea=0x140001000,
+            )
+            plan = build_clean_plan(capture)
+            cleaned = render_cleaned_pseudocode(capture, plan).replace("BatchExport", "BatchExportEdited")
+
+            export = _write_export_artifacts(
+                Path(temp_dir),
+                capture,
+                plan,
+                cleaned,
+                aliases={},
+                llm_status="ok",
+                llm_error="",
+                llm_error_class="",
+                llm_error_summary="",
+                llm_info={"enabled": True, "provider": "ollama", "model": "llama3.2", "timeout_seconds": 60},
+            )
+
+            artifacts = export["artifacts"]
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            cleaned_text = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+
+            self.assertEqual("ida_batch_export", export["mode"])
+            self.assertTrue(Path(artifacts["rename_map"]).exists())
+            self.assertTrue(Path(artifacts["raw_vs_cleaned_diff"]).exists())
+            self.assertIn("BatchExportEdited", cleaned_text)
+            self.assertEqual(summary["llm_status"], "ok")
+            self.assertEqual(summary["llm_provider"], "ollama")
 
     def test_ida_batch_compare_file_stem_is_windows_safe(self) -> None:
         stem = _function_file_stem(0x1234, "bad:name<with>|chars?and spaces")
@@ -269,6 +394,53 @@ void __fastcall Caller(char *buffer)
             updated_diff = (diff_dir / caller_name.replace(".cpp", ".diff")).read_text(encoding="utf-8")
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["aliases"][0]["alias_name"], "memset")
+            self.assertIn("memset(buffer, 0, 64LL);", updated_caller)
+            self.assertIn("+  memset(buffer, 0, 64LL);", updated_diff)
+
+    def test_ida_batch_postprocess_updates_export_bundle_cleaned_and_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            export_dir = root / "functions"
+            helper_dir = export_dir / "0000000180001000_sub_180001000"
+            caller_dir = export_dir / "0000000180001100_Caller"
+            helper_dir.mkdir(parents=True)
+            caller_dir.mkdir(parents=True)
+            helper_text = """
+__int64 __fastcall sub_180001000(char *destination, unsigned __int8 fillByte, unsigned __int64 byteCount)
+{
+  __int64 result;
+  __int64 fillPattern;
+
+  result = (__int64)destination;
+  fillPattern = 0x101010101010101LL * fillByte;
+  if ( byteCount >= 4 )
+  {
+    *(_DWORD *)destination = fillPattern;
+    *(_DWORD *)&destination[byteCount - 4] = fillPattern;
+  }
+  return result;
+}
+""".strip() + "\n"
+            caller_text = """
+void __fastcall Caller(char *buffer)
+{
+  sub_180001000(buffer, 0, 64LL);
+}
+""".strip() + "\n"
+            (helper_dir / "sub_180001000.cleaned.cpp").write_text(helper_text, encoding="utf-8")
+            (caller_dir / "Caller.cleaned.cpp").write_text(caller_text, encoding="utf-8")
+            (caller_dir / "Caller.raw.cpp").write_text(caller_text, encoding="utf-8")
+
+            result = _apply_runtime_helper_aliases_to_batch_outputs(
+                root / "missing.forge",
+                compare_dir=None,
+                context_lines=1,
+                export_dir=export_dir,
+            )
+
+            updated_caller = (caller_dir / "Caller.cleaned.cpp").read_text(encoding="utf-8")
+            updated_diff = (caller_dir / "Caller.raw-vs-cleaned.diff").read_text(encoding="utf-8")
+            self.assertEqual(result["status"], "ok")
             self.assertIn("memset(buffer, 0, 64LL);", updated_caller)
             self.assertIn("+  memset(buffer, 0, 64LL);", updated_diff)
 

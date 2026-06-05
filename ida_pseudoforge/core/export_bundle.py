@@ -32,6 +32,8 @@ def write_export_bundle(
     plan: CleanPlan,
     entrypoint: str = "export_bundle",
     summary_suffix: str = "summary",
+    cleaned_text: str | None = None,
+    extra_summary: dict[str, object] | None = None,
 ) -> dict[str, str]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -50,7 +52,8 @@ def write_export_bundle(
     diff_path = output_path / f"{safe_name}.raw-vs-cleaned.diff"
     summary_path = output_path / f"{safe_name}.{_safe_file_stem(summary_suffix or 'summary')}.json"
 
-    cleaned_text = render_cleaned_pseudocode(capture, plan)
+    if cleaned_text is None:
+        cleaned_text = render_cleaned_pseudocode(capture, plan)
     raw_text = capture.pseudocode.rstrip() + "\n"
     switch_outline_text = render_switch_outline(capture, plan)
     flow_report_text = render_flow_report(capture, plan)
@@ -93,12 +96,11 @@ def write_export_bundle(
         "raw_vs_cleaned_diff": str(diff_path),
         "summary": str(summary_path),
     }
+    summary_payload = _export_summary_payload(capture, plan, entrypoint, warnings, artifacts)
+    if extra_summary:
+        summary_payload.update(extra_summary)
     summary_path.write_text(
-        json.dumps(
-            _export_summary_payload(capture, plan, entrypoint, warnings, artifacts),
-            indent=2,
-            ensure_ascii=True,
-        ),
+        json.dumps(summary_payload, indent=2, ensure_ascii=True),
         encoding="utf-8",
     )
     return artifacts

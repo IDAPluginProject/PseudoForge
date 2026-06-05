@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from ida_pseudoforge.core.plan_schema import FunctionCapture
+if TYPE_CHECKING:
+    from ida_pseudoforge.core.plan_schema import FunctionCapture
 
 
 class RenameAssistProvider(Protocol):
-    def suggest_renames(self, capture: FunctionCapture) -> str:
+    def suggest_renames(self, capture: "FunctionCapture") -> str:
         """Return a JSON document containing rename suggestions."""

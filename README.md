@@ -367,7 +367,10 @@ tools/
   pseudoforge_free_console.py
   pseudoforge_free_cli.py
   pseudoforge_free_gui.py
+  pseudoforge_corpus_index.py
+  pseudoforge_corpus_qa.py
   pseudoforge_ida_batch.py
+  pseudoforge_ida_cli.py
   pseudoforge_ida_identity_apply_smoke.py
   release_pseudoforge.py
   run_pseudoforge_ida_batch.ps1
@@ -1461,7 +1464,109 @@ IDA Free CLI limitations:
 
 ## Headless IDA Batch
 
-`tools/pseudoforge_ida_batch.py` runs inside IDA batch mode. It opens a `.i64` or `.idb`, calls `ida_hexrays.decompile()` per function, analyzes through PseudoForge, appends `.forge` sections, and writes JSONL progress reports. The normal entrypoint is the PowerShell wrapper `tools/run_pseudoforge_ida_batch.ps1`.
+`tools/pseudoforge_ida_cli.py` is the full external CLI for IDA Pro databases. It takes an IDA executable path, an `.i64` or `.idb` path, and an output directory, opens the database in IDA batch mode, decompiles every selected function, uses the saved PseudoForge plugin LLM settings, and writes one export bundle per function.
+
+```powershell
+python -B .\tools\pseudoforge_ida_cli.py `
+  "C:\Path\To\IDA\ida64.exe" `
+  "D:\Path\To\driver.sys.i64" `
+  "$env:TEMP\pseudoforge_ida_cli\driver"
+```
+
+The CLI fails closed if saved plugin LLM assist is disabled, because this path is intended for LLM-included batch analysis. Use `--allow-no-llm` when deterministic-only fallback is acceptable. Saved plugin settings are read inside the IDA process from the same `pseudoforge_config.json` used by `Edit/PseudoForge/Configure LLM rename assist`, so provider, model, base URL, timeout, command template, and stored provider credentials stay aligned with the interactive plugin.
+
+Default output layout:
+
+```text
+<output-dir>\functions\<ea>_<function>\
+  <function>.cleaned.cpp
+  <function>.switch-outline.cpp
+  <function>.rename-map.json
+  <function>.flow-report.md
+  <function>.buffer-contracts.md
+  <function>.buffer-contracts.json
+  <function>.buffer-structs.hpp
+  <function>.rule-report.json
+  <function>.raw.cpp
+  <function>.warnings.json
+  <function>.raw-vs-cleaned.diff
+  <function>.ida-batch-summary.json
+<output-dir>\<idb-stem>.forge
+<output-dir>\<idb-stem>_<timestamp>.jsonl
+<output-dir>\pseudoforge-ida-summary.json
+<output-dir>\pseudoforge-ida-run.json
+<output-dir>\pseudoforge-corpus-metadata.json
+<output-dir>\pseudoforge-corpus-index.json
+<output-dir>\pseudoforge-corpus-overview.md
+<output-dir>\<idb-stem>_<timestamp>_ida.log
+```
+
+Useful external CLI options:
+
+- `--name-regex REGEX`: filter functions by name.
+- `--max-functions N`: limit the run for smoke testing.
+- `--resume`: skip EAs already present in the aggregate `.forge`.
+- `--cancel-file PATH`: stop before the next function when the sentinel file exists.
+- `--profile-dir PATH`: use target-build-specific profile sets.
+- `--no-pdb`: pass `-Opdb:off` to IDA.
+- `--metadata-max-strings N` / `--metadata-max-names N`: cap global metadata volume.
+- `--no-index`: skip post-run corpus index generation.
+- `--no-wait`: start IDA and return immediately.
+
+The generated corpus files are the AI-facing layer:
+
+- `pseudoforge-corpus-metadata.json`: IDA-level global evidence such as segments, imports, exports, strings, named addresses, function call edges, import calls, and string references.
+- `pseudoforge-corpus-index.json`: merged searchable index over per-function export bundles, metadata, warnings, rule diagnostics, buffer contracts, tags, and call relationships.
+- `pseudoforge-corpus-overview.md`: compact human/LLM overview of corpus size, clusters, and high-signal functions.
+
+Rebuild the index from an existing run:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_index.py "$env:TEMP\pseudoforge_ida_cli\driver"
+```
+
+Ask an evidence-backed question. Without `--llm`, the command prints the retrieved functions and a context pack that can be given to another AI. With `--llm`, it uses saved PseudoForge LLM settings unless provider options are overridden:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_qa.py `
+  "$env:TEMP\pseudoforge_ida_cli\driver\pseudoforge-corpus-index.json" `
+  "IOCTL dispatch surface and process callback flow?"
+
+python -B .\tools\pseudoforge_corpus_qa.py `
+  "$env:TEMP\pseudoforge_ida_cli\driver\pseudoforge-corpus-index.json" `
+  "IOCTL dispatch surface and process callback flow?" `
+  --llm
+```
+
+Q&A answers are designed to cite function EA, name, and artifact paths. Claims that cannot be grounded in the retrieved artifacts should be reported as unknown rather than guessed.
+
+### Sharing Corpus Artifacts With Other AI Agents
+
+The corpus artifacts are intentionally tool-agnostic. Any agent that can read local files can consume them without loading IDA or running PseudoForge code.
+
+Recommended handoff set:
+
+- `pseudoforge-corpus-index.json`: primary machine-readable entrypoint with function tags, terms, caller/callee edges, imports, strings, warnings, and artifact paths.
+- `pseudoforge-corpus-metadata.json`: IDA-derived global evidence for segments, imports, exports, strings, names, and function relationships.
+- `pseudoforge-corpus-overview.md`: compact human/LLM briefing for the whole binary.
+- `functions\<ea>_<function>\*.cleaned.cpp`: readable per-function pseudocode for detailed review.
+- `functions\<ea>_<function>\*.raw.cpp`: original decompiler text for verification.
+- `functions\<ea>_<function>\*.rename-map.json`: validated rename plan and skipped candidates.
+- `functions\<ea>_<function>\*.rule-report.json`: deterministic rule matches, rejected emissions, and rule errors.
+- `functions\<ea>_<function>\*.ida-batch-summary.json`: per-function counts, LLM status, profile state, and artifact map.
+
+For question answering, prefer handing another agent a focused context pack instead of the entire corpus:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_qa.py `
+  "$env:TEMP\pseudoforge_ida_cli\driver\pseudoforge-corpus-index.json" `
+  "IOCTL dispatch surface and process callback flow?" `
+  --context-out "$env:TEMP\pseudoforge_ida_cli\driver\qa-context.md"
+```
+
+`qa-context.md` includes the selected functions, EA/name, tags, artifact paths, imports, strings, caller/callee names, interesting lines, and cleaned excerpts. This is the safest payload for external agents such as Codex, Claude Code, Cursor, custom RAG pipelines, or local LLM wrappers because it keeps answers grounded in a small, reviewable evidence set.
+
+`tools/pseudoforge_ida_batch.py` is the lower-level script that runs inside IDA batch mode. It opens a `.i64` or `.idb`, calls `ida_hexrays.decompile()` per function, analyzes through PseudoForge, appends `.forge` sections, and writes JSONL progress reports. The PowerShell wrapper `tools/run_pseudoforge_ida_batch.ps1` remains available for explicit provider override and legacy compare-directory workflows.
 
 Example:
 

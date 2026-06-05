@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from tools import pseudoforge_ida_cli
+
+
+class PseudoForgeIdaCliTests(unittest.TestCase):
+    def test_ida_cli_builds_batch_args_with_plugin_llm_and_export_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "driver.sys.i64"
+            output_dir = temp_path / "out"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [
+                    str(ida_path),
+                    str(idb_path),
+                    str(output_dir),
+                    "--name-regex",
+                    "^DriverEntry$",
+                    "--max-functions",
+                    "1",
+                    "--no-pdb",
+                ]
+            )
+
+            run = pseudoforge_ida_cli._prepare_run(args)
+
+            self.assertIn("--export-dir", run.batch_args)
+            self.assertIn(str(output_dir / "functions"), run.batch_args)
+            self.assertIn("--corpus-metadata", run.batch_args)
+            self.assertIn(str(output_dir / "pseudoforge-corpus-metadata.json"), run.batch_args)
+            self.assertIn("--llm-renames-auto", run.batch_args)
+            self.assertIn("--require-configured-llm", run.batch_args)
+            self.assertIn("--overwrite-forge", run.batch_args)
+            self.assertIn("-Opdb:off", run.ida_args)
+            self.assertTrue(any(item.startswith("-S") for item in run.ida_args))
+
+    def test_ida_cli_allow_no_llm_omits_required_llm_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida.exe"
+            idb_path = temp_path / "sample.idb"
+            output_dir = temp_path / "out"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [str(ida_path), str(idb_path), str(output_dir), "--allow-no-llm"]
+            )
+
+            run = pseudoforge_ida_cli._prepare_run(args)
+
+            self.assertIn("--llm-renames-auto", run.batch_args)
+            self.assertNotIn("--require-configured-llm", run.batch_args)
+
+    def test_ida_cli_dry_run_writes_manifest_without_starting_ida(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "target.i64"
+            output_dir = temp_path / "out"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exit_code = pseudoforge_ida_cli.main(
+                    [str(ida_path), str(idb_path), str(output_dir), "--dry-run"]
+                )
+
+            manifest_path = output_dir / "pseudoforge-ida-run.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual("", stderr.getvalue())
+            self.assertEqual("dry_run", manifest["status"])
+            self.assertEqual("plugin_config", manifest["llm"]["mode"])
+            self.assertTrue(manifest["llm"]["required"])
+            self.assertEqual(
+                str(output_dir / "pseudoforge-corpus-index.json"),
+                manifest["corpus_index_path"],
+            )
+            self.assertEqual(
+                str(output_dir / "pseudoforge-corpus-overview.md"),
+                manifest["corpus_overview_path"],
+            )
+            self.assertIn("Dry run", stdout.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
