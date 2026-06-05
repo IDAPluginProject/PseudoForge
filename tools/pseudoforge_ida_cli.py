@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -39,6 +40,10 @@ class IdaCliRun:
     compare_dir: Path | None
     batch_args: list[str]
     ida_args: list[str]
+    ida_env: dict[str, str] | None
+    pdb_paths: list[Path]
+    pdb_symbol_path: str
+    pdb_alt_symbol_path: str
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -63,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             process = subprocess.Popen(
                 run.ida_args,
                 cwd=str(ROOT),
-                **({} if args.visible else hidden_subprocess_kwargs()),
+                **_subprocess_kwargs(run, args),
             )
             _write_manifest(
                 run,
@@ -81,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         completed = subprocess.run(
             run.ida_args,
             cwd=str(ROOT),
-            **({} if args.visible else hidden_subprocess_kwargs()),
+            **_subprocess_kwargs(run, args),
         )
         summary = _write_summary(run)
         index_result = None if args.no_index else _write_corpus_index(run)
@@ -135,6 +140,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-lib-thunk", action="store_true", help="Skip library and thunk functions.")
     parser.add_argument("--stop-on-error", action="store_true", help="Stop after the first failed function.")
     parser.add_argument("--no-pdb", action="store_true", help="Pass -Opdb:off to IDA.")
+    parser.add_argument(
+        "--pdb-path",
+        action="append",
+        default=[],
+        help=(
+            "Local PDB file or symbol directory to prepend to IDA's _NT_SYMBOL_PATH. "
+            "Can be repeated; semicolon-separated values are also accepted."
+        ),
+    )
+    parser.add_argument(
+        "--symbol-path",
+        default="",
+        help="Raw DbgHelp/IDA symbol path to prepend, such as srv*C:\\Symbols*https://msdl.microsoft.com/download/symbols.",
+    )
     parser.add_argument("--no-auto-wait", action="store_true", help="Do not wait for IDA autoanalysis first.")
     parser.add_argument("--allow-no-llm", action="store_true", help="Do not fail when saved plugin LLM assist is disabled.")
     parser.add_argument("--visible", action="store_true", help="Do not request a hidden IDA window.")
@@ -153,6 +172,8 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
         raise RuntimeError("IDA executable not found: %s" % ida_path)
     if not idb_path.exists():
         raise RuntimeError("IDB path not found: %s" % idb_path)
+    if args.no_pdb and (args.pdb_path or args.symbol_path):
+        raise RuntimeError("--no-pdb cannot be used together with --pdb-path or --symbol-path")
 
     batch_script = ROOT / "tools" / "pseudoforge_ida_batch.py"
     if not batch_script.exists():
@@ -171,6 +192,9 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
     corpus_index_path = output_dir / "pseudoforge-corpus-index.json"
     corpus_overview_path = output_dir / "pseudoforge-corpus-overview.md"
     compare_dir = Path(args.compare_dir) if args.compare_dir else None
+    pdb_paths = _resolve_pdb_paths(args.pdb_path)
+    pdb_symbol_path, pdb_alt_symbol_path = _build_symbol_paths(args.symbol_path, pdb_paths)
+    ida_env = _build_ida_env(pdb_symbol_path, pdb_alt_symbol_path)
     batch_args = _build_batch_args(
         args,
         batch_script=batch_script,
@@ -198,6 +222,10 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
         compare_dir=compare_dir,
         batch_args=batch_args,
         ida_args=ida_args,
+        ida_env=ida_env,
+        pdb_paths=pdb_paths,
+        pdb_symbol_path=pdb_symbol_path,
+        pdb_alt_symbol_path=pdb_alt_symbol_path,
     )
 
 
@@ -252,6 +280,13 @@ def _build_batch_args(
     return result
 
 
+def _subprocess_kwargs(run: IdaCliRun, args: argparse.Namespace) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {} if args.visible else hidden_subprocess_kwargs()
+    if run.ida_env is not None:
+        kwargs["env"] = run.ida_env
+    return kwargs
+
+
 def _build_ida_args(
     args: argparse.Namespace,
     ida_path: Path,
@@ -277,6 +312,61 @@ def _append_option(result: list[str], name: str, value: str) -> None:
 def _append_int_option(result: list[str], name: str, value: int) -> None:
     if value > 0:
         result.extend([name, str(value)])
+
+
+def _resolve_pdb_paths(values: list[str]) -> list[Path]:
+    result: list[Path] = []
+    for value in values or []:
+        for part in str(value).split(";"):
+            text = part.strip().strip('"')
+            if not text:
+                continue
+            path = Path(text)
+            if not path.exists():
+                raise RuntimeError("PDB path not found: %s" % path)
+            result.append(path)
+    return result
+
+
+def _build_symbol_paths(raw_symbol_path: str, pdb_paths: list[Path]) -> tuple[str, str]:
+    entries = _split_symbol_path(raw_symbol_path)
+    entries.extend(_pdb_search_entry(path) for path in pdb_paths)
+    if not entries:
+        return "", ""
+    symbol_path = ";".join(_dedupe_symbol_entries(entries + _split_symbol_path(os.environ.get("_NT_SYMBOL_PATH", ""))))
+    alt_symbol_path = ";".join(_dedupe_symbol_entries(entries + _split_symbol_path(os.environ.get("_NT_ALT_SYMBOL_PATH", ""))))
+    return symbol_path, alt_symbol_path
+
+
+def _build_ida_env(pdb_symbol_path: str, pdb_alt_symbol_path: str) -> dict[str, str] | None:
+    if not pdb_symbol_path and not pdb_alt_symbol_path:
+        return None
+    env = dict(os.environ)
+    if pdb_symbol_path:
+        env["_NT_SYMBOL_PATH"] = pdb_symbol_path
+    if pdb_alt_symbol_path:
+        env["_NT_ALT_SYMBOL_PATH"] = pdb_alt_symbol_path
+    return env
+
+
+def _split_symbol_path(value: str) -> list[str]:
+    return [part.strip() for part in str(value or "").split(";") if part.strip()]
+
+
+def _pdb_search_entry(path: Path) -> str:
+    return str(path.parent if path.is_file() else path)
+
+
+def _dedupe_symbol_entries(entries: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for entry in entries:
+        key = entry.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(entry)
+    return result
 
 
 def _write_summary(run: IdaCliRun) -> dict[str, Any] | None:
@@ -336,6 +426,13 @@ def _write_manifest(
         "corpus_index_path": str(run.corpus_index_path),
         "corpus_overview_path": str(run.corpus_overview_path),
         "compare_dir": str(run.compare_dir) if run.compare_dir else "",
+        "pdb": {
+            "enabled": not bool(args.no_pdb),
+            "disabled": bool(args.no_pdb),
+            "paths": [str(path) for path in run.pdb_paths],
+            "symbol_path": run.pdb_symbol_path,
+            "alt_symbol_path": run.pdb_alt_symbol_path,
+        },
         "llm": {
             "mode": "plugin_config",
             "required": not bool(args.allow_no_llm),
@@ -364,6 +461,12 @@ def _print_start(run: IdaCliRun, args: argparse.Namespace) -> None:
     print("Corpus index: %s" % run.corpus_index_path)
     print("Report: %s" % run.report_path)
     print("IDA log: %s" % run.ida_log_path)
+    if args.no_pdb:
+        print("PDB: disabled (-Opdb:off)")
+    elif run.pdb_symbol_path:
+        print("PDB symbol path: %s" % run.pdb_symbol_path)
+    else:
+        print("PDB: IDA defaults")
     print("LLM: plugin settings%s" % ("" if not args.allow_no_llm else " (optional)"))
 
 

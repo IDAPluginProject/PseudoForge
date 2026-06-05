@@ -1475,6 +1475,20 @@ python -B .\tools\pseudoforge_ida_cli.py `
 
 The CLI fails closed if saved plugin LLM assist is disabled, because this path is intended for LLM-included batch analysis. Use `--allow-no-llm` when deterministic-only fallback is acceptable. Saved plugin settings are read inside the IDA process from the same `pseudoforge_config.json` used by `Edit/PseudoForge/Configure LLM rename assist`, so provider, model, base URL, timeout, command template, and stored provider credentials stay aligned with the interactive plugin.
 
+When a matching PDB or local symbol cache is available, pass it through `--pdb-path`. The CLI prepends those directories to the child IDA process `_NT_SYMBOL_PATH` and `_NT_ALT_SYMBOL_PATH`. A direct `.pdb` file path is accepted and its parent directory is used as the search entry. For symbol-server strings, use `--symbol-path`:
+
+```powershell
+python -B .\tools\pseudoforge_ida_cli.py `
+  "C:\Path\To\IDA\ida64.exe" `
+  "D:\Path\To\driver.sys.i64" `
+  "$env:TEMP\pseudoforge_ida_cli\driver" `
+  --pdb-path "D:\Symbols\driver" `
+  --pdb-path "D:\Builds\driver\driver.pdb" `
+  --symbol-path "srv*C:\Symbols*https://msdl.microsoft.com/download/symbols"
+```
+
+`--no-pdb` remains available for no-symbol validation runs and cannot be combined with `--pdb-path` or `--symbol-path`.
+
 Default output layout:
 
 ```text
@@ -1509,6 +1523,8 @@ Useful external CLI options:
 - `--cancel-file PATH`: stop before the next function when the sentinel file exists.
 - `--profile-dir PATH`: use target-build-specific profile sets.
 - `--no-pdb`: pass `-Opdb:off` to IDA.
+- `--pdb-path PATH`: add a local PDB file or symbol directory to the child IDA symbol path. Can be repeated.
+- `--symbol-path SYMBOL_PATH`: add a raw DbgHelp symbol path such as `srv*C:\Symbols*https://msdl.microsoft.com/download/symbols`.
 - `--metadata-max-strings N` / `--metadata-max-names N`: cap global metadata volume.
 - `--no-index`: skip post-run corpus index generation.
 - `--no-wait`: start IDA and return immediately.

@@ -61,6 +61,66 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertIn("--llm-renames-auto", run.batch_args)
             self.assertNotIn("--require-configured-llm", run.batch_args)
 
+    def test_ida_cli_pdb_path_sets_child_symbol_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "driver.sys.i64"
+            output_dir = temp_path / "out"
+            pdb_dir = temp_path / "symbols"
+            pdb_file = temp_path / "build" / "driver.pdb"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            pdb_dir.mkdir()
+            pdb_file.parent.mkdir()
+            pdb_file.write_text("", encoding="utf-8")
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [
+                    str(ida_path),
+                    str(idb_path),
+                    str(output_dir),
+                    "--pdb-path",
+                    str(pdb_dir),
+                    "--pdb-path",
+                    str(pdb_file),
+                    "--symbol-path",
+                    r"srv*C:\Symbols*https://msdl.microsoft.com/download/symbols",
+                ]
+            )
+
+            run = pseudoforge_ida_cli._prepare_run(args)
+
+            self.assertIsNotNone(run.ida_env)
+            self.assertIn(str(pdb_dir), run.pdb_symbol_path)
+            self.assertIn(str(pdb_file.parent), run.pdb_symbol_path)
+            self.assertIn(r"srv*C:\Symbols*https://msdl.microsoft.com/download/symbols", run.pdb_symbol_path)
+            self.assertEqual(run.pdb_symbol_path, run.ida_env["_NT_SYMBOL_PATH"])
+            self.assertEqual(run.pdb_alt_symbol_path, run.ida_env["_NT_ALT_SYMBOL_PATH"])
+
+    def test_ida_cli_rejects_pdb_paths_when_pdb_is_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "driver.sys.i64"
+            output_dir = temp_path / "out"
+            pdb_dir = temp_path / "symbols"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            pdb_dir.mkdir()
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [
+                    str(ida_path),
+                    str(idb_path),
+                    str(output_dir),
+                    "--no-pdb",
+                    "--pdb-path",
+                    str(pdb_dir),
+                ]
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "--no-pdb"):
+                pseudoforge_ida_cli._prepare_run(args)
+
     def test_ida_cli_dry_run_writes_manifest_without_starting_ida(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -85,6 +145,8 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertEqual("dry_run", manifest["status"])
             self.assertEqual("plugin_config", manifest["llm"]["mode"])
             self.assertTrue(manifest["llm"]["required"])
+            self.assertTrue(manifest["pdb"]["enabled"])
+            self.assertFalse(manifest["pdb"]["disabled"])
             self.assertEqual(
                 str(output_dir / "pseudoforge-corpus-index.json"),
                 manifest["corpus_index_path"],

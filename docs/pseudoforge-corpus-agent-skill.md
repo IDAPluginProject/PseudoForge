@@ -69,7 +69,8 @@ Example IDA corpus generation:
 python -B .\tools\pseudoforge_ida_cli.py `
   "C:\IDA\ida64.exe" `
   "D:\targets\driver-a.i64" `
-  "F:\pseudoforge-corpora\driver-a"
+  "F:\pseudoforge-corpora\driver-a" `
+  --pdb-path "D:\Symbols\driver-a"
 ```
 
 Example prompt to another AI agent:
