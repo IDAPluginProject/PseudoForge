@@ -310,6 +310,34 @@ python -B .\tools\kernel_corpus\mcp_server.py `
   --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl"
 ```
 
+Generate a copy-ready MCP config snippet for a client config file:
+
+```powershell
+python -B .\tools\kernel_corpus\install_wiring.py mcp-config `
+  --pack-root "F:\pseudoforge-corpora\ntoskrnl-26200.8457"
+```
+
+The emitted JSON has this shape:
+
+```json
+{
+  "mcpServers": {
+    "pseudoforge-kernel-corpus": {
+      "command": "python",
+      "args": [
+        "-B",
+        "F:\\kernullist\\PseudoForge\\tools\\kernel_corpus\\mcp_server.py",
+        "--pack-root",
+        "F:\\pseudoforge-corpora\\ntoskrnl-26200.8457"
+      ]
+    }
+  }
+}
+```
+
+Use an explicit pack root per target. Do not bake one permanent ntoskrnl path
+into the skill or MCP server.
+
 Implemented tools:
 
 - `corpus_status`
@@ -370,7 +398,7 @@ not an arbitrary path, and returns bounded Markdown plus a `truncated` flag.
 
 ## Use The Skill
 
-The local skill instructions live here:
+The source skill instructions live here:
 
 ```text
 tools\kernel_corpus\skills\kernel-corpus-analysis\SKILL.md
@@ -387,6 +415,49 @@ then use the skill for retrieval and answer discipline.
 For durable answer handoff, combine the skill with
 `tools\kernel_corpus\answer_harness.py` so the final prompt and validation
 report are reproducible.
+
+Plan the copy target without writing anything:
+
+```powershell
+python -B .\tools\kernel_corpus\install_wiring.py skill-plan `
+  --target-root "$env:USERPROFILE\.codex\skills"
+```
+
+Install the skill into an explicit Codex skill root:
+
+```powershell
+python -B .\tools\kernel_corpus\install_wiring.py install-skill `
+  --target-root "$env:USERPROFILE\.codex\skills" `
+  --apply
+```
+
+Update the installed copy from the repo source:
+
+```powershell
+python -B .\tools\kernel_corpus\install_wiring.py install-skill `
+  --target-root "$env:USERPROFILE\.codex\skills" `
+  --replace `
+  --apply
+```
+
+Uninstall the copied skill:
+
+```powershell
+python -B .\tools\kernel_corpus\install_wiring.py uninstall-skill `
+  --target-root "$env:USERPROFILE\.codex\skills" `
+  --apply
+```
+
+The helper is dry-run by default. It only writes or removes files when
+`--apply` is present, and it only operates on the direct
+`kernel-corpus-analysis` child under the selected target root. Tests should use
+a temporary `--target-root`; do not write into a user's global skill directory
+during validation.
+
+The Kernel Corpus skill and MCP server are operational add-ons, not IDA plugin
+runtime dependencies. Keep them under `tools/kernel_corpus/`, keep generated
+packs under ignored or external output roots, and keep normal PseudoForge IDA
+plugin packaging independent of MCP availability.
 
 ## Freshness Rules
 
@@ -416,7 +487,8 @@ python -B -m pytest `
   tests/test_kernel_corpus_skill.py `
   tests/test_kernel_corpus_atlas.py `
   tests/test_kernel_corpus_answer_harness.py `
-  tests/test_kernel_corpus_validate_pack.py
+  tests/test_kernel_corpus_validate_pack.py `
+  tests/test_kernel_corpus_install_wiring.py
 ```
 
 For documentation-only edits, also run:

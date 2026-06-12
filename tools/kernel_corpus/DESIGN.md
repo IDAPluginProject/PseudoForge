@@ -29,6 +29,7 @@ tools/
     builder.py
     ea.py
     errors.py
+    install_wiring.py
     lifecycle.py
     mcp_server.py
     paths.py
@@ -131,7 +132,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The initial implementation is complete through Phase 12:
+The initial implementation is complete through Phase 13:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -157,6 +158,9 @@ The initial implementation is complete through Phase 12:
     lifecycle candidates are penalized unless exact evidence keeps them in
     scope, and atlas hubs suppress generic helpers or subsystem-irrelevant
     neighbors.
+13. Install wiring emits copy-ready MCP config snippets and dry-run-first skill
+    install, update, and uninstall plans without mixing the tooling into the
+    IDA plugin package.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -593,6 +597,34 @@ Agent workflow:
 The final answer should read like a kernel reverse-engineering report, not a
 generic OS textbook explanation.
 
+## Install Wiring
+
+`tools/kernel_corpus/install_wiring.py` keeps installation repeatable while
+preserving the separation between the IDA plugin producer and the Kernel Corpus
+consumer tooling.
+
+Implemented commands:
+
+```text
+skill-plan
+install-skill
+uninstall-skill
+mcp-config
+```
+
+Rules:
+
+1. Skill installation is dry-run by default and requires `--apply` before it
+   writes or removes files.
+2. Update requires explicit `--replace --apply` so an existing installed skill
+   is not overwritten accidentally.
+3. Tests must pass a temporary `--target-root` and must not write into the
+   user's global `%USERPROFILE%\.codex\skills` tree.
+4. MCP config generation requires an explicit pack root or leaves a visible
+   `<PACK_ROOT>` placeholder.
+5. Normal IDA plugin packaging must not depend on MCP, installed skills, or
+   generated kernel corpus packs.
+
 ## Implementation Phases
 
 ### Phase 0: Skeleton and design
@@ -838,6 +870,28 @@ Acceptance:
   neighbors.
 - Add fixture regression tests for every heuristic change.
 
+### Phase 13: Skill and MCP install packaging
+
+Deliver:
+
+```text
+tools/kernel_corpus/install_wiring.py
+tests/test_kernel_corpus_install_wiring.py
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+```
+
+Acceptance:
+
+- Document the source skill path, target skill path, install, update, and
+  uninstall procedures.
+- Emit a copy-ready MCP config snippet with command, args, server path, and
+  explicit pack root.
+- Keep plugin packaging separate from Kernel Corpus skill, MCP, and generated
+  pack outputs.
+- Avoid writing into the user's global skill directory during tests.
+- Test deterministic helper behavior with temporary target roots.
+
 ## Testing Strategy
 
 Use small fixture corpora for unit tests. Do not require the full ntoskrnl
@@ -854,7 +908,9 @@ Test layers:
 7. Pack freshness validator tests for fresh, stale, missing, partial, and
    derived-artifact states.
 8. Lifecycle/atlas quality tests for cross-topic penalties and hub filtering.
-9. Optional integration smoke against the real ntoskrnl pack when present.
+9. Install wiring tests for dry-run skill plans, explicit temporary target
+   roots, update/delete behavior, and MCP config JSON shape.
+10. Optional integration smoke against the real ntoskrnl pack when present.
 
 Integration tests should skip cleanly when the large corpus path is absent.
 
@@ -868,6 +924,8 @@ Integration tests should skip cleanly when the large corpus path is absent.
 - Keep lifecycle heuristics reviewable as JSON ontology plus Python scoring.
 - Run pack freshness validation before reusing old packs, evidence packs, or
   atlas pages.
+- Keep skill and MCP install helpers dry-run-first, and require explicit target
+  roots in tests.
 - Treat atlas hubs as relevance-filtered retrieval hints; generic helpers are
   intentionally suppressed from hub lists.
 - Treat answer harness validation as citation lint, not final factual proof.
