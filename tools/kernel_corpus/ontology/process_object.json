@@ -2,6 +2,12 @@
   "schema": "kernel_corpus_lifecycle_ontology_v1",
   "topic": "process_object",
   "title": "Process Object Lifecycle",
+  "labels": [
+    "process",
+    "process object",
+    "eprocess",
+    "process lifecycle"
+  ],
   "tags": [
     "process",
     "process_thread",

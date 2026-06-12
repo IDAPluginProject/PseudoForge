@@ -9,11 +9,55 @@ from pathlib import Path
 from typing import Any
 
 from tools.kernel_corpus import builder
-from tools.kernel_corpus.lifecycle import main, trace_lifecycle
+from tools.kernel_corpus.lifecycle import ONTOLOGY_SCHEMA_VERSION, load_ontology, main, trace_lifecycle
 from tools.kernel_corpus.schema import EVIDENCE_PACK_SCHEMA_VERSION
+
+ONTOLOGY_DIR = Path(__file__).resolve().parents[1] / "tools" / "kernel_corpus" / "ontology"
+EXPECTED_TOPICS = {
+    "process_object",
+    "thread_object",
+    "file_object",
+    "driver_object",
+    "device_object",
+    "registry_key",
+    "section_object",
+    "module_image",
+}
 
 
 class KernelCorpusLifecycleTests(unittest.TestCase):
+    def test_all_lifecycle_ontologies_have_reviewable_schema(self) -> None:
+        paths = sorted(ONTOLOGY_DIR.glob("*.json"))
+        topics = {path.stem for path in paths}
+        self.assertTrue(EXPECTED_TOPICS.issubset(topics))
+
+        for path in paths:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(ONTOLOGY_SCHEMA_VERSION, data.get("schema"), path.name)
+            self.assertEqual(path.stem, data.get("topic"), path.name)
+            self.assertTrue(_non_empty_string_list(data.get("labels")), path.name)
+            self.assertTrue(_non_empty_string_list(data.get("seed_names")), path.name)
+            self.assertTrue(_non_empty_string_list(data.get("seed_terms")), path.name)
+            self.assertTrue(_non_empty_string_list(data.get("tags")), path.name)
+            phases = data.get("phases")
+            self.assertIsInstance(phases, dict, path.name)
+            self.assertGreaterEqual(len(phases), 4, path.name)
+            for phase_id, phase in phases.items():
+                self.assertIsInstance(phase, dict, "%s:%s" % (path.name, phase_id))
+                self.assertIsInstance(phase.get("title"), str, "%s:%s" % (path.name, phase_id))
+                self.assertTrue(phase.get("title"), "%s:%s" % (path.name, phase_id))
+                has_hints = any(
+                    _non_empty_string_list(phase.get(key))
+                    for key in ("seed_names", "name_terms", "terms", "tags")
+                )
+                self.assertTrue(has_hints, "%s:%s" % (path.name, phase_id))
+
+    def test_lifecycle_tracer_loads_each_supported_ontology(self) -> None:
+        for topic in sorted(EXPECTED_TOPICS):
+            ontology, path = load_ontology(topic)
+            self.assertEqual(topic, ontology["topic"])
+            self.assertEqual("%s.json" % topic, path.name)
+
     def test_process_graph_maps_seed_functions_to_expected_phases(self) -> None:
         functions = [
             _function("0x140001000", "NtCreateUserProcess", ["process_thread"], ["create", "process"], ["0x140002000"]),
@@ -43,6 +87,37 @@ class KernelCorpusLifecycleTests(unittest.TestCase):
             self.assertEqual("delete", phases["PspProcessDelete"])
             self.assertIn(("0x140001000", "0x140002000"), _edge_pairs(pack))
             self.assertIn(("0x140004000", "0x140006000"), _edge_pairs(pack))
+
+    def test_file_object_graph_maps_seed_functions_to_expected_phases(self) -> None:
+        functions = [
+            _function("0x140101000", "NtCreateFile", ["file", "io_manager"], ["create file", "file object"], ["0x140102000"]),
+            _function("0x140102000", "IopAllocateFileObject", ["file", "io_manager", "memory"], ["allocate file", "file object"], ["0x140103000"]),
+            _function("0x140103000", "IopInitializeFileObject", ["file", "io_manager"], ["initialize file", "object attributes"], ["0x140104000"]),
+            _function("0x140104000", "ObInsertObject", ["file", "object_manager"], ["insert file object", "handle"], ["0x140105000"]),
+            _function("0x140105000", "IopCallDriver", ["file", "io_manager", "callback"], ["file system notify", "callback"], []),
+            _function("0x140106000", "ObReferenceObjectByHandle", ["file", "object_manager"], ["reference", "file handle"], []),
+            _function("0x140107000", "NtClose", ["file", "object_manager"], ["close file"], ["0x140108000"]),
+            _function("0x140108000", "IopCleanupFileObject", ["file", "io_manager"], ["cleanup file", "rundown"], ["0x140109000"]),
+            _function("0x140109000", "IopDeleteFile", ["file", "io_manager", "object_manager"], ["delete file", "final reference"], ["0x14010a000"]),
+            _function("0x14010a000", "ObDereferenceObject", ["object_manager"], ["dereference", "object delete"], []),
+        ]
+        with _built_pack(functions) as pack_root:
+            pack = trace_lifecycle(pack_root, "file_object", max_seeds=20, depth=2)
+
+            phases = _phase_by_name(pack)
+            self.assertEqual(EVIDENCE_PACK_SCHEMA_VERSION, pack["schema"])
+            self.assertEqual("file_object", pack["topic"])
+            self.assertEqual("entry", phases["NtCreateFile"])
+            self.assertEqual("allocate", phases["IopAllocateFileObject"])
+            self.assertEqual("initialize", phases["IopInitializeFileObject"])
+            self.assertEqual("publish", phases["ObInsertObject"])
+            self.assertEqual("notify", phases["IopCallDriver"])
+            self.assertEqual("steady_state", phases["ObReferenceObjectByHandle"])
+            self.assertEqual("exit", phases["NtClose"])
+            self.assertEqual("rundown", phases["IopCleanupFileObject"])
+            self.assertEqual("delete", phases["IopDeleteFile"])
+            self.assertIn(("0x140101000", "0x140102000"), _edge_pairs(pack))
+            self.assertIn(("0x140108000", "0x140109000"), _edge_pairs(pack))
 
     def test_ambiguous_functions_receive_lower_confidence(self) -> None:
         functions = [
@@ -233,6 +308,10 @@ def _function_by_name(pack: dict[str, Any], name: str) -> dict[str, Any]:
 
 def _edge_pairs(pack: dict[str, Any]) -> list[tuple[str, str]]:
     return [(edge["src_ea"], edge["dst_ea"]) for edge in pack["edges"]]
+
+
+def _non_empty_string_list(value: Any) -> bool:
+    return isinstance(value, list) and any(isinstance(item, str) and item for item in value)
 
 
 if __name__ == "__main__":

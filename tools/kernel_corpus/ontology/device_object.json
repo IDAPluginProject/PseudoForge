@@ -1,0 +1,242 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "device_object",
+  "title": "Device Object Lifecycle",
+  "labels": [
+    "device",
+    "device object",
+    "create device",
+    "delete device",
+    "device lifecycle"
+  ],
+  "tags": [
+    "device",
+    "driver",
+    "io_manager",
+    "object_manager"
+  ],
+  "seed_names": [
+    "IoCreateDevice",
+    "IoCreateDeviceSecure",
+    "IopCreateDevice",
+    "ObInsertObject",
+    "IoAttachDeviceToDeviceStack",
+    "IoDetachDevice",
+    "IoDeleteDevice",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "device object",
+    "create device",
+    "allocate device",
+    "initialize device",
+    "attach device",
+    "detach device",
+    "delete device",
+    "dereference device"
+  ],
+  "phases": {
+    "entry": {
+      "title": "Create device entry",
+      "seed_names": [
+        "IoCreateDevice",
+        "IoCreateDeviceSecure",
+        "IopCreateDevice"
+      ],
+      "name_terms": [
+        "CreateDevice"
+      ],
+      "terms": [
+        "create device",
+        "device create"
+      ],
+      "tags": [
+        "device",
+        "io_manager"
+      ]
+    },
+    "allocate": {
+      "title": "Allocation",
+      "seed_names": [
+        "IopAllocateDeviceObject",
+        "ObCreateObject"
+      ],
+      "name_terms": [
+        "AllocateDevice",
+        "CreateObject"
+      ],
+      "terms": [
+        "allocate device",
+        "device object allocation",
+        "device extension"
+      ],
+      "tags": [
+        "device",
+        "memory",
+        "object_manager"
+      ]
+    },
+    "initialize": {
+      "title": "Initialization",
+      "seed_names": [
+        "IopInitializeDeviceObject",
+        "IoCreateDevice"
+      ],
+      "name_terms": [
+        "InitializeDevice",
+        "InitDevice",
+        "DeviceExtension"
+      ],
+      "terms": [
+        "initialize device",
+        "device extension",
+        "device flags",
+        "stack size"
+      ],
+      "tags": [
+        "device",
+        "io_manager"
+      ]
+    },
+    "publish": {
+      "title": "Namespace and stack visibility",
+      "seed_names": [
+        "ObInsertObject",
+        "IoCreateSymbolicLink",
+        "IoAttachDeviceToDeviceStack"
+      ],
+      "name_terms": [
+        "InsertObject",
+        "SymbolicLink",
+        "AttachDevice"
+      ],
+      "terms": [
+        "insert",
+        "symbolic link",
+        "attach device",
+        "device stack"
+      ],
+      "tags": [
+        "object_manager",
+        "device",
+        "io_manager"
+      ]
+    },
+    "notify": {
+      "title": "PnP and interface notifications",
+      "seed_names": [
+        "IoRegisterDeviceInterface",
+        "IoSetDeviceInterfaceState",
+        "IoRegisterPlugPlayNotification"
+      ],
+      "name_terms": [
+        "Notify",
+        "Notification",
+        "DeviceInterface"
+      ],
+      "terms": [
+        "notify",
+        "device interface",
+        "plug play notification",
+        "pnp"
+      ],
+      "tags": [
+        "callback",
+        "device",
+        "io_manager"
+      ],
+      "required": false
+    },
+    "steady_state": {
+      "title": "Dispatch, references, and stack operations",
+      "seed_names": [
+        "IoGetAttachedDeviceReference",
+        "IoGetLowerDeviceObject",
+        "IoCallDriver"
+      ],
+      "name_terms": [
+        "Reference",
+        "CallDriver",
+        "DeviceObject"
+      ],
+      "terms": [
+        "reference",
+        "dispatch",
+        "irp",
+        "device stack"
+      ],
+      "tags": [
+        "device",
+        "dispatch",
+        "io_manager"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Detach and remove entry",
+      "seed_names": [
+        "IoDetachDevice",
+        "IoDeleteDevice"
+      ],
+      "name_terms": [
+        "DetachDevice",
+        "RemoveDevice",
+        "DeleteDevice"
+      ],
+      "terms": [
+        "detach device",
+        "remove device",
+        "delete device"
+      ],
+      "tags": [
+        "device",
+        "io_manager"
+      ]
+    },
+    "rundown": {
+      "title": "Teardown",
+      "seed_names": [
+        "IopDeleteDevice",
+        "IopCleanupDevice"
+      ],
+      "name_terms": [
+        "CleanupDevice",
+        "RundownDevice",
+        "TeardownDevice"
+      ],
+      "terms": [
+        "cleanup",
+        "rundown",
+        "teardown",
+        "delete symbolic link"
+      ],
+      "tags": [
+        "device",
+        "io_manager"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "IoDeleteDevice",
+        "IopDeleteDevice",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "DeleteDevice",
+        "DereferenceObject"
+      ],
+      "terms": [
+        "delete device",
+        "dereference",
+        "object delete",
+        "final reference"
+      ],
+      "tags": [
+        "object_manager",
+        "device"
+      ]
+    }
+  }
+}

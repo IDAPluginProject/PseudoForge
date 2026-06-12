@@ -1,0 +1,260 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "file_object",
+  "title": "File Object Lifecycle",
+  "labels": [
+    "file",
+    "file object",
+    "file handle",
+    "create file",
+    "file lifecycle"
+  ],
+  "tags": [
+    "file",
+    "io_manager",
+    "object_manager",
+    "dispatch"
+  ],
+  "seed_names": [
+    "NtCreateFile",
+    "NtOpenFile",
+    "IoCreateFile",
+    "IoCreateFileEx",
+    "IopCreateFile",
+    "IopAllocateFileObject",
+    "IopInitializeFileObject",
+    "ObInsertObject",
+    "IopCleanupFileObject",
+    "IopDeleteFile",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "file object",
+    "create file",
+    "open file",
+    "allocate file",
+    "initialize file",
+    "insert file object",
+    "file handle",
+    "cleanup file",
+    "close file",
+    "delete file",
+    "dereference file"
+  ],
+  "phases": {
+    "entry": {
+      "title": "Create/open entry",
+      "seed_names": [
+        "NtCreateFile",
+        "NtOpenFile",
+        "ZwCreateFile",
+        "ZwOpenFile",
+        "IoCreateFile",
+        "IoCreateFileEx"
+      ],
+      "name_terms": [
+        "CreateFile",
+        "OpenFile"
+      ],
+      "terms": [
+        "create file",
+        "open file",
+        "file create",
+        "file open"
+      ],
+      "tags": [
+        "io_manager",
+        "file"
+      ]
+    },
+    "allocate": {
+      "title": "Allocation",
+      "seed_names": [
+        "IopAllocateFileObject"
+      ],
+      "name_terms": [
+        "AllocateFile",
+        "AllocateFileObject"
+      ],
+      "terms": [
+        "allocate file",
+        "file object allocation",
+        "pool",
+        "file object"
+      ],
+      "tags": [
+        "memory",
+        "io_manager",
+        "file"
+      ]
+    },
+    "initialize": {
+      "title": "Initialization",
+      "seed_names": [
+        "IopInitializeFileObject",
+        "IopCreateFile"
+      ],
+      "name_terms": [
+        "InitializeFile",
+        "CreateFile",
+        "ParseFile"
+      ],
+      "terms": [
+        "initialize file",
+        "file name",
+        "object attributes",
+        "desired access",
+        "share access"
+      ],
+      "tags": [
+        "io_manager",
+        "file"
+      ]
+    },
+    "publish": {
+      "title": "Object insertion and handle visibility",
+      "seed_names": [
+        "ObInsertObject",
+        "IopInsertFileObject"
+      ],
+      "name_terms": [
+        "InsertObject",
+        "InsertFile",
+        "CreateHandle"
+      ],
+      "terms": [
+        "insert",
+        "handle",
+        "object table",
+        "file handle"
+      ],
+      "tags": [
+        "object_manager",
+        "file"
+      ]
+    },
+    "notify": {
+      "title": "File-system and filter side paths",
+      "seed_names": [
+        "IopCallDriver",
+        "FsRtlNotifyFullChangeDirectory",
+        "FsRtlNotifyChangeDirectory"
+      ],
+      "name_terms": [
+        "Notify",
+        "Callback",
+        "CallDriver"
+      ],
+      "terms": [
+        "notify",
+        "callback",
+        "file system notify",
+        "filter callback"
+      ],
+      "tags": [
+        "callback",
+        "io_manager",
+        "file"
+      ],
+      "required": false
+    },
+    "steady_state": {
+      "title": "Steady-state references and operations",
+      "seed_names": [
+        "ObReferenceObjectByHandle",
+        "IoGetRelatedDeviceObject",
+        "NtQueryInformationFile",
+        "NtReadFile",
+        "NtWriteFile"
+      ],
+      "name_terms": [
+        "ReferenceObject",
+        "QueryInformationFile",
+        "ReadFile",
+        "WriteFile"
+      ],
+      "terms": [
+        "reference",
+        "query file",
+        "read file",
+        "write file",
+        "file information"
+      ],
+      "tags": [
+        "object_manager",
+        "io_manager",
+        "file"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Close and cleanup entry",
+      "seed_names": [
+        "NtClose",
+        "ZwClose",
+        "IopCloseFile"
+      ],
+      "name_terms": [
+        "CloseFile",
+        "Close"
+      ],
+      "terms": [
+        "close",
+        "close file",
+        "cleanup on close"
+      ],
+      "tags": [
+        "object_manager",
+        "io_manager",
+        "file"
+      ]
+    },
+    "rundown": {
+      "title": "Cleanup and teardown",
+      "seed_names": [
+        "IopCleanupFileObject",
+        "IopCleanupFile"
+      ],
+      "name_terms": [
+        "CleanupFile",
+        "CleanupFileObject",
+        "RundownFile"
+      ],
+      "terms": [
+        "cleanup",
+        "rundown",
+        "teardown",
+        "file cleanup"
+      ],
+      "tags": [
+        "io_manager",
+        "file"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "IopDeleteFile",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "DeleteFile",
+        "DeleteFileObject",
+        "DereferenceObject"
+      ],
+      "terms": [
+        "delete file",
+        "dereference",
+        "destroy",
+        "object delete",
+        "final reference"
+      ],
+      "tags": [
+        "object_manager",
+        "io_manager",
+        "file"
+      ]
+    }
+  }
+}

@@ -27,6 +27,17 @@ Local lifecycle fallback:
 python -B .\tools\kernel_corpus\lifecycle.py --pack-root "<pack-root>" --topic process_object --depth 2 --output "<pack-root>\evidence-packs\process_object.json"
 ```
 
+Supported lifecycle topics:
+
+- `process_object`
+- `thread_object`
+- `file_object`
+- `driver_object`
+- `device_object`
+- `registry_key`
+- `section_object`
+- `module_image`
+
 Local subsystem atlas fallback:
 
 ```powershell
@@ -35,7 +46,7 @@ python -B .\tools\kernel_corpus\atlas.py --pack-root "<pack-root>" --output-dir 
 
 ## Tool Workflow
 
-- Lifecycle questions: call `trace_lifecycle` first with `topic` such as `process_object` or `thread_object`, then inspect high-impact functions with `get_function`, and use `get_neighbors` for ambiguous transitions.
+- Lifecycle questions: call `trace_lifecycle` first with `topic` such as `process_object`, `thread_object`, `file_object`, `driver_object`, `device_object`, `registry_key`, `section_object`, or `module_image`, then inspect high-impact functions with `get_function`, and use `get_neighbors` for ambiguous transitions.
 - Function questions: use `search_functions` or exact EA lookup with `get_function`; then cite cleaned/raw/summary artifact paths.
 - Subsystem questions: generate or inspect atlas pages first when available; then search by names, tags, imports, and strings; expand nearby callers/callees; build an evidence pack for broad answers.
 - Import/string questions: use `search_by_import` or `search_by_string`, then verify with `get_function`.
@@ -58,11 +69,16 @@ Map Korean questions into corpus search terms and lifecycle topics before retrie
 | --- | --- |
 | 프로세스 생성/종료/삭제 | `process_object`, `process`, `create process`, `exit process`, `delete process`, `Psp*Process` |
 | 스레드 생성/종료/삭제 | `thread_object`, `thread`, `create thread`, `exit thread`, `delete thread`, `Psp*Thread` |
+| 파일 오브젝트 생성/닫기/삭제 | `file_object`, `file object`, `create file`, `close file`, `delete file`, `NtCreateFile`, `Iop*File` |
+| 드라이버 오브젝트 로드/언로드 | `driver_object`, `driver object`, `load driver`, `unload driver`, `DriverEntry`, `Iop*Driver` |
+| 디바이스 오브젝트 생성/삭제 | `device_object`, `device object`, `create device`, `delete device`, `attach device`, `IoCreateDevice`, `IoDeleteDevice` |
+| 섹션/맵드 뷰 생성/해제 | `section_object`, `section object`, `create section`, `map view`, `unmap view`, `NtCreateSection`, `NtMapViewOfSection` |
+| 모듈/이미지 로드/언로드 | `module_image`, `image load`, `system image`, `load image notify`, `MmLoadSystemImage`, `PspCallImageNotifyRoutines` |
 | 오브젝트/참조/삭제 | `object`, `ObInsertObject`, `ObReferenceObject`, `ObDereferenceObject`, `delete` |
 | 핸들/핸들 테이블 | `handle`, `object table`, `handle table`, `ObReferenceObjectByHandle` |
 | IOCTL/디스패치 | `ioctl`, `device control`, `IRP_MJ_DEVICE_CONTROL`, `dispatch` |
 | 메모리/풀/매핑 | `memory`, `pool`, `allocate`, `map`, `section`, `Mm` |
-| 레지스트리 | `registry`, `Cm`, `ZwQueryValueKey`, `ZwSetValueKey` |
+| 레지스트리 | `registry_key`, `registry`, `Cm`, `NtCreateKey`, `ZwQueryValueKey`, `ZwSetValueKey` |
 | 보안/토큰/권한 | `security`, `token`, `privilege`, `Se`, `access check` |
 | 콜백/노티파이 | `callback`, `notify`, `PsSet*NotifyRoutine`, `PspCall*Notify*` |
 | 로드/언로드 | `load`, `unload`, `DriverEntry`, `Unload`, `PsSetLoadImageNotifyRoutine` |

@@ -1,0 +1,240 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "driver_object",
+  "title": "Driver Object Lifecycle",
+  "labels": [
+    "driver",
+    "driver object",
+    "driver load",
+    "driver unload",
+    "driver lifecycle"
+  ],
+  "tags": [
+    "driver",
+    "io_manager",
+    "object_manager",
+    "image_load"
+  ],
+  "seed_names": [
+    "NtLoadDriver",
+    "IopLoadDriver",
+    "IoCreateDriver",
+    "IopInitializeBuiltinDriver",
+    "ObInsertObject",
+    "IopUnloadDriver",
+    "IoDeleteDriver",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "driver object",
+    "load driver",
+    "create driver",
+    "driver entry",
+    "insert driver object",
+    "driver dispatch",
+    "unload driver",
+    "delete driver"
+  ],
+  "phases": {
+    "entry": {
+      "title": "Load/create entry",
+      "seed_names": [
+        "NtLoadDriver",
+        "ZwLoadDriver",
+        "IoCreateDriver",
+        "IopLoadDriver"
+      ],
+      "name_terms": [
+        "LoadDriver",
+        "CreateDriver"
+      ],
+      "terms": [
+        "load driver",
+        "create driver",
+        "driver load"
+      ],
+      "tags": [
+        "driver",
+        "io_manager"
+      ]
+    },
+    "allocate": {
+      "title": "Driver object allocation",
+      "seed_names": [
+        "IopAllocateDriverObject",
+        "ObCreateObject"
+      ],
+      "name_terms": [
+        "AllocateDriver",
+        "CreateObject"
+      ],
+      "terms": [
+        "allocate driver",
+        "driver object allocation",
+        "object allocation"
+      ],
+      "tags": [
+        "object_manager",
+        "driver"
+      ]
+    },
+    "initialize": {
+      "title": "Initialization and DriverEntry",
+      "seed_names": [
+        "IopInitializeBuiltinDriver",
+        "IopInitializeDriverModule",
+        "DriverEntry"
+      ],
+      "name_terms": [
+        "InitializeDriver",
+        "DriverEntry",
+        "InitDriver"
+      ],
+      "terms": [
+        "initialize driver",
+        "driver entry",
+        "major function",
+        "driver extension"
+      ],
+      "tags": [
+        "driver",
+        "io_manager"
+      ]
+    },
+    "publish": {
+      "title": "Object insertion and namespace visibility",
+      "seed_names": [
+        "ObInsertObject",
+        "IopInsertDriverObject"
+      ],
+      "name_terms": [
+        "InsertDriver",
+        "InsertObject"
+      ],
+      "terms": [
+        "insert",
+        "object directory",
+        "driver object",
+        "handle"
+      ],
+      "tags": [
+        "object_manager",
+        "driver"
+      ]
+    },
+    "notify": {
+      "title": "Load-image notification side paths",
+      "seed_names": [
+        "PsSetLoadImageNotifyRoutine",
+        "PspCallImageNotifyRoutines"
+      ],
+      "name_terms": [
+        "Notify",
+        "LoadImage",
+        "Callback"
+      ],
+      "terms": [
+        "notify",
+        "load image notify",
+        "callback"
+      ],
+      "tags": [
+        "callback",
+        "image_load",
+        "driver"
+      ],
+      "required": false
+    },
+    "steady_state": {
+      "title": "Dispatch and references",
+      "seed_names": [
+        "IoGetDriverObjectExtension",
+        "ObReferenceObjectByName",
+        "IopInvalidDeviceRequest"
+      ],
+      "name_terms": [
+        "Dispatch",
+        "ReferenceObject",
+        "DriverObjectExtension"
+      ],
+      "terms": [
+        "dispatch",
+        "reference",
+        "major function",
+        "device object"
+      ],
+      "tags": [
+        "driver",
+        "dispatch",
+        "io_manager"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Unload entry",
+      "seed_names": [
+        "NtUnloadDriver",
+        "ZwUnloadDriver",
+        "IopUnloadDriver"
+      ],
+      "name_terms": [
+        "UnloadDriver",
+        "Unload"
+      ],
+      "terms": [
+        "unload driver",
+        "driver unload",
+        "unload"
+      ],
+      "tags": [
+        "driver",
+        "io_manager"
+      ]
+    },
+    "rundown": {
+      "title": "Unload rundown and teardown",
+      "seed_names": [
+        "IopUnloadDriver",
+        "IopDeleteDriver"
+      ],
+      "name_terms": [
+        "RundownDriver",
+        "DeleteDriver",
+        "TeardownDriver"
+      ],
+      "terms": [
+        "rundown",
+        "teardown",
+        "delete devices",
+        "unload cleanup"
+      ],
+      "tags": [
+        "driver",
+        "io_manager"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "IoDeleteDriver",
+        "IopDeleteDriver",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "DeleteDriver",
+        "DereferenceObject"
+      ],
+      "terms": [
+        "delete driver",
+        "dereference",
+        "object delete",
+        "final reference"
+      ],
+      "tags": [
+        "object_manager",
+        "driver"
+      ]
+    }
+  }
+}

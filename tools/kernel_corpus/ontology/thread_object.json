@@ -2,6 +2,13 @@
   "schema": "kernel_corpus_lifecycle_ontology_v1",
   "topic": "thread_object",
   "title": "Thread Object Lifecycle",
+  "labels": [
+    "thread",
+    "thread object",
+    "ethread",
+    "kthread",
+    "thread lifecycle"
+  ],
   "tags": [
     "thread",
     "process_thread",

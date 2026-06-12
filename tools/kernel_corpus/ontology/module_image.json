@@ -1,0 +1,253 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "module_image",
+  "title": "Module/Image Load Lifecycle",
+  "labels": [
+    "module",
+    "image",
+    "image load",
+    "system image",
+    "module lifecycle"
+  ],
+  "tags": [
+    "image_load",
+    "driver",
+    "memory",
+    "callback"
+  ],
+  "seed_names": [
+    "NtLoadDriver",
+    "IopLoadDriver",
+    "MmLoadSystemImage",
+    "MiLoadImageSection",
+    "PsSetLoadImageNotifyRoutine",
+    "PspCallImageNotifyRoutines",
+    "MmUnloadSystemImage",
+    "MiUnloadSystemImage",
+    "PsRemoveLoadImageNotifyRoutine"
+  ],
+  "seed_terms": [
+    "module image",
+    "load image",
+    "load driver",
+    "system image",
+    "map image",
+    "image notify",
+    "unload image",
+    "unload driver"
+  ],
+  "phases": {
+    "entry": {
+      "title": "Load entry",
+      "seed_names": [
+        "NtLoadDriver",
+        "ZwLoadDriver",
+        "IopLoadDriver",
+        "MmLoadSystemImage"
+      ],
+      "name_terms": [
+        "LoadDriver",
+        "LoadSystemImage",
+        "LoadImage"
+      ],
+      "terms": [
+        "load driver",
+        "load image",
+        "system image"
+      ],
+      "tags": [
+        "driver",
+        "image_load"
+      ]
+    },
+    "allocate": {
+      "title": "Image section and module allocation",
+      "seed_names": [
+        "MiLoadImageSection",
+        "MiCreateImageOrDataSection",
+        "MiAllocateLoadedModule"
+      ],
+      "name_terms": [
+        "LoadImageSection",
+        "CreateImage",
+        "AllocateLoadedModule"
+      ],
+      "terms": [
+        "image section",
+        "allocate module",
+        "control area",
+        "loaded module"
+      ],
+      "tags": [
+        "memory",
+        "image_load"
+      ]
+    },
+    "initialize": {
+      "title": "Validation and initialization",
+      "seed_names": [
+        "MiValidateImageHeader",
+        "MiInitializeLoadedModule",
+        "MmLoadSystemImage"
+      ],
+      "name_terms": [
+        "ValidateImage",
+        "InitializeLoadedModule",
+        "LoadSystemImage"
+      ],
+      "terms": [
+        "validate image",
+        "initialize image",
+        "module list",
+        "driver entry"
+      ],
+      "tags": [
+        "memory",
+        "driver",
+        "image_load"
+      ]
+    },
+    "publish": {
+      "title": "Loaded-module visibility",
+      "seed_names": [
+        "MiInsertInSystemSpace",
+        "MiInsertLoadedModule",
+        "PsLoadedModuleList"
+      ],
+      "name_terms": [
+        "InsertLoadedModule",
+        "LoadedModuleList",
+        "PublishImage"
+      ],
+      "terms": [
+        "insert module",
+        "loaded module list",
+        "publish image",
+        "system space"
+      ],
+      "tags": [
+        "image_load",
+        "memory",
+        "driver"
+      ]
+    },
+    "notify": {
+      "title": "Load-image notification side paths",
+      "seed_names": [
+        "PsSetLoadImageNotifyRoutine",
+        "PsRemoveLoadImageNotifyRoutine",
+        "PspCallImageNotifyRoutines"
+      ],
+      "name_terms": [
+        "LoadImageNotify",
+        "ImageNotify",
+        "Notify",
+        "Callback"
+      ],
+      "terms": [
+        "load image notify",
+        "image notify",
+        "callback",
+        "notify"
+      ],
+      "tags": [
+        "callback",
+        "image_load"
+      ]
+    },
+    "steady_state": {
+      "title": "Lookup and reference state",
+      "seed_names": [
+        "MmGetSystemRoutineAddress",
+        "RtlPcToFileHeader",
+        "PsLoadedModuleList"
+      ],
+      "name_terms": [
+        "SystemRoutine",
+        "LoadedModule",
+        "FileHeader"
+      ],
+      "terms": [
+        "system routine",
+        "loaded module",
+        "reference",
+        "lookup"
+      ],
+      "tags": [
+        "image_load",
+        "memory",
+        "driver"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Unload entry",
+      "seed_names": [
+        "NtUnloadDriver",
+        "ZwUnloadDriver",
+        "IopUnloadDriver",
+        "MmUnloadSystemImage"
+      ],
+      "name_terms": [
+        "UnloadDriver",
+        "UnloadSystemImage",
+        "UnloadImage"
+      ],
+      "terms": [
+        "unload driver",
+        "unload image",
+        "system image unload"
+      ],
+      "tags": [
+        "driver",
+        "image_load"
+      ]
+    },
+    "rundown": {
+      "title": "Module teardown",
+      "seed_names": [
+        "MiUnloadSystemImage",
+        "MiRemoveLoadedModule"
+      ],
+      "name_terms": [
+        "RemoveLoadedModule",
+        "RundownImage",
+        "UnloadSystemImage"
+      ],
+      "terms": [
+        "rundown",
+        "remove module",
+        "teardown",
+        "unmap image"
+      ],
+      "tags": [
+        "memory",
+        "image_load",
+        "driver"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "MiDeleteImageSection",
+        "MiDeleteSegment",
+        "MmUnloadSystemImage"
+      ],
+      "name_terms": [
+        "DeleteImage",
+        "DeleteSegment",
+        "UnloadSystemImage"
+      ],
+      "terms": [
+        "delete image",
+        "delete segment",
+        "free module",
+        "final reference"
+      ],
+      "tags": [
+        "memory",
+        "image_load"
+      ]
+    }
+  }
+}

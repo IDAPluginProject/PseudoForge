@@ -173,6 +173,29 @@ python -B .\tools\kernel_corpus\lifecycle.py `
   --output "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\evidence-packs\thread_object.json"
 ```
 
+Supported lifecycle topics:
+
+```text
+process_object
+thread_object
+file_object
+driver_object
+device_object
+registry_key
+section_object
+module_image
+```
+
+Use the same command shape for the other topics:
+
+```powershell
+python -B .\tools\kernel_corpus\lifecycle.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --topic file_object `
+  --depth 2 `
+  --output "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\evidence-packs\file_object.json"
+```
+
 Treat phase labels as corpus-backed hypotheses. If the evidence pack reports
 missing exact seeds, weak edges, skipped functions, or low-confidence phases,
 state those gaps in the final answer.

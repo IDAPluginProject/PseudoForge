@@ -1,0 +1,258 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "section_object",
+  "title": "Section Object Lifecycle",
+  "labels": [
+    "section",
+    "section object",
+    "memory section",
+    "mapped view",
+    "section lifecycle"
+  ],
+  "tags": [
+    "section",
+    "memory",
+    "object_manager",
+    "file"
+  ],
+  "seed_names": [
+    "NtCreateSection",
+    "NtOpenSection",
+    "MmCreateSection",
+    "MiCreateSection",
+    "ObInsertObject",
+    "NtMapViewOfSection",
+    "MmMapViewInSystemSpace",
+    "NtUnmapViewOfSection",
+    "MiDeleteSegment",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "section object",
+    "create section",
+    "open section",
+    "allocate section",
+    "insert section",
+    "map view",
+    "unmap view",
+    "delete section",
+    "dereference section"
+  ],
+  "phases": {
+    "entry": {
+      "title": "Create/open section entry",
+      "seed_names": [
+        "NtCreateSection",
+        "NtOpenSection",
+        "ZwCreateSection",
+        "ZwOpenSection",
+        "MmCreateSection"
+      ],
+      "name_terms": [
+        "CreateSection",
+        "OpenSection"
+      ],
+      "terms": [
+        "create section",
+        "open section",
+        "section object"
+      ],
+      "tags": [
+        "section",
+        "memory"
+      ]
+    },
+    "allocate": {
+      "title": "Control area and segment allocation",
+      "seed_names": [
+        "MiCreateSection",
+        "MiCreateImageOrDataSection",
+        "MiCreateControlArea",
+        "ObCreateObject"
+      ],
+      "name_terms": [
+        "CreateSection",
+        "CreateControlArea",
+        "CreateSegment",
+        "AllocateSection"
+      ],
+      "terms": [
+        "allocate section",
+        "control area",
+        "segment",
+        "prototype pte"
+      ],
+      "tags": [
+        "memory",
+        "section",
+        "object_manager"
+      ]
+    },
+    "initialize": {
+      "title": "Initialization",
+      "seed_names": [
+        "MiInitializeSection",
+        "MiCreateImageOrDataSection"
+      ],
+      "name_terms": [
+        "InitializeSection",
+        "ImageSection",
+        "DataSection"
+      ],
+      "terms": [
+        "initialize section",
+        "image section",
+        "data section",
+        "file object"
+      ],
+      "tags": [
+        "memory",
+        "section",
+        "file"
+      ]
+    },
+    "publish": {
+      "title": "Object insertion and handle visibility",
+      "seed_names": [
+        "ObInsertObject",
+        "MiInsertSection"
+      ],
+      "name_terms": [
+        "InsertSection",
+        "InsertObject"
+      ],
+      "terms": [
+        "insert",
+        "handle",
+        "object table",
+        "section handle"
+      ],
+      "tags": [
+        "object_manager",
+        "section"
+      ]
+    },
+    "notify": {
+      "title": "Image mapping and notify side paths",
+      "seed_names": [
+        "PspCallImageNotifyRoutines",
+        "PsSetLoadImageNotifyRoutine"
+      ],
+      "name_terms": [
+        "ImageNotify",
+        "Notify",
+        "Callback"
+      ],
+      "terms": [
+        "notify",
+        "image notify",
+        "load image",
+        "callback"
+      ],
+      "tags": [
+        "callback",
+        "image_load",
+        "section"
+      ],
+      "required": false
+    },
+    "steady_state": {
+      "title": "Mapping, views, and references",
+      "seed_names": [
+        "NtMapViewOfSection",
+        "ZwMapViewOfSection",
+        "MmMapViewInSystemSpace",
+        "ObReferenceObjectByHandle"
+      ],
+      "name_terms": [
+        "MapViewOfSection",
+        "MapView",
+        "ReferenceObject"
+      ],
+      "terms": [
+        "map view",
+        "mapped view",
+        "reference",
+        "section view"
+      ],
+      "tags": [
+        "memory",
+        "section",
+        "object_manager"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Unmap and close entry",
+      "seed_names": [
+        "NtUnmapViewOfSection",
+        "ZwUnmapViewOfSection",
+        "MmUnmapViewInSystemSpace",
+        "NtClose"
+      ],
+      "name_terms": [
+        "UnmapViewOfSection",
+        "UnmapView",
+        "Close"
+      ],
+      "terms": [
+        "unmap view",
+        "close section",
+        "section close"
+      ],
+      "tags": [
+        "memory",
+        "section",
+        "object_manager"
+      ]
+    },
+    "rundown": {
+      "title": "Control area rundown",
+      "seed_names": [
+        "MiDereferenceControlArea",
+        "MiSegmentDelete"
+      ],
+      "name_terms": [
+        "DereferenceControlArea",
+        "RundownSection",
+        "SegmentDelete"
+      ],
+      "terms": [
+        "rundown",
+        "control area",
+        "segment delete",
+        "teardown"
+      ],
+      "tags": [
+        "memory",
+        "section"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "MiDeleteSegment",
+        "MiSectionDelete",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "DeleteSection",
+        "DeleteSegment",
+        "DereferenceObject"
+      ],
+      "terms": [
+        "delete section",
+        "delete segment",
+        "dereference",
+        "object delete",
+        "final reference"
+      ],
+      "tags": [
+        "memory",
+        "section",
+        "object_manager"
+      ]
+    }
+  }
+}

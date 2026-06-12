@@ -1,0 +1,248 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "registry_key",
+  "title": "Registry Key Lifecycle",
+  "labels": [
+    "registry",
+    "registry key",
+    "key object",
+    "configuration manager",
+    "registry lifecycle"
+  ],
+  "tags": [
+    "registry",
+    "configuration_manager",
+    "object_manager",
+    "callback"
+  ],
+  "seed_names": [
+    "NtCreateKey",
+    "NtOpenKey",
+    "CmRegisterCallback",
+    "CmRegisterCallbackEx",
+    "ObInsertObject",
+    "NtSetValueKey",
+    "NtQueryValueKey",
+    "NtDeleteKey",
+    "CmUnRegisterCallback",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "registry key",
+    "create key",
+    "open key",
+    "key object",
+    "insert key",
+    "query value key",
+    "set value key",
+    "registry callback",
+    "delete key",
+    "dereference key"
+  ],
+  "phases": {
+    "entry": {
+      "title": "Create/open key entry",
+      "seed_names": [
+        "NtCreateKey",
+        "NtOpenKey",
+        "ZwCreateKey",
+        "ZwOpenKey"
+      ],
+      "name_terms": [
+        "CreateKey",
+        "OpenKey"
+      ],
+      "terms": [
+        "create key",
+        "open key",
+        "registry key"
+      ],
+      "tags": [
+        "registry",
+        "configuration_manager"
+      ]
+    },
+    "allocate": {
+      "title": "Key/control block allocation",
+      "seed_names": [
+        "CmpAllocateKeyControlBlock",
+        "CmpCreateKeyControlBlock",
+        "ObCreateObject"
+      ],
+      "name_terms": [
+        "AllocateKey",
+        "CreateKeyControlBlock",
+        "CreateObject"
+      ],
+      "terms": [
+        "allocate key",
+        "key control block",
+        "object allocation"
+      ],
+      "tags": [
+        "registry",
+        "memory",
+        "object_manager"
+      ]
+    },
+    "initialize": {
+      "title": "Initialization",
+      "seed_names": [
+        "CmpInitializeKeyObject",
+        "CmpCreateKeyObject"
+      ],
+      "name_terms": [
+        "InitializeKey",
+        "CreateKeyObject",
+        "ParseKey"
+      ],
+      "terms": [
+        "initialize key",
+        "object attributes",
+        "key name",
+        "security descriptor"
+      ],
+      "tags": [
+        "registry",
+        "configuration_manager"
+      ]
+    },
+    "publish": {
+      "title": "Object insertion and visibility",
+      "seed_names": [
+        "ObInsertObject",
+        "CmpInsertKeyObject"
+      ],
+      "name_terms": [
+        "InsertKey",
+        "InsertObject"
+      ],
+      "terms": [
+        "insert",
+        "handle",
+        "object table",
+        "key object"
+      ],
+      "tags": [
+        "object_manager",
+        "registry"
+      ]
+    },
+    "notify": {
+      "title": "Registry callback side paths",
+      "seed_names": [
+        "CmRegisterCallback",
+        "CmRegisterCallbackEx",
+        "CmUnRegisterCallback",
+        "CmpCallCallBacks"
+      ],
+      "name_terms": [
+        "Callback",
+        "Notify",
+        "RegisterCallback"
+      ],
+      "terms": [
+        "callback",
+        "notify",
+        "registry callback",
+        "configuration callback"
+      ],
+      "tags": [
+        "callback",
+        "registry",
+        "configuration_manager"
+      ]
+    },
+    "steady_state": {
+      "title": "Queries, updates, and references",
+      "seed_names": [
+        "NtQueryKey",
+        "NtQueryValueKey",
+        "NtSetValueKey",
+        "ObReferenceObjectByHandle"
+      ],
+      "name_terms": [
+        "QueryKey",
+        "QueryValueKey",
+        "SetValueKey",
+        "ReferenceObject"
+      ],
+      "terms": [
+        "query key",
+        "query value",
+        "set value",
+        "reference"
+      ],
+      "tags": [
+        "registry",
+        "object_manager"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Close/delete entry",
+      "seed_names": [
+        "NtClose",
+        "NtDeleteKey",
+        "ZwDeleteKey"
+      ],
+      "name_terms": [
+        "DeleteKey",
+        "Close"
+      ],
+      "terms": [
+        "delete key",
+        "close key",
+        "registry close"
+      ],
+      "tags": [
+        "registry",
+        "object_manager"
+      ]
+    },
+    "rundown": {
+      "title": "Hive/key rundown",
+      "seed_names": [
+        "CmpDereferenceKeyControlBlock",
+        "CmpCleanUpKcbCacheWithLock"
+      ],
+      "name_terms": [
+        "RundownKey",
+        "CleanupKey",
+        "DereferenceKeyControlBlock"
+      ],
+      "terms": [
+        "rundown",
+        "cleanup",
+        "key control block",
+        "hive"
+      ],
+      "tags": [
+        "registry",
+        "configuration_manager"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "CmpDeleteKeyObject",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "DeleteKeyObject",
+        "DereferenceObject"
+      ],
+      "terms": [
+        "delete",
+        "dereference",
+        "object delete",
+        "final reference"
+      ],
+      "tags": [
+        "registry",
+        "object_manager"
+      ]
+    }
+  }
+}

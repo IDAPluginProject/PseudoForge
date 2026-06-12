@@ -37,7 +37,12 @@ tools/
     ontology/
       process_object.json
       thread_object.json
-      file_object.json          # planned
+      file_object.json
+      driver_object.json
+      device_object.json
+      registry_key.json
+      section_object.json
+      module_image.json
     skills/
       kernel-corpus-analysis/
         SKILL.md
@@ -120,13 +125,14 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The initial implementation is complete through Phase 8:
+The initial implementation is complete through Phase 9:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
    import/string search, and focused evidence-pack generation.
 3. MCP stdio server wraps the read-only query, lifecycle, and atlas tools.
-4. Lifecycle tracer supports `process_object` and `thread_object` ontologies.
+4. Lifecycle tracer supports reviewable process, thread, file, driver, device,
+   registry key, section, and module/image ontologies.
 5. `kernel-corpus-analysis` skill documents the evidence-grounded agent
    workflow.
 6. Subsystem atlas generation emits deterministic Markdown pages for major
@@ -134,6 +140,7 @@ The initial implementation is complete through Phase 8:
 7. The runbook documents build, query, MCP, lifecycle, atlas, freshness, and
    generated-output boundaries.
 8. MCP atlas tools generate, list, and return bounded atlas Markdown pages.
+9. Expanded lifecycle ontologies cover additional object and subsystem flows.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -228,12 +235,27 @@ columns and use `manifest.json` for feature checks.
 The ontology is a small, reviewable seed layer. It should not hardcode answers.
 It only tells the retriever where to start.
 
-Example `ontology/process_object.json`:
+Supported lifecycle topics:
+
+```text
+process_object
+thread_object
+file_object
+driver_object
+device_object
+registry_key
+section_object
+module_image
+```
+
+Example `ontology/process_object.json` shape:
 
 ```json
 {
-  "id": "process_object",
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "process_object",
   "labels": ["process", "eprocess", "process object"],
+  "tags": ["process", "process_thread", "object_manager"],
   "seed_names": [
     "NtCreateUserProcess",
     "NtCreateProcessEx",
@@ -250,13 +272,13 @@ Example `ontology/process_object.json`:
     "ProcessDelete",
     "PsSetCreateProcessNotifyRoutine"
   ],
-  "phase_hints": {
-    "entry": ["NtCreate", "ZwCreate"],
-    "allocate": ["Allocate", "Initialize"],
-    "publish": ["Insert", "ObInsert", "CidTable"],
-    "notify": ["Notify", "Callback", "Etw", "Audit"],
-    "exit": ["Exit", "Terminate", "Rundown"],
-    "delete": ["Delete", "Dereference", "Cleanup"]
+  "phases": {
+    "entry": {
+      "seed_names": ["NtCreateUserProcess"],
+      "name_terms": ["NtCreate", "ZwCreate"],
+      "terms": ["create process"],
+      "tags": ["process_thread"]
+    }
   }
 }
 ```
@@ -628,6 +650,33 @@ Acceptance:
   truncation flag.
 - Fixture tests cover the atlas MCP contract without requiring a real
   ntoskrnl pack.
+
+### Phase 9: Lifecycle ontology expansion
+
+Deliver:
+
+```text
+tools/kernel_corpus/ontology/file_object.json
+tools/kernel_corpus/ontology/driver_object.json
+tools/kernel_corpus/ontology/device_object.json
+tools/kernel_corpus/ontology/registry_key.json
+tools/kernel_corpus/ontology/section_object.json
+tools/kernel_corpus/ontology/module_image.json
+tests/test_kernel_corpus_lifecycle.py
+tools/kernel_corpus/skills/kernel-corpus-analysis/SKILL.md
+docs/kernel-corpus-runbook.md
+```
+
+Acceptance:
+
+- New ontologies include schema, topic, labels, seed names, seed terms, tag
+  hints, and phase hints.
+- Ontologies stay generic across Windows builds and do not hardcode answers.
+- Tests validate schema compatibility, topic/file-name match, non-empty
+  labels, seeds, tags, and phase hints.
+- `trace_lifecycle` can load every supported ontology.
+- A synthetic `file_object` graph maps major seed functions to lifecycle
+  phases.
 
 ## Testing Strategy
 

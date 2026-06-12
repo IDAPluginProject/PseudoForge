@@ -36,6 +36,12 @@ class KernelCorpusSkillTests(unittest.TestCase):
         self.assertIn("## Subsystem Atlas Contract", text)
         self.assertIn("프로세스 생성/종료/삭제", text)
         self.assertIn("스레드 생성/종료/삭제", text)
+        self.assertIn("file_object", text)
+        self.assertIn("driver_object", text)
+        self.assertIn("device_object", text)
+        self.assertIn("registry_key", text)
+        self.assertIn("section_object", text)
+        self.assertIn("module_image", text)
         self.assertIn("IOCTL/디스패치", text)
         self.assertIn("콜백/노티파이", text)
 
