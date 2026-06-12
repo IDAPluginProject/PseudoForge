@@ -24,6 +24,9 @@ from tools.kernel_corpus.query import (
 DEFAULT_LIMIT = 24
 MAX_LIMIT = 80
 HUB_ROOT_LIMIT = 8
+DEFAULT_PAGE_CHARS = 12000
+MAX_PAGE_CHARS = 50000
+ATLAS_DIR_PARTS = ("reports", "atlas")
 
 
 @dataclass(frozen=True)
@@ -292,6 +295,58 @@ def generate_atlas(
         "generated_at": generated_at,
         "page_count": len(pages),
         "pages": pages,
+    }
+
+
+def default_atlas_dir(pack_root: str | Path) -> Path:
+    path = Path(pack_root)
+    for part in ATLAS_DIR_PARTS:
+        path = path / part
+    return path
+
+
+def list_atlas_pages(pack_root: str | Path) -> dict[str, Any]:
+    status = corpus_status(pack_root)
+    atlas_dir = default_atlas_dir(status.get("pack_root", pack_root))
+    warnings = []
+    pages = []
+    if not atlas_dir.is_dir():
+        warnings.append("Atlas directory does not exist: %s" % atlas_dir)
+    else:
+        for path in sorted(atlas_dir.glob("*.md"), key=lambda item: item.name.lower()):
+            pages.append(_atlas_page_metadata(path))
+    return {
+        "ok": True,
+        "pack_root": str(status.get("pack_root", Path(pack_root).resolve())),
+        "atlas_dir": str(atlas_dir.resolve()),
+        "page_count": len(pages),
+        "pages": pages,
+        "warnings": warnings,
+    }
+
+
+def get_atlas_page(
+    pack_root: str | Path,
+    page: str,
+    *,
+    max_chars: int = DEFAULT_PAGE_CHARS,
+) -> dict[str, Any]:
+    status = corpus_status(pack_root)
+    atlas_dir = default_atlas_dir(status.get("pack_root", pack_root))
+    filename = _safe_page_filename(page)
+    path = atlas_dir / filename
+    if not path.is_file():
+        raise QueryError("Atlas page was not found: %s" % path)
+    bounded_max_chars = _bounded_int(max_chars, DEFAULT_PAGE_CHARS, MAX_PAGE_CHARS)
+    markdown = path.read_text(encoding="utf-8")
+    truncated = len(markdown) > bounded_max_chars
+    return {
+        "ok": True,
+        "pack_root": str(status.get("pack_root", Path(pack_root).resolve())),
+        "metadata": _atlas_page_metadata(path),
+        "markdown": markdown[:bounded_max_chars],
+        "max_chars": bounded_max_chars,
+        "truncated": truncated,
     }
 
 
@@ -687,6 +742,44 @@ def _inline_list(values: tuple[str, ...]) -> str:
     if not values:
         return "`<none>`"
     return ", ".join("`%s`" % item for item in values)
+
+
+def _safe_page_filename(page: str) -> str:
+    text = str(page or "").strip()
+    if not text:
+        raise QueryError("Atlas page name is required")
+    normalized = text.replace("\\", "/")
+    if "/" in normalized or normalized.startswith("."):
+        raise QueryError("Atlas page name must be a filename, not a path: %s" % text)
+    if not normalized.lower().endswith(".md"):
+        normalized = "%s.md" % normalized
+    if Path(normalized).name != normalized:
+        raise QueryError("Atlas page name must be a filename, not a path: %s" % text)
+    return normalized
+
+
+def _atlas_page_metadata(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    return {
+        "filename": path.name,
+        "path": str(path.resolve()),
+        "size": int(stat.st_size),
+        "last_write_time": datetime.fromtimestamp(stat.st_mtime, timezone.utc).replace(microsecond=0).isoformat(),
+        "is_kernel_corpus_atlas_page": _looks_like_atlas_page(path),
+    }
+
+
+def _looks_like_atlas_page(path: Path) -> bool:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            sample = handle.read(8192)
+    except OSError:
+        return False
+    return (
+        "Subsystem Atlas" in sample
+        and "## Corpus Identity" in sample
+        and "## Review Rule" in sample
+    )
 
 
 def _bounded_int(value: int, default: int, maximum: int) -> int:

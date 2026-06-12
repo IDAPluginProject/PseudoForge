@@ -10,7 +10,16 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.kernel_corpus.errors import QueryError
+from tools.kernel_corpus.atlas import (
+    DEFAULT_LIMIT as DEFAULT_ATLAS_LIMIT,
+    DEFAULT_PAGE_CHARS,
+    MAX_LIMIT as MAX_ATLAS_LIMIT,
+    MAX_PAGE_CHARS,
+    generate_atlas,
+    get_atlas_page,
+    list_atlas_pages,
+)
+from tools.kernel_corpus.errors import KernelCorpusError, QueryError
 from tools.kernel_corpus.lifecycle import (
     DEFAULT_DEPTH as DEFAULT_LIFECYCLE_DEPTH,
     DEFAULT_MAX_SEEDS as DEFAULT_LIFECYCLE_MAX_SEEDS,
@@ -139,8 +148,56 @@ class KernelCorpusMcpServer:
                     output_path=None,
                 )
                 return self._ok({"evidence_pack": pack}, warnings=_coerce_warnings(pack) + _coerce_gaps(pack))
+            if name == "generate_atlas":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                limit = _bounded_limit(args.get("limit"), DEFAULT_ATLAS_LIMIT, MAX_ATLAS_LIMIT)
+                output_dir = _atlas_output_dir_arg(args, pack_root)
+                result = generate_atlas(
+                    pack_root,
+                    output_dir,
+                    limit=limit,
+                )
+                return self._ok(
+                    {
+                        "output_dir": result.get("output_dir", ""),
+                        "generated_at": result.get("generated_at", ""),
+                        "page_count": result.get("page_count", 0),
+                        "pages": result.get("pages", []),
+                        "limit": limit,
+                    },
+                    pack_root=pack_root,
+                )
+            if name == "list_atlas_pages":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                result = list_atlas_pages(pack_root)
+                return self._ok(
+                    {
+                        "atlas_dir": result.get("atlas_dir", ""),
+                        "page_count": result.get("page_count", 0),
+                        "pages": result.get("pages", []),
+                    },
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(result),
+                )
+            if name == "get_atlas_page":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_chars = _bounded_limit(args.get("max_chars"), DEFAULT_PAGE_CHARS, MAX_PAGE_CHARS)
+                result = get_atlas_page(
+                    pack_root,
+                    str(_required(args, "page")),
+                    max_chars=max_chars,
+                )
+                return self._ok(
+                    {
+                        "page": result.get("metadata", {}),
+                        "markdown": result.get("markdown", ""),
+                        "max_chars": result.get("max_chars", max_chars),
+                        "truncated": bool(result.get("truncated", False)),
+                    },
+                    pack_root=pack_root,
+                )
             return self._error("Unknown tool: %s" % name, error_type="UnknownTool")
-        except (OSError, QueryError, ValueError, KeyError) as exc:
+        except (OSError, KernelCorpusError, ValueError, KeyError) as exc:
             return self._error(str(exc), error_type=exc.__class__.__name__)
 
     def handle_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
@@ -216,10 +273,12 @@ class KernelCorpusMcpServer:
         *,
         schema_version: str = PACK_SCHEMA_VERSION,
         warnings: list[str] | None = None,
+        pack_root: str | Path | None = None,
     ) -> dict[str, Any]:
+        result_pack_root = Path(pack_root) if pack_root is not None else self.pack_root
         result = {
             "ok": True,
-            "pack_root": str(self.pack_root.resolve()) if self.pack_root.exists() else str(self.pack_root),
+            "pack_root": str(result_pack_root.resolve()) if result_pack_root.exists() else str(result_pack_root),
             "schema_version": schema_version or PACK_SCHEMA_VERSION,
             "warnings": warnings or [],
         }
@@ -280,6 +339,27 @@ def _required_string_list(args: dict[str, Any], name: str) -> list[str]:
     if not values:
         raise QueryError("Missing required argument: %s" % name)
     return values
+
+
+def _pack_root_arg(args: dict[str, Any], default: str | Path) -> Path:
+    value = args.get("pack_root")
+    if value in (None, ""):
+        return Path(default)
+    return Path(str(value))
+
+
+def _atlas_output_dir_arg(args: dict[str, Any], pack_root: Path) -> Path:
+    value = _required(args, "output_dir")
+    output_dir = Path(str(value))
+    resolved_pack_root = pack_root.resolve()
+    if not output_dir.is_absolute():
+        output_dir = resolved_pack_root / output_dir
+    resolved_output_dir = output_dir.resolve()
+    try:
+        resolved_output_dir.relative_to(resolved_pack_root)
+    except ValueError as exc:
+        raise QueryError("Atlas output_dir must stay under pack_root: %s" % output_dir) from exc
+    return output_dir
 
 
 def _coerce_warnings(payload: dict[str, Any]) -> list[str]:
@@ -434,6 +514,50 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "properties": {
                 "eas": {"type": "array", "items": {"type": "string"}, "minItems": 1},
                 "topic": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "generate_atlas",
+        "description": "Generate bounded deterministic subsystem atlas pages for a Kernel Corpus pack.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["output_dir"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "output_dir": {"type": "string"},
+                "limit": {"type": "integer", "default": DEFAULT_ATLAS_LIMIT, "minimum": 1, "maximum": MAX_ATLAS_LIMIT},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "list_atlas_pages",
+        "description": "List generated atlas Markdown pages under the pack's reports/atlas directory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_atlas_page",
+        "description": "Return metadata and bounded Markdown text for one generated atlas page.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["page"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "page": {"type": "string"},
+                "max_chars": {
+                    "type": "integer",
+                    "default": DEFAULT_PAGE_CHARS,
+                    "minimum": 1,
+                    "maximum": MAX_PAGE_CHARS,
+                },
             },
             "additionalProperties": False,
         },

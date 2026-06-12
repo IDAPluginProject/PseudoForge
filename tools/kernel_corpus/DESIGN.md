@@ -120,12 +120,12 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The initial implementation is complete through Phase 7:
+The initial implementation is complete through Phase 8:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
    import/string search, and focused evidence-pack generation.
-3. MCP stdio server wraps the read-only query and lifecycle tools.
+3. MCP stdio server wraps the read-only query, lifecycle, and atlas tools.
 4. Lifecycle tracer supports `process_object` and `thread_object` ontologies.
 5. `kernel-corpus-analysis` skill documents the evidence-grounded agent
    workflow.
@@ -133,6 +133,7 @@ The initial implementation is complete through Phase 7:
    kernel subsystems.
 7. The runbook documents build, query, MCP, lifecycle, atlas, freshness, and
    generated-output boundaries.
+8. MCP atlas tools generate, list, and return bounded atlas Markdown pages.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -278,14 +279,14 @@ search_by_import(pack_root, import_query, limit)
 search_by_string(pack_root, string_query, limit)
 build_evidence_pack(pack_root, eas, topic, output_path)
 trace_lifecycle(pack_root, topic, max_seeds, depth, output_path)
+generate_atlas(pack_root, output_dir, limit)
+list_atlas_pages(pack_root)
+get_atlas_page(pack_root, page, max_chars)
 ```
 
 Optional later tools:
 
 ```text
-generate_atlas(pack_root, output_dir, limit)
-list_atlas_pages(pack_root)
-get_atlas_page(pack_root, page)
 compare_lifecycle(pack_root_a, pack_root_b, topic)
 explain_cluster(pack_root, tag)
 find_bridge_functions(pack_root, source_tag, target_tag)
@@ -605,6 +606,28 @@ Acceptance:
   generated-output boundaries.
 - Follow-up goals are captured as local-only prompt documents under
   `pseudoforge_out/`.
+
+### Phase 8: MCP atlas tools
+
+Deliver:
+
+```text
+tools/kernel_corpus/mcp_server.py
+tests/test_kernel_corpus_mcp_contract.py
+docs/kernel-corpus-runbook.md
+```
+
+Acceptance:
+
+- MCP exposes `generate_atlas`, `list_atlas_pages`, and `get_atlas_page`.
+- `generate_atlas` writes only to an explicit output directory.
+- MCP atlas output directories stay under the selected pack root.
+- `list_atlas_pages` returns filename, absolute path, size, last write time,
+  and atlas-page detection.
+- `get_atlas_page` returns page metadata, bounded Markdown text, and a
+  truncation flag.
+- Fixture tests cover the atlas MCP contract without requiring a real
+  ntoskrnl pack.
 
 ## Testing Strategy
 

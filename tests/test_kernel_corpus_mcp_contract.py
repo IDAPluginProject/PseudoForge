@@ -9,14 +9,18 @@ from pathlib import Path
 
 from tools.kernel_corpus import builder
 from tools.kernel_corpus.mcp_server import (
+    DEFAULT_ATLAS_LIMIT,
     DEFAULT_LIMIT,
     DEFAULT_LIFECYCLE_DEPTH,
     DEFAULT_LIFECYCLE_MAX_SEEDS,
     DEFAULT_NEIGHBOR_DEPTH,
+    DEFAULT_PAGE_CHARS,
+    MAX_ATLAS_LIMIT,
     MAX_LIMIT,
     MAX_LIFECYCLE_DEPTH,
     MAX_LIFECYCLE_MAX_SEEDS,
     MAX_NEIGHBOR_DEPTH,
+    MAX_PAGE_CHARS,
     KernelCorpusMcpServer,
 )
 
@@ -31,6 +35,9 @@ EXPECTED_TOOLS = {
     "search_by_string",
     "trace_lifecycle",
     "build_evidence_pack",
+    "generate_atlas",
+    "list_atlas_pages",
+    "get_atlas_page",
 }
 
 
@@ -46,6 +53,8 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             neighbor_limit = tools["get_neighbors"]["inputSchema"]["properties"]["limit"]
             lifecycle_max_seeds = tools["trace_lifecycle"]["inputSchema"]["properties"]["max_seeds"]
             lifecycle_depth = tools["trace_lifecycle"]["inputSchema"]["properties"]["depth"]
+            atlas_limit = tools["generate_atlas"]["inputSchema"]["properties"]["limit"]
+            atlas_page_chars = tools["get_atlas_page"]["inputSchema"]["properties"]["max_chars"]
             self.assertEqual(DEFAULT_LIMIT, search_limit["default"])
             self.assertEqual(MAX_LIMIT, search_limit["maximum"])
             self.assertEqual(DEFAULT_NEIGHBOR_DEPTH, neighbor_depth["default"])
@@ -55,6 +64,10 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             self.assertEqual(MAX_LIFECYCLE_MAX_SEEDS, lifecycle_max_seeds["maximum"])
             self.assertEqual(DEFAULT_LIFECYCLE_DEPTH, lifecycle_depth["default"])
             self.assertEqual(MAX_LIFECYCLE_DEPTH, lifecycle_depth["maximum"])
+            self.assertEqual(DEFAULT_ATLAS_LIMIT, atlas_limit["default"])
+            self.assertEqual(MAX_ATLAS_LIMIT, atlas_limit["maximum"])
+            self.assertEqual(DEFAULT_PAGE_CHARS, atlas_page_chars["default"])
+            self.assertEqual(MAX_PAGE_CHARS, atlas_page_chars["maximum"])
 
     def test_corpus_status_returns_stable_json_shape(self) -> None:
         with _built_pack() as pack_root:
@@ -172,6 +185,89 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             }
             self.assertEqual("entry", phase_names["NtCreateUserProcess"])
             self.assertEqual("allocate", phase_names["PspAllocateProcess"])
+
+    def test_generate_atlas_writes_pages_with_explicit_output_dir(self) -> None:
+        with _built_pack() as pack_root:
+            output_dir = pack_root / "reports" / "atlas"
+            payload = KernelCorpusMcpServer(pack_root).call_tool(
+                "generate_atlas",
+                {
+                    "pack_root": str(pack_root),
+                    "output_dir": str(output_dir),
+                    "limit": 999,
+                },
+            )
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(MAX_ATLAS_LIMIT, payload["limit"])
+            self.assertEqual(str(pack_root.resolve()), payload["pack_root"])
+            self.assertEqual(str(output_dir.resolve()), payload["output_dir"])
+            self.assertEqual(9, payload["page_count"])
+            self.assertTrue((output_dir / "process.md").is_file())
+            self.assertIn("process.md", {item["filename"] for item in payload["pages"]})
+
+    def test_generate_atlas_rejects_output_dir_outside_pack_root(self) -> None:
+        with _built_pack() as pack_root:
+            payload = KernelCorpusMcpServer(pack_root).call_tool(
+                "generate_atlas",
+                {
+                    "output_dir": str(pack_root.parent / "outside-atlas"),
+                },
+            )
+
+            self.assertFalse(payload["ok"])
+            self.assertEqual("QueryError", payload["error"]["type"])
+            self.assertIn("must stay under pack_root", payload["error"]["message"])
+
+    def test_list_atlas_pages_returns_metadata(self) -> None:
+        with _built_pack() as pack_root:
+            output_dir = pack_root / "reports" / "atlas"
+            server = KernelCorpusMcpServer(pack_root)
+            server.call_tool("generate_atlas", {"output_dir": str(output_dir), "limit": 8})
+
+            payload = server.call_tool("list_atlas_pages", {})
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(9, payload["page_count"])
+            process_page = next(item for item in payload["pages"] if item["filename"] == "process.md")
+            self.assertEqual(str((output_dir / "process.md").resolve()), process_page["path"])
+            self.assertGreater(process_page["size"], 0)
+            self.assertIn("T", process_page["last_write_time"])
+            self.assertTrue(process_page["is_kernel_corpus_atlas_page"])
+
+    def test_get_atlas_page_returns_bounded_markdown(self) -> None:
+        with _built_pack() as pack_root:
+            output_dir = pack_root / "reports" / "atlas"
+            server = KernelCorpusMcpServer(pack_root)
+            server.call_tool("generate_atlas", {"output_dir": str(output_dir), "limit": 8})
+
+            payload = server.call_tool(
+                "get_atlas_page",
+                {
+                    "page": "process.md",
+                    "max_chars": 80,
+                },
+            )
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual("process.md", payload["page"]["filename"])
+            self.assertTrue(payload["page"]["is_kernel_corpus_atlas_page"])
+            self.assertLessEqual(len(payload["markdown"]), 80)
+            self.assertTrue(payload["truncated"])
+            self.assertEqual(80, payload["max_chars"])
+
+    def test_get_atlas_page_rejects_path_traversal(self) -> None:
+        with _built_pack() as pack_root:
+            payload = KernelCorpusMcpServer(pack_root).call_tool(
+                "get_atlas_page",
+                {
+                    "page": "..\\manifest.json",
+                },
+            )
+
+            self.assertFalse(payload["ok"])
+            self.assertEqual("QueryError", payload["error"]["type"])
+            self.assertIn("must be a filename", payload["error"]["message"])
 
     def test_invalid_ea_returns_structured_error(self) -> None:
         with _built_pack() as pack_root:

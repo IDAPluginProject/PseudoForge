@@ -223,10 +223,53 @@ Implemented tools:
 - `search_by_string`
 - `build_evidence_pack`
 - `trace_lifecycle`
+- `generate_atlas`
+- `list_atlas_pages`
+- `get_atlas_page`
 
 The server returns compact JSON with EAs, function names, artifact paths,
 selection reasons, warnings, and bounded excerpts. It should not return large
 cleaned pseudocode blobs by default.
+
+Atlas MCP tool arguments:
+
+```json
+{
+  "name": "generate_atlas",
+  "arguments": {
+    "pack_root": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl",
+    "output_dir": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl\\reports\\atlas",
+    "limit": 24
+  }
+}
+```
+
+```json
+{
+  "name": "list_atlas_pages",
+  "arguments": {
+    "pack_root": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl"
+  }
+}
+```
+
+```json
+{
+  "name": "get_atlas_page",
+  "arguments": {
+    "pack_root": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl",
+    "page": "process.md",
+    "max_chars": 12000
+  }
+}
+```
+
+`pack_root` is optional for these tools when the MCP server was already started
+with the target pack root. `generate_atlas` still requires an explicit
+`output_dir`; relative output paths are resolved under `pack_root`, and absolute
+output paths must stay under `pack_root`. Generated atlas files remain derived
+artifacts under the pack output tree. `get_atlas_page` accepts a page filename,
+not an arbitrary path, and returns bounded Markdown plus a `truncated` flag.
 
 ## Use The Skill
 
