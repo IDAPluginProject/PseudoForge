@@ -1,0 +1,270 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "process_object",
+  "title": "Process Object Lifecycle",
+  "tags": [
+    "process",
+    "process_thread",
+    "object_manager",
+    "callback",
+    "security"
+  ],
+  "seed_names": [
+    "NtCreateUserProcess",
+    "NtCreateProcessEx",
+    "PspAllocateProcess",
+    "PspInsertProcess",
+    "PspExitProcess",
+    "PspProcessDelete",
+    "PsSetCreateProcessNotifyRoutine",
+    "PsSetCreateProcessNotifyRoutineEx",
+    "ObInsertObject",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "process",
+    "create process",
+    "process create",
+    "allocate process",
+    "insert process",
+    "process notify",
+    "create process notify",
+    "exit process",
+    "terminate process",
+    "rundown process",
+    "delete process",
+    "dereference process"
+  ],
+  "phases": {
+    "entry": {
+      "title": "User/API entry",
+      "seed_names": [
+        "NtCreateUserProcess",
+        "NtCreateProcess",
+        "NtCreateProcessEx",
+        "ZwCreateUserProcess",
+        "ZwCreateProcess",
+        "ZwCreateProcessEx"
+      ],
+      "name_terms": [
+        "NtCreate",
+        "ZwCreate",
+        "CreateProcess"
+      ],
+      "terms": [
+        "create process",
+        "user process",
+        "syscall",
+        "system call"
+      ],
+      "tags": [
+        "process_thread"
+      ],
+      "role_by_name": {
+        "NtCreateUserProcess": "Primary user/API process creation entry",
+        "NtCreateProcessEx": "Process creation entry"
+      }
+    },
+    "allocate": {
+      "title": "Allocation",
+      "seed_names": [
+        "PspAllocateProcess"
+      ],
+      "name_terms": [
+        "AllocateProcess",
+        "CreateProcessObject"
+      ],
+      "terms": [
+        "allocate",
+        "allocation",
+        "pool",
+        "eprocess"
+      ],
+      "tags": [
+        "memory",
+        "process_thread"
+      ],
+      "role_by_name": {
+        "PspAllocateProcess": "Process object allocation candidate"
+      }
+    },
+    "initialize": {
+      "title": "Initialization",
+      "seed_names": [
+        "PspInitializeProcess",
+        "PspInitializeProcessSecurity"
+      ],
+      "name_terms": [
+        "InitializeProcess",
+        "InitProcess",
+        "SetupProcess"
+      ],
+      "terms": [
+        "initialize",
+        "initialization",
+        "setup",
+        "section",
+        "token",
+        "handle table"
+      ],
+      "tags": [
+        "process_thread",
+        "security"
+      ]
+    },
+    "publish": {
+      "title": "Object insertion and visibility",
+      "seed_names": [
+        "PspInsertProcess",
+        "ObInsertObject"
+      ],
+      "name_terms": [
+        "InsertProcess",
+        "InsertObject",
+        "PublishProcess"
+      ],
+      "terms": [
+        "insert",
+        "publish",
+        "handle",
+        "object table",
+        "cid table"
+      ],
+      "tags": [
+        "object_manager",
+        "process_thread"
+      ],
+      "role_by_name": {
+        "PspInsertProcess": "Process publication and insertion candidate",
+        "ObInsertObject": "Object-manager insertion candidate"
+      }
+    },
+    "notify": {
+      "title": "Notification side paths",
+      "seed_names": [
+        "PsSetCreateProcessNotifyRoutine",
+        "PsSetCreateProcessNotifyRoutineEx",
+        "PspCallProcessNotifyRoutines"
+      ],
+      "name_terms": [
+        "Notify",
+        "Callback",
+        "CreateProcessNotify"
+      ],
+      "terms": [
+        "notify",
+        "notification",
+        "callback",
+        "create process notify"
+      ],
+      "tags": [
+        "callback",
+        "process_thread"
+      ],
+      "role_by_name": {
+        "PsSetCreateProcessNotifyRoutine": "Process notification registration API",
+        "PsSetCreateProcessNotifyRoutineEx": "Extended process notification registration API"
+      }
+    },
+    "steady_state": {
+      "title": "Steady-state references and queries",
+      "seed_names": [
+        "PsLookupProcessByProcessId",
+        "ObReferenceObjectByHandle",
+        "ObReferenceObject"
+      ],
+      "name_terms": [
+        "LookupProcess",
+        "ReferenceObject",
+        "QueryProcess",
+        "GetProcess"
+      ],
+      "terms": [
+        "lookup",
+        "reference",
+        "query",
+        "process id",
+        "handle"
+      ],
+      "tags": [
+        "process_thread",
+        "object_manager"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Exit and termination",
+      "seed_names": [
+        "PspExitProcess",
+        "NtTerminateProcess",
+        "ZwTerminateProcess"
+      ],
+      "name_terms": [
+        "ExitProcess",
+        "TerminateProcess"
+      ],
+      "terms": [
+        "exit",
+        "termination",
+        "terminate",
+        "process exit"
+      ],
+      "tags": [
+        "process_thread"
+      ],
+      "role_by_name": {
+        "PspExitProcess": "Process exit path candidate"
+      }
+    },
+    "rundown": {
+      "title": "Rundown and teardown",
+      "seed_names": [
+        "PspRundownSingleProcess",
+        "PspRundownProcess"
+      ],
+      "name_terms": [
+        "RundownProcess",
+        "RundownSingleProcess",
+        "TeardownProcess"
+      ],
+      "terms": [
+        "rundown",
+        "teardown",
+        "cleanup",
+        "last reference"
+      ],
+      "tags": [
+        "process_thread"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "PspProcessDelete",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "ProcessDelete",
+        "DeleteProcess",
+        "DereferenceObject",
+        "DestroyProcess"
+      ],
+      "terms": [
+        "delete",
+        "dereference",
+        "destroy",
+        "final reference",
+        "object delete"
+      ],
+      "tags": [
+        "object_manager",
+        "process_thread"
+      ],
+      "role_by_name": {
+        "PspProcessDelete": "Process object delete callback candidate",
+        "ObDereferenceObject": "Object-manager dereference candidate"
+      }
+    }
+  }
+}

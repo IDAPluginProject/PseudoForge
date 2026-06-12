@@ -1,0 +1,220 @@
+{
+  "schema": "kernel_corpus_lifecycle_ontology_v1",
+  "topic": "thread_object",
+  "title": "Thread Object Lifecycle",
+  "tags": [
+    "thread",
+    "process_thread",
+    "object_manager",
+    "callback"
+  ],
+  "seed_names": [
+    "NtCreateThreadEx",
+    "PspCreateThread",
+    "PspInsertThread",
+    "PspExitThread",
+    "PspThreadDelete",
+    "PsSetCreateThreadNotifyRoutine",
+    "ObInsertObject",
+    "ObDereferenceObject"
+  ],
+  "seed_terms": [
+    "thread",
+    "create thread",
+    "insert thread",
+    "thread notify",
+    "exit thread",
+    "terminate thread",
+    "delete thread",
+    "dereference thread"
+  ],
+  "phases": {
+    "entry": {
+      "title": "User/API entry",
+      "seed_names": [
+        "NtCreateThread",
+        "NtCreateThreadEx",
+        "ZwCreateThread",
+        "ZwCreateThreadEx"
+      ],
+      "name_terms": [
+        "NtCreateThread",
+        "ZwCreateThread",
+        "CreateThread"
+      ],
+      "terms": [
+        "create thread",
+        "syscall"
+      ],
+      "tags": [
+        "process_thread"
+      ]
+    },
+    "allocate": {
+      "title": "Allocation",
+      "seed_names": [
+        "PspAllocateThread"
+      ],
+      "name_terms": [
+        "AllocateThread"
+      ],
+      "terms": [
+        "allocate",
+        "ethread",
+        "kthread"
+      ],
+      "tags": [
+        "memory",
+        "process_thread"
+      ]
+    },
+    "initialize": {
+      "title": "Initialization",
+      "seed_names": [
+        "PspInitializeThread",
+        "PspCreateThread"
+      ],
+      "name_terms": [
+        "InitializeThread",
+        "CreateThread",
+        "InitThread"
+      ],
+      "terms": [
+        "initialize",
+        "setup",
+        "start address",
+        "teb"
+      ],
+      "tags": [
+        "process_thread"
+      ]
+    },
+    "publish": {
+      "title": "Object insertion and visibility",
+      "seed_names": [
+        "PspInsertThread",
+        "ObInsertObject"
+      ],
+      "name_terms": [
+        "InsertThread",
+        "InsertObject"
+      ],
+      "terms": [
+        "insert",
+        "publish",
+        "handle",
+        "cid table"
+      ],
+      "tags": [
+        "object_manager",
+        "process_thread"
+      ]
+    },
+    "notify": {
+      "title": "Notification side paths",
+      "seed_names": [
+        "PsSetCreateThreadNotifyRoutine",
+        "PspCallThreadNotifyRoutines"
+      ],
+      "name_terms": [
+        "Notify",
+        "Callback",
+        "CreateThreadNotify"
+      ],
+      "terms": [
+        "notify",
+        "notification",
+        "callback"
+      ],
+      "tags": [
+        "callback",
+        "process_thread"
+      ]
+    },
+    "steady_state": {
+      "title": "Steady-state references and waits",
+      "seed_names": [
+        "PsLookupThreadByThreadId",
+        "KeWaitForSingleObject",
+        "ObReferenceObjectByHandle"
+      ],
+      "name_terms": [
+        "LookupThread",
+        "ReferenceObject",
+        "Wait"
+      ],
+      "terms": [
+        "lookup",
+        "reference",
+        "wait",
+        "thread id"
+      ],
+      "tags": [
+        "process_thread",
+        "object_manager"
+      ],
+      "required": false
+    },
+    "exit": {
+      "title": "Exit and termination",
+      "seed_names": [
+        "PspExitThread",
+        "NtTerminateThread",
+        "ZwTerminateThread"
+      ],
+      "name_terms": [
+        "ExitThread",
+        "TerminateThread"
+      ],
+      "terms": [
+        "exit",
+        "termination",
+        "terminate"
+      ],
+      "tags": [
+        "process_thread"
+      ]
+    },
+    "rundown": {
+      "title": "Rundown and teardown",
+      "seed_names": [
+        "PspRundownThread"
+      ],
+      "name_terms": [
+        "RundownThread",
+        "TeardownThread"
+      ],
+      "terms": [
+        "rundown",
+        "teardown",
+        "cleanup"
+      ],
+      "tags": [
+        "process_thread"
+      ]
+    },
+    "delete": {
+      "title": "Final dereference and delete",
+      "seed_names": [
+        "PspThreadDelete",
+        "ObDereferenceObject",
+        "ObfDereferenceObject"
+      ],
+      "name_terms": [
+        "ThreadDelete",
+        "DeleteThread",
+        "DereferenceObject"
+      ],
+      "terms": [
+        "delete",
+        "dereference",
+        "destroy",
+        "object delete"
+      ],
+      "tags": [
+        "object_manager",
+        "process_thread"
+      ]
+    }
+  }
+}
