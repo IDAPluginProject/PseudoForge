@@ -22,6 +22,7 @@ class KernelCorpusSkillTests(unittest.TestCase):
         self.assertIn("Use MCP first", text)
         self.assertIn("corpus_status", text)
         self.assertIn("trace_lifecycle", text)
+        self.assertIn("atlas.py", text)
         self.assertIn("get_function", text)
         self.assertIn("get_neighbors", text)
         self.assertIn("build_evidence_pack", text)

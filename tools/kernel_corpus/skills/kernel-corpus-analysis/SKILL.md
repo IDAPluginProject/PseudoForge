@@ -27,11 +27,17 @@ Local lifecycle fallback:
 python -B .\tools\kernel_corpus\lifecycle.py --pack-root "<pack-root>" --topic process_object --depth 2 --output "<pack-root>\evidence-packs\process_object.json"
 ```
 
+Local subsystem atlas fallback:
+
+```powershell
+python -B .\tools\kernel_corpus\atlas.py --pack-root "<pack-root>" --output-dir "<pack-root>\reports\atlas"
+```
+
 ## Tool Workflow
 
 - Lifecycle questions: call `trace_lifecycle` first with `topic` such as `process_object` or `thread_object`, then inspect high-impact functions with `get_function`, and use `get_neighbors` for ambiguous transitions.
 - Function questions: use `search_functions` or exact EA lookup with `get_function`; then cite cleaned/raw/summary artifact paths.
-- Subsystem questions: search by names, tags, imports, and strings; expand nearby callers/callees; build an evidence pack for broad answers.
+- Subsystem questions: generate or inspect atlas pages first when available; then search by names, tags, imports, and strings; expand nearby callers/callees; build an evidence pack for broad answers.
 - Import/string questions: use `search_by_import` or `search_by_string`, then verify with `get_function`.
 - Broad answers: call `build_evidence_pack` or `trace_lifecycle` and treat the pack as the answer boundary.
 
