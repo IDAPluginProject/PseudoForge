@@ -1,0 +1,290 @@
+# Kernel Corpus Runbook
+
+This runbook explains how to use the PseudoForge Kernel Corpus tooling after a
+large IDA batch run has produced corpus artifacts. The tooling is a
+consumer-side analysis layer under `tools/kernel_corpus/`; it does not modify
+the IDB and does not belong under `ida_pseudoforge/`.
+
+## Purpose
+
+Use this workflow when an agent or analyst needs target-specific answers such
+as:
+
+```text
+Explain the process object lifecycle in this ntoskrnl build using major
+functions as evidence.
+```
+
+The answer must be grounded in the current corpus, not generic Windows
+internals memory. Important claims should follow this rule:
+
+```text
+Claim -> EA -> function name -> artifact path -> inference level
+```
+
+## Paths
+
+Source corpus root:
+
+```text
+F:\kernullist\analysis-ouput\ntoskrnl
+```
+
+Repo-local smoke pack root:
+
+```text
+F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl
+```
+
+Long-term research pack root:
+
+```text
+F:\pseudoforge-corpora\<target>
+```
+
+`pseudoforge_out/` is ignored by Git. Use it for local smoke runs, generated
+evidence packs, atlas pages, and local prompt handoff documents. Do not commit
+large generated corpora, SQLite packs, ntoskrnl reports, or goal prompt
+documents.
+
+## Build A Pack
+
+Build or refresh the SQLite pack from an existing PseudoForge corpus:
+
+```powershell
+python -B .\tools\kernel_corpus\builder.py `
+  --corpus-root "F:\kernullist\analysis-ouput\ntoskrnl" `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --overwrite `
+  --json
+```
+
+Expected output files:
+
+```text
+<pack-root>\manifest.json
+<pack-root>\corpus.sqlite
+```
+
+The manifest records the source corpus path, source index hash, target path,
+function count, skipped count, PseudoForge version, pack schema, and generated
+time.
+
+## Check Status
+
+Check pack health before answering broad questions:
+
+```powershell
+python -B .\tools\kernel_corpus\query.py status `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl"
+```
+
+Review:
+
+- `manifest.function_count`
+- `manifest.unique_ea_count`
+- `manifest.skipped_count`
+- `counts.functions`
+- `counts.call_edges`
+- `counts.function_fts`
+- `warnings`
+
+A warning about mismatched source index hashes means the manifest and SQLite
+metadata disagree. Rebuild the pack before relying on it.
+
+## Query Functions
+
+Search by term, tag, and optional name regex:
+
+```powershell
+python -B .\tools\kernel_corpus\query.py search `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --query "create process" `
+  --tag process_thread `
+  --limit 20
+```
+
+Fetch one function by EA:
+
+```powershell
+python -B .\tools\kernel_corpus\query.py get-function `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --ea 0x140001000
+```
+
+Traverse callers and callees:
+
+```powershell
+python -B .\tools\kernel_corpus\query.py neighbors `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --ea 0x140001000 `
+  --direction both `
+  --depth 2 `
+  --limit 100
+```
+
+Search import and string references:
+
+```powershell
+python -B .\tools\kernel_corpus\query.py search-import `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --query PsSetCreateProcessNotifyRoutine
+
+python -B .\tools\kernel_corpus\query.py search-string `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --query Process
+```
+
+## Build Focused Evidence Packs
+
+For hand-picked functions:
+
+```powershell
+python -B .\tools\kernel_corpus\query.py build-evidence-pack `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --topic process_object_manual `
+  --ea 0x140001000 `
+  --ea 0x140002000 `
+  --output "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\evidence-packs\process_object_manual.json"
+```
+
+The evidence pack is the answer boundary for focused analysis. Agents should
+cite the pack and the underlying function artifacts.
+
+## Trace Lifecycles
+
+Trace a process object lifecycle:
+
+```powershell
+python -B .\tools\kernel_corpus\lifecycle.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --topic process_object `
+  --depth 2 `
+  --output "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\evidence-packs\process_object.json"
+```
+
+Trace a thread object lifecycle:
+
+```powershell
+python -B .\tools\kernel_corpus\lifecycle.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --topic thread_object `
+  --depth 2 `
+  --output "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\evidence-packs\thread_object.json"
+```
+
+Treat phase labels as corpus-backed hypotheses. If the evidence pack reports
+missing exact seeds, weak edges, skipped functions, or low-confidence phases,
+state those gaps in the final answer.
+
+## Generate The Atlas
+
+Generate deterministic subsystem maps:
+
+```powershell
+python -B .\tools\kernel_corpus\atlas.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --output-dir "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\reports\atlas"
+```
+
+Expected pages:
+
+```text
+driver-load-unload.md
+etw-wmi.md
+io-manager.md
+memory.md
+object-manager.md
+process.md
+registry.md
+security.md
+thread.md
+```
+
+Use atlas pages for discovery and orientation. Do not treat them as final
+proof; inspect referenced functions and evidence packs for important claims.
+
+## Run The MCP Server
+
+Start the read-only stdio MCP server:
+
+```powershell
+python -B .\tools\kernel_corpus\mcp_server.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl"
+```
+
+Implemented tools:
+
+- `corpus_status`
+- `search_functions`
+- `get_function`
+- `get_neighbors`
+- `search_by_import`
+- `search_by_string`
+- `build_evidence_pack`
+- `trace_lifecycle`
+
+The server returns compact JSON with EAs, function names, artifact paths,
+selection reasons, warnings, and bounded excerpts. It should not return large
+cleaned pseudocode blobs by default.
+
+## Use The Skill
+
+The local skill instructions live here:
+
+```text
+tools\kernel_corpus\skills\kernel-corpus-analysis\SKILL.md
+```
+
+Use the skill when asking an agent to answer lifecycle, subsystem, function,
+callgraph, import/string, or evidence-pack questions from a kernel corpus. The
+skill contains retrieval procedure and answer contracts only; it does not
+contain corpus data.
+
+## Freshness Rules
+
+Rebuild the pack when any of these changes:
+
+- `pseudoforge-corpus-index.json`
+- source corpus root
+- per-function artifact set
+- PseudoForge version used for the source run
+- builder schema or import behavior
+
+Regenerate lifecycle evidence packs and atlas pages after rebuilding the pack.
+Generated reports contain timestamps and should be considered derived from the
+pack that existed at generation time.
+
+## Validation
+
+Run the focused Kernel Corpus test suite:
+
+```powershell
+python -B -m pytest `
+  tests/test_kernel_corpus_bootstrap.py `
+  tests/test_kernel_corpus_builder.py `
+  tests/test_kernel_corpus_query.py `
+  tests/test_kernel_corpus_mcp_contract.py `
+  tests/test_kernel_corpus_lifecycle.py `
+  tests/test_kernel_corpus_skill.py `
+  tests/test_kernel_corpus_atlas.py
+```
+
+For documentation-only edits, also run:
+
+```powershell
+git diff --check -- .
+```
+
+## Troubleshooting
+
+- Missing `manifest.json` or `corpus.sqlite`: rebuild the pack.
+- Empty FTS results: check `counts.function_fts`; SQLite FTS5 may be disabled
+  in the local Python build.
+- Missing exact lifecycle seeds: inspect the ontology seed names and search by
+  broader terms or tags.
+- Weak lifecycle edges: increase `--depth` within the bounded limit and inspect
+  `neighbors` around high-confidence functions.
+- Stale atlas page: regenerate the atlas after pack rebuild.
+- Very broad answers: build or inspect an evidence pack first, then answer from
+  the pack instead of scanning the full corpus ad hoc.

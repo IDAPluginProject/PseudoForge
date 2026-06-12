@@ -24,17 +24,23 @@ Keep this project separate from the installed IDA plugin code.
 tools/
   kernel_corpus/
     DESIGN.md
-    builder.py                  # future
-    mcp_server.py               # future
-    schema.py                   # future
-    lifecycle.py                # future
+    atlas.py
+    builder.py
+    ea.py
+    errors.py
+    lifecycle.py
+    mcp_server.py
+    paths.py
+    query.py
+    schema.py
+    store.py
     ontology/
-      process_object.json       # future
-      thread_object.json        # future
-      file_object.json          # future
+      process_object.json
+      thread_object.json
+      file_object.json          # planned
     skills/
       kernel-corpus-analysis/
-        SKILL.md                # future
+        SKILL.md
 ```
 
 Do not put MCP code under `ida_pseudoforge/`. The IDA plugin should remain the
@@ -97,10 +103,14 @@ The builder creates a compact knowledge pack:
   manifest.json
   corpus.sqlite
   evidence-packs/
-    <timestamp>-<topic>.json
+    <topic>.json
   reports/
     corpus-status.md
-    lifecycle-process-object.md
+    atlas/
+      process.md
+      thread.md
+      object-manager.md
+      ...
 ```
 
 `corpus.sqlite` is the main MCP backing store. JSON files remain available for
@@ -108,9 +118,27 @@ debugging, portability, and handoff to other agents.
 
 ## Architecture
 
+### Current v1 status
+
+The initial implementation is complete through Phase 7:
+
+1. Pack builder imports PseudoForge corpus indexes into SQLite.
+2. Query CLI exposes status, search, function lookup, neighbor traversal,
+   import/string search, and focused evidence-pack generation.
+3. MCP stdio server wraps the read-only query and lifecycle tools.
+4. Lifecycle tracer supports `process_object` and `thread_object` ontologies.
+5. `kernel-corpus-analysis` skill documents the evidence-grounded agent
+   workflow.
+6. Subsystem atlas generation emits deterministic Markdown pages for major
+   kernel subsystems.
+7. The runbook documents build, query, MCP, lifecycle, atlas, freshness, and
+   generated-output boundaries.
+
+Generated packs and reports remain intentionally outside Git.
+
 ### 1. Pack Builder
 
-Future command:
+Build command:
 
 ```powershell
 python -B .\tools\kernel_corpus\builder.py `
@@ -239,7 +267,7 @@ retrieve and cite target-specific functions before answering.
 
 The MCP server is a read-only interface over the pack.
 
-Initial tools:
+Implemented v1 tools:
 
 ```text
 corpus_status(pack_root)
@@ -255,6 +283,9 @@ trace_lifecycle(pack_root, topic, max_seeds, depth, output_path)
 Optional later tools:
 
 ```text
+generate_atlas(pack_root, output_dir, limit)
+list_atlas_pages(pack_root)
+get_atlas_page(pack_root, page)
 compare_lifecycle(pack_root_a, pack_root_b, topic)
 explain_cluster(pack_root, tag)
 find_bridge_functions(pack_root, source_tag, target_tag)
@@ -381,7 +412,7 @@ underlying artifact paths.
 The skill should be small. It should not contain the ntoskrnl corpus. It should
 teach the agent how to use the MCP.
 
-Future skill location:
+Skill location:
 
 ```text
 tools/kernel_corpus/skills/kernel-corpus-analysis/SKILL.md
@@ -556,6 +587,24 @@ Acceptance:
 - Generate Markdown atlas pages for process, thread, object manager, memory,
   I/O, registry, security, ETW/WMI, and driver load/unload flows.
 - Every page cites evidence packs and artifact paths.
+
+### Phase 7: Docs, status, and runbook
+
+Deliver:
+
+```text
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+README.md
+```
+
+Acceptance:
+
+- Design file reflects implemented files instead of stale future markers.
+- Runbook documents build, status, query, lifecycle, atlas, MCP, skill, and
+  generated-output boundaries.
+- Follow-up goals are captured as local-only prompt documents under
+  `pseudoforge_out/`.
 
 ## Testing Strategy
 
