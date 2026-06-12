@@ -38,6 +38,9 @@ tools/
     schema.py
     store.py
     validate_pack.py
+    experimental/
+      __init__.py
+      vector_recall.py
     ontology/
       process_object.json
       thread_object.json
@@ -133,7 +136,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The initial implementation is complete through Phase 14:
+The initial implementation is complete through Phase 15:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -165,6 +168,9 @@ The initial implementation is complete through Phase 14:
 14. Performance profiling and targeted scale tuning cover pack build, status,
     search, tag lookup, neighbors, lifecycle tracing, and atlas generation on
     full-kernel packs.
+15. Experimental vector recall lives under an explicit opt-in experimental
+    package, resolves every vector hit back to SQLite function payloads, and
+    keeps generated vector indexes outside committed repo state by default.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -678,6 +684,50 @@ Recommended first-pass bounds are lifecycle `max_seeds=32`, lifecycle
 limits remain available for offline review, but agents should first inspect
 gaps and evidence quality before widening graph expansion.
 
+## Experimental Vector Recall
+
+Vector recall is a secondary booster, not a replacement for structured
+retrieval. The experiment lives under:
+
+```text
+tools/kernel_corpus/experimental/vector_recall.py
+```
+
+Default generated state lives under the selected pack root:
+
+```text
+<pack-root>/experimental/vector_recall/vector-index.json
+```
+
+The index contains bounded sparse vector metadata and text hashes, not full
+source text. Text sources are limited to function name, tags, terms,
+interesting lines, and cleaned excerpt. Query results return candidate EAs,
+vector score, source text kind, and a resolved SQLite function payload with
+artifact paths.
+
+Merge/rerank combines exact name hits, tag hits, FTS hits, and vector hits. The
+rerank score is only a discovery signal; claims still require the normal
+evidence contract:
+
+```text
+Claim -> EA -> function name -> artifact path -> inference level
+```
+
+Risks and controls:
+
+1. Semantic false positives are expected. Vector hits must be inspected, not
+   used as answer text.
+2. Stale embeddings are detected by comparing the vector index source hash to
+   the current pack manifest.
+3. Backend/model drift is surfaced as a warning when backend name or version
+   differs from index metadata.
+4. Cost and storage stay opt-in. The default backend is a deterministic local
+   token-hash backend for plumbing experiments, not a production semantic
+   embedding model.
+5. Token-hash smoke results should be treated as qualitative plumbing checks.
+   Broad semantic lift needs a real embedding backend and threshold tuning.
+6. Normal MCP and query workflows do not import or require this module.
+
 ## Implementation Phases
 
 ### Phase 0: Skeleton and design
@@ -970,6 +1020,34 @@ Acceptance:
 - Add fixture tests for profiler output and changed query behavior.
 - Document observed full-kernel scale limits and recommended bounds.
 
+### Phase 15: Secondary vector recall experiment
+
+Deliver:
+
+```text
+tools/kernel_corpus/experimental/__init__.py
+tools/kernel_corpus/experimental/vector_recall.py
+tests/test_kernel_corpus_vector_recall.py
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+.gitignore
+```
+
+Acceptance:
+
+- Keep vector recall disabled unless explicitly invoked.
+- Index only bounded text sources: function name, tags, terms, interesting
+  lines, and cleaned excerpt.
+- Store generated vector metadata under the pack root by default and keep
+  vector index JSON ignored by Git.
+- Return vector candidates as EAs with vector score, source text kind, and
+  resolved SQLite function payloads with artifact paths.
+- Add a merge/rerank experiment that combines exact name, tag, FTS, and vector
+  sources.
+- Document semantic false positives, stale embeddings, backend/model drift,
+  cost, local storage, and citation-contract risks.
+- Test metadata plumbing with a tiny fake embedding backend.
+
 ## Testing Strategy
 
 Use small fixture corpora for unit tests. Do not require the full ntoskrnl
@@ -989,7 +1067,8 @@ Test layers:
 9. Install wiring tests for dry-run skill plans, explicit temporary target
    roots, update/delete behavior, and MCP config JSON shape.
 10. Performance profiler tests for fixture build and retrieval coverage.
-11. Optional integration smoke against the real ntoskrnl pack when present.
+11. Vector recall experiment tests with a fake embedding backend.
+12. Optional integration smoke against the real ntoskrnl pack when present.
 
 Integration tests should skip cleanly when the large corpus path is absent.
 
@@ -1009,6 +1088,8 @@ Integration tests should skip cleanly when the large corpus path is absent.
   SQLite files do not gain new builder indexes until rebuilt.
 - Keep bulk retrieval bounded and deterministic. Do not suppress low-confidence
   evidence solely to improve timing.
+- Keep vector recall opt-in and secondary. Never answer from embedding text or
+  vector score alone.
 - Treat atlas hubs as relevance-filtered retrieval hints; generic helpers are
   intentionally suppressed from hub lists.
 - Treat answer harness validation as citation lint, not final factual proof.

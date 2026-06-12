@@ -365,6 +365,100 @@ Recommended interactive bounds:
   exact name lookup, bounded graph traversal, and evidence packs as the primary
   path.
 
+## Experimental Vector Recall
+
+Vector recall is optional and experimental. It is a secondary discovery booster
+only; SQLite, exact EA lookup, and artifact citations remain authoritative.
+Do not enable it in normal MCP operation unless the user explicitly asks for
+the experiment.
+
+Build an experimental index from bounded function metadata:
+
+```powershell
+python -B .\tools\kernel_corpus\experimental\vector_recall.py build-index `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl"
+```
+
+By default the index is written under:
+
+```text
+<pack-root>\experimental\vector_recall\vector-index.json
+```
+
+That path is generated state. Do not commit vector indexes or embedding
+databases. The repo `.gitignore` also ignores `vector-index.json` files under
+`experimental\vector_recall`.
+
+The index stores vectors plus metadata only. It does not store full source
+text. Indexed text is bounded to:
+
+- function name
+- tags
+- terms
+- interesting lines
+- cleaned excerpt
+
+Run vector-only candidate recall:
+
+```powershell
+python -B .\tools\kernel_corpus\experimental\vector_recall.py query `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --query "process object rundown delete" `
+  --limit 20 `
+  --min-score 0.65
+```
+
+Run the merge/rerank experiment:
+
+```powershell
+python -B .\tools\kernel_corpus\experimental\vector_recall.py merge `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --query "process object rundown delete" `
+  --tag process_thread `
+  --limit 20 `
+  --vector-limit 40 `
+  --vector-min-score 0.65
+```
+
+Merged recall combines:
+
+- exact name hits
+- tag hits
+- FTS hits
+- vector hits
+
+Every vector result must resolve back to:
+
+```text
+EA -> function name -> SQLite function payload -> artifact paths
+```
+
+Do not answer directly from embedding text or vector scores. Treat vector hits
+as candidates to inspect with `get_function`, `get_neighbors`, lifecycle
+evidence packs, or the answer harness.
+
+Known risks:
+
+- Semantic false positives, especially when one function mentions another in
+  interesting lines.
+- Stale embeddings after pack rebuilds. Rebuild the vector index when the pack
+  manifest source hash changes.
+- Model or backend version drift. Query output warns when backend name/version
+  differs from index metadata.
+- Cost and local storage if a real embedding backend replaces the deterministic
+  token-hash experiment backend.
+- Recall bias from bounded excerpts. Missing text in the vector index is not
+  evidence that a function is irrelevant.
+
+Local bounded smoke with the deterministic token-hash backend showed the
+plumbing works, but it did not prove semantic lift for broad lifecycle queries:
+with `--max-functions 5000`, `process object rundown delete` produced no
+high-confidence vector-only hits at the default `--min-score 0.65`, while the
+merged result fell back to FTS and tag candidates. Lowering the threshold is
+useful for diagnostics but quickly exposes false positives, so a real embedding
+backend must be evaluated before treating vector recall as a meaningful
+semantic booster.
+
 ## Run The MCP Server
 
 Start the read-only stdio MCP server:
@@ -553,7 +647,8 @@ python -B -m pytest `
   tests/test_kernel_corpus_answer_harness.py `
   tests/test_kernel_corpus_validate_pack.py `
   tests/test_kernel_corpus_install_wiring.py `
-  tests/test_kernel_corpus_perf_profile.py
+  tests/test_kernel_corpus_perf_profile.py `
+  tests/test_kernel_corpus_vector_recall.py
 ```
 
 For documentation-only edits, also run:

@@ -5,6 +5,7 @@ __pycache__/
 .ruff_cache/
 .venv-free-gui/
 pseudoforge_out/
+**/experimental/vector_recall/vector-index.json
 pseudoforge_config.json
 release/
 .vs/
