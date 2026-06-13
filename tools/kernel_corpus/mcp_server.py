@@ -19,6 +19,16 @@ from tools.kernel_corpus.atlas import (
     get_atlas_page,
     list_atlas_pages,
 )
+from tools.kernel_corpus.canonical_store import (
+    DEFAULT_MAX_TOPICS as DEFAULT_CANONICAL_MAX_TOPICS,
+    DEFAULT_TEXT_CHARS as DEFAULT_CANONICAL_TEXT_CHARS,
+    MAX_TEXT_CHARS as MAX_CANONICAL_TEXT_CHARS,
+    MAX_TOPICS as MAX_CANONICAL_TOPICS,
+    find_canonical_answers,
+    get_canonical_answer,
+    get_canonical_quality_report,
+    list_canonical_answers,
+)
 from tools.kernel_corpus.errors import KernelCorpusError, QueryError
 from tools.kernel_corpus.lifecycle import (
     DEFAULT_DEPTH as DEFAULT_LIFECYCLE_DEPTH,
@@ -195,6 +205,101 @@ class KernelCorpusMcpServer:
                         "truncated": bool(result.get("truncated", False)),
                     },
                     pack_root=pack_root,
+                )
+            if name == "list_canonical_answers":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_topics = _bounded_limit(args.get("max_topics"), DEFAULT_CANONICAL_MAX_TOPICS, MAX_CANONICAL_TOPICS)
+                result = list_canonical_answers(
+                    pack_root,
+                    priority=str(args.get("priority", "") or ""),
+                    status=str(args.get("status", "") or ""),
+                    mode=str(args.get("mode", "") or ""),
+                    max_topics=max_topics,
+                )
+                return self._ok(
+                    {
+                        "canonical_root": result.get("canonical_root", ""),
+                        "topic_count": result.get("topic_count", 0),
+                        "returned_count": result.get("returned_count", 0),
+                        "max_topics": result.get("max_topics", max_topics),
+                        "topics": result.get("topics", []),
+                    },
+                    schema_version=str(result.get("schema_version", "")),
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(result),
+                )
+            if name == "get_canonical_answer":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_chars = _bounded_limit(args.get("max_chars"), DEFAULT_CANONICAL_TEXT_CHARS, MAX_CANONICAL_TEXT_CHARS)
+                result = get_canonical_answer(
+                    pack_root,
+                    str(_required(args, "topic_id")),
+                    include_answer=bool(args.get("include_answer", True)),
+                    include_quality=bool(args.get("include_quality", True)),
+                    include_gaps=bool(args.get("include_gaps", True)),
+                    max_chars=max_chars,
+                )
+                return self._ok(
+                    {
+                        "canonical_root": result.get("canonical_root", ""),
+                        "metadata": result.get("metadata", {}),
+                        "content": result.get("content", {}),
+                        "max_chars": result.get("max_chars", max_chars),
+                        "returned_chars": result.get("returned_chars", 0),
+                        "truncated": bool(result.get("truncated", False)),
+                    },
+                    schema_version=str(result.get("schema_version", "")),
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(result),
+                )
+            if name == "get_canonical_quality_report":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_topics = _bounded_limit(args.get("max_topics"), DEFAULT_CANONICAL_MAX_TOPICS, MAX_CANONICAL_TOPICS)
+                max_chars = _bounded_limit(args.get("max_chars"), DEFAULT_CANONICAL_TEXT_CHARS, MAX_CANONICAL_TEXT_CHARS)
+                result = get_canonical_quality_report(
+                    pack_root,
+                    priority=str(args.get("priority", "") or ""),
+                    status=str(args.get("status", "") or ""),
+                    max_topics=max_topics,
+                    max_chars=max_chars,
+                )
+                return self._ok(
+                    {
+                        "canonical_root": result.get("canonical_root", ""),
+                        "report": result.get("report", {}),
+                        "topics": result.get("topics", []),
+                        "returned_count": result.get("returned_count", 0),
+                        "max_topics": result.get("max_topics", max_topics),
+                        "markdown": result.get("markdown", ""),
+                        "max_chars": result.get("max_chars", max_chars),
+                        "truncated": bool(result.get("truncated", False)),
+                    },
+                    schema_version=str(result.get("schema_version", "")),
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(result),
+                )
+            if name == "find_canonical_answers":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_topics = _bounded_limit(args.get("max_topics"), DEFAULT_CANONICAL_MAX_TOPICS, MAX_CANONICAL_TOPICS)
+                result = find_canonical_answers(
+                    pack_root,
+                    str(_required(args, "query")),
+                    priority=str(args.get("priority", "") or ""),
+                    status=str(args.get("status", "") or ""),
+                    max_topics=max_topics,
+                )
+                return self._ok(
+                    {
+                        "canonical_root": result.get("canonical_root", ""),
+                        "query": result.get("query", ""),
+                        "result_count": result.get("result_count", 0),
+                        "returned_count": result.get("returned_count", 0),
+                        "max_topics": result.get("max_topics", max_topics),
+                        "results": result.get("results", []),
+                    },
+                    schema_version=str(result.get("schema_version", "")),
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(result),
                 )
             return self._error("Unknown tool: %s" % name, error_type="UnknownTool")
         except (OSError, KernelCorpusError, ValueError, KeyError) as exc:
@@ -557,6 +662,94 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "default": DEFAULT_PAGE_CHARS,
                     "minimum": 1,
                     "maximum": MAX_PAGE_CHARS,
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "list_canonical_answers",
+        "description": "List generated canonical answer topics and quality metadata.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "priority": {"type": "string", "enum": ["", "P0", "P1", "P2"], "default": ""},
+                "status": {"type": "string", "enum": ["", "pass", "degraded", "fail", "missing"], "default": ""},
+                "mode": {"type": "string", "enum": ["", "focused", "lifecycle"], "default": ""},
+                "max_topics": {
+                    "type": "integer",
+                    "default": DEFAULT_CANONICAL_MAX_TOPICS,
+                    "minimum": 1,
+                    "maximum": MAX_CANONICAL_TOPICS,
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_canonical_answer",
+        "description": "Return metadata and bounded text for one generated canonical answer.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["topic_id"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "topic_id": {"type": "string"},
+                "include_answer": {"type": "boolean", "default": True},
+                "include_quality": {"type": "boolean", "default": True},
+                "include_gaps": {"type": "boolean", "default": True},
+                "max_chars": {
+                    "type": "integer",
+                    "default": DEFAULT_CANONICAL_TEXT_CHARS,
+                    "minimum": 1,
+                    "maximum": MAX_CANONICAL_TEXT_CHARS,
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_canonical_quality_report",
+        "description": "Return canonical quality-report metadata and bounded report Markdown.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "priority": {"type": "string", "enum": ["", "P0", "P1", "P2"], "default": ""},
+                "status": {"type": "string", "enum": ["", "pass", "degraded", "fail", "missing"], "default": ""},
+                "max_topics": {
+                    "type": "integer",
+                    "default": DEFAULT_CANONICAL_MAX_TOPICS,
+                    "minimum": 1,
+                    "maximum": MAX_CANONICAL_TOPICS,
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "default": DEFAULT_CANONICAL_TEXT_CHARS,
+                    "minimum": 1,
+                    "maximum": MAX_CANONICAL_TEXT_CHARS,
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "find_canonical_answers",
+        "description": "Find canonical answers by topic metadata, quality status, source map, and selected function names.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "query": {"type": "string"},
+                "priority": {"type": "string", "enum": ["", "P0", "P1", "P2"], "default": ""},
+                "status": {"type": "string", "enum": ["", "pass", "degraded", "fail", "missing"], "default": ""},
+                "max_topics": {
+                    "type": "integer",
+                    "default": DEFAULT_CANONICAL_MAX_TOPICS,
+                    "minimum": 1,
+                    "maximum": MAX_CANONICAL_TOPICS,
                 },
             },
             "additionalProperties": False,

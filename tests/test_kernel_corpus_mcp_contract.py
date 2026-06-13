@@ -10,12 +10,16 @@ from pathlib import Path
 from tools.kernel_corpus import builder
 from tools.kernel_corpus.mcp_server import (
     DEFAULT_ATLAS_LIMIT,
+    DEFAULT_CANONICAL_MAX_TOPICS,
+    DEFAULT_CANONICAL_TEXT_CHARS,
     DEFAULT_LIMIT,
     DEFAULT_LIFECYCLE_DEPTH,
     DEFAULT_LIFECYCLE_MAX_SEEDS,
     DEFAULT_NEIGHBOR_DEPTH,
     DEFAULT_PAGE_CHARS,
     MAX_ATLAS_LIMIT,
+    MAX_CANONICAL_TEXT_CHARS,
+    MAX_CANONICAL_TOPICS,
     MAX_LIMIT,
     MAX_LIFECYCLE_DEPTH,
     MAX_LIFECYCLE_MAX_SEEDS,
@@ -38,6 +42,10 @@ EXPECTED_TOOLS = {
     "generate_atlas",
     "list_atlas_pages",
     "get_atlas_page",
+    "list_canonical_answers",
+    "get_canonical_answer",
+    "get_canonical_quality_report",
+    "find_canonical_answers",
 }
 
 
@@ -55,6 +63,9 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             lifecycle_depth = tools["trace_lifecycle"]["inputSchema"]["properties"]["depth"]
             atlas_limit = tools["generate_atlas"]["inputSchema"]["properties"]["limit"]
             atlas_page_chars = tools["get_atlas_page"]["inputSchema"]["properties"]["max_chars"]
+            canonical_max_topics = tools["list_canonical_answers"]["inputSchema"]["properties"]["max_topics"]
+            canonical_get_chars = tools["get_canonical_answer"]["inputSchema"]["properties"]["max_chars"]
+            canonical_report_chars = tools["get_canonical_quality_report"]["inputSchema"]["properties"]["max_chars"]
             self.assertEqual(DEFAULT_LIMIT, search_limit["default"])
             self.assertEqual(MAX_LIMIT, search_limit["maximum"])
             self.assertEqual(DEFAULT_NEIGHBOR_DEPTH, neighbor_depth["default"])
@@ -68,6 +79,11 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             self.assertEqual(MAX_ATLAS_LIMIT, atlas_limit["maximum"])
             self.assertEqual(DEFAULT_PAGE_CHARS, atlas_page_chars["default"])
             self.assertEqual(MAX_PAGE_CHARS, atlas_page_chars["maximum"])
+            self.assertEqual(DEFAULT_CANONICAL_MAX_TOPICS, canonical_max_topics["default"])
+            self.assertEqual(MAX_CANONICAL_TOPICS, canonical_max_topics["maximum"])
+            self.assertEqual(DEFAULT_CANONICAL_TEXT_CHARS, canonical_get_chars["default"])
+            self.assertEqual(MAX_CANONICAL_TEXT_CHARS, canonical_get_chars["maximum"])
+            self.assertEqual(DEFAULT_CANONICAL_TEXT_CHARS, canonical_report_chars["default"])
 
     def test_corpus_status_returns_stable_json_shape(self) -> None:
         with _built_pack() as pack_root:
@@ -269,6 +285,153 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             self.assertEqual("QueryError", payload["error"]["type"])
             self.assertIn("must be a filename", payload["error"]["message"])
 
+    def test_list_canonical_answers_filters_quality_and_returns_absolute_paths(self) -> None:
+        with _built_pack() as pack_root:
+            _write_canonical_fixture(pack_root)
+            server = KernelCorpusMcpServer(pack_root)
+
+            payload = server.call_tool("list_canonical_answers", {"max_topics": 999})
+            pass_payload = server.call_tool("list_canonical_answers", {"status": "pass"})
+            degraded_payload = server.call_tool(
+                "list_canonical_answers",
+                {
+                    "priority": "P1",
+                    "status": "degraded",
+                },
+            )
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(MAX_CANONICAL_TOPICS, payload["max_topics"])
+            self.assertEqual(3, payload["topic_count"])
+            self.assertEqual(
+                ["process_object_lifecycle", "remote_process_access_flow", "p2_review_topic"],
+                [topic["topic_id"] for topic in payload["topics"]],
+            )
+            self.assertTrue(Path(payload["canonical_root"]).is_absolute())
+            self.assertTrue(Path(payload["topics"][0]["paths"]["answer"]).is_absolute())
+            self.assertEqual(["process_object_lifecycle"], [topic["topic_id"] for topic in pass_payload["topics"]])
+            self.assertEqual(["remote_process_access_flow"], [topic["topic_id"] for topic in degraded_payload["topics"]])
+
+    def test_get_canonical_answer_returns_bounded_text_and_rejects_path_traversal(self) -> None:
+        with _built_pack() as pack_root:
+            _write_canonical_fixture(pack_root)
+            server = KernelCorpusMcpServer(pack_root)
+
+            payload = server.call_tool(
+                "get_canonical_answer",
+                {
+                    "topic_id": "process_object_lifecycle",
+                    "max_chars": 80,
+                },
+            )
+            traversal = server.call_tool("get_canonical_answer", {"topic_id": "..\\manifest"})
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual("process_object_lifecycle", payload["metadata"]["topic_id"])
+            self.assertEqual("pass", payload["metadata"]["quality"]["status"])
+            self.assertLessEqual(payload["returned_chars"], 80)
+            self.assertTrue(payload["truncated"])
+            self.assertTrue(payload["content"]["answer"]["truncated"])
+            self.assertTrue(payload["content"]["quality"]["omitted_due_to_limit"])
+            self.assertTrue(Path(payload["content"]["answer"]["path"]).is_absolute())
+            self.assertFalse(traversal["ok"])
+            self.assertEqual("QueryError", traversal["error"]["type"])
+            self.assertIn("not a path", traversal["error"]["message"])
+
+    def test_canonical_index_directory_outside_root_is_not_read(self) -> None:
+        with _built_pack() as pack_root:
+            _write_canonical_fixture(pack_root)
+            canonical_root = pack_root / "canonical-answers"
+            outside_dir = pack_root / "outside_canonical_topic"
+            _write_canonical_topic(
+                outside_dir,
+                {
+                    "topic_id": "outside_topic",
+                    "priority": "P0",
+                    "mode": "focused",
+                    "title": "Outside Topic",
+                    "question": "This topic must not be read through index directory escape.",
+                    "status": "pass",
+                    "score": 100,
+                    "warnings": 0,
+                    "functions": ["OutsideFunction"],
+                },
+            )
+            index_path = canonical_root / "index.json"
+            index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+            index_payload["topics"].append(
+                {
+                    "id": "outside_topic",
+                    "priority": "P0",
+                    "mode": "focused",
+                    "directory": str(outside_dir.resolve()),
+                }
+            )
+            index_path.write_text(
+                json.dumps(index_payload, indent=2, ensure_ascii=True, sort_keys=True),
+                encoding="utf-8",
+            )
+
+            server = KernelCorpusMcpServer(pack_root)
+            list_payload = server.call_tool("list_canonical_answers", {"max_topics": 10})
+            get_payload = server.call_tool("get_canonical_answer", {"topic_id": "outside_topic"})
+
+            self.assertTrue(list_payload["ok"])
+            self.assertNotIn("outside_topic", [topic["topic_id"] for topic in list_payload["topics"]])
+            self.assertFalse(get_payload["ok"])
+            self.assertEqual("QueryError", get_payload["error"]["type"])
+
+    def test_get_canonical_quality_report_filters_status_and_bounds_markdown(self) -> None:
+        with _built_pack() as pack_root:
+            _write_canonical_fixture(pack_root)
+
+            payload = KernelCorpusMcpServer(pack_root).call_tool(
+                "get_canonical_quality_report",
+                {
+                    "status": "pass",
+                    "max_chars": 40,
+                },
+            )
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(1, payload["report"]["topic_count"])
+            self.assertEqual(1, payload["report"]["pass_count"])
+            self.assertEqual(["process_object_lifecycle"], [topic["topic_id"] for topic in payload["topics"]])
+            self.assertLessEqual(len(payload["markdown"]), 40)
+            self.assertTrue(payload["truncated"])
+            self.assertTrue(Path(payload["report"]["path"]).is_absolute())
+
+    def test_find_canonical_answers_searches_major_functions_and_status(self) -> None:
+        with _built_pack() as pack_root:
+            _write_canonical_fixture(pack_root)
+            server = KernelCorpusMcpServer(pack_root)
+
+            process_payload = server.call_tool("find_canonical_answers", {"query": "process object"})
+            remote_payload = server.call_tool("find_canonical_answers", {"query": "NtOpenProcess"})
+            degraded_payload = server.call_tool(
+                "find_canonical_answers",
+                {
+                    "query": "remote process access",
+                    "status": "degraded",
+                },
+            )
+
+            self.assertTrue(process_payload["ok"])
+            self.assertEqual("process_object_lifecycle", process_payload["results"][0]["topic_id"])
+            self.assertEqual("pass", process_payload["results"][0]["quality"]["status"])
+            self.assertTrue(remote_payload["ok"])
+            self.assertEqual("remote_process_access_flow", remote_payload["results"][0]["topic_id"])
+            self.assertIn("major_functions", remote_payload["results"][0]["match_fields"])
+            self.assertEqual(["remote_process_access_flow"], [topic["topic_id"] for topic in degraded_payload["results"]])
+
+    def test_missing_canonical_root_returns_warning(self) -> None:
+        with _built_pack() as pack_root:
+            payload = KernelCorpusMcpServer(pack_root).call_tool("list_canonical_answers", {})
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(0, payload["topic_count"])
+            self.assertIn("Canonical answer root does not exist", payload["warnings"][0])
+
     def test_invalid_ea_returns_structured_error(self) -> None:
         with _built_pack() as pack_root:
             payload = KernelCorpusMcpServer(pack_root).call_tool("get_function", {"ea": "0xDEADBEEF"})
@@ -338,6 +501,235 @@ def _built_pack():
 
 def _edge_pairs(payload: dict[str, object]) -> list[tuple[str, str]]:
     return [(edge["src_ea"], edge["dst_ea"]) for edge in payload["edges"]]
+
+
+def _write_canonical_fixture(pack_root: Path) -> None:
+    root = pack_root / "canonical-answers"
+    specs = [
+        {
+            "topic_id": "process_object_lifecycle",
+            "priority": "P0",
+            "mode": "lifecycle",
+            "title": "Process Object Lifecycle",
+            "question": "Explain process object lifecycle from canonical evidence.",
+            "status": "pass",
+            "score": 94,
+            "warnings": 0,
+            "functions": ["NtCreateUserProcess", "PspAllocateProcess", "PspProcessDelete"],
+        },
+        {
+            "topic_id": "remote_process_access_flow",
+            "priority": "P1",
+            "mode": "focused",
+            "title": "Remote Process Access Flow",
+            "question": "Explain remote process access through NtOpenProcess and memory operations.",
+            "status": "degraded",
+            "score": 70,
+            "warnings": 0,
+            "functions": ["NtOpenProcess", "MmCopyVirtualMemory"],
+        },
+        {
+            "topic_id": "p2_review_topic",
+            "priority": "P2",
+            "mode": "focused",
+            "title": "P2 Review Topic",
+            "question": "Explain a broad P2 review topic.",
+            "status": "fail",
+            "score": 45,
+            "warnings": 1,
+            "functions": ["EtwWrite"],
+        },
+    ]
+    topics = []
+    for spec in specs:
+        topic_dir = root / spec["priority"] / spec["topic_id"]
+        _write_canonical_topic(topic_dir, spec)
+        topics.append(
+            {
+                "id": spec["topic_id"],
+                "priority": spec["priority"],
+                "mode": spec["mode"],
+                "directory": str(topic_dir.resolve()),
+                "selected_function_count": len(spec["functions"]),
+                "edge_count": max(0, len(spec["functions"]) - 1),
+                "validation_passed": spec["warnings"] == 0,
+                "validation_warning_count": spec["warnings"],
+            }
+        )
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "kernel_corpus_canonical_answer_run_v1",
+                "source_index_sha256": "fixture-source",
+                "pack_generated_at": "2026-06-13T00:00:00+00:00",
+                "topics": list(reversed(topics)),
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    report_topics = []
+    for spec in specs:
+        report_topics.append(
+            {
+                "topic_id": spec["topic_id"],
+                "priority": spec["priority"],
+                "mode": spec["mode"],
+                "directory": str((root / spec["priority"] / spec["topic_id"]).resolve()),
+                "status": spec["status"],
+                "score": spec["score"],
+                "selected_function_count": len(spec["functions"]),
+                "edge_count": max(0, len(spec["functions"]) - 1),
+                "validation_warning_count": spec["warnings"],
+                "gap_count": 1,
+            }
+        )
+    (root / "quality-report.json").write_text(
+        json.dumps(
+            {
+                "schema": "kernel_corpus_canonical_quality_report_v1",
+                "topic_count": len(report_topics),
+                "pass_count": 1,
+                "degraded_count": 1,
+                "fail_count": 1,
+                "topics": report_topics,
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (root / "quality-report.md").write_text("# Canonical Quality Report\n\n" + ("report body " * 20), encoding="utf-8")
+
+
+def _write_canonical_topic(topic_dir: Path, spec: dict[str, object]) -> None:
+    topic_dir.mkdir(parents=True, exist_ok=True)
+    topic_id = str(spec["topic_id"])
+    functions = [
+        {
+            "ea": "0x%X" % (0x140000000 + (index * 0x1000)),
+            "name": name,
+            "tags": ["process_thread"],
+            "artifact_paths": {"cleaned": str((topic_dir / "answer.md").resolve())},
+        }
+        for index, name in enumerate(spec["functions"], start=1)
+    ]
+    edges = [
+        {"src_ea": functions[index]["ea"], "dst_ea": functions[index + 1]["ea"], "edge_kind": "callee"}
+        for index in range(max(0, len(functions) - 1))
+    ]
+    paths = {
+        "answer": topic_dir / "answer.md",
+        "candidate_review": topic_dir / "candidate-review.md",
+        "evidence_pack": topic_dir / "evidence-pack.json",
+        "gaps": topic_dir / "gaps.md",
+        "manifest": topic_dir / "manifest.json",
+        "prompt": topic_dir / "prompt.md",
+        "quality": topic_dir / "quality.md",
+        "source_map": topic_dir / "source-map.md",
+        "trace": topic_dir / "trace.json",
+        "validation": topic_dir / "validation.json",
+    }
+    answer = "# %s\n\n" % spec["title"] + ("Canonical answer body with artifact path and EA evidence. " * 20)
+    paths["answer"].write_text(answer, encoding="utf-8")
+    paths["candidate_review"].write_text("- candidate review\n", encoding="utf-8")
+    paths["gaps"].write_text("- Gap: fixture gap\n", encoding="utf-8")
+    paths["prompt"].write_text("fixture prompt\n", encoding="utf-8")
+    paths["quality"].write_text("# Quality\n\nstatus=%s\n" % spec["status"], encoding="utf-8")
+    paths["source_map"].write_text("## Public Contract References\n\n- NtOpenProcess source map fixture\n", encoding="utf-8")
+    paths["evidence_pack"].write_text(
+        json.dumps(
+            {
+                "schema": "kernel_corpus_evidence_pack_v1",
+                "topic": topic_id,
+                "summary": {
+                    "selected_function_count": len(functions),
+                    "edge_count": len(edges),
+                    "source_ref_count": 1,
+                },
+                "functions": functions,
+                "edges": edges,
+                "gaps": ["fixture gap"],
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    paths["trace"].write_text(
+        json.dumps(
+            {
+                "schema": "kernel_corpus_canonical_trace_v1",
+                "selected_candidates": functions,
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    paths["validation"].write_text(
+        json.dumps(
+            {
+                "passed": int(spec["warnings"]) == 0,
+                "warning_count": spec["warnings"],
+                "warnings": [{"code": "fixture"}] if int(spec["warnings"]) else [],
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    paths["quality"].with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "topic_id": topic_id,
+                "priority": spec["priority"],
+                "mode": spec["mode"],
+                "status": spec["status"],
+                "score": spec["score"],
+                "selected_function_count": len(functions),
+                "edge_count": len(edges),
+                "validation_warning_count": spec["warnings"],
+                "gap_count": 1,
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    paths["manifest"].write_text(
+        json.dumps(
+            {
+                "schema": "kernel_corpus_canonical_answer_artifact_v1",
+                "topic": {
+                    "id": topic_id,
+                    "priority": spec["priority"],
+                    "title": spec["title"],
+                    "mode": spec["mode"],
+                    "question": spec["question"],
+                },
+                "source_index_sha256": "fixture-source",
+                "pack_generated_at": "2026-06-13T00:00:00+00:00",
+                "files": {key: str(value.resolve()) for key, value in paths.items() if key != "manifest"},
+                "validation": {
+                    "passed": int(spec["warnings"]) == 0,
+                    "warning_count": spec["warnings"],
+                },
+            },
+            indent=2,
+            ensure_ascii=True,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":

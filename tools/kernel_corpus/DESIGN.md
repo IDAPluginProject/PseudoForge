@@ -29,6 +29,7 @@ tools/
     builder.py
     canonical_answers.py
     canonical_audit.py
+    canonical_store.py
     canonical_expectations.json
     canonical_topics.json
     ea.py
@@ -140,7 +141,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The implementation is complete through Phase 18:
+The implementation is complete through Phase 19:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -190,6 +191,10 @@ The implementation is complete through Phase 18:
     pool tracking, IRP cancellation, unload hazards, device interfaces, PnP,
     power, boot-start drivers, hypervisor/VSL, enclaves, hotpatching, cache
     manager sections, and Timer2 paths.
+19. Canonical answer artifacts are exposed through read-only MCP tools and a
+    local `canonical_store.py` helper, so agents can list, find, inspect, and
+    quality-check generated canonical answers before falling back to live
+    retrieval.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -353,6 +358,10 @@ trace_lifecycle(pack_root, topic, max_seeds, depth, output_path)
 generate_atlas(pack_root, output_dir, limit)
 list_atlas_pages(pack_root)
 get_atlas_page(pack_root, page, max_chars)
+list_canonical_answers(pack_root, priority, status, mode, max_topics)
+get_canonical_answer(pack_root, topic_id, include_answer, include_quality, include_gaps, max_chars)
+get_canonical_quality_report(pack_root, priority, status, max_topics, max_chars)
+find_canonical_answers(pack_root, query, priority, status, max_topics)
 ```
 
 Optional later tools:
@@ -625,6 +634,28 @@ Answer validation is citation lint. Canonical audit is candidate-quality lint.
 Neither replaces expert review of `candidate-review.md`, `gaps.md`, and the
 underlying corpus artifacts.
 
+`tools/kernel_corpus/canonical_store.py` is the read-only access layer for
+generated canonical answer artifacts. It locates `<pack-root>\canonical-answers`,
+reads root `index.json` and `quality-report.json` when present, scans topic
+manifests, and returns compact metadata plus bounded Markdown sections. It
+also provides local debugging commands:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_store.py list --pack-root "<pack-root>"
+python -B .\tools\kernel_corpus\canonical_store.py find --pack-root "<pack-root>" --query "remote process access"
+python -B .\tools\kernel_corpus\canonical_store.py get --pack-root "<pack-root>" --topic process_object_lifecycle
+python -B .\tools\kernel_corpus\canonical_store.py report --pack-root "<pack-root>"
+```
+
+The MCP server wraps the same helper through `list_canonical_answers`,
+`get_canonical_answer`, `get_canonical_quality_report`, and
+`find_canonical_answers`. These tools are read-only. Topic ids are validated as
+identifiers, index-provided directories must remain under the canonical root,
+and returned text is bounded by `max_chars`. Agents should prefer canonical
+topics with `quality.status == pass` and zero validation warnings, inspect
+degraded topics only with caveats, and use live search/function/neighborhood or
+lifecycle tools for verification and gap filling.
+
 ## Pack Freshness Validator
 
 `tools/kernel_corpus/validate_pack.py` is the preflight gate for pack reuse. It
@@ -678,6 +709,9 @@ Core skill rules:
 5. Build an evidence pack for broad questions.
 6. For lifecycle questions, call `trace_lifecycle` first.
 7. Run `validate_pack.py` before trusting an old pack or derived artifacts.
+8. For supported broad topics, call canonical answer tools before running live
+   retrieval; use live retrieval to verify, fill gaps, or handle unsupported
+   topic boundaries.
 8. For durable handoff or review, run `answer_harness.py` to produce the
    prompt and warning report.
 9. If the corpus is partial or stale, state the limitation.

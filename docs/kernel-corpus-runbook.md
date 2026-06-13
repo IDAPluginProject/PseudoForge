@@ -382,6 +382,67 @@ P2 audit fail=0
 P2 answer validation warnings=0
 ```
 
+## Use Canonical Answers Through MCP
+
+When canonical answer artifacts exist, agents should inspect them before
+running broad live retrieval. The MCP server exposes these read-only tools:
+
+```text
+list_canonical_answers(pack_root?, priority?, status?, mode?, max_topics?)
+get_canonical_answer(pack_root?, topic_id, include_answer?, include_quality?, include_gaps?, max_chars?)
+get_canonical_quality_report(pack_root?, priority?, status?, max_topics?, max_chars?)
+find_canonical_answers(pack_root?, query, priority?, status?, max_topics?)
+```
+
+Recommended agent workflow:
+
+1. Validate pack freshness.
+2. Call `list_canonical_answers` or `find_canonical_answers` for the user's
+   topic.
+3. If a passing canonical answer exists, call `get_canonical_answer` and
+   inspect `quality.md` and `gaps.md` before drafting.
+4. Use `search_functions`, `get_function`, `get_neighbors`, or
+   `trace_lifecycle` only to verify high-impact claims, fill gaps, or answer
+   questions outside the canonical topic boundary.
+5. Cite the canonical topic id plus EA, function name, and artifact path for
+   important claims.
+
+Passing canonical answers are preferred over degraded answers. Degraded topics
+can still be inspected when the question explicitly needs that area, but the
+answer should state the quality caveat and verify gaps with live retrieval.
+Failed topics should be treated as diagnostic retrieval hints, not final
+answer material.
+
+For local debugging without MCP, use the canonical store helper:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_store.py list `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --status pass `
+  --max-topics 20
+
+python -B .\tools\kernel_corpus\canonical_store.py find `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --query "remote process access" `
+  --max-topics 5
+
+python -B .\tools\kernel_corpus\canonical_store.py get `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --topic process_object_lifecycle `
+  --quality `
+  --gaps `
+  --max-chars 12000
+
+python -B .\tools\kernel_corpus\canonical_store.py report `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --status pass `
+  --max-topics 20
+```
+
+The helper and MCP tools only read files under `<pack-root>\canonical-answers`.
+Topic ids are identifiers, not paths, and returned Markdown is bounded by
+`max_chars`.
+
 ## Trace Lifecycles
 
 Trace a process object lifecycle:

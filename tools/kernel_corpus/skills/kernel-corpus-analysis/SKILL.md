@@ -19,8 +19,9 @@ Claim -> EA -> function name -> artifact path -> inference level
 2. Run the local freshness validator when the pack may be old or when derived evidence packs/atlas pages already exist.
 3. Call `corpus_status` before analysis. Check schema, function count, skipped count, manifest path, SQLite path, and warnings.
 4. Use MCP first when available. If MCP is unavailable, use the local CLIs under `tools/kernel_corpus/`.
-5. Prefer focused evidence packs over loading broad raw corpus output.
-6. Do not answer from generic Windows internals alone.
+5. For broad lifecycle, subsystem, or security-engineering questions, call `find_canonical_answers` or `list_canonical_answers` before live retrieval when canonical tools are available.
+6. Prefer focused evidence packs over loading broad raw corpus output.
+7. Do not answer from generic Windows internals alone.
 
 Local freshness fallback:
 
@@ -57,13 +58,21 @@ Local answer harness fallback:
 python -B .\tools\kernel_corpus\answer_harness.py --pack-root "<pack-root>" --evidence-pack "<pack-root>\evidence-packs\process_object.json" --question "<question>" --atlas-page process.md --prompt-out "<pack-root>\answer-prompts\process_object.md" --answer-in "<pack-root>\answers\process_object.md" --report-out "<pack-root>\answer-reports\process_object.json"
 ```
 
+Local canonical answer fallback:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_store.py find --pack-root "<pack-root>" --query "<question>" --max-topics 5
+python -B .\tools\kernel_corpus\canonical_store.py get --pack-root "<pack-root>" --topic process_object_lifecycle --quality --gaps --max-chars 12000
+```
+
 ## Tool Workflow
 
+- Canonical answer questions: call `find_canonical_answers` for the user's wording, then `get_canonical_answer` for the best passing topic. Inspect `quality.md` and `gaps.md`; use degraded topics only with caveats, and use failed topics only as retrieval hints. Cite the canonical topic id alongside EA, function name, and artifact path.
 - Lifecycle questions: call `trace_lifecycle` first with `topic` such as `process_object`, `thread_object`, `file_object`, `driver_object`, `device_object`, `registry_key`, `section_object`, or `module_image`, then inspect high-impact functions with `get_function`, and use `get_neighbors` for ambiguous transitions.
 - Function questions: use `search_functions` or exact EA lookup with `get_function`; then cite cleaned/raw/summary artifact paths.
 - Subsystem questions: generate or inspect atlas pages first when available; then search by names, tags, imports, and strings; expand nearby callers/callees; build an evidence pack for broad answers.
 - Import/string questions: use `search_by_import` or `search_by_string`, then verify with `get_function`.
-- Broad answers: call `build_evidence_pack` or `trace_lifecycle` and treat the pack as the answer boundary.
+- Broad answers: prefer a passing canonical answer when available, then call `build_evidence_pack` or `trace_lifecycle` for verification, gap filling, or unsupported topic boundaries.
 - Freshness checks: use `validate_pack.py` before reusing older pack roots, lifecycle evidence packs, or atlas pages. Treat validator errors as stop-and-rebuild signals.
 - Durable handoff or review: call the local answer harness to generate the bounded prompt and validate the drafted Markdown answer.
 
@@ -77,6 +86,7 @@ python -B .\tools\kernel_corpus\answer_harness.py --pack-root "<pack-root>" --ev
 - Do not claim a transition is proven unless the evidence pack contains a supporting edge or function relationship.
 - Do not hide validator errors. Rebuild stale packs or derived artifacts before answering, unless the user explicitly wants a stale-pack comparison.
 - Treat answer harness warnings as citation lint that must be reviewed before reusing an answer.
+- Treat canonical quality status as retrieval quality metadata: `pass` can be used as the first evidence layer, `degraded` requires explicit caveats and live verification, and `fail` is not final-answer evidence.
 - Do not mutate the source corpus or IDB. Writing a derived evidence pack is acceptable only when the workflow or user asks for a durable artifact.
 
 ## Korean Query Mapping
