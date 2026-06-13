@@ -618,6 +618,102 @@ Treat the plan as a retrieval contract. Draft the answer only after executing
 or inspecting the recommended canonical, lifecycle, function, neighbor, atlas,
 or evidence-pack steps.
 
+## Export A Knowledge Graph
+
+Use the knowledge graph exporter when an agent needs to navigate relationships
+across canonical topics, lifecycle packs, atlas pages, functions, phases, tags,
+imports, strings, and generated artifact paths. The graph is compact and
+bounded by default. It is not a full-kernel graph dump.
+
+```powershell
+python -B .\tools\kernel_corpus\knowledge_graph.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --priority P0 `
+  --include-atlas `
+  --include-lifecycle `
+  --format markdown `
+  --output "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\reports\knowledge-graph.md"
+```
+
+The graph schema is:
+
+```text
+kernel_corpus_knowledge_graph_v1
+```
+
+Default export contents:
+
+- canonical selected functions
+- optional lifecycle selected functions from existing evidence packs
+- optional atlas page mentions from existing atlas pages
+- call edges among selected functions
+- top tags, imports, strings, and artifact paths for selected functions
+
+Useful local query helpers:
+
+```powershell
+python -B .\tools\kernel_corpus\knowledge_graph.py list-topics `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl"
+
+python -B .\tools\kernel_corpus\knowledge_graph.py topic-functions `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --topic process_object_lifecycle
+
+python -B .\tools\kernel_corpus\knowledge_graph.py function-topics `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --function PspAllocateProcess
+
+python -B .\tools\kernel_corpus\knowledge_graph.py shared-functions `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl"
+
+python -B .\tools\kernel_corpus\knowledge_graph.py topic-path `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --source-topic process_object_lifecycle `
+  --target-topic remote_process_access_flow
+```
+
+MCP equivalents:
+
+```json
+{
+  "name": "get_topic_graph",
+  "arguments": {
+    "topic_id": "process_object_lifecycle",
+    "max_nodes": 120,
+    "max_edges": 240,
+    "include_atlas": true,
+    "include_lifecycle": true
+  }
+}
+```
+
+```json
+{
+  "name": "find_topic_paths",
+  "arguments": {
+    "source_topic": "process_object_lifecycle",
+    "target_topic": "remote_process_access_flow",
+    "max_paths": 5
+  }
+}
+```
+
+```json
+{
+  "name": "get_function_roles",
+  "arguments": {
+    "ea_or_name": "PspAllocateProcess",
+    "max_topics": 10
+  }
+}
+```
+
+Generated graph reports should live under `pseudoforge_out/` or an external
+research pack root. Treat graph centrality, shared-function counts, and bridge
+functions as navigation signals only. Important claims still require EA,
+function name, and artifact path evidence from canonical answers, evidence
+packs, or `get_function`.
+
 ## Compare Canonical Drift
 
 Use the canonical drift comparator when you need to explain what changed
@@ -992,6 +1088,9 @@ Implemented tools:
 - `plan_kernel_answer`
 - `compare_canonical_answers`
 - `get_canonical_drift_report`
+- `get_topic_graph`
+- `find_topic_paths`
+- `get_function_roles`
 
 The server returns compact JSON with EAs, function names, artifact paths,
 selection reasons, warnings, and bounded excerpts. It should not return large
@@ -1036,6 +1135,49 @@ with the target pack root. `generate_atlas` still requires an explicit
 output paths must stay under `pack_root`. Generated atlas files remain derived
 artifacts under the pack output tree. `get_atlas_page` accepts a page filename,
 not an arbitrary path, and returns bounded Markdown plus a `truncated` flag.
+
+Knowledge graph MCP tool arguments:
+
+```json
+{
+  "name": "get_topic_graph",
+  "arguments": {
+    "pack_root": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl",
+    "topic_id": "process_object_lifecycle",
+    "max_nodes": 120,
+    "max_edges": 240,
+    "include_atlas": true,
+    "include_lifecycle": true
+  }
+}
+```
+
+```json
+{
+  "name": "find_topic_paths",
+  "arguments": {
+    "pack_root": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl",
+    "source_topic": "process_object_lifecycle",
+    "target_topic": "remote_process_access_flow",
+    "max_paths": 5
+  }
+}
+```
+
+```json
+{
+  "name": "get_function_roles",
+  "arguments": {
+    "pack_root": "F:\\kernullist\\PseudoForge\\pseudoforge_out\\kernel_corpus\\ntoskrnl",
+    "ea_or_name": "PspAllocateProcess",
+    "max_topics": 10
+  }
+}
+```
+
+These graph tools rebuild a compact in-memory graph from existing pack,
+canonical, lifecycle, and atlas artifacts. They do not generate canonical
+answers, lifecycle packs, or atlas pages.
 
 ## Use The Skill
 
@@ -1136,7 +1278,8 @@ python -B -m pytest `
   tests/test_kernel_corpus_canonical_audit.py `
   tests/test_kernel_corpus_canonical_compare.py `
   tests/test_kernel_corpus_canonical_review_queue.py `
-  tests/test_kernel_corpus_answer_planner.py
+  tests/test_kernel_corpus_answer_planner.py `
+  tests/test_kernel_corpus_knowledge_graph.py
 ```
 
 For documentation-only edits, also run:
@@ -1172,5 +1315,14 @@ git diff --check -- .
 - Canonical drift warnings mention missing or stale quality files: regenerate
   or audit canonical answers for that pack before using the topic as approved
   evidence.
+- Knowledge graph has no topics: generate or copy canonical answers into
+  `<pack-root>\canonical-answers`, or intentionally use live retrieval without
+  graph context.
+- Knowledge graph optional-input warnings: `--include-atlas` and
+  `--include-lifecycle` only read existing atlas pages and evidence packs; they
+  do not generate them.
+- Knowledge graph bridge or centrality output looks important: treat it as a
+  retrieval hint, then verify with `get_function`, canonical answers, or an
+  evidence pack before making a claim.
 - Very broad answers: build or inspect an evidence pack first, then answer from
   the pack instead of scanning the full corpus ad hoc.

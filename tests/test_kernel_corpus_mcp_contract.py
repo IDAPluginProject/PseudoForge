@@ -15,6 +15,9 @@ from tools.kernel_corpus.mcp_server import (
     DEFAULT_CANONICAL_DRIFT_REPORT_CHARS,
     DEFAULT_CANONICAL_MAX_TOPICS,
     DEFAULT_CANONICAL_TEXT_CHARS,
+    DEFAULT_KNOWLEDGE_GRAPH_MAX_EDGES,
+    DEFAULT_KNOWLEDGE_GRAPH_MAX_NODES,
+    DEFAULT_KNOWLEDGE_GRAPH_MAX_PATHS,
     DEFAULT_LIMIT,
     DEFAULT_LIFECYCLE_DEPTH,
     DEFAULT_LIFECYCLE_MAX_SEEDS,
@@ -26,6 +29,9 @@ from tools.kernel_corpus.mcp_server import (
     MAX_CANONICAL_DRIFT_TOPICS,
     MAX_CANONICAL_TEXT_CHARS,
     MAX_CANONICAL_TOPICS,
+    MAX_KNOWLEDGE_GRAPH_EDGES,
+    MAX_KNOWLEDGE_GRAPH_NODES,
+    MAX_KNOWLEDGE_GRAPH_PATHS,
     MAX_LIMIT,
     MAX_LIFECYCLE_DEPTH,
     MAX_LIFECYCLE_MAX_SEEDS,
@@ -55,6 +61,9 @@ EXPECTED_TOOLS = {
     "plan_kernel_answer",
     "compare_canonical_answers",
     "get_canonical_drift_report",
+    "get_topic_graph",
+    "find_topic_paths",
+    "get_function_roles",
 }
 
 
@@ -78,6 +87,10 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             answer_plan_max_topics = tools["plan_kernel_answer"]["inputSchema"]["properties"]["max_topics"]
             drift_max_topics = tools["compare_canonical_answers"]["inputSchema"]["properties"]["max_topics"]
             drift_report_chars = tools["get_canonical_drift_report"]["inputSchema"]["properties"]["max_chars"]
+            topic_graph_max_nodes = tools["get_topic_graph"]["inputSchema"]["properties"]["max_nodes"]
+            topic_graph_max_edges = tools["get_topic_graph"]["inputSchema"]["properties"]["max_edges"]
+            topic_paths_max_paths = tools["find_topic_paths"]["inputSchema"]["properties"]["max_paths"]
+            function_roles_max_topics = tools["get_function_roles"]["inputSchema"]["properties"]["max_topics"]
             self.assertEqual(DEFAULT_LIMIT, search_limit["default"])
             self.assertEqual(MAX_LIMIT, search_limit["maximum"])
             self.assertEqual(DEFAULT_NEIGHBOR_DEPTH, neighbor_depth["default"])
@@ -102,6 +115,14 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             self.assertEqual(MAX_CANONICAL_DRIFT_TOPICS, drift_max_topics["maximum"])
             self.assertEqual(DEFAULT_CANONICAL_DRIFT_REPORT_CHARS, drift_report_chars["default"])
             self.assertEqual(MAX_CANONICAL_DRIFT_REPORT_CHARS, drift_report_chars["maximum"])
+            self.assertEqual(DEFAULT_KNOWLEDGE_GRAPH_MAX_NODES, topic_graph_max_nodes["default"])
+            self.assertEqual(MAX_KNOWLEDGE_GRAPH_NODES, topic_graph_max_nodes["maximum"])
+            self.assertEqual(DEFAULT_KNOWLEDGE_GRAPH_MAX_EDGES, topic_graph_max_edges["default"])
+            self.assertEqual(MAX_KNOWLEDGE_GRAPH_EDGES, topic_graph_max_edges["maximum"])
+            self.assertEqual(DEFAULT_KNOWLEDGE_GRAPH_MAX_PATHS, topic_paths_max_paths["default"])
+            self.assertEqual(MAX_KNOWLEDGE_GRAPH_PATHS, topic_paths_max_paths["maximum"])
+            self.assertEqual(DEFAULT_CANONICAL_MAX_TOPICS, function_roles_max_topics["default"])
+            self.assertEqual(MAX_CANONICAL_TOPICS, function_roles_max_topics["maximum"])
 
     def test_corpus_status_returns_stable_json_shape(self) -> None:
         with _built_pack() as pack_root:

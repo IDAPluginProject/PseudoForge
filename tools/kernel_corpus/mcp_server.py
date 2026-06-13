@@ -43,6 +43,18 @@ from tools.kernel_corpus.canonical_compare import (
     get_canonical_drift_report,
 )
 from tools.kernel_corpus.errors import KernelCorpusError, QueryError
+from tools.kernel_corpus.knowledge_graph import (
+    DEFAULT_MAX_EDGES as DEFAULT_KNOWLEDGE_GRAPH_MAX_EDGES,
+    DEFAULT_MAX_NODES as DEFAULT_KNOWLEDGE_GRAPH_MAX_NODES,
+    DEFAULT_MAX_PATHS as DEFAULT_KNOWLEDGE_GRAPH_MAX_PATHS,
+    MAX_EDGES as MAX_KNOWLEDGE_GRAPH_EDGES,
+    MAX_NODES as MAX_KNOWLEDGE_GRAPH_NODES,
+    MAX_PATHS as MAX_KNOWLEDGE_GRAPH_PATHS,
+    build_knowledge_graph,
+    function_topics,
+    topic_path,
+    topic_subgraph,
+)
 from tools.kernel_corpus.lifecycle import (
     DEFAULT_DEPTH as DEFAULT_LIFECYCLE_DEPTH,
     DEFAULT_MAX_SEEDS as DEFAULT_LIFECYCLE_MAX_SEEDS,
@@ -392,6 +404,86 @@ class KernelCorpusMcpServer:
                     schema_version=str(result.get("schema", "")),
                     pack_root=pack_root_a,
                     warnings=_coerce_warnings(result),
+                )
+            if name == "get_topic_graph":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_nodes = _bounded_limit(args.get("max_nodes"), DEFAULT_KNOWLEDGE_GRAPH_MAX_NODES, MAX_KNOWLEDGE_GRAPH_NODES)
+                max_edges = _bounded_limit(args.get("max_edges"), DEFAULT_KNOWLEDGE_GRAPH_MAX_EDGES, MAX_KNOWLEDGE_GRAPH_EDGES)
+                graph = build_knowledge_graph(
+                    pack_root,
+                    include_atlas=bool(args.get("include_atlas", False)),
+                    include_lifecycle=bool(args.get("include_lifecycle", False)),
+                    max_edges=max_edges,
+                )
+                subgraph = topic_subgraph(
+                    graph,
+                    str(_required(args, "topic_id")),
+                    max_nodes=max_nodes,
+                    max_edges=max_edges,
+                )
+                return self._ok(
+                    {
+                        "topic_id": subgraph.get("topic_id", ""),
+                        "nodes": subgraph.get("nodes", []),
+                        "edges": subgraph.get("edges", []),
+                        "node_count": subgraph.get("node_count", 0),
+                        "edge_count": subgraph.get("edge_count", 0),
+                        "nodes_truncated": bool(subgraph.get("nodes_truncated", False)),
+                        "edges_truncated": bool(subgraph.get("edges_truncated", False)),
+                    },
+                    schema_version=str(subgraph.get("schema", "")),
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(graph),
+                )
+            if name == "find_topic_paths":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_paths = _bounded_limit(args.get("max_paths"), DEFAULT_KNOWLEDGE_GRAPH_MAX_PATHS, MAX_KNOWLEDGE_GRAPH_PATHS)
+                graph = build_knowledge_graph(
+                    pack_root,
+                    include_atlas=bool(args.get("include_atlas", False)),
+                    include_lifecycle=bool(args.get("include_lifecycle", False)),
+                )
+                paths = topic_path(
+                    graph,
+                    str(_required(args, "source_topic")),
+                    str(_required(args, "target_topic")),
+                    max_paths=max_paths,
+                )
+                return self._ok(
+                    {
+                        "source_topic": str(args.get("source_topic", "")),
+                        "target_topic": str(args.get("target_topic", "")),
+                        "paths": paths,
+                        "path_count": len(paths),
+                        "max_paths": max_paths,
+                    },
+                    schema_version="kernel_corpus_knowledge_graph_paths_v1",
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(graph),
+                )
+            if name == "get_function_roles":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_topics = _bounded_limit(args.get("max_topics"), DEFAULT_CANONICAL_MAX_TOPICS, MAX_CANONICAL_TOPICS)
+                graph = build_knowledge_graph(
+                    pack_root,
+                    include_atlas=bool(args.get("include_atlas", False)),
+                    include_lifecycle=bool(args.get("include_lifecycle", False)),
+                )
+                roles = function_topics(
+                    graph,
+                    str(_required(args, "ea_or_name")),
+                    max_topics=max_topics,
+                )
+                return self._ok(
+                    {
+                        "ea_or_name": str(args.get("ea_or_name", "")),
+                        "roles": roles,
+                        "role_count": len(roles),
+                        "max_topics": max_topics,
+                    },
+                    schema_version="kernel_corpus_knowledge_graph_roles_v1",
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(graph),
                 )
             return self._error("Unknown tool: %s" % name, error_type="UnknownTool")
         except (OSError, KernelCorpusError, ValueError, KeyError) as exc:
@@ -904,6 +996,76 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "minimum": 1,
                     "maximum": MAX_CANONICAL_DRIFT_REPORT_CHARS,
                 },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_topic_graph",
+        "description": "Return a bounded knowledge-graph subgraph for one canonical or lifecycle topic.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["topic_id"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "topic_id": {"type": "string"},
+                "max_nodes": {
+                    "type": "integer",
+                    "default": DEFAULT_KNOWLEDGE_GRAPH_MAX_NODES,
+                    "minimum": 1,
+                    "maximum": MAX_KNOWLEDGE_GRAPH_NODES,
+                },
+                "max_edges": {
+                    "type": "integer",
+                    "default": DEFAULT_KNOWLEDGE_GRAPH_MAX_EDGES,
+                    "minimum": 1,
+                    "maximum": MAX_KNOWLEDGE_GRAPH_EDGES,
+                },
+                "include_atlas": {"type": "boolean", "default": False},
+                "include_lifecycle": {"type": "boolean", "default": False},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "find_topic_paths",
+        "description": "Find bounded topic-to-topic paths through shared selected functions and selected call edges.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["source_topic", "target_topic"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "source_topic": {"type": "string"},
+                "target_topic": {"type": "string"},
+                "max_paths": {
+                    "type": "integer",
+                    "default": DEFAULT_KNOWLEDGE_GRAPH_MAX_PATHS,
+                    "minimum": 1,
+                    "maximum": MAX_KNOWLEDGE_GRAPH_PATHS,
+                },
+                "include_atlas": {"type": "boolean", "default": False},
+                "include_lifecycle": {"type": "boolean", "default": False},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_function_roles",
+        "description": "Return canonical or lifecycle topic roles for a function EA or exact function name.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["ea_or_name"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "ea_or_name": {"type": "string"},
+                "max_topics": {
+                    "type": "integer",
+                    "default": DEFAULT_CANONICAL_MAX_TOPICS,
+                    "minimum": 1,
+                    "maximum": MAX_CANONICAL_TOPICS,
+                },
+                "include_atlas": {"type": "boolean", "default": False},
+                "include_lifecycle": {"type": "boolean", "default": False},
             },
             "additionalProperties": False,
         },

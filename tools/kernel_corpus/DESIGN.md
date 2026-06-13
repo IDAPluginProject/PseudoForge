@@ -38,6 +38,7 @@ tools/
     ea.py
     errors.py
     install_wiring.py
+    knowledge_graph.py
     lifecycle.py
     mcp_server.py
     paths.py
@@ -144,7 +145,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The implementation is complete through Phase 23:
+The implementation is complete through Phase 24:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -211,6 +212,9 @@ The implementation is complete through Phase 23:
     selected evidence functions, phase labels, call edges, quality status, and
     source identity differ between two Kernel Corpus packs without treating EAs
     as stable cross-build identities.
+24. A bounded knowledge graph exporter connects canonical topics, lifecycle
+    packs, atlas pages, functions, phases, tags, imports, strings, and artifact
+    paths for navigation, MCP subgraphs, topic paths, and function role lookup.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -381,6 +385,9 @@ find_canonical_answers(pack_root, query, priority, status, max_topics)
 plan_kernel_answer(pack_root, question, max_topics, allow_degraded)
 compare_canonical_answers(pack_root_a, pack_root_b, topic_id, priority, max_topics)
 get_canonical_drift_report(pack_root_a, pack_root_b, topic_id, max_chars)
+get_topic_graph(pack_root, topic_id, max_nodes, max_edges, include_atlas, include_lifecycle)
+find_topic_paths(pack_root, source_topic, target_topic, max_paths, include_atlas, include_lifecycle)
+get_function_roles(pack_root, ea_or_name, max_topics, include_atlas, include_lifecycle)
 ```
 
 Optional later tools:
@@ -759,6 +766,82 @@ plan_kernel_answer(pack_root?, question, max_topics?, allow_degraded?)
 ```
 
 The MCP tool returns compact JSON only and does not generate prose answers.
+
+### Knowledge Graph Export
+
+`tools/kernel_corpus/knowledge_graph.py` builds a bounded navigation graph from
+existing pack artifacts. It emits `kernel_corpus_knowledge_graph_v1` payloads
+and does not generate, audit, or mutate canonical answers, lifecycle packs, or
+atlas pages.
+
+Inputs:
+
+```text
+--pack-root
+--priority P0|P1|P2
+--include-atlas
+--include-lifecycle
+--max-functions-per-topic
+--max-edges
+--format json|markdown
+--output
+```
+
+Node types:
+
+```text
+topic
+function
+phase
+tag
+import
+string
+atlas_page
+artifact
+```
+
+Edge types:
+
+```text
+topic_selects_function
+topic_has_phase
+function_in_phase
+function_calls_function
+function_has_tag
+function_references_import
+function_references_string
+atlas_page_mentions_function
+function_has_artifact
+```
+
+The default graph is intentionally bounded. It starts with canonical selected
+functions, optionally adds existing lifecycle evidence packs and atlas page
+mentions, then enriches selected functions with SQLite tags, imports, strings,
+artifact paths, and call edges among selected functions.
+
+Local query helpers:
+
+```text
+list-topics
+topic-functions
+function-topics
+topic-path
+shared-functions
+```
+
+MCP tools expose compact graph views:
+
+```text
+get_topic_graph(pack_root?, topic_id, max_nodes?, max_edges?, include_atlas?, include_lifecycle?)
+find_topic_paths(pack_root?, source_topic, target_topic, max_paths?, include_atlas?, include_lifecycle?)
+get_function_roles(pack_root?, ea_or_name, max_topics?, include_atlas?, include_lifecycle?)
+```
+
+Graph reports are derived navigation artifacts. Store them under
+`pseudoforge_out/` or external pack roots and do not commit them. Treat bridge
+functions, topic clusters, shared-function counts, and centrality-like signals
+as retrieval hints only; final claims still require EA, function name, and
+artifact path evidence.
 
 ### Canonical Drift Compare
 
@@ -1607,6 +1690,41 @@ Acceptance:
 - Test fixture A/B packs for EA drift, quality drift, missing topics, edge
   drift, stable truncation, path safety, and MCP contract behavior.
 
+### Phase 24: Kernel knowledge graph export
+
+Deliver:
+
+```text
+tools/kernel_corpus/knowledge_graph.py
+tests/test_kernel_corpus_knowledge_graph.py
+tests/test_kernel_corpus_mcp_contract.py
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+tools/kernel_corpus/skills/kernel-corpus-analysis/SKILL.md
+pseudoforge_implementation_status.md
+```
+
+Acceptance:
+
+- Export `kernel_corpus_knowledge_graph_v1` JSON and Markdown from an existing
+  pack root without generating or mutating canonical, lifecycle, or atlas
+  artifacts.
+- Include topic, function, phase, tag, import, string, atlas page, and artifact
+  nodes with stable deterministic IDs.
+- Include topic/function/phase, selected call, tag/import/string, atlas mention,
+  and artifact edges with stable deterministic IDs.
+- Keep default graph output bounded to selected canonical/lifecycle/atlas
+  functions and edges among selected functions.
+- Support local `list-topics`, `topic-functions`, `function-topics`,
+  `topic-path`, and `shared-functions` query helpers.
+- Expose read-only `get_topic_graph`, `find_topic_paths`, and
+  `get_function_roles` MCP tools.
+- Degrade gracefully when optional atlas, lifecycle, or canonical artifacts are
+  missing.
+- Treat graph centrality and bridge functions as navigation hints, not proof.
+- Test synthetic fixture packs for shared functions, stable IDs, bounds,
+  optional-input warnings, output path safety, and MCP contract behavior.
+
 ## Testing Strategy
 
 Use small fixture corpora for unit tests. Do not require the full ntoskrnl
@@ -1639,7 +1757,10 @@ Test layers:
 17. Canonical drift tests for cross-pack catalog, source identity, selected
     function, phase, edge, report truncation, path safety, and MCP contract
     behavior.
-18. Optional integration smoke against the real ntoskrnl pack when present.
+18. Knowledge graph tests for stable node/edge IDs, bounds, shared/bridge
+    functions, missing optional artifacts, output path safety, and MCP contract
+    behavior.
+19. Optional integration smoke against the real ntoskrnl pack when present.
 
 Integration tests should skip cleanly when the large corpus path is absent.
 
@@ -1682,6 +1803,11 @@ Integration tests should skip cleanly when the large corpus path is absent.
   build-local evidence.
 - Do not write drift reports into either compared pack root. Store them under
   ignored output roots or external corpus workspaces.
+- Keep knowledge graph exports bounded by default. Do not emit a full-kernel
+  graph unless a future workflow explicitly designs storage, paging, and review
+  controls for it.
+- Treat knowledge graph bridge functions, clusters, and centrality-like signals
+  as navigation hints. Require function artifacts before making conclusions.
 - Avoid model-generated persistent facts unless they are tied to evidence pack
   IDs and source corpus hashes.
 
