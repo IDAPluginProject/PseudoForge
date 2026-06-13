@@ -379,6 +379,339 @@
       "preferred_tags": ["synchronization", "dispatch", "memory"],
       "min_selected_functions": 24,
       "min_edge_count": 8
+    },
+    "process_protection_mitigation_state": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^PsGetProcess(Protection|SignatureLevel)$", "^PsQueryProcessSignatureMitigationPolicy$", "^Psp(Apply|Validate).*Mitigation"],
+      "bonus_name_regexes": ["Mitigation", "Protection", "SignatureLevel"],
+      "preferred_tags": ["process_thread", "memory"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp", "^Wdip"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "handle_duplication_inheritance": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(Nt|Zw)DuplicateObject$", "^ObDuplicateObject$", "^NtCreateUserProcess$"],
+      "bonus_name_regexes": ["Handle", "Duplicate", "Inherit"],
+      "preferred_tags": ["process_thread", "object_callback"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "job_object_containment": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Nt(CreateJobObject|AssignProcessToJobObject|SetInformationJobObject)$", "^NtTerminateJobObject$", "^PsGetProcessJob$"],
+      "bonus_name_regexes": ["Job", "AssignProcess", "Contain"],
+      "preferred_tags": ["process_thread", "object_callback"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "alpc_port_message_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^NtAlpc(CreatePort|ConnectPort|SendWaitReceivePort)$", "^Alpcp(DispatchMessage|AcceptConnectPort|AllocateBlob)$"],
+      "bonus_name_regexes": ["Alpc", "Port", "Message"],
+      "preferred_tags": ["object_callback", "dispatch"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "token_creation_assignment_audit": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Nt(CreateToken|DuplicateToken|OpenProcessToken)$", "^(Psp|Se)AssignPrimaryToken$", "^SepAuditAssignPrimaryToken$"],
+      "bonus_name_regexes": ["Token", "Audit", "PrimaryToken"],
+      "preferred_tags": ["process_thread", "object_callback"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "sid_acl_security_descriptor_manipulation": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Rtl(Create|Valid)Acl$", "^Rtl(Get|Set)DaclSecurityDescriptor$", "^Rtlp(CreateServerAcl|NormalizeAcl)$"],
+      "bonus_name_regexes": ["Acl", "SecurityDescriptor", "Dacl", "Sacl"],
+      "preferred_tags": ["object_callback", "process_thread"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "code_integrity_signature_visibility": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^SeCodeIntegrity", "^PsGetProcessSignatureLevel$", "^ExpQueryCodeIntegrityCertificateInfo$"],
+      "bonus_name_regexes": ["Signature", "CodeIntegrity", "Policy"],
+      "preferred_tags": ["process_thread", "memory"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "registry_hive_transaction_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Nt(Load|Unload)Key$", "^Cm(Load|Unload)Key$", "^Cmp(BindHiveToTrans|PerformUnloadKey)$"],
+      "bonus_name_regexes": ["Hive", "TxR", "Transaction", "Rundown"],
+      "preferred_tags": ["object_callback", "callback"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "file_create_cleanup_name_normalization": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(Nt|Zw)CreateFile$", "^IoCreateFileEx$", "^IopParseDevice$"],
+      "bonus_name_regexes": ["DosDeviceName", "NameInExpression", "FileObject"],
+      "preferred_tags": ["io_registry", "driver_framework", "object_callback"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "section_mapping_copy_on_write": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(Nt|Zw)MapViewOfSection$", "^NtUnmapViewOfSection$", "^Mi(MapViewOfSection|CopyOnWrite)"],
+      "bonus_name_regexes": ["ImageFileMap", "Section", "ControlArea"],
+      "preferred_tags": ["memory", "process_thread"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "vad_split_merge_teardown": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^MiAllocateVad$", "^MiAllocateSplitVads$", "^Mi(Delete|Remove|Clean)Vad$"],
+      "bonus_name_regexes": ["Vad", "Split", "Charge"],
+      "preferred_tags": ["memory", "process_thread"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "working_set_trim_page_fault": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Mi(Trim|Age|Empty)WorkingSet$", "^MiResolveTransitionFault$", "^KiPageFaultShadow$"],
+      "bonus_name_regexes": ["WorkingSet", "PageFault", "TransitionFault"],
+      "preferred_tags": ["memory", "dispatch"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "pfn_page_state_transitions": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^MiAssemblePfnList$", "^MiClearPfn", "^Mi(CapturePfnVm|RemovePageAnyColor)$"],
+      "bonus_name_regexes": ["Pfn", "PageList", "PageState"],
+      "preferred_tags": ["memory"],
+      "min_selected_functions": 20,
+      "min_edge_count": 4
+    },
+    "system_thread_lifecycle": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^PsCreateSystemThread(Ex)?$", "^PsTerminateSystemThread$", "^PspSystemThreadStartup$"],
+      "bonus_name_regexes": ["SystemThread", "KxStartSystemThread", "IoCreateSystemThread"],
+      "preferred_tags": ["process_thread", "dispatch"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "thread_context_apc_injection_surfaces": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(Nt|Zw)SetContextThread$", "^PsSetContextThread$", "^(NtQueueApcThread|KeInsertQueueApc)$"],
+      "bonus_name_regexes": ["GetContextThread", "QueueApc", "InsertQueueApc"],
+      "preferred_tags": ["process_thread", "dispatch", "callback"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "debug_object_port_linkage": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Dbgk(OpenProcessDebugPort|ClearProcessDebugObject|CopyProcessDebugPort)$", "^DbgkpSetProcessDebugObject$", "^PsGetProcessDebugPort$"],
+      "bonus_name_regexes": ["DebugObject", "DebugPort", "DebugEvent"],
+      "preferred_tags": ["process_thread", "object_callback"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "etw_provider_event_write_paths": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Etw(Register|Unregister|Write|WriteTransfer)$", "^EtwpEventWriteFull$", "^EtwTraceProcess$"],
+      "bonus_name_regexes": ["Provider", "EventWrite", "Trace"],
+      "preferred_tags": ["callback", "dispatch"],
+      "suspicious_name_regexes": ["^\\?\\?\\$"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "wmi_registration_callback_paths": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^IoWMI(RegistrationControl|SetNotificationCallback|WriteEvent|SystemControl)$", "^IoWMI(CompleteRequest|QueryAllData)$"],
+      "bonus_name_regexes": ["WMI", "Provider", "Instance"],
+      "preferred_tags": ["callback", "io_registry"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "object_type_initialization_callbacks": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^ObCreateObjectType(Ex)?$", "^Obp(Create|Destroy)TypeArray$", "^Obp.*ObjectTypeSD$"],
+      "bonus_name_regexes": ["ObjectType", "TypeArray", "DefaultObjectTypeSD"],
+      "preferred_tags": ["object_callback"],
+      "min_selected_functions": 16,
+      "min_edge_count": 4
+    },
+    "pushlock_executive_resource_sync": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Ex(Initialize|Acquire|Release).*PushLock", "^Ex(Acquire|Release|Delete)Resource.*Lite$"],
+      "bonus_name_regexes": ["PushLock", "ResourceLite", "CriticalRegion"],
+      "preferred_tags": ["dispatch", "memory"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "lookaside_cache_allocation_paths": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Ex(Initialize|Delete)LookasideListEx$", "^Ex(AllocateFrom|FreeTo)LookasideListEx$"],
+      "bonus_name_regexes": ["Lookaside", "PagedLookaside", "NPagedLookaside"],
+      "preferred_tags": ["memory"],
+      "min_selected_functions": 16,
+      "min_edge_count": 4
+    },
+    "pool_tag_special_pool_tracking": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Ex(CreatePoolTagTable|GetPoolTagInfo|QueryBigPoolTag)$", "^ExIsSpecialPoolAddress$", "^VfSpecialPoolEntry$"],
+      "bonus_name_regexes": ["PoolTag", "SpecialPool", "BigPool"],
+      "preferred_tags": ["memory", "object_callback"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "irp_cancellation_csq_patterns": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^IoCancelIrp$", "^IoCsq(Initialize|InsertIrp|RemoveIrp)", "^IopCsqCancelRoutine$"],
+      "bonus_name_regexes": ["Cancel", "Csq", "CancelRoutine"],
+      "preferred_tags": ["io_registry", "dispatch", "driver_framework"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "driver_unload_rundown_hazards": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(Nt|Zw)UnloadDriver$", "^Iop(Unload|Delete)Driver$", "^(IoDeleteDevice|MmUnloadSystemImage)$"],
+      "bonus_name_regexes": ["DriverUnload", "Rundown", "DeleteDevice"],
+      "preferred_tags": ["driver_framework", "io_registry", "memory"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "device_interface_symbolic_link_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Io(RegisterDeviceInterface|SetDeviceInterfaceState)$", "^IopRegisterDeviceInterface$", "^Io(Create|Delete)SymbolicLink$"],
+      "bonus_name_regexes": ["DeviceInterface", "SymbolicLink", "InterfaceState"],
+      "preferred_tags": ["io_registry", "driver_framework", "object_callback"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "pnp_device_relation_query_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(Pnp|Pi).*QueryDeviceRelations$", "^IoInvalidateDeviceRelations$", "^IopRemoveDeviceRelationsFromList$"],
+      "bonus_name_regexes": ["DeviceRelations", "DeviceProperty", "Pnp"],
+      "preferred_tags": ["io_registry", "driver_framework", "dispatch"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "power_idle_transition_paths": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^PoRequestPowerIrp$", "^PopRequestPowerIrp$", "^PoFx(StartDevicePowerManagement|PowerControl)$"],
+      "bonus_name_regexes": ["Power", "PoFx", "Idle"],
+      "preferred_tags": ["dispatch", "driver_framework", "io_registry"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "boot_start_driver_ordering": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Pnp(Initialize|CheckPossible)BootStartDriver$", "^IopInitializeBuiltinDriver$", "^Iop(InitializeBootDrivers|LoadDriver)$"],
+      "bonus_name_regexes": ["BootStart", "BuiltinDriver", "LoadDriver"],
+      "preferred_tags": ["driver_framework", "io_registry"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "hypervisor_vbs_visibility_boundaries": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^HvlIsHypervisorPresent$", "^HviGetHypervisor", "^HvcallInitiateHypercall$"],
+      "bonus_name_regexes": ["Hypervisor", "Hypercall", "SecureKernel"],
+      "preferred_tags": ["dispatch", "memory"],
+      "suspicious_name_regexes": ["^Etw", "^Etwp"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "secure_kernel_vsl_call_boundary": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^VslInitializeSecureKernelCfg$", "^VslCreateSecure(Process|Thread|Section)$", "^VslCloseSecureHandle$"],
+      "bonus_name_regexes": ["SecureKernel", "SecureProcess", "Enclave", "SecureHandle"],
+      "preferred_tags": ["memory", "process_thread"],
+      "min_selected_functions": 20,
+      "min_edge_count": 5
+    },
+    "io_completion_port_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Nt(Create|Open|Remove|Set)IoCompletion$", "^Io(SetCompletionRoutineEx|CompleteRequest)$"],
+      "bonus_name_regexes": ["IoCompletion", "CompletionRoutine", "CompleteRequest"],
+      "preferred_tags": ["io_registry", "dispatch"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "silo_server_container_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^PsGetProcessServerSilo$", "^Ps(GetServerSiloGlobals|InsertSiloContext|GetSiloContext|ReferenceSiloContext|IsHostSilo)$"],
+      "bonus_name_regexes": ["Silo", "Container", "ServerSilo"],
+      "preferred_tags": ["process_thread", "object_callback"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "enclave_secure_process_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^(VslCreateEnclave|NtCreateEnclave)$", "^Nt(LoadEnclaveData|InitializeEnclave)$", "^(PsGetProcessEnclaveModuleInfo|MiAllocateEnclaveVad)$"],
+      "bonus_name_regexes": ["Enclave", "SecureProcess", "EnclaveVad"],
+      "preferred_tags": ["memory", "process_thread"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "hotpatch_dynamic_relocation_visibility": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Vsl(ApplyHotPatch|CaptureImageHotPatchMetadata)$", "^Rtl(FindExportedRoutineByName|ImageNtHeaderEx)$", "^Mi(VerifyImageHeader|ApplyCompressedFixups)$"],
+      "bonus_name_regexes": ["HotPatch", "DynamicRelocation", "ImageHeader"],
+      "preferred_tags": ["memory", "dispatch"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "cache_manager_file_section_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Cc(Initialize|Uninitialize)CacheMap$", "^Cc(FlushCache|PurgeCacheSection)$", "^Cc(GetFileObjectFromSectionPtrs|DeleteSectionsForPartition)$"],
+      "bonus_name_regexes": ["CacheMap", "CacheSection", "SectionPtrs"],
+      "preferred_tags": ["memory", "io_registry"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
+    },
+    "kernel_timer2_deadline_flow": {
+      "priority": "P2",
+      "mode": "focused",
+      "required_name_regexes": ["^Ke(Initialize|Set|Cancel)Timer2$", "^Ex(Set|Cancel)Timer$", "^ExpCancelTimer$"],
+      "bonus_name_regexes": ["Timer2", "Deadline", "ExTimer"],
+      "preferred_tags": ["dispatch", "callback"],
+      "min_selected_functions": 18,
+      "min_edge_count": 4
     }
   }
 }

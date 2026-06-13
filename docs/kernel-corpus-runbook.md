@@ -242,15 +242,28 @@ python -B .\tools\kernel_corpus\canonical_answers.py list `
 
 python -B .\tools\kernel_corpus\canonical_answers.py list `
   --priority P1
+
+python -B .\tools\kernel_corpus\canonical_answers.py list `
+  --priority P2
 ```
 
-Build all P0/P1 bundles for a pack:
+Build the core P0/P1 bundles for a pack:
 
 ```powershell
 python -B .\tools\kernel_corpus\canonical_answers.py build `
   --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
   --priority P0 `
   --priority P1 `
+  --force
+```
+
+Build the broader P2 curation tier separately when you want operational
+coverage beyond the minimum core answer set:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_answers.py build `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --priority P2 `
   --force
 ```
 
@@ -286,6 +299,16 @@ python -B .\tools\kernel_corpus\canonical_audit.py `
   --canonical-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\canonical-answers" `
   --format text `
   --report-out "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\canonical-answers\quality-report.json"
+```
+
+Audit only the P2 curation tier:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_audit.py `
+  --canonical-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\canonical-answers" `
+  --priority P2 `
+  --format text `
+  --report-out "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\canonical-answers\quality-report-p2.json"
 ```
 
 The audit is candidate-quality lint. It checks generated topic bundles against
@@ -342,6 +365,21 @@ audit pass=39
 audit degraded=0
 audit fail=0
 answer validation warnings=0
+```
+
+Local ntoskrnl smoke after P2 topic expansion:
+
+```text
+total catalog topics=75
+P0=24
+P1=15
+P2=36
+P2 build passed=36
+P2 build failed=0
+P2 audit pass=36
+P2 audit degraded=0
+P2 audit fail=0
+P2 answer validation warnings=0
 ```
 
 ## Trace Lifecycles

@@ -26,10 +26,11 @@ class KernelCorpusCanonicalAuditTests(unittest.TestCase):
         expected_topics = expectations["topics"]
 
         self.assertEqual(EXPECTATIONS_SCHEMA_VERSION, expectations["schema"])
-        self.assertEqual(39, len(expected_topics))
+        self.assertEqual(75, len(expected_topics))
         self.assertTrue(expectations_cover_topics(expectations, topic_ids))
         self.assertEqual([], sorted(set(topic_ids) - set(expected_topics)))
         self.assertEqual([], sorted(set(expected_topics) - set(topic_ids)))
+        self.assertEqual(36, sum(1 for topic in topics if topic.priority == "P2"))
 
     def test_required_expectations_are_concrete_function_name_patterns(self) -> None:
         expectations = load_expectations()
@@ -145,6 +146,45 @@ class KernelCorpusCanonicalAuditTests(unittest.TestCase):
             self.assertTrue(topic["source_identity_warnings"])
             self.assertGreater(len(topic["recommended_actions"]), 3)
 
+    def test_audit_filters_and_orders_p2_topics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "canonical-answers"
+            expectation_path = Path(temp_dir) / "expectations.json"
+            topic_specs = [
+                ("middle_flow", "P1"),
+                ("wide_flow", "P2"),
+                ("core_flow", "P0"),
+            ]
+            _write_expectation_manifest(expectation_path, topic_specs)
+            _write_multi_index(root, topic_specs)
+            for topic_id, priority in topic_specs:
+                topic_dir = root / priority / topic_id
+                _write_topic(
+                    topic_dir,
+                    topic_id=topic_id,
+                    priority=priority,
+                    mode="focused",
+                    functions=[
+                        {"ea": "0x1", "name": "GoodCreate", "phase": "entry", "tags": ["process_thread"]},
+                        {"ea": "0x2", "name": "GoodDelete", "phase": "delete", "tags": ["process_thread"]},
+                    ],
+                    edges=[{"src_ea": "0x1", "dst_ea": "0x2", "edge_kind": "callee"}],
+                    validation_warnings=[],
+                    source_hash="source-a",
+                    source_ref_count=1,
+                )
+
+            report = audit_canonical_root(root, expectations_path=expectation_path)
+            self.assertEqual(
+                [("P0", "core_flow"), ("P1", "middle_flow"), ("P2", "wide_flow")],
+                [(topic["priority"], topic["topic_id"]) for topic in report["topics"]],
+            )
+
+            p2_report = audit_canonical_root(root, expectations_path=expectation_path, priorities=["P2"])
+            self.assertEqual(1, p2_report["topic_count"])
+            self.assertEqual("wide_flow", p2_report["topics"][0]["topic_id"])
+            self.assertEqual("P2", p2_report["topics"][0]["priority"])
+
     def test_focused_scoring_demotes_unrelated_telemetry_noise(self) -> None:
         topic = CanonicalTopic(
             topic_id="remote_process_access_flow",
@@ -225,6 +265,38 @@ def _write_expectations(
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=True, sort_keys=True), encoding="utf-8")
 
 
+def _write_expectation_manifest(path: Path, topic_specs: list[tuple[str, str]]) -> None:
+    payload = {
+        "schema": EXPECTATIONS_SCHEMA_VERSION,
+        "defaults": {
+            "max_validation_warnings": 0,
+            "min_source_refs": 1,
+            "pass_score": 80,
+            "degraded_score": 60,
+            "max_name_length": 140,
+            "forbidden_name_regexes": [],
+            "suspicious_name_regexes": [],
+            "suspicious_tags": [],
+        },
+        "topics": {
+            topic_id: {
+                "priority": priority,
+                "mode": "focused",
+                "required_name_regexes": ["^GoodCreate$"],
+                "bonus_name_regexes": ["^GoodDelete$"],
+                "forbidden_name_regexes": [],
+                "suspicious_name_regexes": [],
+                "suspicious_tags": [],
+                "preferred_tags": ["process_thread"],
+                "min_selected_functions": 2,
+                "min_edge_count": 1,
+            }
+            for topic_id, priority in topic_specs
+        },
+    }
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+
+
 def _write_index(root: Path, topic_id: str, topic_dir: Path, *, priority: str = "P0", source_hash: str = "source-a") -> None:
     root.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -238,6 +310,25 @@ def _write_index(root: Path, topic_id: str, topic_dir: Path, *, priority: str = 
                 "mode": "lifecycle",
                 "directory": str(topic_dir.resolve()),
             }
+        ],
+    }
+    (root / "index.json").write_text(json.dumps(payload, indent=2, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+
+
+def _write_multi_index(root: Path, topic_specs: list[tuple[str, str]], *, source_hash: str = "source-a") -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "kernel_corpus_canonical_answer_run_v1",
+        "source_index_sha256": source_hash,
+        "pack_generated_at": "2026-06-13T00:00:00+00:00",
+        "topics": [
+            {
+                "id": topic_id,
+                "priority": priority,
+                "mode": "focused",
+                "directory": str((root / priority / topic_id).resolve()),
+            }
+            for topic_id, priority in topic_specs
         ],
     }
     (root / "index.json").write_text(json.dumps(payload, indent=2, ensure_ascii=True, sort_keys=True), encoding="utf-8")

@@ -23,6 +23,7 @@ RUN_SCHEMA_VERSION = "kernel_corpus_canonical_answer_run_v1"
 ARTIFACT_SCHEMA_VERSION = "kernel_corpus_canonical_answer_artifact_v1"
 TRACE_SCHEMA_VERSION = "kernel_corpus_canonical_trace_v1"
 DEFAULT_MANIFEST_PATH = Path(__file__).with_name("canonical_topics.json")
+SUPPORTED_PRIORITIES = ("P0", "P1", "P2")
 DEFAULT_QUERY_LIMIT = 24
 DEFAULT_MAX_FUNCTIONS = 40
 MAX_GENERATED_FUNCTION_BULLETS = 64
@@ -168,7 +169,7 @@ def load_manifest(path: str | Path = DEFAULT_MANIFEST_PATH) -> dict[str, Any]:
             raise QueryError("Duplicate canonical topic id: %s" % topic_id)
         seen.add(topic_id)
         priority = str(item.get("priority", "") or "")
-        if priority not in {"P0", "P1"}:
+        if priority not in SUPPORTED_PRIORITIES:
             raise QueryError("Unsupported canonical topic priority for %s: %s" % (topic_id, priority))
         mode = str(item.get("mode", "") or "")
         if mode not in {"lifecycle", "focused"}:
@@ -232,7 +233,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _add_manifest_and_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST_PATH), help="Canonical topics manifest path.")
-    parser.add_argument("--priority", action="append", default=[], choices=("P0", "P1"), help="Priority to include.")
+    parser.add_argument("--priority", action="append", default=[], choices=SUPPORTED_PRIORITIES, help="Priority to include.")
     parser.add_argument("--topic", action="append", default=[], help="Topic id to include. Can be repeated.")
 
 

@@ -19,18 +19,22 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "kernel_corpus" / "minimal"
 
 
 class KernelCorpusCanonicalAnswerTests(unittest.TestCase):
-    def test_default_manifest_covers_p0_and_p1_topics(self) -> None:
+    def test_default_manifest_covers_p0_p1_and_p2_topics(self) -> None:
         manifest = load_manifest()
         topics = select_topics(manifest)
 
         p0 = [topic.topic_id for topic in topics if topic.priority == "P0"]
         p1 = [topic.topic_id for topic in topics if topic.priority == "P1"]
+        p2 = [topic.topic_id for topic in topics if topic.priority == "P2"]
 
         self.assertEqual(24, len(p0))
         self.assertEqual(15, len(p1))
+        self.assertEqual(36, len(p2))
         self.assertIn("process_object_lifecycle", p0)
         self.assertIn("callback_registration_inventory", p1)
+        self.assertIn("process_protection_mitigation_state", p2)
         self.assertEqual(len(topics), len({topic.topic_id for topic in topics}))
+        self.assertEqual(p2, [topic.topic_id for topic in select_topics(manifest, priorities=["P2"])])
 
     def test_builds_lifecycle_and_focused_artifacts_from_fixture_pack(self) -> None:
         with _built_pack() as pack_root:
@@ -41,13 +45,13 @@ class KernelCorpusCanonicalAnswerTests(unittest.TestCase):
                 pack_root,
                 output_root=output_root,
                 manifest_path=manifest_path,
-                topic_ids=["process_object_lifecycle", "focused_process_entrypoints"],
+                topic_ids=["process_object_lifecycle", "focused_process_entrypoints", "p2_process_review"],
             )
 
             self.assertEqual(RUN_SCHEMA_VERSION, result["schema"])
             self.assertTrue(result["ok"])
-            self.assertEqual(2, result["topic_count"])
-            self.assertEqual(2, result["passed_count"])
+            self.assertEqual(3, result["topic_count"])
+            self.assertEqual(3, result["passed_count"])
 
             for topic in result["topics"]:
                 topic_dir = Path(topic["directory"])
@@ -81,6 +85,7 @@ def _write_fixture_manifest(pack_root: Path) -> Path:
         "priorities": {
             "P0": "fixture",
             "P1": "fixture",
+            "P2": "fixture",
         },
         "references": {
             "kernel_objects": {
@@ -109,6 +114,18 @@ def _write_fixture_manifest(pack_root: Path) -> Path:
                 "mode": "focused",
                 "max_functions": 3,
                 "seed_names": ["NtCreateUserProcess", "PspAllocateProcess"],
+                "queries": ["process"],
+                "tags": ["process_thread"],
+                "source_refs": ["kernel_objects"],
+            },
+            {
+                "id": "p2_process_review",
+                "priority": "P2",
+                "title": "P2 Process Review",
+                "question": "Explain the P2 process review fixture from focused evidence.",
+                "mode": "focused",
+                "max_functions": 3,
+                "seed_names": ["NtCreateUserProcess"],
                 "queries": ["process"],
                 "tags": ["process_thread"],
                 "source_refs": ["kernel_objects"],

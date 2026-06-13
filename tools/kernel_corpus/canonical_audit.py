@@ -17,7 +17,7 @@ from tools.kernel_corpus.errors import KernelCorpusError, QueryError
 EXPECTATIONS_SCHEMA_VERSION = "kernel_corpus_canonical_expectations_v1"
 AUDIT_SCHEMA_VERSION = "kernel_corpus_canonical_quality_report_v1"
 DEFAULT_EXPECTATIONS_PATH = Path(__file__).with_name("canonical_expectations.json")
-PRIORITY_ORDER = {"P0": 0, "P1": 1}
+PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -256,7 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--canonical-root", required=True, help="Root containing canonical answer topic directories.")
     parser.add_argument("--expectations", default=str(DEFAULT_EXPECTATIONS_PATH), help="Expectation manifest JSON path.")
     parser.add_argument("--topic", action="append", default=[], help="Topic id to audit. Can be repeated.")
-    parser.add_argument("--priority", action="append", default=[], choices=("P0", "P1"), help="Priority to include.")
+    parser.add_argument("--priority", action="append", default=[], choices=tuple(PRIORITY_ORDER), help="Priority to include.")
     parser.add_argument("--format", choices=("json", "text"), default="json", help="Output format.")
     parser.add_argument("--report-out", default="", help="Optional JSON report output path.")
     return parser

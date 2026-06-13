@@ -140,7 +140,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The implementation is complete through Phase 17:
+The implementation is complete through Phase 18:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -175,14 +175,21 @@ The implementation is complete through Phase 17:
 15. Experimental vector recall lives under an explicit opt-in experimental
     package, resolves every vector hit back to SQLite function payloads, and
     keeps generated vector indexes outside committed repo state by default.
-16. Canonical answer generation catalogs P0/P1 kernel-analysis topics and
+16. Canonical answer generation catalogs P0/P1/P2 kernel-analysis topics and
     emits reviewable answer bundles with evidence packs, traces, prompts,
     answer drafts, source maps, candidate reviews, gaps, and validation
     reports under the ignored pack output tree.
-17. Canonical answer quality audit checks generated P0/P1 answer bundles
+17. Canonical answer quality audit checks generated P0/P1/P2 answer bundles
     against reviewable golden expectations, writes ignored quality reports,
     and feeds deterministic candidate-quality metadata back into generated
     artifacts.
+18. The P2 curation tier adds broad operational topics across process
+    protection, handle duplication, jobs, ALPC, tokens, ACLs, code integrity,
+    registry hives, file names, VADs, PFNs, system threads, APC/context
+    surfaces, debug ports, ETW/WMI, object types, push locks, lookaside lists,
+    pool tracking, IRP cancellation, unload hazards, device interfaces, PnP,
+    power, boot-start drivers, hypervisor/VSL, enclaves, hotpatching, cache
+    manager sections, and Timer2 paths.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -514,7 +521,9 @@ canonical kernel-analysis topics. P0 covers core ntoskrnl object, I/O, memory,
 security, callback, dispatch, and synchronization flows. P1 covers security
 and anti-cheat oriented overlays such as remote process access, identity
 sources, token impersonation, callback inventories, telemetry, verifier
-classes, low-resource paths, and deadlock risks.
+classes, low-resource paths, and deadlock risks. P2 is the broader curation
+tier for operational analyst questions that are useful but not required for
+the minimum core answer set.
 
 `tools/kernel_corpus/canonical_answers.py` turns the catalog into generated
 artifact bundles. Each topic directory contains:
@@ -548,6 +557,15 @@ python -B .\tools\kernel_corpus\canonical_answers.py build `
   --force
 ```
 
+For the broad curation tier:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_answers.py build `
+  --pack-root "<pack-root>" `
+  --priority P2 `
+  --force
+```
+
 Default output:
 
 ```text
@@ -558,7 +576,7 @@ Generated canonical answer bundles are research artifacts. Keep them under the
 ignored pack root or another external corpus workspace.
 
 `tools/kernel_corpus/canonical_expectations.json` is the reviewable golden
-expectation layer for the current P0/P1 catalog. It defines required, bonus,
+expectation layer for the current P0/P1/P2 catalog. It defines required, bonus,
 forbidden, and suspicious function-name regexes; preferred and suspicious tags;
 minimum selected-function counts; minimum edge counts; required lifecycle
 phases; validation-warning ceilings; and source-reference coverage.
@@ -582,6 +600,16 @@ python -B .\tools\kernel_corpus\canonical_audit.py `
   --canonical-root "<pack-root>\canonical-answers" `
   --format text `
   --report-out "<pack-root>\canonical-answers\quality-report.json"
+```
+
+P2-only audit is supported for curation runs:
+
+```powershell
+python -B .\tools\kernel_corpus\canonical_audit.py `
+  --canonical-root "<pack-root>\canonical-answers" `
+  --priority P2 `
+  --format text `
+  --report-out "<pack-root>\canonical-answers\quality-report-p2.json"
 ```
 
 Generated quality reports live under the ignored canonical answer root:
@@ -1204,6 +1232,35 @@ Acceptance:
   exposes obvious noise.
 - Keep normal tests fixture-based and independent of the full ntoskrnl pack.
 
+### Phase 18: Canonical answer topic expansion and curation
+
+Deliver:
+
+```text
+tools/kernel_corpus/canonical_topics.json
+tools/kernel_corpus/canonical_expectations.json
+tools/kernel_corpus/canonical_answers.py
+tools/kernel_corpus/canonical_audit.py
+tests/test_kernel_corpus_canonical_answers.py
+tests/test_kernel_corpus_canonical_audit.py
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+```
+
+Acceptance:
+
+- Support P2 priority end to end in manifest loading, listing, generation,
+  audit filtering, and audit ordering.
+- Add 30 to 60 concrete P2 topics with explicit retrieval seeds, queries,
+  tags, and public source-reference anchors.
+- Keep every canonical topic covered by exactly one expectation entry.
+- Keep required regexes concrete function-name patterns, not constants,
+  status codes, macros, structures, or absent aliases.
+- Keep normal tests fixture-based while allowing optional local ntoskrnl smoke
+  for P2 generation and audit.
+- Keep generated P2 answer bundles and quality reports under ignored output
+  roots.
+
 ## Testing Strategy
 
 Use small fixture corpora for unit tests. Do not require the full ntoskrnl
@@ -1224,8 +1281,9 @@ Test layers:
    roots, update/delete behavior, and MCP config JSON shape.
 10. Performance profiler tests for fixture build and retrieval coverage.
 11. Vector recall experiment tests with a fake embedding backend.
-12. Canonical answer manifest and fixture-generation tests.
-13. Canonical audit expectation, report, and scoring-regression tests.
+12. Canonical answer manifest, P2 priority, and fixture-generation tests.
+13. Canonical audit expectation, P2 filtering/order, report, and
+    scoring-regression tests.
 14. Optional integration smoke against the real ntoskrnl pack when present.
 
 Integration tests should skip cleanly when the large corpus path is absent.
