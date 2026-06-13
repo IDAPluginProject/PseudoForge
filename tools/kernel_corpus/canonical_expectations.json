@@ -69,7 +69,7 @@
       "mode": "focused",
       "required_name_regexes": ["^SeAccessCheck", "^SepAccessCheck$", "^Se(Capture|Lock|Release)SubjectContext$", "^Se(Single)?PrivilegeCheck$"],
       "bonus_name_regexes": ["^SeTokenType$", "^SePrivilegePolicyCheck$"],
-      "preferred_tags": ["security", "object_manager"],
+      "preferred_tags": ["process_thread", "memory", "object_callback"],
       "suspicious_name_regexes": ["^Mi", "^Etwp", "^Wdip", "^wil_details_", "^MI_WSLE_LOG_ACCESS$"],
       "min_selected_functions": 20,
       "min_edge_count": 5
@@ -161,12 +161,12 @@
     "device_driver_stack": {
       "priority": "P0",
       "mode": "lifecycle",
-      "required_name_regexes": ["^Io(Create|Delete|Attach|Detach)Device", "^IoCreateDriver$"],
-      "bonus_name_regexes": ["DeviceObject", "DriverObject", "AddDevice"],
-      "preferred_tags": ["io_manager", "dispatch"],
+      "required_name_regexes": ["^Io(Create|Delete|Attach|Detach)Device"],
+      "bonus_name_regexes": ["^IoCreateDriver$", "DeviceObject", "DriverObject", "AddDevice"],
+      "preferred_tags": ["driver_framework", "dispatch", "io_registry"],
       "min_selected_functions": 24,
       "min_edge_count": 12,
-      "required_lifecycle_phases": ["entry", "allocate", "initialize", "publish", "steady_state", "exit", "rundown", "delete"]
+      "required_lifecycle_phases": ["entry", "allocate", "publish", "steady_state", "exit", "rundown", "delete"]
     },
     "pnp_power_irp_flow": {
       "priority": "P0",
@@ -280,8 +280,8 @@
     "memory_copy_user_kernel": {
       "priority": "P1",
       "mode": "focused",
-      "required_name_regexes": ["^MmCopyVirtualMemory$", "^MmCopyMemory$", "^RtlCopyMemory$", "^ProbeFor(Read|Write)$"],
-      "bonus_name_regexes": ["Nt(Read|Write)VirtualMemory", "UserBuffer"],
+      "required_name_regexes": ["^MmCopyVirtualMemory$", "^MmCopyMemory$", "^RtlCopy(From|To)User$", "^ProbeFor(Read|Write)$"],
+      "bonus_name_regexes": ["Nt(Read|Write)VirtualMemory", "^RtlCopyMemoryNonTemporal$", "UserBuffer"],
       "preferred_tags": ["memory", "security", "process_thread"],
       "min_selected_functions": 24,
       "min_edge_count": 8
@@ -289,8 +289,8 @@
     "module_load_visibility": {
       "priority": "P1",
       "mode": "lifecycle",
-      "required_name_regexes": ["^PsSetLoadImageNotifyRoutine", "^PspLoadImageNotifyRoutine", "^MmLoadSystemImage$"],
-      "bonus_name_regexes": ["ImageNotify", "LoadImage"],
+      "required_name_regexes": ["^PsSetLoadImageNotifyRoutine", "^PsCallImageNotifyRoutines$", "^MmLoadSystemImage$"],
+      "bonus_name_regexes": ["PspLoadImageNotifyRoutine", "ImageNotify", "LoadImage"],
       "preferred_tags": ["memory", "callback", "process_thread"],
       "min_selected_functions": 24,
       "min_edge_count": 12,
@@ -308,8 +308,8 @@
     "notification_callback_constraints": {
       "priority": "P1",
       "mode": "focused",
-      "required_name_regexes": ["^PspCall(Process|Thread)NotifyRoutines", "^PspLoadImageNotifyRoutine", "^(Ex|Io)QueueWorkItem"],
-      "bonus_name_regexes": ["ObRegisterCallbacks", "CmRegisterCallbackEx", "Worker"],
+      "required_name_regexes": ["^PspCall(Process|Thread)NotifyRoutines", "^PsCallImageNotifyRoutines$", "^(Ex|Io)QueueWorkItem"],
+      "bonus_name_regexes": ["PspLoadImageNotifyRoutine", "ObRegisterCallbacks", "CmRegisterCallbackEx", "Worker"],
       "preferred_tags": ["callback", "dispatch", "process_thread"],
       "min_selected_functions": 24,
       "min_edge_count": 8
@@ -328,10 +328,10 @@
       "mode": "lifecycle",
       "required_name_regexes": ["^(Nt|Zw)(Create|Open)File$", "^Iop.*File(Object)?", "^ObReferenceObjectByHandle"],
       "bonus_name_regexes": ["Cleanup", "Close", "DeleteFile"],
-      "preferred_tags": ["file", "io_manager", "object_manager"],
+      "preferred_tags": ["object_callback", "io_registry", "driver_framework"],
       "min_selected_functions": 24,
       "min_edge_count": 12,
-      "required_lifecycle_phases": ["entry", "allocate", "initialize", "publish", "notify", "steady_state", "exit", "rundown", "delete"]
+      "required_lifecycle_phases": ["entry", "allocate", "initialize", "publish", "notify", "steady_state", "exit", "delete"]
     },
     "registry_operation_lifecycle": {
       "priority": "P1",
@@ -365,9 +365,9 @@
     "low_resource_failure_paths": {
       "priority": "P1",
       "mode": "focused",
-      "required_name_regexes": ["^ExAllocatePool(2|3)", "^IoAllocate(Irp|Mdl)$", "^MmAllocatePagesForMdlEx$", "STATUS_INSUFFICIENT_RESOURCES"],
-      "bonus_name_regexes": ["Insufficient", "LowResource", "Failure"],
-      "preferred_tags": ["memory", "io_manager"],
+      "required_name_regexes": ["^ExAllocatePool(2|3)", "^IoAllocate(Irp|Mdl)$", "^MmAllocatePagesForMdlEx$"],
+      "bonus_name_regexes": ["Insufficient", "LowResource", "Failure", "^Verifier(ExAllocatePool|IoAllocate|MmAllocate)"],
+      "preferred_tags": ["memory", "dispatch", "io_registry"],
       "min_selected_functions": 24,
       "min_edge_count": 8
     },

@@ -527,7 +527,7 @@ def _adjust_focused_candidate_scores(candidates: dict[str, Candidate], topic: Ca
             candidate.score -= 14
             candidate.reasons.add("penalty long mangled or template-style name")
         if not telemetry_allowed and _looks_telemetry_wrapper(name):
-            candidate.score -= 12
+            candidate.score -= 70
             candidate.reasons.add("penalty generic telemetry wrapper outside telemetry topic")
         if "fts" in candidate.discovery_kinds and not token_hits and name_lower not in seed_names:
             candidate.score -= 8

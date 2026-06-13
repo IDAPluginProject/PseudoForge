@@ -307,6 +307,19 @@ validation nor canonical audit replaces expert review; inspect
 `candidate-review.md`, `gaps.md`, and `quality.md` before treating the answer
 as a polished analysis result.
 
+Expectation tuning rules:
+
+- Put only concrete function-name patterns in `required_name_regexes`.
+- Treat constants, status codes, macros, inline aliases, structure names, and
+  absent private routine names as bonus context, source-map context, or explicit
+  gaps instead of required function matches.
+- Prefer current corpus tag names when setting `preferred_tags`; public
+  subsystem names are useful for topic search, but they may not be actual pack
+  tags.
+- Keep suspicious regexes active for noisy wrapper families. Passing audit
+  topics can still contain review actions when the candidate list deserves
+  manual inspection.
+
 Local ntoskrnl smoke after the P0/P1 catalog was added:
 
 ```text
@@ -317,6 +330,18 @@ passed=39
 failed=0
 validation warnings=0
 generated files=353
+```
+
+Local ntoskrnl smoke after the first canonical audit tuning pass:
+
+```text
+topics=39
+P0=24
+P1=15
+audit pass=39
+audit degraded=0
+audit fail=0
+answer validation warnings=0
 ```
 
 ## Trace Lifecycles

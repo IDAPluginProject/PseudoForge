@@ -20,8 +20,12 @@
     "IopLoadDriver",
     "MmLoadSystemImage",
     "MiLoadImageSection",
+    "NtCreateSection",
+    "ZwCreateSection",
+    "NtOpenSection",
+    "ZwOpenSection",
     "PsSetLoadImageNotifyRoutine",
-    "PspCallImageNotifyRoutines",
+    "PsCallImageNotifyRoutines",
     "MmUnloadSystemImage",
     "MiUnloadSystemImage",
     "PsRemoveLoadImageNotifyRoutine"
@@ -65,15 +69,23 @@
       "seed_names": [
         "MiLoadImageSection",
         "MiCreateImageOrDataSection",
+        "NtCreateSection",
+        "ZwCreateSection",
+        "NtOpenSection",
+        "ZwOpenSection",
         "MiAllocateLoadedModule"
       ],
       "name_terms": [
         "LoadImageSection",
         "CreateImage",
+        "CreateSection",
+        "OpenSection",
         "AllocateLoadedModule"
       ],
       "terms": [
         "image section",
+        "create section",
+        "open section",
         "allocate module",
         "control area",
         "loaded module"
@@ -136,7 +148,7 @@
       "seed_names": [
         "PsSetLoadImageNotifyRoutine",
         "PsRemoveLoadImageNotifyRoutine",
-        "PspCallImageNotifyRoutines"
+        "PsCallImageNotifyRoutines"
       ],
       "name_terms": [
         "LoadImageNotify",

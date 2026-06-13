@@ -562,6 +562,10 @@ expectation layer for the current P0/P1 catalog. It defines required, bonus,
 forbidden, and suspicious function-name regexes; preferred and suspicious tags;
 minimum selected-function counts; minimum edge counts; required lifecycle
 phases; validation-warning ceilings; and source-reference coverage.
+Required function regexes must match concrete function names that can appear in
+an evidence pack. Status codes, macros, inline aliases, structure names, and
+private routine names absent from the corpus belong in bonus context,
+source-map context, or explicit gaps rather than required-name checks.
 
 `tools/kernel_corpus/canonical_audit.py` is deterministic candidate-quality
 lint for generated canonical answer bundles. It reads each topic's
@@ -1194,6 +1198,10 @@ Acceptance:
   reference gaps, source identity drift, and generated-artifact gaps.
 - Write ignored root-level and per-topic quality reports under
   `<pack-root>\canonical-answers`.
+- Keep tuning evidence-based: update expectations for invalid non-function
+  requirements, update ontology seeds for real missing lifecycle candidates,
+  and update retrieval scoring only when deterministic candidate evidence
+  exposes obvious noise.
 - Keep normal tests fixture-based and independent of the full ntoskrnl pack.
 
 ## Testing Strategy

@@ -58,6 +58,19 @@ class KernelCorpusLifecycleTests(unittest.TestCase):
             self.assertEqual(topic, ontology["topic"])
             self.assertEqual("%s.json" % topic, path.name)
 
+    def test_module_image_ontology_uses_present_section_and_notify_seeds(self) -> None:
+        ontology, _path = load_ontology("module_image")
+        seed_names = set(ontology["seed_names"])
+        allocate_seeds = set(ontology["phases"]["allocate"]["seed_names"])
+        notify_seeds = set(ontology["phases"]["notify"]["seed_names"])
+
+        self.assertIn("NtCreateSection", seed_names)
+        self.assertIn("ZwCreateSection", allocate_seeds)
+        self.assertIn("NtOpenSection", allocate_seeds)
+        self.assertIn("PsCallImageNotifyRoutines", notify_seeds)
+        self.assertNotIn("PspCallImageNotifyRoutines", seed_names)
+        self.assertNotIn("PspCallImageNotifyRoutines", notify_seeds)
+
     def test_process_graph_maps_seed_functions_to_expected_phases(self) -> None:
         functions = [
             _function("0x140001000", "NtCreateUserProcess", ["process_thread"], ["create", "process"], ["0x140002000"]),

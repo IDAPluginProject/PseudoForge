@@ -31,6 +31,23 @@ class KernelCorpusCanonicalAuditTests(unittest.TestCase):
         self.assertEqual([], sorted(set(topic_ids) - set(expected_topics)))
         self.assertEqual([], sorted(set(expected_topics) - set(topic_ids)))
 
+    def test_required_expectations_are_concrete_function_name_patterns(self) -> None:
+        expectations = load_expectations()
+        topics = expectations["topics"]
+        all_required = {
+            topic_id: list(item.get("required_name_regexes", []))
+            for topic_id, item in topics.items()
+        }
+
+        self.assertNotIn("STATUS_INSUFFICIENT_RESOURCES", all_required["low_resource_failure_paths"])
+        self.assertNotIn("^RtlCopyMemory$", all_required["memory_copy_user_kernel"])
+        self.assertNotIn("^PspLoadImageNotifyRoutine", all_required["module_load_visibility"])
+        self.assertNotIn("^PspLoadImageNotifyRoutine", all_required["notification_callback_constraints"])
+        self.assertNotIn("^IoCreateDriver$", all_required["device_driver_stack"])
+        self.assertIn("^PsCallImageNotifyRoutines$", all_required["module_load_visibility"])
+        self.assertIn("^PsCallImageNotifyRoutines$", all_required["notification_callback_constraints"])
+        self.assertIn("^RtlCopy(From|To)User$", all_required["memory_copy_user_kernel"])
+
     def test_audit_passes_and_writes_quality_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "canonical-answers"
@@ -160,6 +177,7 @@ class KernelCorpusCanonicalAuditTests(unittest.TestCase):
         ordered = sorted(candidates.values(), key=lambda item: -item.score)
 
         self.assertEqual("NtOpenProcess", ordered[0].name)
+        self.assertLess(candidates["0x2"].score, candidates["0x1"].score)
         self.assertTrue(any("score exact seed-name boost" in reason for reason in candidates["0x1"].reasons))
         self.assertTrue(any("telemetry wrapper" in reason for reason in candidates["0x2"].reasons))
 

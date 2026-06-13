@@ -269,7 +269,7 @@
       "atlas_page": "memory",
       "max_seeds": 64,
       "depth": 2,
-      "extra_seed_names": ["MmLoadSystemImage", "MiMapViewOfImageSection", "PsSetLoadImageNotifyRoutine", "PsSetLoadImageNotifyRoutineEx", "PspLoadImageNotifyRoutine"],
+      "extra_seed_names": ["MmLoadSystemImage", "MiMapViewOfImageSection", "PsSetLoadImageNotifyRoutine", "PsSetLoadImageNotifyRoutineEx", "PsCallImageNotifyRoutines"],
       "source_refs": ["image_notify", "memory_drivers", "object_lifecycle"]
     },
     {
@@ -291,7 +291,7 @@
       "question": "Inventory the process, thread, and image notification callback registration and invocation paths visible in this kernel corpus.",
       "mode": "focused",
       "max_functions": 48,
-      "seed_names": ["PsSetCreateProcessNotifyRoutine", "PsSetCreateProcessNotifyRoutineEx", "PsSetCreateProcessNotifyRoutineEx2", "PspCallProcessNotifyRoutines", "PsSetCreateThreadNotifyRoutine", "PsSetCreateThreadNotifyRoutineEx", "PspCallThreadNotifyRoutines", "PsSetLoadImageNotifyRoutine", "PsSetLoadImageNotifyRoutineEx", "PspLoadImageNotifyRoutine"],
+      "seed_names": ["PsSetCreateProcessNotifyRoutine", "PsSetCreateProcessNotifyRoutineEx", "PsSetCreateProcessNotifyRoutineEx2", "PspCallProcessNotifyRoutines", "PsSetCreateThreadNotifyRoutine", "PsSetCreateThreadNotifyRoutineEx", "PspCallThreadNotifyRoutines", "PsSetLoadImageNotifyRoutine", "PsSetLoadImageNotifyRoutineEx", "PsCallImageNotifyRoutines"],
       "queries": ["process notify", "thread notify", "image notify", "load image notify", "create process notify", "create thread notify"],
       "tags": ["callback", "process_thread"],
       "source_refs": ["process_notify", "thread_notify", "image_notify", "process_thread_manager"]
@@ -507,7 +507,7 @@
       "question": "Explain how this kernel copies data between user and kernel address spaces, validates access, and handles cross-process copies.",
       "mode": "focused",
       "max_functions": 48,
-      "seed_names": ["MmCopyVirtualMemory", "MmCopyMemory", "RtlCopyMemory", "ProbeForRead", "ProbeForWrite", "NtReadVirtualMemory", "NtWriteVirtualMemory"],
+      "seed_names": ["MmCopyVirtualMemory", "MmCopyMemory", "RtlCopyFromUser", "RtlCopyToUser", "RtlCopyMemoryNonTemporal", "ProbeForRead", "ProbeForWrite", "NtReadVirtualMemory", "NtWriteVirtualMemory"],
       "queries": ["copy virtual memory", "copy memory", "probe user buffer", "read virtual memory", "write virtual memory", "user address"],
       "tags": ["memory", "security", "process_thread"],
       "source_refs": ["memory_drivers", "security_ref"]
@@ -543,7 +543,7 @@
       "question": "Explain the operational constraints and offload patterns around process, thread, image, registry, and object callbacks in this corpus.",
       "mode": "focused",
       "max_functions": 56,
-      "seed_names": ["PspCallProcessNotifyRoutines", "PspCallThreadNotifyRoutines", "PspLoadImageNotifyRoutine", "CmRegisterCallbackEx", "ObRegisterCallbacks", "ExQueueWorkItem", "IoQueueWorkItem"],
+      "seed_names": ["PspCallProcessNotifyRoutines", "PspCallThreadNotifyRoutines", "PsCallImageNotifyRoutines", "CmRegisterCallbackEx", "ObRegisterCallbacks", "ExQueueWorkItem", "IoQueueWorkItem"],
       "queries": ["notify routine", "callback", "queue work item", "worker thread", "reentrancy", "deadlock", "PASSIVE_LEVEL"],
       "tags": ["callback", "dispatch", "process_thread"],
       "source_refs": ["process_thread_manager", "worker_threads", "process_notify", "thread_notify", "image_notify"]
