@@ -109,12 +109,29 @@ cmd /c copy /b "$ArtifactId.tar.gz.*" "$ArtifactId.tar.gz"
 tar -xzf "$ArtifactId.tar.gz" -C $InstallRoot
 ```
 
-Set the pack root from the extracted package:
+Set the pack root from the extracted package, rewrite pack-root metadata to the
+actual install path, and validate the result:
 
 ```powershell
 $PackRoot = "$InstallRoot\$ArtifactId\kernel-pack"
 Set-Location $Repo
 
+python -B .\tools\kernel_corpus\relocate_pack.py `
+  --pack-root $PackRoot `
+  --validate `
+  --include-derived `
+  --format text
+```
+
+`relocate_pack.py` is safe to run after every release extraction. It repairs
+absolute pack-root metadata in `manifest.json`, `corpus.sqlite`, lifecycle
+evidence packs, and atlas pages. This keeps `validate_pack.py
+--include-derived` working even when the archive is extracted under a custom
+`$InstallRoot`.
+
+You can also run validation directly after relocation:
+
+```powershell
 python -B .\tools\kernel_corpus\validate_pack.py `
   --pack-root $PackRoot `
   --include-derived `
@@ -187,8 +204,10 @@ rewrites pack-root metadata for
 `$InstallRoot\$ArtifactId\kernel-pack` before archiving. This keeps derived
 evidence packs, atlas pages, answer plans, manifest `sqlite_path`, and SQLite
 `corpus_manifest` rows consistent after a user extracts the release package.
-Use `--no-relocate-pack` only when intentionally archiving the pack with its
-current absolute paths.
+The generated install README also tells consumers to run `relocate_pack.py`
+after extraction so custom install roots are repaired in place. Use
+`--no-relocate-pack` only when intentionally archiving the pack with its current
+absolute paths.
 
 Preview without writing files:
 
@@ -820,7 +839,8 @@ roles, phase labels, and call-edge changes when explaining drift.
 1. Set `$Repo`, `$CorpusRoot`, and `$PackRoot`.
 2. Install from a release package, or build/refresh the pack if no release
    package exists.
-3. Validate freshness.
+3. Run `relocate_pack.py --validate --include-derived` after release
+   extraction, or run `validate_pack.py` directly for locally built packs.
 4. Generate or refresh canonical answers for the needed priorities.
 5. Audit canonical answers.
 6. Configure MCP and install/update the skill.
@@ -848,6 +868,7 @@ roles, phase labels, and call-edge changes when explaining drift.
 | Report output rejected | Output path escaped the allowed root. | Write under `<pack-root>` or the documented external report path. |
 | Release asset is over the upload limit | Split volume size is too large. | Repackage with `--volume-size 1900m` or smaller. |
 | Extracted MCP pack is missing | Archive was extracted to a different root or artifact id. | Check `artifact-manifest.json` and set `$PackRoot` to `<install-root>\<artifact-id>\kernel-pack`. |
+| `evidence_pack_root_mismatch` or `atlas_pack_root_mismatch` after extraction | Release metadata still points to the pack root used during packaging. | Run `relocate_pack.py --pack-root $PackRoot --validate --include-derived --format text`. |
 
 ## Safety Boundaries
 

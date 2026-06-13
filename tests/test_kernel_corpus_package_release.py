@@ -82,6 +82,9 @@ class KernelCorpusPackageReleaseTests(unittest.TestCase):
             self.assertEqual(DEFAULT_GITHUB_REPO, manifest["github_repo"])
             self.assertEqual("test-commit", manifest["source"]["pseudoforge_commit"])
             self.assertEqual(str(install_pack_root), manifest["install"]["pack_root_after_extract"])
+            self.assertIn("relocate_pack.py", manifest["install"]["relocate_command"])
+            self.assertIn("--include-derived", manifest["install"]["relocate_command"])
+            self.assertIn("validate_pack.py", manifest["install"]["validate_command"])
             self.assertEqual(str(install_pack_root), manifest["relocation"]["pack_root_after_extract"])
             self.assertEqual(["kernel-pack", "raw-corpus"], [item["name"] for item in manifest["components"]])
 
@@ -92,6 +95,9 @@ class KernelCorpusPackageReleaseTests(unittest.TestCase):
             readme_text = readme_path.read_text(encoding="utf-8")
             self.assertIn('New-Item -ItemType Directory -Force $InstallRoot | Out-Null', readme_text)
             self.assertIn('tar -xzf "ntoskrnl-test-r1.tar.gz" -C $InstallRoot', readme_text)
+            self.assertIn("Finalize Metadata", readme_text)
+            self.assertIn("relocate_pack.py", readme_text)
+            self.assertIn("--include-derived", readme_text)
 
             archive_blob = b"".join(path.read_bytes() for path in archive_parts)
             with tarfile.open(fileobj=io.BytesIO(archive_blob), mode="r:gz") as archive:

@@ -47,6 +47,7 @@ tools/
     paths.py
     perf_profile.py
     query.py
+    relocate_pack.py
     schema.py
     store.py
     validate_pack.py
@@ -1162,9 +1163,14 @@ Operational rules:
    temporary `kernel-pack` copy and rewrites JSON, Markdown, manifest
    `sqlite_path`, and SQLite `corpus_manifest` pack-root metadata for
    `<install-root>\<artifact-id>\kernel-pack` before archiving.
-6. `checksums.sha256` covers the manifest, install README, and every split
+6. `tools/kernel_corpus/relocate_pack.py` is the consumer-side repair path for
+   custom install roots. It infers previous pack roots from the manifest,
+   SQLite metadata, evidence packs, and atlas pages, rewrites them to the
+   actual pack root, and can run `validate_pack.py --include-derived` after the
+   rewrite.
+7. `checksums.sha256` covers the manifest, install README, and every split
    archive part.
-7. PseudoForge release zips must not include these corpus packages. The
+8. PseudoForge release zips must not include these corpus packages. The
    `kernel-corpus` repository release is the artifact registry.
 
 ## Performance And Scale
@@ -1889,7 +1895,9 @@ Deliver:
 
 ```text
 tools/kernel_corpus/package_release.py
+tools/kernel_corpus/relocate_pack.py
 tests/test_kernel_corpus_package_release.py
+tests/test_kernel_corpus_relocate_pack.py
 docs/kernel-corpus-install-usage.md
 docs/kernel-corpus-runbook.md
 tools/kernel_corpus/DESIGN.md
@@ -1910,11 +1918,13 @@ Acceptance:
   archive names.
 - Rewrite release-pack metadata for the expected install root without mutating
   the source pack.
+- Repair installed release packs after extraction to custom roots by inferring
+  previous pack-root metadata and rewriting it to the actual pack root.
 - Keep package output under ignored or external staging roots and out of
   PseudoForge code releases.
 - Test dry-run behavior, split-volume writes, checksum metadata, missing pack
-  validation, size parsing, relocation-safe derived metadata, and archive
-  extractability with fixture packs.
+  validation, size parsing, relocation-safe derived metadata, install-time
+  relocation repair, and archive extractability with fixture packs.
 
 ## Testing Strategy
 

@@ -85,6 +85,18 @@ python -B .\tools\kernel_corpus\validate_pack.py `
   --format text
 ```
 
+After extracting a release package, run the relocation helper before validating
+derived artifacts. This rewrites old pack-root metadata to the actual install
+path and then runs the validator:
+
+```powershell
+python -B .\tools\kernel_corpus\relocate_pack.py `
+  --pack-root "F:\pseudoforge-corpora\ntoskrnl-26200.8457-amd64-r1\kernel-pack" `
+  --validate `
+  --include-derived `
+  --format text
+```
+
 For machine-readable automation:
 
 ```powershell
@@ -1404,8 +1416,10 @@ gh release create ntoskrnl-26200.8457-amd64-r1 `
 
 Install a release package by downloading all assets, comparing hashes with
 `checksums.sha256`, creating the install root if needed, reassembling the split
-archive with `copy /b`, extracting with `tar -xzf`, and pointing MCP at
-`<install-root>\<artifact-id>\kernel-pack`.
+archive with `copy /b`, extracting with `tar -xzf`, running
+`relocate_pack.py --validate --include-derived` against
+`<install-root>\<artifact-id>\kernel-pack`, and then pointing MCP at that pack
+root.
 
 ## Freshness Rules
 
@@ -1446,6 +1460,7 @@ python -B -m pytest `
   tests/test_kernel_corpus_answer_planner.py `
   tests/test_kernel_corpus_knowledge_graph.py `
   tests/test_kernel_corpus_answer_eval.py `
+  tests/test_kernel_corpus_relocate_pack.py `
   tests/test_kernel_corpus_package_release.py
 ```
 
@@ -1462,6 +1477,9 @@ git diff --check -- .
   source corpus before trusting query, lifecycle, atlas, or answer outputs.
 - Validator derived-artifact stale errors: regenerate lifecycle evidence packs,
   atlas pages, and answer prompts from the current pack.
+- Validator `evidence_pack_root_mismatch` or `atlas_pack_root_mismatch` after
+  release extraction: run `relocate_pack.py --pack-root <pack-root>
+  --validate --include-derived --format text`.
 - Empty FTS results: check `counts.function_fts`; SQLite FTS5 may be disabled
   in the local Python build.
 - Missing exact lifecycle seeds: inspect the ontology seed names and search by

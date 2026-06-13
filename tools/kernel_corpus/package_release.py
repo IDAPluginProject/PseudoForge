@@ -5,7 +5,6 @@ import gzip
 import hashlib
 import json
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -20,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.kernel_corpus.errors import KernelCorpusError  # noqa: E402
+from tools.kernel_corpus.relocate_pack import relocate_kernel_pack  # noqa: E402
 
 
 SCHEMA = "kernel_corpus_release_package_v1"
@@ -30,7 +30,6 @@ DEFAULT_INSTALL_ROOT = r"F:\pseudoforge-corpora"
 README_NAME = "README-install.md"
 MANIFEST_NAME = "artifact-manifest.json"
 CHECKSUMS_NAME = "checksums.sha256"
-RELOCATABLE_TEXT_SUFFIXES = {".json", ".md", ".txt"}
 
 
 @dataclass(frozen=True)
@@ -356,6 +355,16 @@ def _artifact_manifest(
         "install": {
             "extract_root_example": str(install_root),
             "pack_root_after_extract": str(install_pack_root),
+            "relocate_command": (
+                'python -B .\\tools\\kernel_corpus\\relocate_pack.py --pack-root "%s" '
+                "--validate --include-derived --format text"
+            )
+            % install_pack_root,
+            "validate_command": (
+                'python -B .\\tools\\kernel_corpus\\validate_pack.py --pack-root "%s" '
+                "--include-derived --format text"
+            )
+            % install_pack_root,
             "mcp_config_command": (
                 'python -B .\\tools\\kernel_corpus\\install_wiring.py mcp-config '
                 '--pack-root "%s"'
@@ -440,9 +449,23 @@ def _install_readme(artifact_id: str, github_repo: str, install_root: Path) -> s
             str(pack_root_after_extract),
             "```",
             "",
-            "The packaged kernel-pack metadata is prepared for this expected",
-            "pack root. If you extract to a different install root, regenerate",
-            "derived artifacts or repackage with `--install-root`.",
+            "## Finalize Metadata",
+            "",
+            "Run this from a PseudoForge checkout after extraction. The helper",
+            "rewrites pack-root metadata to the actual extracted path and then",
+            "validates the core pack plus derived evidence and atlas artifacts.",
+            "",
+            "```powershell",
+            '$PackRoot = "%s"' % pack_root_after_extract,
+            "python -B .\\tools\\kernel_corpus\\relocate_pack.py `",
+            "  --pack-root $PackRoot `",
+            "  --validate `",
+            "  --include-derived `",
+            "  --format text",
+            "```",
+            "",
+            "If you change `$InstallRoot`, set `$PackRoot` to",
+            "`<install-root>\\%s\\kernel-pack` before running the helper." % artifact_id,
             "",
             "## Configure MCP",
             "",
@@ -590,67 +613,17 @@ def _stage_relocated_pack(
         raise KernelCorpusError("Staging pack root already exists: %s" % staging_pack_root)
     staging_pack_root.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_pack_root, staging_pack_root)
-    text_files = _rewrite_text_paths(staging_pack_root, source_pack_root, install_pack_root)
-    sqlite_rows = _rewrite_sqlite_manifest(staging_pack_root / "corpus.sqlite", source_pack_root, install_pack_root)
+    result = relocate_kernel_pack(
+        staging_pack_root,
+        target_pack_root=install_pack_root,
+        from_pack_roots=[str(source_pack_root)],
+    )
     return {
         "staging_pack_root": str(staging_pack_root),
-        "text_files_rewritten": text_files,
-        "sqlite_rows_rewritten": sqlite_rows,
+        "relocation_source_roots": result["source_pack_roots"],
+        "text_files_rewritten": result["text_files_rewritten"],
+        "sqlite_rows_rewritten": result["sqlite_rows_rewritten"],
     }
-
-
-def _rewrite_text_paths(pack_root: Path, source_pack_root: Path, install_pack_root: Path) -> int:
-    replacements = _path_replacements(source_pack_root, install_pack_root)
-    changed_count = 0
-    for path in pack_root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in RELOCATABLE_TEXT_SUFFIXES:
-            continue
-        try:
-            original = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-        updated = original
-        for old, new in replacements:
-            updated = updated.replace(old, new)
-        if updated != original:
-            path.write_text(updated, encoding="utf-8", newline="\n")
-            changed_count += 1
-    return changed_count
-
-
-def _rewrite_sqlite_manifest(sqlite_path: Path, source_pack_root: Path, install_pack_root: Path) -> int:
-    replacements = _path_replacements(source_pack_root, install_pack_root)
-    changed_count = 0
-    connection = sqlite3.connect(sqlite_path)
-    try:
-        rows = connection.execute("select key, value from corpus_manifest").fetchall()
-        for key, value in rows:
-            updated = str(value)
-            for old, new in replacements:
-                updated = updated.replace(old, new)
-            if key == "sqlite_path":
-                updated = str(install_pack_root / "corpus.sqlite")
-            if updated != value:
-                connection.execute(
-                    "update corpus_manifest set value = ? where key = ?",
-                    (updated, key),
-                )
-                changed_count += 1
-        connection.commit()
-    finally:
-        connection.close()
-    return changed_count
-
-
-def _path_replacements(source_pack_root: Path, install_pack_root: Path) -> list[tuple[str, str]]:
-    source = str(source_pack_root)
-    target = str(install_pack_root)
-    replacements = [(source, target)]
-    escaped_source = source.replace("\\", "\\\\")
-    escaped_target = target.replace("\\", "\\\\")
-    if escaped_source != source:
-        replacements.append((escaped_source, escaped_target))
-    return replacements
 
 
 def _validate_artifact_id(value: str) -> str:
