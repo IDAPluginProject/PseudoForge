@@ -350,10 +350,17 @@ def _install_readme(artifact_id: str, github_repo: str) -> str:
             "",
             "## Configure MCP",
             "",
+            "Run the helper from a PseudoForge checkout. The output contains a generic",
+            "`mcpServers` block plus Claude Code and Codex client snippets.",
+            "",
             "```powershell",
             'python -B .\\tools\\kernel_corpus\\install_wiring.py mcp-config --pack-root "F:\\pseudoforge-corpora\\%s\\kernel-pack"'
             % artifact_id,
             "```",
+            "",
+            "Claude Code can use the emitted `clientSnippets.claudeCode.addCommand`.",
+            "Codex can use `clientSnippets.codex.addCommand` or the emitted",
+            "`clientSnippets.codex.configToml` block in `%USERPROFILE%\\.codex\\config.toml`.",
             "",
         ]
     )

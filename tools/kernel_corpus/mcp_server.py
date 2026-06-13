@@ -589,7 +589,25 @@ class KernelCorpusMcpServer:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the read-only Kernel Corpus MCP stdio server.")
+    parser = argparse.ArgumentParser(
+        description="Run the read-only Kernel Corpus MCP stdio server.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Connection examples:\n"
+            "  Claude Code CLI:\n"
+            "    claude mcp add --transport stdio --scope local pseudoforge-kernel-corpus -- "
+            "python -B <mcp_server.py> --pack-root <PACK_ROOT>\n"
+            "  Codex CLI:\n"
+            "    codex mcp add pseudoforge-kernel-corpus -- "
+            "python -B <mcp_server.py> --pack-root <PACK_ROOT>\n"
+            "  Codex config.toml:\n"
+            "    [mcp_servers.pseudoforge-kernel-corpus]\n"
+            "    command = \"python\"\n"
+            "    args = [\"-B\", \"<mcp_server.py>\", \"--pack-root\", \"<PACK_ROOT>\"]\n\n"
+            "For copy-ready snippets, run:\n"
+            "  python -B tools\\kernel_corpus\\install_wiring.py mcp-config --pack-root <PACK_ROOT>"
+        ),
+    )
     parser.add_argument("--pack-root", required=True, help="Kernel Corpus pack root containing manifest.json and corpus.sqlite.")
     args = parser.parse_args(argv)
     KernelCorpusMcpServer(args.pack_root).serve()

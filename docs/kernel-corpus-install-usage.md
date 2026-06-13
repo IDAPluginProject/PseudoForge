@@ -358,7 +358,11 @@ python -B .\tools\kernel_corpus\install_wiring.py mcp-config `
   --pack-root $PackRoot
 ```
 
-The emitted JSON has this shape:
+The emitted JSON keeps the generic `mcpServers` block and also includes
+`clientSnippets.claudeCode` and `clientSnippets.codex` entries for copy-ready
+client setup.
+
+Generic MCP JSON shape:
 
 ```json
 {
@@ -376,9 +380,56 @@ The emitted JSON has this shape:
 }
 ```
 
-Paste the snippet into the MCP client configuration. Use one explicit pack
-root per target. Do not hardcode a single permanent ntoskrnl path into the
-skill itself.
+Use one explicit pack root per target. Do not hardcode a single permanent
+ntoskrnl path into the skill itself.
+
+### Claude Code CLI
+
+Register the stdio server with Claude Code:
+
+```powershell
+claude mcp add --transport stdio --scope local pseudoforge-kernel-corpus -- `
+  python -B "$Repo\tools\kernel_corpus\mcp_server.py" `
+  --pack-root $PackRoot
+```
+
+Verify the registration:
+
+```powershell
+claude mcp list
+```
+
+Use `--scope user` instead of `--scope local` when this corpus should be
+available outside the current project. Avoid `--scope project` unless you
+intentionally want to create a shareable project MCP config; release-package
+paths are usually machine-local.
+
+### Codex CLI And App
+
+Codex can be configured through the CLI:
+
+```powershell
+codex mcp add pseudoforge-kernel-corpus -- `
+  python -B "$Repo\tools\kernel_corpus\mcp_server.py" `
+  --pack-root $PackRoot
+
+codex mcp list
+```
+
+Or edit `%USERPROFILE%\.codex\config.toml` directly. Use a project-scoped
+`.codex\config.toml` only for trusted projects and only when the pack path is
+intentionally project-local.
+
+```toml
+[mcp_servers.pseudoforge-kernel-corpus]
+command = "python"
+args = ["-B", "F:\\kernullist\\PseudoForge\\tools\\kernel_corpus\\mcp_server.py", "--pack-root", "F:\\pseudoforge-corpora\\ntoskrnl-26200.8457"]
+cwd = "F:\\kernullist\\PseudoForge"
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+```
+
+Start a new Claude Code or Codex session after changing MCP configuration.
 
 For manual debugging, start the server directly:
 

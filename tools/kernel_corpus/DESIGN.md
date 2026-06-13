@@ -181,9 +181,9 @@ The implementation is complete through Phase 26:
     lifecycle candidates are penalized unless exact evidence keeps them in
     scope, and atlas hubs suppress generic helpers or subsystem-irrelevant
     neighbors.
-13. Install wiring emits copy-ready MCP config snippets and dry-run-first skill
-    install, update, and uninstall plans without mixing the tooling into the
-    IDA plugin package.
+13. Install wiring emits copy-ready generic MCP, Claude Code, and Codex
+    config snippets plus dry-run-first skill install, update, and uninstall
+    plans without mixing the tooling into the IDA plugin package.
 14. Performance profiling and targeted scale tuning cover pack build, status,
     search, tag lookup, neighbors, lifecycle tracing, and atlas generation on
     full-kernel packs.
@@ -1516,8 +1516,8 @@ Acceptance:
 
 - Document the source skill path, target skill path, install, update, and
   uninstall procedures.
-- Emit a copy-ready MCP config snippet with command, args, server path, and
-  explicit pack root.
+- Emit a copy-ready MCP config snippet with command, args, server path,
+  explicit pack root, Claude Code registration, and Codex `config.toml`.
 - Keep plugin packaging separate from Kernel Corpus skill, MCP, and generated
   pack outputs.
 - Avoid writing into the user's global skill directory during tests.

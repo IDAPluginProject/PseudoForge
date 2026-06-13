@@ -190,18 +190,48 @@ def build_mcp_config(
     server_path: str | Path | None = None,
 ) -> dict[str, Any]:
     server = Path(server_path) if server_path is not None else MCP_SERVER_PATH
+    server_file = str(server.resolve(strict=False))
+    pack_root_text = str(pack_root)
+    stdio_args = [
+        "-B",
+        server_file,
+        "--pack-root",
+        pack_root_text,
+    ]
+    claude_add_command = _mcp_add_command(
+        "claude mcp add --transport stdio --scope local",
+        python_executable,
+        stdio_args,
+    )
+    codex_add_command = _mcp_add_command(
+        "codex mcp add",
+        python_executable,
+        stdio_args,
+    )
     return {
         "mcpServers": {
             MCP_SERVER_NAME: {
                 "command": python_executable,
-                "args": [
-                    "-B",
-                    str(server.resolve(strict=False)),
-                    "--pack-root",
-                    str(pack_root),
-                ],
+                "args": stdio_args,
             }
-        }
+        },
+        "clientSnippets": {
+            "claudeCode": {
+                "addCommand": claude_add_command,
+                "verifyCommand": "claude mcp list",
+                "scopeNote": (
+                    "Use --scope user instead of --scope local when you want "
+                    "the server available outside the current project."
+                ),
+            },
+            "codex": {
+                "addCommand": codex_add_command,
+                "configPath": "%USERPROFILE%\\.codex\\config.toml",
+                "projectConfigPath": ".codex\\config.toml",
+                "configToml": _codex_mcp_toml(python_executable, stdio_args),
+                "verifyCommand": "codex mcp list",
+            },
+        },
     }
 
 
@@ -218,7 +248,14 @@ def _run_command(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Plan Kernel Corpus skill and MCP install wiring.")
+    parser = argparse.ArgumentParser(
+        description="Plan Kernel Corpus skill and MCP install wiring.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "MCP examples: use `mcp-config --pack-root <PACK_ROOT>` for copy-ready "
+            "Claude Code and Codex snippets."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     plan_parser = subparsers.add_parser("skill-plan", help="Show source and target skill paths.")
@@ -233,10 +270,64 @@ def _build_parser() -> argparse.ArgumentParser:
     uninstall_parser.add_argument("--target-root", required=True, help="Skill root that contains kernel-corpus-analysis.")
     uninstall_parser.add_argument("--apply", action="store_true", help="Delete files. Without this flag the command is dry-run only.")
 
-    config_parser = subparsers.add_parser("mcp-config", help="Emit a copy-ready MCP config snippet.")
+    config_parser = subparsers.add_parser(
+        "mcp-config",
+        help="Emit a copy-ready MCP config snippet.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Claude Code CLI: claude mcp add --transport stdio --scope local "
+            "%s -- python -B <mcp_server.py> --pack-root <PACK_ROOT>\n"
+            "Codex CLI/App: add [mcp_servers.%s] to %%USERPROFILE%%\\.codex\\config.toml "
+            "or run codex mcp add %s -- python -B <mcp_server.py> --pack-root <PACK_ROOT>."
+            % (MCP_SERVER_NAME, MCP_SERVER_NAME, MCP_SERVER_NAME)
+        ),
+    )
     config_parser.add_argument("--pack-root", default="<PACK_ROOT>", help="Kernel Corpus pack root for mcp_server.py.")
     config_parser.add_argument("--python", dest="python_executable", default="python", help="Python command for the MCP server.")
     return parser
+
+
+def _mcp_add_command(prefix: str, command: str, args: list[str]) -> str:
+    parts = prefix.split()
+    parts.append(MCP_SERVER_NAME)
+    parts.append("--")
+    parts.append(command)
+    parts.extend(args)
+    return " ".join(_quote_shell_arg(part) for part in parts)
+
+
+def _quote_shell_arg(value: str) -> str:
+    text = str(value)
+    should_quote = (
+        not text
+        or any(char.isspace() or char in '"<>&|`' for char in text)
+        or ":\\" in text
+        or "/" in text
+    )
+    if not should_quote:
+        return text
+    return '"' + text.replace('"', '\\"') + '"'
+
+
+def _codex_mcp_toml(command: str, args: list[str]) -> str:
+    return "\n".join(
+        [
+            "[mcp_servers.%s]" % MCP_SERVER_NAME,
+            "command = %s" % _toml_string(command),
+            "args = %s" % _toml_array(args),
+            "cwd = %s" % _toml_string(str(REPO_ROOT.resolve(strict=False))),
+            "startup_timeout_sec = 10",
+            "tool_timeout_sec = 60",
+        ]
+    )
+
+
+def _toml_array(values: list[str]) -> str:
+    return "[" + ", ".join(_toml_string(value) for value in values) + "]"
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(str(value), ensure_ascii=True)
 
 
 def _skill_report(

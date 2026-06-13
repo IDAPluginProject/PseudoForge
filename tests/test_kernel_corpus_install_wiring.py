@@ -33,6 +33,18 @@ class KernelCorpusInstallWiringTests(unittest.TestCase):
         self.assertEqual("--pack-root", args[2])
         self.assertEqual(pack_root, args[3])
 
+        snippets = config["clientSnippets"]
+        claude_command = snippets["claudeCode"]["addCommand"]
+        codex_command = snippets["codex"]["addCommand"]
+        codex_toml = snippets["codex"]["configToml"]
+        self.assertIn("claude mcp add --transport stdio --scope local", claude_command)
+        self.assertIn(MCP_SERVER_NAME, claude_command)
+        self.assertIn(pack_root, claude_command)
+        self.assertIn("codex mcp add", codex_command)
+        self.assertIn("[mcp_servers.%s]" % MCP_SERVER_NAME, codex_toml)
+        self.assertIn('command = "python"', codex_toml)
+        self.assertIn(pack_root.replace("\\", "\\\\"), codex_toml)
+
     def test_skill_plan_reports_paths_without_creating_target(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             target_root = Path(temp_dir) / "skills"
@@ -86,6 +98,8 @@ class KernelCorpusInstallWiringTests(unittest.TestCase):
         server_config = payload["mcpServers"][MCP_SERVER_NAME]
         self.assertEqual(0, code)
         self.assertEqual(pack_root, server_config["args"][3])
+        self.assertIn("claudeCode", payload["clientSnippets"])
+        self.assertIn("configToml", payload["clientSnippets"]["codex"])
 
 
 if __name__ == "__main__":

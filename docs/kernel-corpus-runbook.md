@@ -1111,7 +1111,11 @@ python -B .\tools\kernel_corpus\install_wiring.py mcp-config `
   --pack-root "F:\pseudoforge-corpora\ntoskrnl-26200.8457"
 ```
 
-The emitted JSON has this shape:
+The output keeps a generic `mcpServers` block and adds
+`clientSnippets.claudeCode` plus `clientSnippets.codex` so the operator can copy
+the exact client-specific command or TOML block.
+
+Generic MCP JSON shape:
 
 ```json
 {
@@ -1129,8 +1133,44 @@ The emitted JSON has this shape:
 }
 ```
 
+Claude Code CLI registration:
+
+```powershell
+claude mcp add --transport stdio --scope local pseudoforge-kernel-corpus -- `
+  python -B "F:\kernullist\PseudoForge\tools\kernel_corpus\mcp_server.py" `
+  --pack-root "F:\pseudoforge-corpora\ntoskrnl-26200.8457"
+
+claude mcp list
+```
+
+Use `--scope user` when the same machine-local corpus should be available to
+Claude Code outside this project. Avoid project scope unless you intentionally
+want to share a project MCP config.
+
+Codex CLI registration:
+
+```powershell
+codex mcp add pseudoforge-kernel-corpus -- `
+  python -B "F:\kernullist\PseudoForge\tools\kernel_corpus\mcp_server.py" `
+  --pack-root "F:\pseudoforge-corpora\ntoskrnl-26200.8457"
+
+codex mcp list
+```
+
+Codex can also read the server from `%USERPROFILE%\.codex\config.toml`:
+
+```toml
+[mcp_servers.pseudoforge-kernel-corpus]
+command = "python"
+args = ["-B", "F:\\kernullist\\PseudoForge\\tools\\kernel_corpus\\mcp_server.py", "--pack-root", "F:\\pseudoforge-corpora\\ntoskrnl-26200.8457"]
+cwd = "F:\\kernullist\\PseudoForge"
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+```
+
 Use an explicit pack root per target. Do not bake one permanent ntoskrnl path
-into the skill or MCP server.
+into the skill or MCP server. Start a new Claude Code or Codex session after
+changing MCP configuration.
 
 Implemented tools:
 
