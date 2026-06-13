@@ -24,6 +24,7 @@ Keep this project separate from the installed IDA plugin code.
 tools/
   kernel_corpus/
     DESIGN.md
+    answer_planner.py
     answer_harness.py
     atlas.py
     builder.py
@@ -142,7 +143,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The implementation is complete through Phase 21:
+The implementation is complete through Phase 22:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -202,6 +203,9 @@ The implementation is complete through Phase 21:
 21. Canonical answer production review queues summarize generated topics by
     audit quality and human review decision state without mutating source code
     or generated decision ledgers.
+22. A deterministic answer planner maps natural-language kernel questions to
+    canonical candidates, live retrieval steps, citation requirements, and
+    stop conditions before an agent drafts prose.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -704,6 +708,50 @@ The optional decision ledger has schema
 `needs_review`, `rejected`, and `superseded`. A generated pass is never treated
 as human approval. Approved decisions become stale when their recorded source
 hash or pack generation time no longer matches the topic artifact.
+
+### Answer Planner
+
+`tools/kernel_corpus/answer_planner.py` is the read-only routing layer between
+natural-language questions and Kernel Corpus evidence workflows. It emits
+`kernel_corpus_answer_plan_v1` payloads and never calls a model or drafts the
+final answer.
+
+Planner inputs:
+
+```text
+--pack-root
+--question
+--max-topics
+--allow-degraded
+--format json|text|markdown
+--plan-out
+```
+
+The planner matches the question against generated canonical topic metadata,
+the committed canonical topic manifest, Korean query mappings from the skill,
+lifecycle ontology labels, atlas subsystem pages, subsystem tags, and
+high-confidence kernel function names. It prefers canonical topics only when
+quality status allows it: `pass` topics are selected by default, `degraded`
+topics are selected only with `--allow-degraded`, and failed or missing topics
+remain retrieval hints.
+
+The plan includes:
+
+- pack freshness recommendation and validator command
+- routing hints such as lifecycle topic, atlas page, tags, and function names
+- selected canonical candidates and excluded canonical hints
+- ordered MCP calls and local CLI fallbacks
+- citation contract
+- final-answer outline
+- stop conditions and warnings
+
+The MCP server exposes the same read-only planner as:
+
+```text
+plan_kernel_answer(pack_root?, question, max_topics?, allow_degraded?)
+```
+
+The MCP tool returns compact JSON only and does not generate prose answers.
 
 ## Pack Freshness Validator
 
@@ -1430,6 +1478,37 @@ Acceptance:
   merge ordering, stale approval visibility, Markdown grouping, report writes,
   and path escape rejection.
 
+### Phase 22: Question router and answer planner
+
+Deliver:
+
+```text
+tools/kernel_corpus/answer_planner.py
+tests/test_kernel_corpus_answer_planner.py
+tests/test_kernel_corpus_mcp_contract.py
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+tools/kernel_corpus/skills/kernel-corpus-analysis/SKILL.md
+pseudoforge_implementation_status.md
+```
+
+Acceptance:
+
+- Route broad natural-language questions to canonical candidates first when
+  quality permits.
+- Map Korean process lifecycle wording to `process_object_lifecycle` and live
+  `trace_lifecycle` verification.
+- Exclude degraded canonical topics by default and include them only with
+  explicit degraded-topic allowance.
+- Keep failed or missing canonical topics as retrieval hints only.
+- Add live retrieval steps for exact or canonical-derived high-confidence
+  function names when those functions exist in the pack.
+- Return a live retrieval plan for unknown topics instead of an empty answer.
+- Emit stable JSON, text, and Markdown without model calls or corpus mutation.
+- Add the read-only `plan_kernel_answer` MCP tool.
+- Test routing, degraded gating, unknown-topic fallback, stable truncation,
+  generated plan path safety, and MCP contract behavior.
+
 ## Testing Strategy
 
 Use small fixture corpora for unit tests. Do not require the full ntoskrnl
@@ -1456,7 +1535,10 @@ Test layers:
 14. Skill and runbook workflow text tests for canonical-answer decision rules.
 15. Canonical production review queue tests for quality grouping, decision
     ledger merge, stale approval visibility, report rendering, and path safety.
-16. Optional integration smoke against the real ntoskrnl pack when present.
+16. Answer planner tests for Korean routing, canonical quality gates, live
+    function search steps, unknown-topic fallback, stable truncation, generated
+    plan path safety, and MCP contract behavior.
+17. Optional integration smoke against the real ntoskrnl pack when present.
 
 Integration tests should skip cleanly when the large corpus path is absent.
 
@@ -1478,6 +1560,8 @@ Integration tests should skip cleanly when the large corpus path is absent.
   evidence solely to improve timing.
 - Keep vector recall opt-in and secondary. Never answer from embedding text or
   vector score alone.
+- Call the answer planner before broad natural-language answers when available;
+  use the plan as a retrieval contract, not as final prose.
 - Treat atlas hubs as relevance-filtered retrieval hints; generic helpers are
   intentionally suppressed from hub lists.
 - Treat answer harness validation as citation lint, not final factual proof.

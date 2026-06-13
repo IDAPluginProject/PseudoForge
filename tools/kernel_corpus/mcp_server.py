@@ -19,6 +19,11 @@ from tools.kernel_corpus.atlas import (
     get_atlas_page,
     list_atlas_pages,
 )
+from tools.kernel_corpus.answer_planner import (
+    DEFAULT_MAX_TOPICS as DEFAULT_ANSWER_PLAN_MAX_TOPICS,
+    MAX_TOPICS as MAX_ANSWER_PLAN_TOPICS,
+    build_answer_plan,
+)
 from tools.kernel_corpus.canonical_store import (
     DEFAULT_MAX_TOPICS as DEFAULT_CANONICAL_MAX_TOPICS,
     DEFAULT_TEXT_CHARS as DEFAULT_CANONICAL_TEXT_CHARS,
@@ -298,6 +303,32 @@ class KernelCorpusMcpServer:
                         "results": result.get("results", []),
                     },
                     schema_version=str(result.get("schema_version", "")),
+                    pack_root=pack_root,
+                    warnings=_coerce_warnings(result),
+                )
+            if name == "plan_kernel_answer":
+                pack_root = _pack_root_arg(args, self.pack_root)
+                max_topics = _bounded_limit(args.get("max_topics"), DEFAULT_ANSWER_PLAN_MAX_TOPICS, MAX_ANSWER_PLAN_TOPICS)
+                result = build_answer_plan(
+                    pack_root,
+                    str(_required(args, "question")),
+                    max_topics=max_topics,
+                    allow_degraded=bool(args.get("allow_degraded", False)),
+                )
+                return self._ok(
+                    {
+                        "question": result.get("question", ""),
+                        "pack_freshness": result.get("pack_freshness", {}),
+                        "routing": result.get("routing", {}),
+                        "canonical_candidates": result.get("canonical_candidates", []),
+                        "excluded_canonical_candidates": result.get("excluded_canonical_candidates", []),
+                        "live_retrieval_steps": result.get("live_retrieval_steps", []),
+                        "recommended_mcp_calls": result.get("recommended_mcp_calls", []),
+                        "citation_contract": result.get("citation_contract", {}),
+                        "final_answer_outline": result.get("final_answer_outline", []),
+                        "stop_conditions": result.get("stop_conditions", []),
+                    },
+                    schema_version=str(result.get("schema", "")),
                     pack_root=pack_root,
                     warnings=_coerce_warnings(result),
                 )
@@ -751,6 +782,26 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "minimum": 1,
                     "maximum": MAX_CANONICAL_TOPICS,
                 },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "plan_kernel_answer",
+        "description": "Plan canonical and live Kernel Corpus retrieval steps for a natural-language question without drafting the answer.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["question"],
+            "properties": {
+                "pack_root": {"type": "string", "default": ""},
+                "question": {"type": "string"},
+                "max_topics": {
+                    "type": "integer",
+                    "default": DEFAULT_ANSWER_PLAN_MAX_TOPICS,
+                    "minimum": 1,
+                    "maximum": MAX_ANSWER_PLAN_TOPICS,
+                },
+                "allow_degraded": {"type": "boolean", "default": False},
             },
             "additionalProperties": False,
         },

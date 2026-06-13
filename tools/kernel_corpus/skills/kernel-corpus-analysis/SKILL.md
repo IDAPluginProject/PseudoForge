@@ -19,7 +19,7 @@ Claim -> EA -> function name -> artifact path -> inference level
 2. Run the local freshness validator when the pack may be old or when derived evidence packs/atlas pages already exist.
 3. Call `corpus_status` before analysis. Check schema, function count, skipped count, manifest path, SQLite path, and warnings.
 4. Use MCP first when available. If MCP is unavailable, use the local CLIs under `tools/kernel_corpus/`.
-5. For broad lifecycle, subsystem, or security-engineering questions, call `find_canonical_answers` or `list_canonical_answers` before live retrieval when canonical tools are available.
+5. For broad lifecycle, subsystem, or security-engineering questions, call `plan_kernel_answer` first when available. If the planner is unavailable, call `find_canonical_answers` or `list_canonical_answers` before live retrieval when canonical tools are available.
 6. Prefer focused evidence packs over loading broad raw corpus output.
 7. Do not answer from generic Windows internals alone.
 
@@ -65,9 +65,16 @@ python -B .\tools\kernel_corpus\canonical_store.py find --pack-root "<pack-root>
 python -B .\tools\kernel_corpus\canonical_store.py get --pack-root "<pack-root>" --topic process_object_lifecycle --quality --gaps --max-chars 12000
 ```
 
+Local answer planner fallback:
+
+```powershell
+python -B .\tools\kernel_corpus\answer_planner.py --pack-root "<pack-root>" --question "<question>" --format markdown --plan-out "<pack-root>\answer-plans\planned-answer.md"
+```
+
 ## Tool Workflow
 
 - Canonical answer questions: call `find_canonical_answers` for the user's wording, then `get_canonical_answer` for the best passing topic. Inspect `quality.md` and `gaps.md`; use degraded topics only with caveats, and use failed topics only as retrieval hints. Cite the canonical topic id alongside EA, function name, and artifact path.
+- Broad natural-language questions: call `plan_kernel_answer` and follow its selected canonical candidates, live retrieval steps, citation contract, and stop conditions before drafting. The planner does not generate final prose.
 - Lifecycle questions: call `trace_lifecycle` first with `topic` such as `process_object`, `thread_object`, `file_object`, `driver_object`, `device_object`, `registry_key`, `section_object`, or `module_image`, then inspect high-impact functions with `get_function`, and use `get_neighbors` for ambiguous transitions.
 - Function questions: use `search_functions` or exact EA lookup with `get_function`; then cite cleaned/raw/summary artifact paths.
 - Subsystem questions: generate or inspect atlas pages first when available; then search by names, tags, imports, and strings; expand nearby callers/callees; build an evidence pack for broad answers.

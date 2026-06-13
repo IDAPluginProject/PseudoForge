@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tools.kernel_corpus import builder
 from tools.kernel_corpus.mcp_server import (
+    DEFAULT_ANSWER_PLAN_MAX_TOPICS,
     DEFAULT_ATLAS_LIMIT,
     DEFAULT_CANONICAL_MAX_TOPICS,
     DEFAULT_CANONICAL_TEXT_CHARS,
@@ -17,6 +18,7 @@ from tools.kernel_corpus.mcp_server import (
     DEFAULT_LIFECYCLE_MAX_SEEDS,
     DEFAULT_NEIGHBOR_DEPTH,
     DEFAULT_PAGE_CHARS,
+    MAX_ANSWER_PLAN_TOPICS,
     MAX_ATLAS_LIMIT,
     MAX_CANONICAL_TEXT_CHARS,
     MAX_CANONICAL_TOPICS,
@@ -46,6 +48,7 @@ EXPECTED_TOOLS = {
     "get_canonical_answer",
     "get_canonical_quality_report",
     "find_canonical_answers",
+    "plan_kernel_answer",
 }
 
 
@@ -66,6 +69,7 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             canonical_max_topics = tools["list_canonical_answers"]["inputSchema"]["properties"]["max_topics"]
             canonical_get_chars = tools["get_canonical_answer"]["inputSchema"]["properties"]["max_chars"]
             canonical_report_chars = tools["get_canonical_quality_report"]["inputSchema"]["properties"]["max_chars"]
+            answer_plan_max_topics = tools["plan_kernel_answer"]["inputSchema"]["properties"]["max_topics"]
             self.assertEqual(DEFAULT_LIMIT, search_limit["default"])
             self.assertEqual(MAX_LIMIT, search_limit["maximum"])
             self.assertEqual(DEFAULT_NEIGHBOR_DEPTH, neighbor_depth["default"])
@@ -84,6 +88,8 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             self.assertEqual(DEFAULT_CANONICAL_TEXT_CHARS, canonical_get_chars["default"])
             self.assertEqual(MAX_CANONICAL_TEXT_CHARS, canonical_get_chars["maximum"])
             self.assertEqual(DEFAULT_CANONICAL_TEXT_CHARS, canonical_report_chars["default"])
+            self.assertEqual(DEFAULT_ANSWER_PLAN_MAX_TOPICS, answer_plan_max_topics["default"])
+            self.assertEqual(MAX_ANSWER_PLAN_TOPICS, answer_plan_max_topics["maximum"])
 
     def test_corpus_status_returns_stable_json_shape(self) -> None:
         with _built_pack() as pack_root:
@@ -423,6 +429,25 @@ class KernelCorpusMcpContractTests(unittest.TestCase):
             self.assertEqual("remote_process_access_flow", remote_payload["results"][0]["topic_id"])
             self.assertIn("major_functions", remote_payload["results"][0]["match_fields"])
             self.assertEqual(["remote_process_access_flow"], [topic["topic_id"] for topic in degraded_payload["results"]])
+
+    def test_plan_kernel_answer_returns_read_only_retrieval_plan(self) -> None:
+        with _built_pack() as pack_root:
+            _write_canonical_fixture(pack_root)
+            server = KernelCorpusMcpServer(pack_root)
+
+            payload = server.call_tool(
+                "plan_kernel_answer",
+                {
+                    "question": "process object lifecycle",
+                    "max_topics": 1,
+                },
+            )
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual("kernel_corpus_answer_plan_v1", payload["schema_version"])
+            self.assertEqual("process_object_lifecycle", payload["canonical_candidates"][0]["topic_id"])
+            self.assertIn("live_retrieval_steps", payload)
+            self.assertNotIn("answer", payload)
 
     def test_missing_canonical_root_returns_warning(self) -> None:
         with _built_pack() as pack_root:

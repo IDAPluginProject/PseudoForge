@@ -557,6 +557,67 @@ edit or generate that ledger separately, keep it under the ignored canonical
 root, and rerun the queue. Reports and decision ledgers are generated state;
 do not commit them.
 
+## Plan A Kernel Answer
+
+Use the answer planner before drafting broad natural-language answers. The
+planner is deterministic and read-only: it does not call an LLM, does not write
+canonical artifacts, and does not generate final prose.
+
+```powershell
+python -B .\tools\kernel_corpus\answer_planner.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --question "이 커널에서 프로세스 오브젝트가 생성되고 사라질 때까지 주요 함수 기준으로 설명해줘" `
+  --format markdown `
+  --plan-out "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\answer-plans\process_object_lifecycle.md"
+```
+
+The plan output schema is:
+
+```text
+kernel_corpus_answer_plan_v1
+```
+
+The planner routes against:
+
+- generated canonical topic id, title, question, quality, and major functions
+- committed canonical topic definitions
+- Korean query mappings from the skill
+- lifecycle ontology labels
+- atlas page names and subsystem tags
+- high-confidence function names such as `NtOpenProcess` or
+  `MmCopyVirtualMemory`
+
+Quality policy:
+
+- canonical `pass`: use as the first evidence layer, then verify important
+  claims with live retrieval
+- canonical `degraded`: excluded by default; include only with
+  `--allow-degraded`, inspect gaps, and verify live
+- canonical `fail` or `missing`: retrieval hint only, not final-answer evidence
+- canonical missing: use live lifecycle/search/atlas workflow
+
+Planner output includes selected canonical candidates, excluded canonical hints,
+ordered MCP calls, CLI fallbacks, required citations, expected uncertainty
+checks, final-answer outline, and stop conditions. Generated plan files belong
+under the ignored pack output tree; do not commit them.
+
+MCP equivalent:
+
+```json
+{
+  "name": "plan_kernel_answer",
+  "arguments": {
+    "question": "process object lifecycle",
+    "max_topics": 3,
+    "allow_degraded": false
+  }
+}
+```
+
+Treat the plan as a retrieval contract. Draft the answer only after executing
+or inspecting the recommended canonical, lifecycle, function, neighbor, atlas,
+or evidence-pack steps.
+
 ## Trace Lifecycles
 
 Trace a process object lifecycle:
@@ -990,7 +1051,8 @@ python -B -m pytest `
   tests/test_kernel_corpus_vector_recall.py `
   tests/test_kernel_corpus_canonical_answers.py `
   tests/test_kernel_corpus_canonical_audit.py `
-  tests/test_kernel_corpus_canonical_review_queue.py
+  tests/test_kernel_corpus_canonical_review_queue.py `
+  tests/test_kernel_corpus_answer_planner.py
 ```
 
 For documentation-only edits, also run:
@@ -1019,5 +1081,7 @@ git diff --check -- .
 - Canonical audit failures: inspect `quality.md` for missing required
   functions, forbidden or suspicious candidates, missing lifecycle phases, weak
   edge coverage, validation warnings, stale source identity, and tuning actions.
+- Planner selected no canonical topic: follow the live retrieval steps and
+  state that canonical coverage was unavailable or not quality-eligible.
 - Very broad answers: build or inspect an evidence pack first, then answer from
   the pack instead of scanning the full corpus ad hoc.
