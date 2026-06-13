@@ -24,6 +24,8 @@ Keep this project separate from the installed IDA plugin code.
 tools/
   kernel_corpus/
     DESIGN.md
+    answer_eval.py
+    answer_eval_cases.json
     answer_planner.py
     answer_harness.py
     atlas.py
@@ -129,6 +131,9 @@ The builder creates a compact knowledge pack:
     <topic>.md
   answer-reports/
     <topic>.json
+  answer-eval/
+    answer-eval-report.json
+    answer-eval-report.md
   reports/
     corpus-status.md
     atlas/
@@ -145,7 +150,7 @@ debugging, portability, and handoff to other agents.
 
 ### Current v1 status
 
-The implementation is complete through Phase 24:
+The implementation is complete through Phase 25:
 
 1. Pack builder imports PseudoForge corpus indexes into SQLite.
 2. Query CLI exposes status, search, function lookup, neighbor traversal,
@@ -215,6 +220,10 @@ The implementation is complete through Phase 24:
 24. A bounded knowledge graph exporter connects canonical topics, lifecycle
     packs, atlas pages, functions, phases, tags, imports, strings, and artifact
     paths for navigation, MCP subgraphs, topic paths, and function role lookup.
+25. A deterministic answer eval benchmark checks planner routing, canonical
+    topic selection, required functions, citation discipline, degraded/stale
+    canonical use, and live-retrieval fallback behavior without calling a
+    model.
 
 Generated packs and reports remain intentionally outside Git.
 
@@ -766,6 +775,57 @@ plan_kernel_answer(pack_root?, question, max_topics?, allow_degraded?)
 ```
 
 The MCP tool returns compact JSON only and does not generate prose answers.
+
+### Answer Eval Benchmark
+
+`tools/kernel_corpus/answer_eval_cases.json` is the versioned regression suite
+for answer workflows. It uses `kernel_corpus_answer_eval_cases_v1` and defines
+case id, question, expected canonical topic ids, allowed fallback tools,
+required function-name regexes, required citation fields, forbidden answer
+patterns, gap behavior, and stale/degraded handling expectations.
+
+`tools/kernel_corpus/answer_eval.py` evaluates those cases against an existing
+pack. The normal path is deterministic and does not call a model. It can read
+precomputed planner JSON from `--plans-dir` and drafted Markdown answers from
+`--answers-dir`, which lets another agent or session produce answers while the
+eval runner remains a local regression gate.
+
+Inputs:
+
+```text
+--pack-root
+--cases
+--case
+--plans-dir
+--answers-dir
+--format json|text|markdown
+--report-out
+```
+
+The evaluator checks:
+
+- planner output schema and selected canonical topics
+- missing expected canonical topics and unexpected canonical matches
+- allowed MCP fallback tools
+- required major function names from canonical, live retrieval, or provided
+  answer text
+- answer harness citation warnings when answer Markdown is supplied
+- required EA, function name, and artifact-path citation fields
+- forbidden unsupported answer patterns
+- gap or uncertainty section discipline
+- stale or degraded canonical use without an explicit caveat
+
+Reports use `kernel_corpus_answer_eval_report_v1` and can be written under:
+
+```text
+<pack-root>\answer-eval\answer-eval-report.json
+<pack-root>\answer-eval\answer-eval-report.md
+```
+
+Case status is `pass`, `degraded`, or `fail`. A run without `--answers-dir`
+can still pass routing checks while marking cases degraded because final answer
+Markdown was not supplied. Generated reports and answer files are pack-derived
+research artifacts and stay outside Git.
 
 ### Knowledge Graph Export
 
@@ -1725,6 +1785,40 @@ Acceptance:
 - Test synthetic fixture packs for shared functions, stable IDs, bounds,
   optional-input warnings, output path safety, and MCP contract behavior.
 
+### Phase 25: Answer eval benchmark and regression
+
+Deliver:
+
+```text
+tools/kernel_corpus/answer_eval_cases.json
+tools/kernel_corpus/answer_eval.py
+tests/test_kernel_corpus_answer_eval.py
+docs/kernel-corpus-runbook.md
+tools/kernel_corpus/DESIGN.md
+tools/kernel_corpus/skills/kernel-corpus-analysis/SKILL.md
+pseudoforge_implementation_status.md
+```
+
+Acceptance:
+
+- Version benchmark cases with schema
+  `kernel_corpus_answer_eval_cases_v1`.
+- Seed at least ten core kernel-answer cases covering process, thread, remote
+  process access, file, image load, registry, pool, IRP cancellation, driver
+  load/unload, and token impersonation workflows.
+- Evaluate planner output, canonical topic matches, allowed fallback tools,
+  required function-name regexes, answer harness warnings, required citation
+  fields, forbidden unsupported patterns, gap behavior, and stale/degraded
+  canonical handling without model calls by default.
+- Support optional precomputed plan JSON and answer Markdown directories from
+  another session.
+- Emit stable JSON, text, and Markdown reports under
+  `<pack-root>\answer-eval` with pass/fail/degraded case status, missing
+  topics, missing functions, citation warnings, gap warnings, stale/degraded
+  misuse warnings, and recommended fixes.
+- Keep normal tests fixture-based and independent of the full ntoskrnl pack.
+- Keep generated eval reports, drafted answers, and goal prompts out of Git.
+
 ## Testing Strategy
 
 Use small fixture corpora for unit tests. Do not require the full ntoskrnl
@@ -1760,7 +1854,10 @@ Test layers:
 18. Knowledge graph tests for stable node/edge IDs, bounds, shared/bridge
     functions, missing optional artifacts, output path safety, and MCP contract
     behavior.
-19. Optional integration smoke against the real ntoskrnl pack when present.
+19. Answer eval tests for fixture pass, missing citations, degraded canonical
+    caveats, unknown-topic live retrieval, stable ordering, bounded reports,
+    and default case-manifest coverage.
+20. Optional integration smoke against the real ntoskrnl pack when present.
 
 Integration tests should skip cleanly when the large corpus path is absent.
 
@@ -1787,6 +1884,9 @@ Integration tests should skip cleanly when the large corpus path is absent.
 - Treat atlas hubs as relevance-filtered retrieval hints; generic helpers are
   intentionally suppressed from hub lists.
 - Treat answer harness validation as citation lint, not final factual proof.
+- Treat answer eval as workflow regression, not expert review. It can prove
+  routing, citation, and caveat discipline; it cannot prove that the drafted
+  reverse-engineering conclusion is complete.
 - Treat canonical answer drafts as validated baselines, not polished final
   reverse-engineering conclusions; review candidate lists before reuse.
 - Treat canonical quality audit as candidate-quality lint, not expert review.
@@ -1808,6 +1908,8 @@ Integration tests should skip cleanly when the large corpus path is absent.
   controls for it.
 - Treat knowledge graph bridge functions, clusters, and centrality-like signals
   as navigation hints. Require function artifacts before making conclusions.
+- Keep answer eval reports and drafted answers under ignored pack output roots.
+  Do not weaken answer harness validation to make eval cases pass.
 - Avoid model-generated persistent facts unless they are tied to evidence pack
   IDs and source corpus hashes.
 

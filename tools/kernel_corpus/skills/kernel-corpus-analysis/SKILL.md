@@ -73,6 +73,12 @@ Local answer planner fallback:
 python -B .\tools\kernel_corpus\answer_planner.py --pack-root "<pack-root>" --question "<question>" --format markdown --plan-out "<pack-root>\answer-plans\planned-answer.md"
 ```
 
+Local answer eval fallback:
+
+```powershell
+python -B .\tools\kernel_corpus\answer_eval.py --pack-root "<pack-root>" --answers-dir "<pack-root>\answers" --format markdown --report-out "<pack-root>\answer-eval\answer-eval-report.md"
+```
+
 Local canonical drift fallback:
 
 ```powershell
@@ -99,7 +105,7 @@ python -B .\tools\kernel_corpus\knowledge_graph.py function-topics --pack-root "
 - Import/string questions: use `search_by_import` or `search_by_string`, then verify with `get_function`.
 - Broad answers: prefer a passing canonical answer when available, then call `build_evidence_pack` or `trace_lifecycle` for verification, gap filling, or unsupported topic boundaries.
 - Freshness checks: use `validate_pack.py` before reusing older pack roots, lifecycle evidence packs, or atlas pages. Treat validator errors as stop-and-rebuild signals.
-- Durable handoff or review: call the local answer harness to generate the bounded prompt and validate the drafted Markdown answer.
+- Durable handoff or review: call the local answer harness to generate the bounded prompt and validate the drafted Markdown answer. For repeatable workflow regression, run `answer_eval.py` against the pack and drafted answers.
 
 ## Canonical Answer Workflow
 
@@ -138,6 +144,7 @@ Canonical answers never override fresher function artifacts. If live retrieval c
 - Do not claim a transition is proven unless the evidence pack contains a supporting edge or function relationship.
 - Do not hide validator errors. Rebuild stale packs or derived artifacts before answering, unless the user explicitly wants a stale-pack comparison.
 - Treat answer harness warnings as citation lint that must be reviewed before reusing an answer.
+- Treat answer eval results as routing and citation regression signals, not expert review of the final reverse-engineering conclusion.
 - Treat canonical quality status as retrieval quality metadata: `pass` can be used as the first evidence layer, `degraded` requires explicit caveats and live verification, and `fail` is not final-answer evidence.
 - For drift answers, cite both pack labels or roots, canonical topic id, function name, both EAs when relevant, and artifact paths from both sides. Do not describe different EAs as semantic drift unless function evidence or selected role/edge/phase changes support that inference.
 - Treat knowledge graph bridge functions, shared-function counts, topic paths, and centrality-like observations as navigation hints. Do not present them as proof without function artifacts or evidence packs.

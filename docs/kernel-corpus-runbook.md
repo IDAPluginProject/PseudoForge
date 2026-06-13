@@ -618,6 +618,66 @@ Treat the plan as a retrieval contract. Draft the answer only after executing
 or inspecting the recommended canonical, lifecycle, function, neighbor, atlas,
 or evidence-pack steps.
 
+## Evaluate Answer Workflows
+
+Use the answer eval runner when you want a deterministic regression check for
+common kernel-answer workflows. The runner checks routing, canonical topic
+selection, fallback tools, required functions, optional drafted answers, gap
+discipline, and degraded/stale canonical handling. It does not call a model in
+the default path.
+
+```powershell
+python -B .\tools\kernel_corpus\answer_eval.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --format markdown `
+  --report-out "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\answer-eval\answer-eval-report.md"
+```
+
+The case manifest lives in:
+
+```text
+tools\kernel_corpus\answer_eval_cases.json
+```
+
+Its schema is:
+
+```text
+kernel_corpus_answer_eval_cases_v1
+```
+
+The report schema is:
+
+```text
+kernel_corpus_answer_eval_report_v1
+```
+
+Use `--plans-dir` when another session has already produced planner JSON files
+named `<case-id>.json`. Use `--answers-dir` when another session has drafted
+Markdown answers named `<case-id>.md` or `<case-id>.markdown`:
+
+```powershell
+python -B .\tools\kernel_corpus\answer_eval.py `
+  --pack-root "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl" `
+  --plans-dir "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\answer-plans" `
+  --answers-dir "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\answers" `
+  --format json `
+  --report-out "F:\kernullist\PseudoForge\pseudoforge_out\kernel_corpus\ntoskrnl\answer-eval\answer-eval-report.json"
+```
+
+Status interpretation:
+
+- `pass`: routing and supplied answer checks met the case contract.
+- `degraded`: routing checks were usable, but optional final-answer evidence
+  was missing or incomplete. A default run without `--answers-dir` normally
+  lands here.
+- `fail`: the workflow violated the case contract, such as missing an expected
+  canonical topic, using an unsupported fallback, omitting required functions,
+  missing required citations, hiding gaps, or using degraded/stale canonical
+  material without a caveat.
+
+Generated eval reports are derived research artifacts. Keep them under the
+ignored pack root or another external corpus workspace; do not commit them.
+
 ## Export A Knowledge Graph
 
 Use the knowledge graph exporter when an agent needs to navigate relationships
@@ -1279,7 +1339,8 @@ python -B -m pytest `
   tests/test_kernel_corpus_canonical_compare.py `
   tests/test_kernel_corpus_canonical_review_queue.py `
   tests/test_kernel_corpus_answer_planner.py `
-  tests/test_kernel_corpus_knowledge_graph.py
+  tests/test_kernel_corpus_knowledge_graph.py `
+  tests/test_kernel_corpus_answer_eval.py
 ```
 
 For documentation-only edits, also run:
@@ -1310,6 +1371,16 @@ git diff --check -- .
   edge coverage, validation warnings, stale source identity, and tuning actions.
 - Planner selected no canonical topic: follow the live retrieval steps and
   state that canonical coverage was unavailable or not quality-eligible.
+- Answer eval `degraded` with `answer_not_provided`: provide `--answers-dir`
+  when final drafted Markdown should be checked; routing-only eval without
+  answers is intentionally degraded rather than failed.
+- Answer eval missing required functions: inspect the selected canonical topic,
+  live retrieval plan, and case regexes. Update retrieval or expectations only
+  when the pack evidence supports the change.
+- Answer eval stale/degraded warnings: regenerate or audit canonical artifacts,
+  or add an explicit caveat and live verification before using that material.
+- Answer eval report path rejected: keep `--report-out` under `<pack-root>` or
+  write to the default `<pack-root>\answer-eval` location.
 - Canonical drift report shows same-name different-EA changes: treat the EA as
   build-local evidence, not a cross-build identity mismatch by itself.
 - Canonical drift warnings mention missing or stale quality files: regenerate

@@ -1,0 +1,88 @@
+{
+  "schema": "kernel_corpus_answer_eval_cases_v1",
+  "description": "Deterministic Kernel Corpus answer-workflow benchmark cases. These cases evaluate routing, evidence discipline, and optional answer Markdown without invoking a model.",
+  "defaults": {
+    "required_citation_fields": ["ea", "function_name", "artifact_path"],
+    "expected_gap_behavior": "require_gap_section_when_gaps_present",
+    "stale_degraded_handling_expectation": "exclude_or_caveat",
+    "forbidden_answer_patterns": [
+      "\\bguaranteed\\b",
+      "\\bobviously\\b",
+      "generic Windows internals",
+      "without corpus evidence"
+    ]
+  },
+  "cases": [
+    {
+      "id": "process_object_lifecycle",
+      "question": "Explain how process objects are created, published, exited, rundown, and deleted in this kernel.",
+      "expected_canonical_topic_ids": ["process_object_lifecycle"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^(Nt|Zw)Create(User)?Process(Ex)?$", "^PspAllocateProcess$", "^Psp(ProcessDelete|Rundown|ExitProcess)"]
+    },
+    {
+      "id": "thread_object_lifecycle",
+      "question": "Explain the thread object lifecycle from creation through exit and delete using major functions.",
+      "expected_canonical_topic_ids": ["thread_object_lifecycle"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^(Nt|Zw)CreateThread(Ex)?$", "^Psp.*Thread"]
+    },
+    {
+      "id": "remote_process_access",
+      "question": "Explain remote process access through NtOpenProcess, process lookup, and virtual memory copy paths.",
+      "expected_canonical_topic_ids": ["remote_process_access_flow"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "find_canonical_answers", "trace_lifecycle", "search_functions", "build_evidence_pack", "get_atlas_page"],
+      "required_function_name_regexes": ["^(Nt|Zw)OpenProcess$", "^(Nt(Read|Write)VirtualMemory|MmCopyVirtualMemory)$"],
+      "stale_degraded_handling_expectation": "exclude_or_caveat"
+    },
+    {
+      "id": "file_object_lifecycle",
+      "question": "Explain how file objects are created, opened, referenced, cleaned up, closed, and deleted.",
+      "expected_canonical_topic_ids": ["file_object_lifecycle"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^(Nt|Zw)(Create|Open)File$"]
+    },
+    {
+      "id": "image_load_visibility",
+      "question": "Explain image load visibility, system image load, and load-image notify paths in this kernel.",
+      "expected_canonical_topic_ids": ["module_load_visibility"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^PsSetLoadImageNotifyRoutine", "^PsCallImageNotifyRoutines$", "^MmLoadSystemImage$"]
+    },
+    {
+      "id": "registry_callback_notify",
+      "question": "Explain registry callback and notify flow around key create, open, set, delete, and callback dispatch paths.",
+      "expected_canonical_topic_ids": ["registry_callbacks", "registry_operation_lifecycle"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^CmRegisterCallbackEx$", "^Nt(Create|Open|Set|Delete).*Key"]
+    },
+    {
+      "id": "pool_allocation_tag_tracking",
+      "question": "Explain pool allocation, free, tag accounting, big-pool query, and special-pool tracking paths.",
+      "expected_canonical_topic_ids": ["pool_allocation_lifecycle", "pool_tag_special_pool_tracking"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^ExAllocatePool(2|3|WithTag|WithQuotaTag)", "^ExFreePool", "^Ex(CreatePoolTagTable|GetPoolTagInfo|QueryBigPoolTag)$"]
+    },
+    {
+      "id": "irp_cancellation",
+      "question": "Explain IRP cancellation and cancel-safe queue paths, including insert, remove, cancel routine, and final cancellation behavior.",
+      "expected_canonical_topic_ids": ["irp_cancellation_csq_patterns"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^IoCancelIrp$", "^IoCsq(Initialize|InsertIrp|RemoveIrp)", "^IopCsqCancelRoutine$"]
+    },
+    {
+      "id": "driver_load_unload",
+      "question": "Explain driver load and unload flow, including DriverEntry-adjacent setup, system image load, delete driver, and unload rundown.",
+      "expected_canonical_topic_ids": ["driver_load_unload", "driver_unload_rundown_hazards"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "trace_lifecycle", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^(IopLoadDriver|MmLoadSystemImage|IoCreateDriver|IopCreateDriver)", "^(Nt|Zw)UnloadDriver$", "^Iop(Unload|Delete)Driver$"]
+    },
+    {
+      "id": "token_impersonation",
+      "question": "Explain token impersonation, primary token reference, subject context capture, privilege checks, and revert behavior.",
+      "expected_canonical_topic_ids": ["token_impersonation_flow"],
+      "allowed_fallback_tools": ["corpus_status", "get_canonical_answer", "get_atlas_page", "search_functions", "build_evidence_pack"],
+      "required_function_name_regexes": ["^PsReference(Primary|Impersonation)Token", "^Ps(ImpersonateClient|RevertToSelf)$", "^Se(CaptureSubjectContext|PrivilegeCheck|TokenType)$"]
+    }
+  ]
+}
