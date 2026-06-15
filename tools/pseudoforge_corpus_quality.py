@@ -47,10 +47,23 @@ FIELD_NARROW_SUBFIELD_DETAIL_RE = re.compile(
     r"body rewrite remains disabled until the parent structure is trusted\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_BITFIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_bitfield_aliases:")
+FIELD_BITFIELD_ALIAS_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_bitfield_aliases:\s+"
+    r"(?:Bitfield aliases for|Review bitfield aliases for)\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)(?:\s+\([^)]*\))?:\s+"
+    r"(?P<fields>.*?)\.\s+Review-only names;\s+"
+    r"body rewrite remains disabled until the parent structure is trusted\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
     r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
     r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
     r"(?:\s+\[(?P<annotation>[^\]]+)\])?"
+)
+BITFIELD_ALIAS_FIELD_RE = re.compile(
+    r"field_(?P<offset>[0-9A-Fa-f]+)=\+0x[0-9A-Fa-f]+\s+"
+    r"(?P<aliases>[A-Za-z0-9_/,]+)\s+masks=(?P<masks>[0-9A-Fa-fx,]+|unknown)"
 )
 FIELD_REWRITE_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_ready:")
 FIELD_REWRITE_READY_DETAIL_RE = re.compile(
@@ -187,6 +200,10 @@ def analyze_corpus(
     narrow_subfield_bit_operations: Counter[str] = Counter()
     narrow_subfield_mask_families: Counter[str] = Counter()
     narrow_subfield_totals = Counter()
+    bitfield_alias_bases: Counter[str] = Counter()
+    bitfield_alias_names: Counter[str] = Counter()
+    bitfield_alias_masks: Counter[str] = Counter()
+    bitfield_alias_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -202,6 +219,7 @@ def analyze_corpus(
     top_layout_hint_functions = []
     top_subfield_overlay_functions = []
     top_narrow_subfield_functions = []
+    top_bitfield_alias_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
@@ -243,7 +261,15 @@ def analyze_corpus(
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
-                layout_hints, subfield_overlays, narrow_subfields, rewrite_ready, rewrite_near_ready, rewrite_blockers = _update_text_metrics(
+                (
+                    layout_hints,
+                    subfield_overlays,
+                    narrow_subfields,
+                    bitfield_aliases,
+                    rewrite_ready,
+                    rewrite_near_ready,
+                    rewrite_blockers,
+                ) = _update_text_metrics(
                     text_totals,
                     body_text_totals,
                     cleaned_path,
@@ -275,6 +301,13 @@ def analyze_corpus(
                     narrow_subfield_bit_operations,
                     narrow_subfield_mask_families,
                 )
+                _update_layout_bitfield_alias_metrics(
+                    bitfield_aliases,
+                    bitfield_alias_totals,
+                    bitfield_alias_bases,
+                    bitfield_alias_names,
+                    bitfield_alias_masks,
+                )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
                     rewrite_ready_totals,
@@ -303,6 +336,10 @@ def analyze_corpus(
                 if narrow_subfields:
                     top_narrow_subfield_functions.append(
                         _narrow_subfield_function_summary(name, ea, summary_path, narrow_subfields)
+                    )
+                if bitfield_aliases:
+                    top_bitfield_alias_functions.append(
+                        _bitfield_alias_function_summary(name, ea, summary_path, bitfield_aliases)
                     )
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
@@ -351,6 +388,13 @@ def analyze_corpus(
     top_narrow_subfield_functions.sort(
         key=lambda item: (
             -int(item["candidate_count"]),
+            -int(item["field_count"]),
+            str(item["name"]),
+        )
+    )
+    top_bitfield_alias_functions.sort(
+        key=lambda item: (
+            -int(item["alias_comment_count"]),
             -int(item["field_count"]),
             str(item["name"]),
         )
@@ -441,6 +485,13 @@ def analyze_corpus(
             "mask_families": _counter_to_dict(Counter(dict(narrow_subfield_mask_families.most_common(top)))),
             "top_functions": top_narrow_subfield_functions[:top],
         },
+        "layout_bitfield_alias_stats": {
+            "totals": _counter_to_dict(bitfield_alias_totals),
+            "top_bases": _counter_to_dict(Counter(dict(bitfield_alias_bases.most_common(top)))),
+            "aliases": _counter_to_dict(Counter(dict(bitfield_alias_names.most_common(top)))),
+            "masks": _counter_to_dict(Counter(dict(bitfield_alias_masks.most_common(top)))),
+            "top_functions": top_bitfield_alias_functions[:top],
+        },
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
@@ -474,12 +525,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
     subfield_overlay_stats = _coerce_dict(report.get("layout_subfield_overlay_stats", {}))
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
+    bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
+    bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
@@ -814,6 +867,72 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Layout Bitfield Aliases",
+            "",
+            "- Bitfield alias comments: `%s` across `%s` functions"
+            % (
+                bitfield_alias_totals.get("alias_comments", 0),
+                bitfield_alias_totals.get("functions_with_alias_comments", 0),
+            ),
+            "- Bitfield alias field observations: `%s`" % bitfield_alias_totals.get("field_observations", 0),
+            "",
+            "### Bitfield Alias Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(bitfield_alias_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Bitfield Alias Names",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(bitfield_alias_stats.get("aliases", {})), "Alias"))
+    lines.extend(
+        [
+            "",
+            "### Bitfield Alias Masks",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(bitfield_alias_stats.get("masks", {})), "Mask"))
+    lines.extend(
+        [
+            "",
+            "### Highest Bitfield Alias Functions",
+            "",
+            "| Function | EA | Alias comments | Fields | Aliases | Masks | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in bitfield_alias_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        aliases = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_aliases", {})).items()
+        )
+        masks = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_masks", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("alias_comment_count", 0) or 0),
+                int(item.get("field_count", 0) or 0),
+                aliases,
+                masks,
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Layout Rewrite Readiness",
             "",
             "- Ready candidates: `%s` across `%s` functions"
@@ -1127,16 +1246,18 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], []
+        return [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
     layout_hints = _extract_layout_hints(text)
     subfield_overlays = _extract_layout_subfield_overlays(text)
     narrow_subfields = _extract_layout_narrow_subfields(text)
+    bitfield_aliases = _extract_layout_bitfield_aliases(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
@@ -1174,6 +1295,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_BITFIELD_ALIAS_RE,
+        "inferred_offset_bitfield_aliases",
+        "functions_with_inferred_offset_bitfield_aliases",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_READY_RE,
         "inferred_offset_rewrite_ready",
         "functions_with_inferred_offset_rewrite_ready",
@@ -1192,7 +1320,7 @@ def _update_text_metrics(
         "inferred_offset_rewrite_blockers",
         "functions_with_inferred_offset_rewrite_blockers",
     )
-    return layout_hints, subfield_overlays, narrow_subfields, rewrite_ready, rewrite_near_ready, rewrite_blockers
+    return layout_hints, subfield_overlays, narrow_subfields, bitfield_aliases, rewrite_ready, rewrite_near_ready, rewrite_blockers
 
 
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
@@ -1345,6 +1473,21 @@ def _extract_layout_narrow_subfields(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_bitfield_aliases(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_BITFIELD_ALIAS_DETAIL_RE.finditer(text or ""):
+        fields = _parse_bitfield_alias_fields(match.group("fields"))
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "field_count": len(fields),
+                "fields": fields,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_REWRITE_READY_DETAIL_RE.finditer(text or ""):
@@ -1427,6 +1570,31 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
                     for item in match.group("types").split("/")
                     if item.strip()
                 ],
+            }
+        )
+    return fields
+
+
+def _parse_bitfield_alias_fields(value: str) -> list[dict[str, Any]]:
+    fields = []
+    for match in BITFIELD_ALIAS_FIELD_RE.finditer(value or ""):
+        masks = [
+            item
+            for item in match.group("masks").split(",")
+            if item and item != "unknown"
+        ]
+        aliases = [
+            item
+            for item in match.group("aliases").split("/")
+            if item
+        ]
+        offset = int(match.group("offset"), 16)
+        fields.append(
+            {
+                "offset": offset,
+                "name": "field_%X" % offset,
+                "aliases": aliases,
+                "masks": masks,
             }
         )
     return fields
@@ -1565,6 +1733,29 @@ def _update_layout_narrow_subfield_metrics(
                 bit_operations[str(operation)] += 1
             for family in field.get("mask_families", []) or []:
                 mask_families[str(family)] += 1
+
+
+def _update_layout_bitfield_alias_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    aliases: Counter[str],
+    masks: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_alias_comments"] += 1
+    for candidate in candidates:
+        totals["alias_comments"] += 1
+        totals["field_observations"] += _int_value(candidate.get("field_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        for field in candidate.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            for alias in field.get("aliases", []) or []:
+                aliases[str(alias)] += 1
+            for mask in field.get("masks", []) or []:
+                masks[str(mask)] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1710,6 +1901,34 @@ def _narrow_subfield_function_summary(
         "top_bit_masks": _counter_to_dict(Counter(dict(bit_masks.most_common(5)))),
         "top_bit_operations": _counter_to_dict(Counter(dict(bit_operations.most_common(5)))),
         "top_mask_families": _counter_to_dict(Counter(dict(mask_families.most_common(5)))),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _bitfield_alias_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    aliases = Counter()
+    masks = Counter()
+    for candidate in candidates:
+        for field in candidate.get("fields", []) or []:
+            if isinstance(field, dict):
+                for alias in field.get("aliases", []) or []:
+                    aliases[str(alias)] += 1
+                for mask in field.get("masks", []) or []:
+                    masks[str(mask)] += 1
+    return {
+        "ea": ea,
+        "name": name,
+        "alias_comment_count": len(candidates),
+        "field_count": sum(_int_value(item.get("field_count"), 0) for item in candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "top_aliases": _counter_to_dict(Counter(dict(aliases.most_common(5)))),
+        "top_masks": _counter_to_dict(Counter(dict(masks.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }

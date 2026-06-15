@@ -75,6 +75,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                     narrow_preview = _field_narrow_subfield_comment_from_layout(text or "", item)
                     if narrow_preview:
                         comments.append(narrow_preview)
+                    bitfield_alias_preview = _field_bitfield_alias_comment_from_layout(text or "", item)
+                    if bitfield_alias_preview:
+                        comments.append(bitfield_alias_preview)
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
@@ -246,6 +249,37 @@ def _field_narrow_subfield_comment_from_layout(text: str, layout: _LayoutEvidenc
     return {
         "kind": "inferred_offset_narrow_subfields",
         "text": _field_narrow_subfield_text(layout.base, base_kind, field_text),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "fields": fields,
+    }
+
+
+def _field_bitfield_alias_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+    fields = []
+    for item in _subfield_overlay_fields(layout, text):
+        if item.get("interpretation") != "bitfield_candidate":
+            continue
+        field_item = dict(item)
+        field_item["aliases"] = _bitfield_aliases_for_field(item)
+        fields.append(field_item)
+    if not fields:
+        return None
+    base_kind = _layout_base_kind(layout.base)
+    alias_text = "; ".join(
+        _bitfield_alias_field_text(item)
+        for item in fields[:6]
+    )
+    if len(fields) > 6:
+        alias_text += "; ..."
+    confidence = min(
+        _field_bitfield_alias_confidence_cap_for_base_kind(base_kind),
+        0.6 + len(fields) * 0.04 + min(layout.access_count, 12) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_bitfield_aliases",
+        "text": _field_bitfield_alias_text(layout.base, base_kind, alias_text),
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
@@ -426,6 +460,28 @@ def _subfield_overlay_field_text(item: dict[str, Any]) -> str:
             annotation_parts.append("families=%s" % ",".join(mask_families[:4]))
         text += " [%s]" % " ".join(annotation_parts)
     return text
+
+
+def _bitfield_aliases_for_field(item: dict[str, Any]) -> list[str]:
+    aliases = []
+    for family in item.get("mask_families", []) or []:
+        alias = "bitfield_%s" % str(family)
+        if alias not in aliases:
+            aliases.append(alias)
+    if not aliases:
+        aliases.append("bitfield_mask")
+    return aliases
+
+
+def _bitfield_alias_field_text(item: dict[str, Any]) -> str:
+    masks = [str(value) for value in item.get("bit_masks", []) or [] if str(value)]
+    mask_text = ",".join(masks[:4]) if masks else "unknown"
+    return "%s=+0x%X %s masks=%s" % (
+        item["name"],
+        item["offset"],
+        "/".join(item.get("aliases", []) or ["bitfield_mask"]),
+        mask_text,
+    )
 
 
 def _subfield_overlay_size_class(sizes: list[int]) -> str:
@@ -714,6 +770,14 @@ def _field_narrow_subfield_confidence_cap_for_base_kind(base_kind: str) -> float
     return 0.78
 
 
+def _field_bitfield_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.66
+    if base_kind == "generic":
+        return 0.7
+    return 0.74
+
+
 def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "temp":
         return 0.74
@@ -787,6 +851,23 @@ def _field_narrow_subfield_text(base: str, base_kind: str, field_text: str) -> s
     return (
         "Narrow subfield candidates for %s: %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
         % (base, field_text)
+    )
+
+
+def _field_bitfield_alias_text(base: str, base_kind: str, alias_text: str) -> str:
+    if base_kind == "temp":
+        return (
+            "Review bitfield aliases for %s (temporary base): %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
+            % (base, alias_text)
+        )
+    if base_kind == "generic":
+        return (
+            "Review bitfield aliases for %s (generic base): %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
+            % (base, alias_text)
+        )
+    return (
+        "Bitfield aliases for %s: %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
+        % (base, alias_text)
     )
 
 

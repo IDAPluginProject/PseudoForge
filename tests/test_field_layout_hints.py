@@ -404,6 +404,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
         narrow = [item for item in comments if item.get("kind") == "inferred_offset_narrow_subfields"]
+        bitfield_aliases = [item for item in comments if item.get("kind") == "inferred_offset_bitfield_aliases"]
 
         self.assertEqual(1, len(overlays))
         self.assertEqual("sessionSpace", overlays[0]["base"])
@@ -420,6 +421,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
             overlays[0]["text"],
         )
         self.assertEqual([], narrow)
+        self.assertEqual([], bitfield_aliases)
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
         self.assertNotIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
@@ -451,6 +453,7 @@ __int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
         narrow = [item for item in comments if item.get("kind") == "inferred_offset_narrow_subfields"]
+        bitfield_aliases = [item for item in comments if item.get("kind") == "inferred_offset_bitfield_aliases"]
 
         self.assertEqual(1, len(overlays))
         self.assertEqual("currentThread", overlays[0]["base"])
@@ -474,6 +477,7 @@ __int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
             narrow[0]["text"],
         )
         self.assertIn("body rewrite remains disabled", narrow[0]["text"])
+        self.assertEqual([], bitfield_aliases)
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
         self.assertNotIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
@@ -502,6 +506,7 @@ __int64 __fastcall BitfieldSubfieldLayout(__int64 currentThread)
         )
         overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
         narrow = [item for item in comments if item.get("kind") == "inferred_offset_narrow_subfields"]
+        bitfield_aliases = [item for item in comments if item.get("kind") == "inferred_offset_bitfield_aliases"]
 
         self.assertEqual(1, len(overlays))
         self.assertEqual("bitfield_candidate", overlays[0]["overlays"][0]["interpretation"])
@@ -527,6 +532,21 @@ __int64 __fastcall BitfieldSubfieldLayout(__int64 currentThread)
             "[bitfield_candidate masks=0xF,0xF00F,0xFFF0 ops=test_mask,clear_mask families=low_nibble,preserve_outer_nibbles,clear_low_nibble]",
             narrow[0]["text"],
         )
+        self.assertEqual(1, len(bitfield_aliases))
+        self.assertEqual("currentThread", bitfield_aliases[0]["base"])
+        self.assertEqual("named", bitfield_aliases[0]["base_kind"])
+        self.assertEqual(1, len(bitfield_aliases[0]["fields"]))
+        self.assertEqual(0x206, bitfield_aliases[0]["fields"][0]["offset"])
+        self.assertEqual(
+            ["bitfield_low_nibble", "bitfield_preserve_outer_nibbles", "bitfield_clear_low_nibble"],
+            bitfield_aliases[0]["fields"][0]["aliases"],
+        )
+        self.assertIn("Bitfield aliases for currentThread", bitfield_aliases[0]["text"])
+        self.assertIn(
+            "field_206=+0x206 bitfield_low_nibble/bitfield_preserve_outer_nibbles/bitfield_clear_low_nibble masks=0xF,0xF00F,0xFFF0",
+            bitfield_aliases[0]["text"],
+        )
+        self.assertIn("body rewrite remains disabled", bitfield_aliases[0]["text"])
 
     def test_same_width_type_aliases_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(

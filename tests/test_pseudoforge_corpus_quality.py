@@ -18,6 +18,7 @@ CLEANED = r"""
       - inferred_offset_field_aliases: Alias map for sessionSpace: field_10=+0x10 _DWORD; field_18=+0x18 _QWORD; field_20=+0x20 _BYTE; field_28=+0x28 _DWORD; field_30=+0x30 _WORD. Use as review-only shorthand for repeated offset dereferences. confidence=0.73
       - inferred_offset_subfield_overlays: Subfield overlay evidence for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate masks=0xF,0xF00F,0xFFF0 ops=test_mask,clear_mask families=low_nibble,preserve_outer_nibbles,clear_low_nibble]. Review-only; field rewrite remains blocked for mixed-width offsets. confidence=0.72
       - inferred_offset_narrow_subfields: Narrow subfield candidates for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate masks=0xF,0xF00F,0xFFF0 ops=test_mask,clear_mask families=low_nibble,preserve_outer_nibbles,clear_low_nibble]. Audit-only; body rewrite remains disabled until the parent structure is trusted. confidence=0.72
+      - inferred_offset_bitfield_aliases: Bitfield aliases for sessionSpace: field_20=+0x20 bitfield_low_nibble/bitfield_preserve_outer_nibbles/bitfield_clear_low_nibble masks=0xF,0xF00F,0xFFF0. Review-only names; body rewrite remains disabled until the parent structure is trusted. confidence=0.73
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite offset threshold requires at least 8 offsets; rewrite access threshold requires at least 12 accesses. Review-only aliases remain available. confidence=0.73
       - inferred_offset_rewrite_ready: Offset field rewrite candidate for readySession: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
@@ -175,6 +176,32 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 1,
                 report["layout_narrow_subfield_stats"]["top_functions"][0]["top_mask_families"]["low_nibble"],
             )
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["totals"]["alias_comments"])
+            self.assertEqual(
+                1,
+                report["layout_bitfield_alias_stats"]["totals"]["functions_with_alias_comments"],
+            )
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["totals"]["field_observations"])
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["top_bases"]["sessionSpace"])
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["aliases"]["bitfield_low_nibble"])
+            self.assertEqual(
+                1,
+                report["layout_bitfield_alias_stats"]["aliases"]["bitfield_preserve_outer_nibbles"],
+            )
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["aliases"]["bitfield_clear_low_nibble"])
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["masks"]["0xF"])
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["masks"]["0xF00F"])
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["masks"]["0xFFF0"])
+            self.assertEqual("Sample", report["layout_bitfield_alias_stats"]["top_functions"][0]["name"])
+            self.assertEqual(1, report["layout_bitfield_alias_stats"]["top_functions"][0]["field_count"])
+            self.assertEqual(
+                1,
+                report["layout_bitfield_alias_stats"]["top_functions"][0]["top_aliases"]["bitfield_low_nibble"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_bitfield_alias_stats"]["top_functions"][0]["top_masks"]["0xF"],
+            )
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["ready_candidates"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["functions_with_ready_candidates"])
             self.assertEqual(8, report["layout_rewrite_ready_stats"]["totals"]["offset_observations"])
@@ -223,6 +250,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_aliases"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_subfield_overlays"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_narrow_subfields"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_bitfield_aliases"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_near_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_blockers"])
@@ -235,6 +263,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertNotIn("inferred_offset_field_aliases", report["body_text_stats"])
             self.assertNotIn("inferred_offset_subfield_overlays", report["body_text_stats"])
             self.assertNotIn("inferred_offset_narrow_subfields", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_bitfield_aliases", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_near_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_blockers", report["body_text_stats"])
@@ -320,6 +349,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Narrow Subfield Mask Families",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Bitfield Aliases",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Bitfield Alias Names",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
