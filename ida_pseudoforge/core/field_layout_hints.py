@@ -361,10 +361,26 @@ def _subfield_overlay_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
                 "offset": offset,
                 "name": "field_%X" % offset,
                 "sizes": sizes,
+                "size_class": _subfield_overlay_size_class(sizes),
                 "types": sorted(type_names),
             }
         )
     return fields
+
+
+def _subfield_overlay_size_class(sizes: list[int]) -> str:
+    normalized = sorted({int(size) for size in sizes if int(size) > 0})
+    if normalized == [1, 2]:
+        return "byte_word"
+    if normalized == [1, 4]:
+        return "byte_dword"
+    if normalized == [2, 4]:
+        return "word_dword"
+    if normalized == [4, 8]:
+        return "dword_qword"
+    if normalized == [8, 16]:
+        return "qword_oword"
+    return "mixed_width"
 
 
 def _preview_type_name(type_names: set[str]) -> str:

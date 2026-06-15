@@ -163,6 +163,7 @@ def analyze_corpus(
     layout_hint_types: Counter[str] = Counter()
     layout_totals = Counter()
     subfield_overlay_bases: Counter[str] = Counter()
+    subfield_overlay_size_classes: Counter[str] = Counter()
     subfield_overlay_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
@@ -234,6 +235,7 @@ def analyze_corpus(
                     subfield_overlays,
                     subfield_overlay_totals,
                     subfield_overlay_bases,
+                    subfield_overlay_size_classes,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -372,6 +374,7 @@ def analyze_corpus(
         "layout_subfield_overlay_stats": {
             "totals": _counter_to_dict(subfield_overlay_totals),
             "top_bases": _counter_to_dict(Counter(dict(subfield_overlay_bases.most_common(top)))),
+            "size_classes": _counter_to_dict(Counter(dict(subfield_overlay_size_classes.most_common(top)))),
             "top_functions": top_subfield_overlay_functions[:top],
         },
         "layout_rewrite_ready_stats": {
@@ -539,23 +542,36 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Subfield Overlay Size Classes",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("size_classes", {})), "Size class"))
+    lines.extend(
+        [
+            "",
             "### Highest Subfield Overlay Functions",
             "",
-            "| Function | EA | Overlays | Fields | Bases |",
-            "| --- | --- | ---: | ---: | --- |",
+            "| Function | EA | Overlays | Fields | Size classes | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- |",
         ]
     )
     for item in subfield_overlay_stats.get("top_functions", []) or []:
         if not isinstance(item, dict):
             continue
         bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        size_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_size_classes", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("overlay_count", 0) or 0),
                 int(item.get("field_count", 0) or 0),
+                size_classes,
                 bases,
             )
         )
@@ -1138,6 +1154,7 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
             {
                 "offset": int(match.group("offset"), 16),
                 "sizes": [item for item in sizes if item > 0],
+                "size_class": _subfield_overlay_size_class(sizes),
                 "types": [
                     item.strip()
                     for item in match.group("types").split("/")
@@ -1146,6 +1163,21 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
             }
         )
     return fields
+
+
+def _subfield_overlay_size_class(sizes: list[int]) -> str:
+    normalized = sorted({int(size) for size in sizes if int(size) > 0})
+    if normalized == [1, 2]:
+        return "byte_word"
+    if normalized == [1, 4]:
+        return "byte_dword"
+    if normalized == [2, 4]:
+        return "word_dword"
+    if normalized == [4, 8]:
+        return "dword_qword"
+    if normalized == [8, 16]:
+        return "qword_oword"
+    return "mixed_width"
 
 
 def _update_layout_hint_metrics(
@@ -1177,6 +1209,7 @@ def _update_layout_subfield_overlay_metrics(
     overlays: list[dict[str, Any]],
     totals: Counter[str],
     bases: Counter[str],
+    size_classes: Counter[str],
 ) -> None:
     if not overlays:
         return
@@ -1185,6 +1218,10 @@ def _update_layout_subfield_overlay_metrics(
         totals["overlay_comments"] += 1
         totals["field_observations"] += _int_value(overlay.get("field_count"), 0)
         bases[str(overlay.get("base", "") or "unknown")] += 1
+        for field in overlay.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            size_classes[str(field.get("size_class", "") or "unknown")] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1262,12 +1299,18 @@ def _subfield_overlay_function_summary(
     summary_path: Path,
     overlays: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    size_classes = Counter()
+    for overlay in overlays:
+        for field in overlay.get("fields", []) or []:
+            if isinstance(field, dict):
+                size_classes[str(field.get("size_class", "") or "unknown")] += 1
     return {
         "ea": ea,
         "name": name,
         "overlay_count": len(overlays),
         "field_count": sum(_int_value(item.get("field_count"), 0) for item in overlays),
         "bases": [str(item.get("base", "") or "unknown") for item in overlays[:8]],
+        "top_size_classes": _counter_to_dict(Counter(dict(size_classes.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in overlays), default=0.0),
         "summary_path": str(summary_path),
     }

@@ -410,6 +410,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         self.assertEqual(1, len(overlays[0]["overlays"]))
         self.assertEqual(16, overlays[0]["overlays"][0]["offset"])
         self.assertEqual([4, 8], overlays[0]["overlays"][0]["sizes"])
+        self.assertEqual("dword_qword", overlays[0]["overlays"][0]["size_class"])
         self.assertIn("Subfield overlay evidence for sessionSpace", overlays[0]["text"])
         self.assertIn("+0x10 field_10 uses 4/8-byte accesses", overlays[0]["text"])
         self.assertEqual(1, len(blockers))
