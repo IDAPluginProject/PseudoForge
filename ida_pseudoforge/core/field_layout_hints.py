@@ -397,7 +397,10 @@ def _review_text_for_base_kind(base_kind: str) -> str:
 
 
 def _has_mixed_offset_types(layout: _LayoutEvidence) -> bool:
-    return any(len(types) > 1 for types in layout.offsets.values())
+    return any(
+        len({_field_type_storage_class(type_name) for type_name in types}) > 1
+        for types in layout.offsets.values()
+    )
 
 
 def _has_volatile_access_type(layout: _LayoutEvidence) -> bool:
@@ -415,6 +418,44 @@ def _has_unaligned_field_access(layout: _LayoutEvidence) -> bool:
             if alignment and offset % alignment != 0:
                 return True
     return False
+
+
+def _field_type_storage_class(type_name: str) -> str:
+    normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
+    lowered = normalized.lower()
+    if lowered in {"char", "signed char", "unsigned char", "_byte", "byte", "uchar", "boolean", "bool"}:
+        return "size:1"
+    if lowered in {
+        "__int16",
+        "unsigned __int16",
+        "short",
+        "unsigned short",
+        "_word",
+        "word",
+        "ushort",
+        "wchar_t",
+    }:
+        return "size:2"
+    if lowered in {
+        "__int32",
+        "unsigned __int32",
+        "int",
+        "unsigned int",
+        "long",
+        "unsigned long",
+        "_dword",
+        "dword",
+        "ulong",
+        "ntstatus",
+    }:
+        return "size:4"
+    if lowered in {"__int64", "unsigned __int64", "_qword", "qword", "ulong64", "size_t", "ssize_t"}:
+        return "size:8"
+    if lowered in {"__int128", "unsigned __int128", "_oword", "oword", "xmmword"}:
+        return "size:16"
+    if re.fullmatch(r"P[A-Z0-9_]+", normalized):
+        return "size:8"
+    return "type:%s" % lowered
 
 
 def _natural_type_alignment(type_name: str) -> int:
