@@ -11,6 +11,11 @@ from tools.pseudoforge_corpus_quality import analyze_corpus, main
 
 
 CLEANED = r"""
+/*
+    Kernel insights:
+      - inferred_offset_layout: Offset layout hint: sessionSpace has 6 typed dereference(s) across 3 offset(s) +0x10, +0x18, +0x20; observed types: _DWORD, _QWORD. Review as an inferred structure base. confidence=0.83
+      - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as an inferred structure base. confidence=0.86
+*/
 __int64 __fastcall Sample(__int64 a1)
 {
   __int64 v1;
@@ -52,10 +57,23 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["api_semantic_stats"]["rejections_by_reason"]["conflict_old"])
             self.assertEqual(1, report["api_semantic_stats"]["rejections_by_stage"]["api-argument"])
             self.assertEqual(1, report["api_semantic_stats"]["rejections_by_stage"]["api-out-param"])
+            self.assertEqual(2, report["layout_hint_stats"]["totals"]["hints"])
+            self.assertEqual(1, report["layout_hint_stats"]["totals"]["functions_with_hints"])
+            self.assertEqual(1, report["layout_hint_stats"]["totals"]["named_base_hints"])
+            self.assertEqual(1, report["layout_hint_stats"]["totals"]["temp_base_hints"])
+            self.assertEqual(11, report["layout_hint_stats"]["totals"]["offset_observations"])
+            self.assertEqual(19, report["layout_hint_stats"]["totals"]["access_observations"])
+            self.assertEqual(1, report["layout_hint_stats"]["totals"]["large_offset_hints"])
+            self.assertEqual(1, report["layout_hint_stats"]["top_bases"]["sessionSpace"])
+            self.assertEqual(1, report["layout_hint_stats"]["top_bases"]["v14"])
+            self.assertEqual(2, report["layout_hint_stats"]["observed_types"]["_DWORD"])
+            self.assertEqual("Sample", report["layout_hint_stats"]["top_functions"][0]["name"])
+            self.assertEqual(8, report["layout_hint_stats"]["top_functions"][0]["max_offsets"])
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["text_stats"]["label_tokens"])
             self.assertEqual(1, report["text_stats"]["decimal_status_like_literals"])
             self.assertEqual(1, report["text_stats"]["hex_status_like_literals"])
+            self.assertEqual(2, report["text_stats"]["inferred_offset_layout_hints"])
 
     def test_cli_writes_json_and_markdown_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -86,6 +104,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "API Semantic Diagnostics",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Inferred Layout Hints",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
 

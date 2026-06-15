@@ -23,6 +23,15 @@ OFFSET_DEREF_RE = re.compile(
 LABEL_RE = re.compile(r"\bLABEL_\d+\b")
 DECIMAL_STATUS_RE = re.compile(r"\b(?:return|=|==|!=)\s*(-?107374\d+|-?\d{8,}|322122\d+)\b")
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
+LAYOUT_HINT_RE = re.compile(
+    r"-\s+inferred_offset_layout:\s+Offset layout hint:\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s+has\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\)\s+"
+    r"(?P<offsets>[^;]*);\s+observed types:\s+"
+    r"(?P<types>.*?)\.\s+Review as an inferred structure base\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 
 ARTIFACT_SUFFIXES = {
     "cleaned_pseudocode": ".cleaned.cpp",
@@ -105,9 +114,13 @@ def analyze_corpus(
     api_semantic_reasons: Counter[str] = Counter()
     api_semantic_stages: Counter[str] = Counter()
     api_semantic_statuses: Counter[str] = Counter()
+    layout_hint_bases: Counter[str] = Counter()
+    layout_hint_types: Counter[str] = Counter()
+    layout_totals = Counter()
     totals = Counter()
     text_totals = Counter()
     top_warning_functions = []
+    top_layout_hint_functions = []
 
     for summary_path in summary_paths:
         summary = _coerce_dict(_read_json(summary_path))
@@ -146,7 +159,17 @@ def analyze_corpus(
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
-                _update_text_metrics(text_totals, cleaned_path)
+                layout_hints = _update_text_metrics(text_totals, cleaned_path)
+                _update_layout_hint_metrics(
+                    layout_hints,
+                    layout_totals,
+                    layout_hint_bases,
+                    layout_hint_types,
+                )
+                if layout_hints:
+                    top_layout_hint_functions.append(
+                        _layout_hint_function_summary(name, ea, summary_path, layout_hints)
+                    )
 
         llm_statuses[str(summary.get("llm_status", "") or "unknown")] += 1
         _update_rename_metrics(rename_items, rename_sources, rename_sources_applied)
@@ -164,6 +187,14 @@ def analyze_corpus(
             totals["functions_with_api_semantic_diagnostics"] += 1
 
     top_warning_functions.sort(key=lambda item: (-int(item["warning_count"]), str(item["name"])))
+    top_layout_hint_functions.sort(
+        key=lambda item: (
+            -int(item["hint_count"]),
+            -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
     result = {
         "schema": "pseudoforge_corpus_quality_v1",
         "pseudoforge_version": VERSION,
@@ -200,6 +231,12 @@ def analyze_corpus(
             "rejections_by_stage": _counter_to_dict(api_semantic_stages),
             "statuses": _counter_to_dict(api_semantic_statuses),
         },
+        "layout_hint_stats": {
+            "totals": _counter_to_dict(layout_totals),
+            "top_bases": _counter_to_dict(Counter(dict(layout_hint_bases.most_common(top)))),
+            "observed_types": _counter_to_dict(Counter(dict(layout_hint_types.most_common(top)))),
+            "top_functions": top_layout_hint_functions[:top],
+        },
         "text_stats": _counter_to_dict(text_totals),
         "top_warning_functions": top_warning_functions[:top],
     }
@@ -212,6 +249,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     warning_stats = _coerce_dict(report.get("warning_stats", {}))
     rule_stats = _coerce_dict(report.get("rule_stats", {}))
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
+    layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
+    layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
     lines = [
         "# PseudoForge Corpus Quality Report",
@@ -268,6 +307,54 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         ]
     )
     lines.extend(_markdown_counter_table(_coerce_dict(api_semantic_stats.get("rejections_by_stage", {})), "Stage"))
+    lines.extend(
+        [
+            "",
+            "## Inferred Layout Hints",
+            "",
+            "- Hints: `%s` across `%s` functions"
+            % (layout_totals.get("hints", 0), layout_totals.get("functions_with_hints", 0)),
+            "- Named-base hints: `%s`" % layout_totals.get("named_base_hints", 0),
+            "- Temp-base hints: `%s`" % layout_totals.get("temp_base_hints", 0),
+            "- Offset observations: `%s`" % layout_totals.get("offset_observations", 0),
+            "",
+            "### Top Layout Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(layout_hint_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Observed Layout Types",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(layout_hint_stats.get("observed_types", {})), "Type"))
+    lines.extend(
+        [
+            "",
+            "### Highest Layout Hint Functions",
+            "",
+            "| Function | EA | Hints | Max offsets | Max accesses | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for item in layout_hint_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("hint_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                bases,
+            )
+        )
     lines.extend(
         [
             "",
@@ -421,10 +508,10 @@ def _update_api_semantic_metrics(
     return len(diagnostics)
 
 
-def _update_text_metrics(text_totals: Counter[str], path: Path) -> None:
+def _update_text_metrics(text_totals: Counter[str], path: Path) -> list[dict[str, Any]]:
     text = _read_text(path)
     if not text:
-        return
+        return []
     _count_pattern(text_totals, text, GENERIC_IDENTIFIER_RE, "generic_identifier_tokens", "functions_with_generic_identifiers")
     _count_pattern(text_totals, text, OFFSET_DEREF_RE, "offset_deref_patterns", "functions_with_offset_derefs")
     _count_pattern(text_totals, text, LABEL_RE, "label_tokens", "functions_with_labels")
@@ -436,6 +523,11 @@ def _update_text_metrics(text_totals: Counter[str], path: Path) -> None:
         "functions_with_decimal_status_like_literals",
     )
     _count_pattern(text_totals, text, HEX_STATUS_RE, "hex_status_like_literals", "functions_with_hex_status_like_literals")
+    layout_hints = _extract_layout_hints(text)
+    text_totals["inferred_offset_layout_hints"] += len(layout_hints)
+    if layout_hints:
+        text_totals["functions_with_inferred_offset_layout_hints"] += 1
+    return layout_hints
 
 
 def _count_pattern(
@@ -449,6 +541,77 @@ def _count_pattern(
     counter[token_key] += count
     if count:
         counter[function_key] += 1
+
+
+def _extract_layout_hints(text: str) -> list[dict[str, Any]]:
+    hints = []
+    for match in LAYOUT_HINT_RE.finditer(text or ""):
+        hint = {
+            "base": match.group("base"),
+            "access_count": _int_value(match.group("access_count"), 0),
+            "offset_count": _int_value(match.group("offset_count"), 0),
+            "confidence": _float_value(match.group("confidence"), 0.0),
+            "types": _parse_layout_hint_types(match.group("types")),
+        }
+        hints.append(hint)
+    return hints
+
+
+def _parse_layout_hint_types(value: str) -> list[str]:
+    result = []
+    for item in str(value or "").split(","):
+        type_name = item.strip().strip(".")
+        if not type_name or type_name == "...":
+            continue
+        result.append(type_name)
+    return result
+
+
+def _update_layout_hint_metrics(
+    hints: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    types: Counter[str],
+) -> None:
+    if not hints:
+        return
+    totals["functions_with_hints"] += 1
+    for hint in hints:
+        totals["hints"] += 1
+        totals["access_observations"] += _int_value(hint.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(hint.get("offset_count"), 0)
+        base = str(hint.get("base", "") or "unknown")
+        bases[base] += 1
+        if _is_decompiler_temp_base(base):
+            totals["temp_base_hints"] += 1
+        else:
+            totals["named_base_hints"] += 1
+        if _int_value(hint.get("offset_count"), 0) >= 8:
+            totals["large_offset_hints"] += 1
+        for type_name in hint.get("types", []) or []:
+            types[str(type_name)] += 1
+
+
+def _layout_hint_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    hints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "ea": ea,
+        "name": name,
+        "hint_count": len(hints),
+        "bases": [str(item.get("base", "") or "unknown") for item in hints[:8]],
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in hints), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in hints), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in hints), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _is_decompiler_temp_base(name: str) -> bool:
+    return re.fullmatch(r"[av]\d+", str(name or "")) is not None
 
 
 def _classify_warning(warning: str) -> str:
@@ -512,6 +675,13 @@ def _int_value(value: Any, fallback: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return int(fallback)
+
+
+def _float_value(value: Any, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(fallback)
 
 
 def _ratio(numerator: int, denominator: int) -> float:
