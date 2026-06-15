@@ -164,6 +164,7 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertEqual("temp", blockers[0]["base_kind"])
         self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
         self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
@@ -246,6 +247,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual("generic", blockers[0]["base_kind"])
         self.assertIn("base name is generic", blockers[0]["blockers"])
         self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in strong_comments))
 
     def test_named_layout_without_negative_evidence_has_no_rewrite_blocker(self) -> None:
         comments = field_layout_comments(
@@ -270,6 +272,14 @@ __int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
 
         self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        self.assertEqual(1, len(ready))
+        self.assertEqual("sessionSpace", ready[0]["base"])
+        self.assertEqual("named", ready[0]["base_kind"])
+        self.assertEqual(8, ready[0]["offset_count"])
+        self.assertEqual(12, ready[0]["access_count"])
+        self.assertIn("no rewrite blockers found", ready[0]["text"])
+        self.assertIn("Audit only; body rewrite was not applied", ready[0]["text"])
 
     def test_stable_one_time_base_alias_assignment_does_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
@@ -297,6 +307,7 @@ __int64 __fastcall StableAliasLayout(__int64 a1)
 
         self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+        self.assertTrue(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_named_layout_rewrite_blocker_reports_mixed_type_and_base_mutation(self) -> None:
         comments = field_layout_comments(
@@ -326,6 +337,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         self.assertIn("one or more offsets have conflicting access types", blockers[0]["blockers"])
         self.assertIn("base changes during layout accesses", blockers[0]["blockers"])
         self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_compound_base_assignment_blocks_rewrite_even_before_first_access(self) -> None:
         comments = field_layout_comments(
@@ -352,6 +364,7 @@ __int64 __fastcall CompoundAliasLayout(__int64 sessionSpace)
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base changes during layout accesses", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
 
 if __name__ == "__main__":

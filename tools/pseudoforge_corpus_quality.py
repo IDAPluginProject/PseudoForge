@@ -29,6 +29,15 @@ DECIMAL_STATUS_RE = re.compile(
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
+FIELD_REWRITE_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_ready:")
+FIELD_REWRITE_READY_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_ready:\s+Offset field rewrite candidate for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\),\s+no rewrite blockers found\.\s+"
+    r"Audit only; body rewrite was not applied\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_REWRITE_BLOCKER_RE = re.compile(r"-\s+inferred_offset_rewrite_blockers:")
 FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
@@ -130,6 +139,8 @@ def analyze_corpus(
     layout_hint_bases: Counter[str] = Counter()
     layout_hint_types: Counter[str] = Counter()
     layout_totals = Counter()
+    rewrite_ready_bases: Counter[str] = Counter()
+    rewrite_ready_totals = Counter()
     rewrite_blocker_bases: Counter[str] = Counter()
     rewrite_blocker_reasons: Counter[str] = Counter()
     rewrite_blocker_totals = Counter()
@@ -138,6 +149,7 @@ def analyze_corpus(
     body_text_totals = Counter()
     top_warning_functions = []
     top_layout_hint_functions = []
+    top_rewrite_ready_functions = []
     top_rewrite_blocker_functions = []
 
     for summary_path in summary_paths:
@@ -177,12 +189,21 @@ def analyze_corpus(
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
-                layout_hints, rewrite_blockers = _update_text_metrics(text_totals, body_text_totals, cleaned_path)
+                layout_hints, rewrite_ready, rewrite_blockers = _update_text_metrics(
+                    text_totals,
+                    body_text_totals,
+                    cleaned_path,
+                )
                 _update_layout_hint_metrics(
                     layout_hints,
                     layout_totals,
                     layout_hint_bases,
                     layout_hint_types,
+                )
+                _update_layout_rewrite_ready_metrics(
+                    rewrite_ready,
+                    rewrite_ready_totals,
+                    rewrite_ready_bases,
                 )
                 _update_layout_rewrite_blocker_metrics(
                     rewrite_blockers,
@@ -193,6 +214,10 @@ def analyze_corpus(
                 if layout_hints:
                     top_layout_hint_functions.append(
                         _layout_hint_function_summary(name, ea, summary_path, layout_hints)
+                    )
+                if rewrite_ready:
+                    top_rewrite_ready_functions.append(
+                        _rewrite_ready_function_summary(name, ea, summary_path, rewrite_ready)
                     )
                 if rewrite_blockers:
                     top_rewrite_blocker_functions.append(
@@ -218,6 +243,14 @@ def analyze_corpus(
     top_layout_hint_functions.sort(
         key=lambda item: (
             -int(item["hint_count"]),
+            -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_rewrite_ready_functions.sort(
+        key=lambda item: (
+            -int(item["ready_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
             str(item["name"]),
@@ -272,6 +305,11 @@ def analyze_corpus(
             "observed_types": _counter_to_dict(Counter(dict(layout_hint_types.most_common(top)))),
             "top_functions": top_layout_hint_functions[:top],
         },
+        "layout_rewrite_ready_stats": {
+            "totals": _counter_to_dict(rewrite_ready_totals),
+            "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
+            "top_functions": top_rewrite_ready_functions[:top],
+        },
         "layout_rewrite_blocker_stats": {
             "totals": _counter_to_dict(rewrite_blocker_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_blocker_bases.most_common(top)))),
@@ -292,8 +330,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rule_stats = _coerce_dict(report.get("rule_stats", {}))
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
     layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
+    rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
+    rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
     body_text_stats = _coerce_dict(report.get("body_text_stats", {}))
@@ -395,6 +435,45 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("hint_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Rewrite Readiness",
+            "",
+            "- Ready candidates: `%s` across `%s` functions"
+            % (rewrite_ready_totals.get("ready_candidates", 0), rewrite_ready_totals.get("functions_with_ready_candidates", 0)),
+            "- Ready offset observations: `%s`" % rewrite_ready_totals.get("offset_observations", 0),
+            "- Ready access observations: `%s`" % rewrite_ready_totals.get("access_observations", 0),
+            "",
+            "### Rewrite-Ready Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_ready_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Rewrite-Ready Functions",
+            "",
+            "| Function | EA | Ready | Max offsets | Max accesses | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- |",
+        ]
+    )
+    for item in rewrite_ready_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("ready_count", 0) or 0),
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
                 bases,
@@ -615,14 +694,15 @@ def _update_text_metrics(
     text_totals: Counter[str],
     body_text_totals: Counter[str],
     path: Path,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text = _read_text(path)
     if not text:
-        return [], []
+        return [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
     layout_hints = _extract_layout_hints(text)
+    rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
@@ -644,11 +724,18 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_REWRITE_READY_RE,
+        "inferred_offset_rewrite_ready",
+        "functions_with_inferred_offset_rewrite_ready",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_BLOCKER_RE,
         "inferred_offset_rewrite_blockers",
         "functions_with_inferred_offset_rewrite_blockers",
     )
-    return layout_hints, rewrite_blockers
+    return layout_hints, rewrite_ready, rewrite_blockers
 
 
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
@@ -771,6 +858,20 @@ def _extract_layout_hints(text: str) -> list[dict[str, Any]]:
     return hints
 
 
+def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_REWRITE_READY_DETAIL_RE.finditer(text or ""):
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offset_count": _int_value(match.group("offset_count"), 0),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
     blockers = []
     for match in FIELD_REWRITE_BLOCKER_DETAIL_RE.finditer(text or ""):
@@ -824,6 +925,21 @@ def _update_layout_hint_metrics(
             types[str(type_name)] += 1
 
 
+def _update_layout_rewrite_ready_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_ready_candidates"] += 1
+    for candidate in candidates:
+        totals["ready_candidates"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+
+
 def _update_layout_rewrite_blocker_metrics(
     blockers: list[dict[str, Any]],
     totals: Counter[str],
@@ -857,6 +973,24 @@ def _layout_hint_function_summary(
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in hints), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in hints), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in hints), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _rewrite_ready_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "ea": ea,
+        "name": name,
+        "ready_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
 

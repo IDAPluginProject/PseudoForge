@@ -62,6 +62,10 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
+                else:
+                    ready = _field_rewrite_ready_comment(item)
+                    if ready:
+                        comments.append(ready)
     return comments
 
 
@@ -195,6 +199,30 @@ def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[s
         "base": layout.base,
         "base_kind": base_kind,
         "blockers": blockers,
+    }
+
+
+def _field_rewrite_ready_comment(layout: _LayoutEvidence) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind != "named":
+        return None
+    if len(layout.offsets) < 8 or layout.access_count < 12:
+        return None
+    confidence = min(
+        0.8,
+        0.66 + len(layout.offsets) * 0.02 + min(layout.access_count, 16) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_rewrite_ready",
+        "text": (
+            "Offset field rewrite candidate for %s: %d typed dereference(s) across %d offset(s), no rewrite blockers found. Audit only; body rewrite was not applied."
+            % (layout.base, layout.access_count, len(layout.offsets))
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
     }
 
 
