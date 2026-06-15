@@ -94,6 +94,25 @@ __int64 __fastcall StatusTernarySample(int a1, int a2)
 """
 
 
+STATUS_ALIAS_COMPARISON_SAMPLE = r"""
+NTSTATUS __fastcall StatusAliasComparisonSample(int a1)
+{
+  int v26;
+  int v27;
+  NTSTATUS status;
+  int buildNumber;
+
+  if ( (v26 = SomeStatusCall(a1), status = v26, v26 == -1073740748) )
+    return status;
+  if ( (v27 = SomeIntegerCall(a1), buildNumber = v27, v27 == -1073740748) )
+    return STATUS_INVALID_PARAMETER;
+  if ( (v26 = SomeStatusCall(a1), status = v26, -1073741675 == v26) )
+    return status;
+  return STATUS_SUCCESS;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -250,6 +269,15 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("status = argument0 ? STATUS_INTEGER_OVERFLOW : 0LL;", rendered)
         self.assertIn("mask = argument0 ? 0xC0000095 : 0;", rendered)
         self.assertIn("desiredAccess = argument0 ? 0xC0000095 : 0;", rendered)
+
+    def test_status_alias_comparison_literals_are_named_in_same_expression(self) -> None:
+        capture = capture_from_pseudocode(STATUS_ALIAS_COMPARISON_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("status = v26, v26 == STATUS_PTE_CHANGED", rendered)
+        self.assertIn("status = v26, STATUS_INTEGER_OVERFLOW == v26", rendered)
+        self.assertIn("buildNumber = v27, v27 == -1073740748", rendered)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,10 @@ OFFSET_DEREF_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\([^;\n]*\+\s*(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
 LABEL_RE = re.compile(r"\bLABEL_\d+\b")
-DECIMAL_STATUS_RE = re.compile(r"\b(?:return|=|==|!=)\s*(-?107374\d+|-?\d{8,}|322122\d+)\b")
+DECIMAL_STATUS_RE = re.compile(
+    r"(?:\breturn\b|(?<![=!<>])(?:==|!=|=))\s*-?(?:107374\d+|\d{8,}|322122\d+)\b"
+    r"|\b-?(?:107374\d+|\d{8,}|322122\d+)\s*(?:==|!=)"
+)
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 LAYOUT_HINT_RE = re.compile(

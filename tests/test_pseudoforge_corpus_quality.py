@@ -24,6 +24,12 @@ __int64 __fastcall Sample(__int64 a1)
   v1 = *(_DWORD *)(a1 + 24LL);
   if ( v1 )
     goto LABEL_1;
+  if ( v1 == -1073740748 )
+    return v1;
+  if ( -1073741675 != v1 )
+    return v1;
+  if ( v1 >= -1073740748 )
+    return v1;
   return -1073741811;
 LABEL_1:
   return 0xC000000D;
@@ -72,7 +78,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(8, report["layout_hint_stats"]["top_functions"][0]["max_offsets"])
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["text_stats"]["label_tokens"])
-            self.assertEqual(1, report["text_stats"]["decimal_status_like_literals"])
+            self.assertEqual(3, report["text_stats"]["decimal_status_like_literals"])
             self.assertEqual(1, report["text_stats"]["hex_status_like_literals"])
             self.assertEqual(2, report["text_stats"]["inferred_offset_layout_hints"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_previews"])

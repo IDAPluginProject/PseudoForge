@@ -29,6 +29,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
         allow_zero=status_function and status_zero_assignment,
     )
     result = _replace_status_comparisons(result)
+    result = _replace_status_alias_comparisons(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
@@ -90,6 +91,50 @@ def _replace_status_comparisons(text: str) -> str:
         return match.group("prefix") + name + match.group("operator") + match.group("name")
 
     return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _replace_status_alias_comparisons(text: str) -> str:
+    assignment_pattern = re.compile(
+        r"\b(?P<status>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+    identifier_first = re.compile(
+        r"(?P<prefix>\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=)\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+    )
+    literal_first = re.compile(
+        r"(?P<prefix>(?<![A-Za-z0-9_]))(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<operator>\s*(?:==|!=)\s*)"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+
+    def replace_line(line: str) -> str:
+        aliases = {
+            match.group("alias")
+            for match in assignment_pattern.finditer(line)
+            if _is_status_identifier(match.group("status"))
+        }
+        if not aliases:
+            return line
+
+        def replace_identifier_first(match: re.Match[str]) -> str:
+            if match.group("name") not in aliases:
+                return match.group(0)
+            name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+            if not name:
+                return match.group(0)
+            return match.group("prefix") + name
+
+        def replace_literal_first(match: re.Match[str]) -> str:
+            if match.group("name") not in aliases:
+                return match.group(0)
+            name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+            if not name:
+                return match.group(0)
+            return match.group("prefix") + name + match.group("operator") + match.group("name")
+
+        return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, line))
+
+    return "".join(replace_line(line) for line in text.splitlines(keepends=True))
 
 
 def _replace_rtl_raise_status_literals(text: str) -> str:
