@@ -282,8 +282,7 @@ def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
     elif base_kind == "generic":
         blockers.append("base name is generic")
     blockers.extend(_field_rewrite_threshold_blockers(layout))
-    if _has_mixed_offset_types(layout):
-        blockers.append("one or more offsets have conflicting access types")
+    blockers.extend(_mixed_offset_type_blockers(layout))
     if _has_volatile_access_type(layout):
         blockers.append("volatile-looking access type is present")
     if _has_unaligned_field_access(layout):
@@ -452,11 +451,23 @@ def _review_text_for_base_kind(base_kind: str) -> str:
     return "Review as an inferred structure base."
 
 
-def _has_mixed_offset_types(layout: _LayoutEvidence) -> bool:
-    return any(
-        len({_field_type_storage_class(type_name) for type_name in types}) > 1
-        for types in layout.offsets.values()
-    )
+def _mixed_offset_type_blockers(layout: _LayoutEvidence) -> list[str]:
+    blockers: list[str] = []
+    has_partial_width_conflict = False
+    has_incompatible_type_conflict = False
+    for types in layout.offsets.values():
+        storage_classes = {_field_type_storage_class(type_name) for type_name in types}
+        if len(storage_classes) <= 1:
+            continue
+        if all(item.startswith("size:") for item in storage_classes):
+            has_partial_width_conflict = True
+        else:
+            has_incompatible_type_conflict = True
+    if has_partial_width_conflict:
+        blockers.append("one or more offsets mix partial-width field accesses")
+    if has_incompatible_type_conflict:
+        blockers.append("one or more offsets have incompatible access type classes")
+    return blockers
 
 
 def _has_volatile_access_type(layout: _LayoutEvidence) -> bool:

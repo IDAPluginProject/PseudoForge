@@ -404,7 +404,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
 
         self.assertEqual(1, len(blockers))
-        self.assertIn("one or more offsets have conflicting access types", blockers[0]["blockers"])
+        self.assertIn("one or more offsets mix partial-width field accesses", blockers[0]["blockers"])
         self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
         self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
@@ -439,6 +439,32 @@ __int64 __fastcall SameWidthAliasLayout(__int64 sessionSpace)
         self.assertIn("field_10=+0x10 mixed(_DWORD/unsigned int)", aliases[0]["text"])
         self.assertEqual([], blockers)
         self.assertEqual(1, len(ready))
+
+    def test_unknown_type_class_conflicts_are_reported_separately(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall UnknownTypeConflictLayout(__int64 sessionSpace)
+{
+  return *(_FOO *)(sessionSpace + 16)
+       + *(_BAR *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("one or more offsets have incompatible access type classes", blockers[0]["blockers"])
+        self.assertNotIn("one or more offsets mix partial-width field accesses", blockers[0]["blockers"])
 
     def test_compound_base_assignment_blocks_rewrite_even_before_first_access(self) -> None:
         comments = field_layout_comments(
