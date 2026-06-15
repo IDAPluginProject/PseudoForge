@@ -79,6 +79,32 @@ __int64 __fastcall GenericTempLayout(__int64 v14)
 
         self.assertEqual([], comments)
 
+    def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StrongTempLayout(__int64 v14)
+{
+  return *(_QWORD *)(v14 + 16)
+       + *(_QWORD *)(v14 + 24)
+       + *(_QWORD *)(v14 + 32)
+       + *(_QWORD *)(v14 + 40)
+       + *(_QWORD *)(v14 + 48)
+       + *(_QWORD *)(v14 + 56)
+       + *(_QWORD *)(v14 + 64)
+       + *(_QWORD *)(v14 + 72)
+       + *(_QWORD *)(v14 + 80)
+       + *(_QWORD *)(v14 + 88)
+       + *(_QWORD *)(v14 + 96)
+       + *(_QWORD *)(v14 + 104);
+}
+"""
+        )
+
+        self.assertEqual(1, len(comments))
+        self.assertEqual("temp", comments[0]["base_kind"])
+        self.assertEqual(0.74, comments[0]["confidence"])
+        self.assertIn("temporary base", comments[0]["text"])
+
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
             """
@@ -136,6 +162,9 @@ __int64 __fastcall StrongContextLayout(__int64 context)
 
         self.assertEqual([], weak_comments)
         self.assertEqual(1, len(strong_comments))
+        self.assertEqual("generic", strong_comments[0]["base_kind"])
+        self.assertEqual(0.78, strong_comments[0]["confidence"])
+        self.assertIn("generic base", strong_comments[0]["text"])
         self.assertIn("context", strong_comments[0]["text"])
 
 

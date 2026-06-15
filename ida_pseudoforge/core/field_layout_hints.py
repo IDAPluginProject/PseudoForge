@@ -90,15 +90,20 @@ def _comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
     type_text = ", ".join(type_names[:4])
     if len(type_names) > 4:
         type_text += ", ..."
-    confidence = min(0.86, 0.68 + len(offsets) * 0.03 + min(layout.access_count, 12) * 0.005)
+    base_kind = _layout_base_kind(layout.base)
+    confidence = min(
+        _confidence_cap_for_base_kind(base_kind),
+        0.68 + len(offsets) * 0.03 + min(layout.access_count, 12) * 0.005,
+    )
     return {
         "kind": "inferred_offset_layout",
         "text": (
             "Offset layout hint: %s has %d typed dereference(s) across %d offset(s) "
-            "%s; observed types: %s. Review as an inferred structure base."
-            % (layout.base, layout.access_count, len(offsets), offset_text, type_text)
+            "%s; observed types: %s. %s"
+            % (layout.base, layout.access_count, len(offsets), offset_text, type_text, _review_text_for_base_kind(base_kind))
         ),
         "confidence": round(confidence, 2),
+        "base_kind": base_kind,
     }
 
 
@@ -141,3 +146,27 @@ def _is_generic_argument_base(name: str) -> bool:
 
 def _is_bugcheck_parameter_base(name: str) -> bool:
     return re.fullmatch(r"bugcheckparameter\d+", str(name or "")) is not None
+
+
+def _layout_base_kind(name: str) -> str:
+    if _is_decompiler_temp_base(name):
+        return "temp"
+    if _is_generic_named_base(name):
+        return "generic"
+    return "named"
+
+
+def _confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.74
+    if base_kind == "generic":
+        return 0.78
+    return 0.86
+
+
+def _review_text_for_base_kind(base_kind: str) -> str:
+    if base_kind == "temp":
+        return "Review as a high-evidence temporary base before inferring a structure."
+    if base_kind == "generic":
+        return "Review as a generic base before inferring a structure."
+    return "Review as an inferred structure base."

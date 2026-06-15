@@ -29,7 +29,7 @@ LAYOUT_HINT_RE = re.compile(
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\)\s+"
     r"(?P<offsets>[^;]*);\s+observed types:\s+"
-    r"(?P<types>.*?)\.\s+Review as an inferred structure base\.\s+"
+    r"(?P<types>.*?)\.\s+Review as (?P<review>[^.]+)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 
@@ -551,6 +551,7 @@ def _extract_layout_hints(text: str) -> list[dict[str, Any]]:
             "access_count": _int_value(match.group("access_count"), 0),
             "offset_count": _int_value(match.group("offset_count"), 0),
             "confidence": _float_value(match.group("confidence"), 0.0),
+            "review": match.group("review"),
             "types": _parse_layout_hint_types(match.group("types")),
         }
         hints.append(hint)
