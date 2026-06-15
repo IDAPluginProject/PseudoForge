@@ -205,6 +205,7 @@ Record these release-note inputs:
 - warning count and top warning classes
 - rename apply rate and LLM apply rate
 - status-like literal residue
+- profiled status-argument literal residue
 - offset dereference residue
 - inferred layout hint and field-preview counts
 - API semantic diagnostic reasons
@@ -235,6 +236,7 @@ items = [
     ("generic_identifier_tokens", ("text_stats", "generic_identifier_tokens")),
     ("decimal_status_like_literals", ("text_stats", "decimal_status_like_literals")),
     ("hex_status_like_literals", ("text_stats", "hex_status_like_literals")),
+    ("profiled_status_argument_literals", ("text_stats", "profiled_status_argument_literals")),
     ("offset_deref_patterns", ("text_stats", "offset_deref_patterns")),
     ("label_tokens", ("text_stats", "label_tokens")),
     ("inferred_offset_layout_hints", ("text_stats", "inferred_offset_layout_hints")),
@@ -280,6 +282,7 @@ Investigate before release:
 - LLM apply rate drops in candidate replay
 - generic identifier tokens increase by more than 2 percent
 - status-like literal residue increases
+- profiled status-argument literal residue increases
 - offset dereference residue increases after a renderer change that should not
   affect structure access
 - temp or generic layout hints increase without a deliberate claim-ceiling
@@ -332,8 +335,9 @@ failed=0
 llm_statuses=disabled=30
 warnings=10
 rename_apply_rate=96.17
-decimal_status_like_literals=0
+decimal_status_like_literals=17
 hex_status_like_literals=1
+profiled_status_argument_literals=1
 inferred_offset_layout_hints=12
 inferred_offset_field_previews=5
 ```

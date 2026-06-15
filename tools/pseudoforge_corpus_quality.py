@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ida_pseudoforge.core.api_semantics import STATUS_ARGUMENT_INDEXES
 from ida_pseudoforge.version import VERSION, plugin_title
 
 
@@ -527,6 +528,7 @@ def _update_text_metrics(text_totals: Counter[str], path: Path) -> list[dict[str
         "functions_with_decimal_status_like_literals",
     )
     _count_pattern(text_totals, text, HEX_STATUS_RE, "hex_status_like_literals", "functions_with_hex_status_like_literals")
+    _count_profiled_status_argument_literals(text_totals, text)
     layout_hints = _extract_layout_hints(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
@@ -539,6 +541,73 @@ def _update_text_metrics(text_totals: Counter[str], path: Path) -> list[dict[str
         "functions_with_inferred_offset_field_previews",
     )
     return layout_hints
+
+
+def _count_profiled_status_argument_literals(counter: Counter[str], text: str) -> None:
+    count = _profiled_status_argument_literal_count(text)
+    counter["profiled_status_argument_literals"] += count
+    if count:
+        counter["functions_with_profiled_status_argument_literals"] += 1
+
+
+def _profiled_status_argument_literal_count(text: str) -> int:
+    if not STATUS_ARGUMENT_INDEXES:
+        return 0
+    function_names = sorted(STATUS_ARGUMENT_INDEXES, key=len, reverse=True)
+    pattern = re.compile(
+        r"\b(?P<function>%s)\((?P<args>[^;\n]*)\)"
+        % "|".join(re.escape(name) for name in function_names)
+    )
+    count = 0
+    for match in pattern.finditer(text):
+        indexes = STATUS_ARGUMENT_INDEXES.get(match.group("function"), set())
+        spans = _top_level_argument_spans(match.group("args"))
+        for index in indexes:
+            if index >= len(spans):
+                continue
+            start, end = spans[index]
+            if _is_status_like_numeric_argument(match.group("args")[start:end]):
+                count += 1
+    return count
+
+
+def _is_status_like_numeric_argument(argument: str) -> bool:
+    return re.fullmatch(
+        r"\s*-?(?:0xC[0-9A-Fa-f]{7}|107374\d+|\d{8,}|322122\d+)"
+        r"(?:u?LL|ULL|LL|u|U|L)?\s*",
+        argument,
+    ) is not None
+
+
+def _top_level_argument_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    start = 0
+    depth = 0
+    quote = ""
+    escaped = False
+    for index, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char in "([{":
+            depth += 1
+            continue
+        if char in ")]}":
+            depth = max(0, depth - 1)
+            continue
+        if char == "," and depth == 0:
+            spans.append((start, index))
+            start = index + 1
+    spans.append((start, len(text)))
+    return spans
 
 
 def _count_pattern(

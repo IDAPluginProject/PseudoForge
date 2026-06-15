@@ -30,6 +30,10 @@ __int64 __fastcall Sample(__int64 a1)
     return v1;
   if ( v1 >= -1073740748 )
     return v1;
+  SetFailureLocation(a1, SomeHelper(1, 2), 34, -1073741492, 96);
+  SetFailureLocation(a1, 1, 34, 1073741833, 32);
+  SetFailureLocation(a1, 1, 34, status, 96);
+  TraceFailureLocation(a1, 1, 34, -1073741492, 96);
   return -1073741811;
 LABEL_1:
   return 0xC000000D;
@@ -80,6 +84,8 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(2, report["text_stats"]["label_tokens"])
             self.assertEqual(3, report["text_stats"]["decimal_status_like_literals"])
             self.assertEqual(1, report["text_stats"]["hex_status_like_literals"])
+            self.assertEqual(2, report["text_stats"]["profiled_status_argument_literals"])
+            self.assertEqual(1, report["text_stats"]["functions_with_profiled_status_argument_literals"])
             self.assertEqual(2, report["text_stats"]["inferred_offset_layout_hints"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_previews"])
 

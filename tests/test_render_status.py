@@ -136,6 +136,19 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
 """
 
 
+STATUS_ARGUMENT_SAMPLE = r"""
+void __fastcall StatusArgumentSample(__int64 a1)
+{
+  int status;
+
+  status = -1073741492;
+  SetFailureLocation(a1, 1, SomeHelper(1, 2), -1073741492, 96);
+  SetFailureLocation(a1, 1, 34, 1073741833, 32);
+  TraceFailureLocation(a1, 1, 34, -1073741492, 96);
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -310,6 +323,18 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("callStatus == STATUS_DELETE_PENDING", rendered)
         self.assertIn("STATUS_CALLBACK_BYPASS != callStatus", rendered)
         self.assertIn("plainValue == -1073741738", rendered)
+
+    def test_profiled_status_argument_literals_are_named(self) -> None:
+        capture = capture_from_pseudocode(STATUS_ARGUMENT_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn(
+            "SetFailureLocation(argument0, 1, SomeHelper(1, 2), STATUS_REGISTRY_CORRUPT, 96);",
+            rendered,
+        )
+        self.assertIn("SetFailureLocation(argument0, 1, 34, 1073741833, 32);", rendered)
+        self.assertIn("TraceFailureLocation(argument0, 1, 34, -1073741492, 96);", rendered)
 
 
 if __name__ == "__main__":

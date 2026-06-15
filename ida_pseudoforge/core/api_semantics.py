@@ -59,6 +59,11 @@ LOCAL_NAME_RULES = {
 }
 
 
+STATUS_ARGUMENT_INDEXES = {
+    "SetFailureLocation": {3},
+}
+
+
 try:
     from ida_pseudoforge.profiles.loader import load_profile
 except Exception:

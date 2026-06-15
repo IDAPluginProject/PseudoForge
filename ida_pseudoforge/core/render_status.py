@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from ida_pseudoforge.core.api_semantics import FUNCTION_SIGNATURE_OVERRIDES, NTSTATUS_RETURN_MAP
+from ida_pseudoforge.core.api_semantics import FUNCTION_SIGNATURE_OVERRIDES, NTSTATUS_RETURN_MAP, STATUS_ARGUMENT_INDEXES
 from ida_pseudoforge.core.kernel_semantics import looks_like_driver_entry, looks_like_irp_dispatch
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 
@@ -32,6 +32,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
     result = _replace_rtl_raise_status_literals(result)
+    result = _replace_status_argument_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
     return result
@@ -187,6 +188,55 @@ def _replace_rtl_raise_status_literals(text: str) -> str:
     return pattern.sub(repl, text)
 
 
+def _replace_status_argument_literals(text: str) -> str:
+    if not STATUS_ARGUMENT_INDEXES:
+        return text
+
+    function_names = sorted(STATUS_ARGUMENT_INDEXES, key=len, reverse=True)
+    pattern = re.compile(
+        r"\b(?P<function>%s)\((?P<args>[^;\n]*)\)"
+        % "|".join(re.escape(name) for name in function_names)
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        indexes = STATUS_ARGUMENT_INDEXES.get(match.group("function"), set())
+        if not indexes:
+            return match.group(0)
+        args_text = match.group("args")
+        replacements: list[tuple[int, int, str]] = []
+        spans = _top_level_argument_spans(args_text)
+        for index in indexes:
+            if index >= len(spans):
+                continue
+            start, end = spans[index]
+            argument = args_text[start:end]
+            replacement = _replace_error_status_argument(argument)
+            if replacement != argument:
+                replacements.append((start, end, replacement))
+        if not replacements:
+            return match.group(0)
+        updated_args = args_text
+        for start, end, replacement in sorted(replacements, reverse=True):
+            updated_args = updated_args[:start] + replacement + updated_args[end:]
+        return match.group("function") + "(" + updated_args + ")"
+
+    return pattern.sub(repl, text)
+
+
+def _replace_error_status_argument(argument: str) -> str:
+    match = re.fullmatch(
+        r"(?P<prefix>\s*)(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<tail>\s*)",
+        argument,
+    )
+    if match is None:
+        return argument
+    name = _error_status_name_for_literal(match.group("literal"))
+    if not name:
+        return argument
+    return match.group("prefix") + name + match.group("tail")
+
+
 def _replace_32bit_error_status_literals(text: str, capture: FunctionCapture | None) -> str:
     result = text
     four_byte_targets = _four_byte_scalar_names(result, capture)
@@ -279,6 +329,37 @@ def _status_flow_candidate_names(text: str) -> set[str]:
     for match in re.finditer(r"\b0\s*(?:>|<=)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b", text):
         range_checked_names.add(match.group("name"))
     return call_result_names.intersection(range_checked_names)
+
+
+def _top_level_argument_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    start = 0
+    depth = 0
+    quote = ""
+    escaped = False
+    for index, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char in "([{":
+            depth += 1
+            continue
+        if char in ")]}":
+            depth = max(0, depth - 1)
+            continue
+        if char == "," and depth == 0:
+            spans.append((start, index))
+            start = index + 1
+    spans.append((start, len(text)))
+    return spans
 
 
 def _four_byte_scalar_names(text: str, capture: FunctionCapture | None) -> set[str]:
