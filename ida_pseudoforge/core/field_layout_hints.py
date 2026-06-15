@@ -66,6 +66,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
             alias_preview = _field_alias_comment_from_layout(item)
             if alias_preview:
                 comments.append(alias_preview)
+                overlay_preview = _field_subfield_overlay_comment_from_layout(item)
+                if overlay_preview:
+                    comments.append(overlay_preview)
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
@@ -190,6 +193,37 @@ def _field_alias_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] 
     }
 
 
+def _field_subfield_overlay_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+    overlays = _subfield_overlay_fields(layout)
+    if not overlays:
+        return None
+    base_kind = _layout_base_kind(layout.base)
+    overlay_text = "; ".join(
+        "+0x%X %s uses %s-byte accesses (%s)"
+        % (
+            item["offset"],
+            item["name"],
+            "/".join(str(size) for size in item["sizes"]),
+            "/".join(item["types"][:4]),
+        )
+        for item in overlays[:6]
+    )
+    if len(overlays) > 6:
+        overlay_text += "; ..."
+    confidence = min(
+        _field_subfield_overlay_confidence_cap_for_base_kind(base_kind),
+        0.6 + len(overlays) * 0.04 + min(layout.access_count, 12) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_subfield_overlays",
+        "text": _field_subfield_overlay_text(layout.base, base_kind, overlay_text),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "overlays": overlays,
+    }
+
+
 def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
     blockers = _field_rewrite_blockers(text, layout)
     if not blockers:
@@ -310,6 +344,29 @@ def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
     return fields
 
 
+def _subfield_overlay_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
+    fields = []
+    for offset, type_names in sorted(layout.offsets.items()):
+        sizes = sorted({
+            size
+            for size in (_field_type_storage_size(type_name) for type_name in type_names)
+            if size > 0
+        })
+        if len(sizes) <= 1:
+            continue
+        if any(_field_type_storage_size(type_name) <= 0 for type_name in type_names):
+            continue
+        fields.append(
+            {
+                "offset": offset,
+                "name": "field_%X" % offset,
+                "sizes": sizes,
+                "types": sorted(type_names),
+            }
+        )
+    return fields
+
+
 def _preview_type_name(type_names: set[str]) -> str:
     cleaned = [item for item in sorted(type_names) if item]
     if not cleaned:
@@ -401,6 +458,14 @@ def _field_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
     return 0.78
 
 
+def _field_subfield_overlay_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.66
+    if base_kind == "generic":
+        return 0.7
+    return 0.76
+
+
 def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "temp":
         return 0.74
@@ -440,6 +505,23 @@ def _field_alias_text(base: str, base_kind: str, alias_text: str) -> str:
     return (
         "Alias map for %s: %s. Use as review-only shorthand for repeated offset dereferences."
         % (base, alias_text)
+    )
+
+
+def _field_subfield_overlay_text(base: str, base_kind: str, overlay_text: str) -> str:
+    if base_kind == "temp":
+        return (
+            "Review subfield overlays for %s (temporary base): %s. Review-only evidence; field rewrite remains blocked for mixed-width offsets."
+            % (base, overlay_text)
+        )
+    if base_kind == "generic":
+        return (
+            "Review subfield overlays for %s (generic base): %s. Review-only evidence; field rewrite remains blocked for mixed-width offsets."
+            % (base, overlay_text)
+        )
+    return (
+        "Subfield overlay evidence for %s: %s. Review-only; field rewrite remains blocked for mixed-width offsets."
+        % (base, overlay_text)
     )
 
 
@@ -523,6 +605,16 @@ def _field_type_storage_class(type_name: str) -> str:
     if re.fullmatch(r"P[A-Z0-9_]+", normalized):
         return "size:8"
     return "type:%s" % lowered
+
+
+def _field_type_storage_size(type_name: str) -> int:
+    storage_class = _field_type_storage_class(type_name)
+    if not storage_class.startswith("size:"):
+        return 0
+    try:
+        return int(storage_class.split(":", 1)[1])
+    except ValueError:
+        return 0
 
 
 def _natural_type_alignment(type_name: str) -> int:

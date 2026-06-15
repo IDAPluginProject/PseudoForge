@@ -29,6 +29,19 @@ DECIMAL_STATUS_RE = re.compile(
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
+FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
+FIELD_SUBFIELD_OVERLAY_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_subfield_overlays:\s+"
+    r"(?:Subfield overlay evidence for|Review subfield overlays for)\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)(?:\s+\([^)]*\))?:\s+"
+    r"(?P<fields>.*?)\.\s+Review-only(?: evidence)?;\s+"
+    r"field rewrite remains blocked for mixed-width offsets\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+SUBFIELD_OVERLAY_FIELD_RE = re.compile(
+    r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
+    r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
+)
 FIELD_REWRITE_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_ready:")
 FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_ready:\s+Offset field rewrite candidate for\s+"
@@ -149,6 +162,8 @@ def analyze_corpus(
     layout_hint_bases: Counter[str] = Counter()
     layout_hint_types: Counter[str] = Counter()
     layout_totals = Counter()
+    subfield_overlay_bases: Counter[str] = Counter()
+    subfield_overlay_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -162,6 +177,7 @@ def analyze_corpus(
     body_text_totals = Counter()
     top_warning_functions = []
     top_layout_hint_functions = []
+    top_subfield_overlay_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
@@ -203,7 +219,7 @@ def analyze_corpus(
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
-                layout_hints, rewrite_ready, rewrite_near_ready, rewrite_blockers = _update_text_metrics(
+                layout_hints, subfield_overlays, rewrite_ready, rewrite_near_ready, rewrite_blockers = _update_text_metrics(
                     text_totals,
                     body_text_totals,
                     cleaned_path,
@@ -213,6 +229,11 @@ def analyze_corpus(
                     layout_totals,
                     layout_hint_bases,
                     layout_hint_types,
+                )
+                _update_layout_subfield_overlay_metrics(
+                    subfield_overlays,
+                    subfield_overlay_totals,
+                    subfield_overlay_bases,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -234,6 +255,10 @@ def analyze_corpus(
                 if layout_hints:
                     top_layout_hint_functions.append(
                         _layout_hint_function_summary(name, ea, summary_path, layout_hints)
+                    )
+                if subfield_overlays:
+                    top_subfield_overlay_functions.append(
+                        _subfield_overlay_function_summary(name, ea, summary_path, subfield_overlays)
                     )
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
@@ -269,6 +294,13 @@ def analyze_corpus(
             -int(item["hint_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_subfield_overlay_functions.sort(
+        key=lambda item: (
+            -int(item["overlay_count"]),
+            -int(item["field_count"]),
             str(item["name"]),
         )
     )
@@ -337,6 +369,11 @@ def analyze_corpus(
             "observed_types": _counter_to_dict(Counter(dict(layout_hint_types.most_common(top)))),
             "top_functions": top_layout_hint_functions[:top],
         },
+        "layout_subfield_overlay_stats": {
+            "totals": _counter_to_dict(subfield_overlay_totals),
+            "top_bases": _counter_to_dict(Counter(dict(subfield_overlay_bases.most_common(top)))),
+            "top_functions": top_subfield_overlay_functions[:top],
+        },
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
@@ -368,10 +405,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rule_stats = _coerce_dict(report.get("rule_stats", {}))
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
     layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
+    subfield_overlay_stats = _coerce_dict(report.get("layout_subfield_overlay_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
+    subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
@@ -477,6 +516,46 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("hint_count", 0) or 0),
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Subfield Overlays",
+            "",
+            "- Overlay comments: `%s` across `%s` functions"
+            % (
+                subfield_overlay_totals.get("overlay_comments", 0),
+                subfield_overlay_totals.get("functions_with_overlay_comments", 0),
+            ),
+            "- Overlay field observations: `%s`" % subfield_overlay_totals.get("field_observations", 0),
+            "",
+            "### Subfield Overlay Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Subfield Overlay Functions",
+            "",
+            "| Function | EA | Overlays | Fields | Bases |",
+            "| --- | --- | ---: | ---: | --- |",
+        ]
+    )
+    for item in subfield_overlay_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("overlay_count", 0) or 0),
+                int(item.get("field_count", 0) or 0),
                 bases,
             )
         )
@@ -789,14 +868,21 @@ def _update_text_metrics(
     text_totals: Counter[str],
     body_text_totals: Counter[str],
     path: Path,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     text = _read_text(path)
     if not text:
-        return [], [], [], []
+        return [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
     layout_hints = _extract_layout_hints(text)
+    subfield_overlays = _extract_layout_subfield_overlays(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
@@ -820,6 +906,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_SUBFIELD_OVERLAY_RE,
+        "inferred_offset_subfield_overlays",
+        "functions_with_inferred_offset_subfield_overlays",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_READY_RE,
         "inferred_offset_rewrite_ready",
         "functions_with_inferred_offset_rewrite_ready",
@@ -838,7 +931,7 @@ def _update_text_metrics(
         "inferred_offset_rewrite_blockers",
         "functions_with_inferred_offset_rewrite_blockers",
     )
-    return layout_hints, rewrite_ready, rewrite_near_ready, rewrite_blockers
+    return layout_hints, subfield_overlays, rewrite_ready, rewrite_near_ready, rewrite_blockers
 
 
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
@@ -961,6 +1054,21 @@ def _extract_layout_hints(text: str) -> list[dict[str, Any]]:
     return hints
 
 
+def _extract_layout_subfield_overlays(text: str) -> list[dict[str, Any]]:
+    overlays = []
+    for match in FIELD_SUBFIELD_OVERLAY_DETAIL_RE.finditer(text or ""):
+        fields = _parse_subfield_overlay_fields(match.group("fields"))
+        overlays.append(
+            {
+                "base": match.group("base"),
+                "field_count": len(fields),
+                "fields": fields,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return overlays
+
+
 def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_REWRITE_READY_DETAIL_RE.finditer(text or ""):
@@ -1018,6 +1126,28 @@ def _parse_layout_hint_types(value: str) -> list[str]:
     return result
 
 
+def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
+    fields = []
+    for match in SUBFIELD_OVERLAY_FIELD_RE.finditer(value or ""):
+        sizes = [
+            _int_value(item, 0)
+            for item in match.group("sizes").split("/")
+            if item
+        ]
+        fields.append(
+            {
+                "offset": int(match.group("offset"), 16),
+                "sizes": [item for item in sizes if item > 0],
+                "types": [
+                    item.strip()
+                    for item in match.group("types").split("/")
+                    if item.strip()
+                ],
+            }
+        )
+    return fields
+
+
 def _update_layout_hint_metrics(
     hints: list[dict[str, Any]],
     totals: Counter[str],
@@ -1041,6 +1171,20 @@ def _update_layout_hint_metrics(
             totals["large_offset_hints"] += 1
         for type_name in hint.get("types", []) or []:
             types[str(type_name)] += 1
+
+
+def _update_layout_subfield_overlay_metrics(
+    overlays: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+) -> None:
+    if not overlays:
+        return
+    totals["functions_with_overlay_comments"] += 1
+    for overlay in overlays:
+        totals["overlay_comments"] += 1
+        totals["field_observations"] += _int_value(overlay.get("field_count"), 0)
+        bases[str(overlay.get("base", "") or "unknown")] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1108,6 +1252,23 @@ def _layout_hint_function_summary(
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in hints), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in hints), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in hints), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _subfield_overlay_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    overlays: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "ea": ea,
+        "name": name,
+        "overlay_count": len(overlays),
+        "field_count": sum(_int_value(item.get("field_count"), 0) for item in overlays),
+        "bases": [str(item.get("base", "") or "unknown") for item in overlays[:8]],
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in overlays), default=0.0),
         "summary_path": str(summary_path),
     }
 

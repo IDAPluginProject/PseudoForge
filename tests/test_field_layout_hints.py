@@ -402,7 +402,16 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
 """
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
 
+        self.assertEqual(1, len(overlays))
+        self.assertEqual("sessionSpace", overlays[0]["base"])
+        self.assertEqual("named", overlays[0]["base_kind"])
+        self.assertEqual(1, len(overlays[0]["overlays"]))
+        self.assertEqual(16, overlays[0]["overlays"][0]["offset"])
+        self.assertEqual([4, 8], overlays[0]["overlays"][0]["sizes"])
+        self.assertIn("Subfield overlay evidence for sessionSpace", overlays[0]["text"])
+        self.assertIn("+0x10 field_10 uses 4/8-byte accesses", overlays[0]["text"])
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix partial-width field accesses", blockers[0]["blockers"])
         self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
@@ -433,10 +442,12 @@ __int64 __fastcall SameWidthAliasLayout(__int64 sessionSpace)
 
         aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
 
         self.assertEqual(1, len(aliases))
         self.assertIn("field_10=+0x10 mixed(_DWORD/unsigned int)", aliases[0]["text"])
+        self.assertEqual([], overlays)
         self.assertEqual([], blockers)
         self.assertEqual(1, len(ready))
 
@@ -461,7 +472,9 @@ __int64 __fastcall UnknownTypeConflictLayout(__int64 sessionSpace)
 """
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
 
+        self.assertEqual([], overlays)
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets have incompatible access type classes", blockers[0]["blockers"])
         self.assertNotIn("one or more offsets mix partial-width field accesses", blockers[0]["blockers"])
