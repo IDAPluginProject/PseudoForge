@@ -207,6 +207,7 @@ Record these release-note inputs:
 - status-like literal residue
 - profiled status-argument literal residue
 - offset dereference residue
+- code-body residue from `body_text_stats`
 - inferred layout hint and field-preview counts
 - API semantic diagnostic reasons
 
@@ -214,6 +215,9 @@ Record these release-note inputs:
 
 Use this helper snippet when comparing two `corpus-quality.json` files. It keeps
 the comparison focused on release-relevant metrics and avoids hand-copy drift.
+Use `text_stats` to track full rendered output, including PseudoForge review
+comments. Use `body_text_stats` for release gates that should measure only the
+cleaned pseudocode body.
 
 ```powershell
 $OldQuality = "F:\kernullist\PseudoForge\pseudoforge_out\old-quality\corpus-quality.json"
@@ -234,11 +238,17 @@ items = [
     ("rename_apply_rate", ("rename_stats", "apply_rate")),
     ("llm_apply_rate", ("rename_stats", "llm_apply_rate")),
     ("generic_identifier_tokens", ("text_stats", "generic_identifier_tokens")),
+    ("body_generic_identifier_tokens", ("body_text_stats", "generic_identifier_tokens")),
     ("decimal_status_like_literals", ("text_stats", "decimal_status_like_literals")),
+    ("body_decimal_status_like_literals", ("body_text_stats", "decimal_status_like_literals")),
     ("hex_status_like_literals", ("text_stats", "hex_status_like_literals")),
+    ("body_hex_status_like_literals", ("body_text_stats", "hex_status_like_literals")),
     ("profiled_status_argument_literals", ("text_stats", "profiled_status_argument_literals")),
+    ("body_profiled_status_argument_literals", ("body_text_stats", "profiled_status_argument_literals")),
     ("offset_deref_patterns", ("text_stats", "offset_deref_patterns")),
+    ("body_offset_deref_patterns", ("body_text_stats", "offset_deref_patterns")),
     ("label_tokens", ("text_stats", "label_tokens")),
+    ("body_label_tokens", ("body_text_stats", "label_tokens")),
     ("inferred_offset_layout_hints", ("text_stats", "inferred_offset_layout_hints")),
     ("inferred_offset_field_previews", ("text_stats", "inferred_offset_field_previews")),
     ("api_semantic_rejections", ("totals", "api_semantic_rejections")),
@@ -280,11 +290,13 @@ Investigate before release:
 - warnings increase
 - rename apply rate drops by more than 1.0 percentage point
 - LLM apply rate drops in candidate replay
-- generic identifier tokens increase by more than 2 percent
-- status-like literal residue increases
-- profiled status-argument literal residue increases
-- offset dereference residue increases after a renderer change that should not
+- code-body generic identifier tokens increase by more than 2 percent
+- code-body status-like literal residue increases
+- code-body profiled status-argument literal residue increases
+- code-body offset dereference residue increases after a renderer change that should not
   affect structure access
+- full-text residue increases; confirm whether the increase comes only from
+  conservative header comments and whether code-body residue stayed flat
 - temp or generic layout hints increase without a deliberate claim-ceiling
   change
 - API semantic rejection reasons shift toward `conflict_target` or
@@ -335,11 +347,15 @@ failed=0
 llm_statuses=disabled=30
 warnings=10
 rename_apply_rate=96.17
-decimal_status_like_literals=17
+decimal_status_like_literals=5
 hex_status_like_literals=1
 profiled_status_argument_literals=1
 inferred_offset_layout_hints=12
-inferred_offset_field_previews=5
+inferred_offset_field_previews=11
+body_generic_identifier_tokens=11609
+body_offset_deref_patterns=719
+body_label_tokens=541
+body_decimal_status_like_literals=5
 ```
 
 Treat this as an example of the report shape, not a permanent release gate.
