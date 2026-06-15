@@ -387,6 +387,8 @@ def _is_weak_llm_context_name(name: str) -> bool:
 def _is_unsupported_dispatcher_context_rename(text: str, old_name: str, new_name: str) -> bool:
     if not _looks_like_large_dispatcher(text):
         return False
+    if _is_supported_dispatcher_salvage_rename(text, old_name, new_name):
+        return False
     tokens = _semantic_tokens(new_name)
     if not tokens:
         return False
@@ -422,6 +424,8 @@ def _is_pointer_bound_context_rename(text: str, old_name: str, new_name: str) ->
 def _is_reused_dispatcher_context_rename(text: str, old_name: str, new_name: str) -> bool:
     if not _looks_like_large_dispatcher(text):
         return False
+    if _is_supported_dispatcher_salvage_rename(text, old_name, new_name):
+        return False
     tokens = _semantic_tokens(new_name)
     if not tokens:
         return False
@@ -431,6 +435,94 @@ def _is_reused_dispatcher_context_rename(text: str, old_name: str, new_name: str
     if _token_supported_by_context("pool", contexts):
         return False
     return True
+
+
+def _is_supported_dispatcher_salvage_rename(text: str, old_name: str, new_name: str) -> bool:
+    words = _split_identifier_words(new_name)
+    if "status" in words:
+        return _has_stable_status_context(text, old_name, words)
+    if "handle" in words:
+        return _has_stable_handle_context(text, old_name, words)
+    return False
+
+
+def _has_stable_status_context(text: str, old_name: str, words: set[str]) -> bool:
+    if words & {"byte", "bytes", "flag", "flags", "ptr", "pointer", "value"}:
+        return False
+    contexts = _usage_contexts(text, old_name)
+    if not contexts:
+        return False
+    if re.search(r"\b(?:LO|HI)?(?:BYTE|WORD|DWORD)\d*\(\s*%s\s*\)" % re.escape(old_name), contexts):
+        return False
+    score = 0
+    declaration = _declared_type_for_name(text, old_name)
+    if "NTSTATUS" in declaration.upper():
+        score += 2
+    if re.search(r"\b%s\b\s*=\s*-?10737\d{5,}\b" % re.escape(old_name), contexts):
+        score += 2
+    if re.search(r"\b%s\b\s*=\s*322122\d+\b" % re.escape(old_name), contexts):
+        score += 2
+    if _assigned_from_call(contexts, old_name):
+        score += 1
+    if re.search(r"\b%s\b\s*(?:<|>=)\s*0\b" % re.escape(old_name), contexts):
+        score += 2
+    if re.search(r"\b(?:RtlRaiseStatus|FsRtlIsNtstatusExpected)\(\s*%s\s*\)" % re.escape(old_name), contexts):
+        score += 2
+    if re.search(r"\breturn\s+(?:\([^)]+\)\s*)?%s\b" % re.escape(old_name), contexts):
+        score += 1
+    return score >= 3
+
+
+def _has_stable_handle_context(text: str, old_name: str, words: set[str]) -> bool:
+    if words & {"input", "target", "source", "destination", "out", "output", "existing"}:
+        return False
+    declaration = _declared_type_for_name(text, old_name)
+    if "HANDLE" not in declaration.upper():
+        return False
+    contexts = _usage_contexts(text, old_name)
+    if not contexts:
+        return False
+    lowered = contexts.lower()
+    return any(
+        token in lowered
+        for token in (
+            "zwclose",
+            "obclosehandle",
+            "obreferenceobjectbyhandle",
+            "obpreferenceobjectbyhandle",
+            "zwsetinformationfile",
+            "zwwritefile",
+            "zwenumeratevaluekey",
+            "iopcreatefile",
+            "obopenobjectbyname",
+        )
+    )
+
+
+def _declared_type_for_name(text: str, name: str) -> str:
+    pattern = re.compile(
+        r"(?m)^\s*(?P<type>(?:const\s+)?[A-Za-z_][A-Za-z0-9_:\s\*\&<>]*?)\s+"
+        r"(?P<ptr>[\*\&][\*\&\s]*)?"
+        r"%s\b" % re.escape(name)
+    )
+    match = pattern.search(text or "")
+    if not match:
+        return ""
+    type_text = match.group("type").strip()
+    ptr = (match.group("ptr") or "").strip()
+    if ptr:
+        type_text = "%s %s" % (type_text, ptr)
+    return type_text
+
+
+def _assigned_from_call(contexts: str, old_name: str) -> bool:
+    return bool(
+        re.search(
+            r"\b%s\b\s*=\s*(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\("
+            % re.escape(old_name),
+            contexts,
+        )
+    )
 
 
 def _is_numeric_dispatcher_context_rename(text: str, new_name: str) -> bool:

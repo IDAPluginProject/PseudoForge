@@ -230,6 +230,133 @@ class LlmRenameFilterTests(unittest.TestCase):
         self.assertIn("// Warnings: 0", section)
         self.assertIn("    Warnings: 0", section)
 
+    def test_stable_status_llm_rename_is_salvaged_in_large_dispatcher(self) -> None:
+        sample = (
+            r"""
+NTSTATUS __fastcall LargeStatusDispatcher(int a1)
+{
+  int v5;
+  int v10;
+
+  v5 = a1;
+  v10 = -1073741670;
+  if ( v5 == 1 )
+  {
+    v10 = IopGetRegistryValue(0LL, 0LL, 0, 0LL);
+    if ( v10 < 0 )
+      return (unsigned int)v10;
+  }
+"""
+            + "\n".join(f"  if ( v5 == {index} )\n    return v5 + {index};" for index in range(50))
+            + r"""
+  if ( v10 >= 0 )
+    return (unsigned int)v10;
+  RtlRaiseStatus(v10);
+  return (unsigned int)v10;
+}
+"""
+        )
+        capture = capture_from_pseudocode(sample)
+        provider = JsonRenameProvider(
+            {
+                "renames": [
+                    {
+                        "old": "v10",
+                        "new": "status",
+                        "confidence": 0.90,
+                        "reason": "carries NTSTATUS values through the dispatcher",
+                    }
+                ]
+            }
+        )
+        plan = build_clean_plan(capture, rename_provider=provider)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertEqual("status", rename_map["v10"])
+        self.assertNotIn("Skipped unsupported dispatcher rename v10->status", plan.warnings)
+        self.assertNotIn("Skipped reused dispatcher rename v10->status", plan.warnings)
+
+    def test_status_like_flag_llm_rename_is_not_salvaged_in_large_dispatcher(self) -> None:
+        sample = (
+            r"""
+__int64 __fastcall LargeStatusFlagDispatcher(__int64 a1)
+{
+  int v5;
+  int *v33;
+  int v48;
+
+  v5 = (int)a1;
+  v33 = (int *)(a1 + 2520);
+  v48 = *(_DWORD *)(a1 + 2524) | 0x400;
+  *(_DWORD *)(a1 + 2524) = v48;
+"""
+            + "\n".join(f"  if ( v5 == {index} )\n    return v5 + {index};" for index in range(50))
+            + r"""
+  if ( (*v33 & 0x8000000) == 0 )
+    return v48;
+  return 0;
+}
+"""
+        )
+        capture = capture_from_pseudocode(sample)
+        provider = JsonRenameProvider(
+            {
+                "renames": [
+                    {
+                        "old": "v48",
+                        "new": "updatedStatusValue",
+                        "confidence": 0.90,
+                        "reason": "status-like bitfield value",
+                    }
+                ]
+            }
+        )
+        plan = build_clean_plan(capture, rename_provider=provider)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertNotIn("v48", rename_map)
+        self.assertIn("Skipped unsupported dispatcher rename v48->updatedStatusValue", plan.warnings)
+
+    def test_stable_handle_llm_rename_is_salvaged_in_large_dispatcher(self) -> None:
+        sample = (
+            r"""
+__int64 __fastcall LargeHandleDispatcher(int a1)
+{
+  int v5;
+  HANDLE Handle;
+
+  v5 = a1;
+  Handle = 0LL;
+"""
+            + "\n".join(f"  if ( v5 == {index} )\n    return v5 + {index};" for index in range(50))
+            + r"""
+  if ( (int)IopCreateFile((int)&Handle, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) < 0 )
+    return 0;
+  if ( Handle )
+    ObCloseHandle(Handle, 0);
+  return 0;
+}
+"""
+        )
+        capture = capture_from_pseudocode(sample)
+        provider = JsonRenameProvider(
+            {
+                "renames": [
+                    {
+                        "old": "Handle",
+                        "new": "fileHandle",
+                        "confidence": 0.90,
+                        "reason": "local file handle is opened and closed in this function",
+                    }
+                ]
+            }
+        )
+        plan = build_clean_plan(capture, rename_provider=provider)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertEqual("fileHandle", rename_map["Handle"])
+        self.assertNotIn("Skipped reused dispatcher rename Handle->fileHandle", plan.warnings)
+
     def test_shadowed_llm_skip_warning_is_removed_when_stronger_rename_wins(self) -> None:
         capture = capture_from_pseudocode(
             WEAK_LLM_DISPATCHER_SAMPLE.replace(
