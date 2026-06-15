@@ -16,8 +16,8 @@ CLEANED = r"""
       - inferred_offset_layout: Offset layout hint: sessionSpace has 6 typed dereference(s) across 3 offset(s) +0x10, +0x18, +0x20; observed types: _DWORD, _QWORD. Review as an inferred structure base. confidence=0.83
       - inferred_offset_field_preview: Preview fields for sessionSpace: +0x10 _DWORD field_10; +0x18 _QWORD field_18; +0x20 _BYTE field_20; +0x28 _DWORD field_28; +0x30 _WORD field_30. Preview only; no IDB type or pseudocode rewrite was applied. confidence=0.81
       - inferred_offset_field_aliases: Alias map for sessionSpace: field_10=+0x10 _DWORD; field_18=+0x18 _QWORD; field_20=+0x20 _BYTE; field_28=+0x28 _DWORD; field_30=+0x30 _WORD. Use as review-only shorthand for repeated offset dereferences. confidence=0.73
-      - inferred_offset_subfield_overlays: Subfield overlay evidence for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate]. Review-only; field rewrite remains blocked for mixed-width offsets. confidence=0.72
-      - inferred_offset_narrow_subfields: Narrow subfield candidates for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate]. Audit-only; body rewrite remains disabled until the parent structure is trusted. confidence=0.72
+      - inferred_offset_subfield_overlays: Subfield overlay evidence for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate masks=0xF,0xFFF0 ops=test_mask,clear_mask]. Review-only; field rewrite remains blocked for mixed-width offsets. confidence=0.72
+      - inferred_offset_narrow_subfields: Narrow subfield candidates for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate masks=0xF,0xFFF0 ops=test_mask,clear_mask]. Audit-only; body rewrite remains disabled until the parent structure is trusted. confidence=0.72
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite offset threshold requires at least 8 offsets; rewrite access threshold requires at least 12 accesses. Review-only aliases remain available. confidence=0.73
       - inferred_offset_rewrite_ready: Offset field rewrite candidate for readySession: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
@@ -96,6 +96,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["size_classes"]["byte_word"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["policy_classes"]["narrow_subfield"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["interpretations"]["bitfield_candidate"])
+            self.assertEqual(1, report["layout_subfield_overlay_stats"]["bit_masks"]["0xF"])
+            self.assertEqual(1, report["layout_subfield_overlay_stats"]["bit_masks"]["0xFFF0"])
+            self.assertEqual(1, report["layout_subfield_overlay_stats"]["bit_operations"]["test_mask"])
+            self.assertEqual(1, report["layout_subfield_overlay_stats"]["bit_operations"]["clear_mask"])
             self.assertEqual("Sample", report["layout_subfield_overlay_stats"]["top_functions"][0]["name"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["top_functions"][0]["field_count"])
             self.assertEqual(
@@ -114,6 +118,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                     "bitfield_candidate"
                 ],
             )
+            self.assertEqual(
+                1,
+                report["layout_subfield_overlay_stats"]["top_functions"][0]["top_bit_masks"]["0xF"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_subfield_overlay_stats"]["top_functions"][0]["top_bit_operations"]["test_mask"],
+            )
             self.assertEqual(1, report["layout_narrow_subfield_stats"]["totals"]["candidate_comments"])
             self.assertEqual(
                 1,
@@ -123,6 +135,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["layout_narrow_subfield_stats"]["top_bases"]["sessionSpace"])
             self.assertEqual(1, report["layout_narrow_subfield_stats"]["size_classes"]["byte_word"])
             self.assertEqual(1, report["layout_narrow_subfield_stats"]["interpretations"]["bitfield_candidate"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["bit_masks"]["0xF"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["bit_masks"]["0xFFF0"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["bit_operations"]["test_mask"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["bit_operations"]["clear_mask"])
             self.assertEqual("Sample", report["layout_narrow_subfield_stats"]["top_functions"][0]["name"])
             self.assertEqual(1, report["layout_narrow_subfield_stats"]["top_functions"][0]["field_count"])
             self.assertEqual(
@@ -134,6 +150,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 report["layout_narrow_subfield_stats"]["top_functions"][0]["top_interpretations"][
                     "bitfield_candidate"
                 ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_narrow_subfield_stats"]["top_functions"][0]["top_bit_masks"]["0xF"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_narrow_subfield_stats"]["top_functions"][0]["top_bit_operations"]["test_mask"],
             )
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["ready_candidates"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["functions_with_ready_candidates"])
@@ -251,11 +275,27 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
+                "Subfield Overlay Bit Masks",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Subfield Overlay Bit Operations",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "Layout Narrow Subfields",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "Narrow Subfield Interpretations",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Narrow Subfield Bit Masks",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Narrow Subfield Bit Operations",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

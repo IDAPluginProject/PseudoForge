@@ -386,7 +386,8 @@ def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[di
         if any(_field_type_storage_size(type_name) <= 0 for type_name in type_names):
             continue
         size_class = _subfield_overlay_size_class(sizes)
-        interpretation = _subfield_overlay_interpretation(text, layout.base, offset, size_class)
+        bitfield_evidence = _subfield_overlay_bitfield_evidence(text, layout.base, offset)
+        interpretation = _subfield_overlay_interpretation(size_class, bitfield_evidence)
         fields.append(
             {
                 "offset": offset,
@@ -395,6 +396,8 @@ def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[di
                 "size_class": size_class,
                 "policy_class": _subfield_overlay_policy_class(size_class),
                 "interpretation": interpretation,
+                "bit_masks": bitfield_evidence["masks"],
+                "bit_operations": bitfield_evidence["operations"],
                 "types": sorted(type_names),
             }
         )
@@ -410,7 +413,14 @@ def _subfield_overlay_field_text(item: dict[str, Any]) -> str:
     )
     interpretation = str(item.get("interpretation", "") or "")
     if interpretation:
-        text += " [%s]" % interpretation
+        annotation_parts = [interpretation]
+        bit_masks = [str(value) for value in item.get("bit_masks", []) or [] if str(value)]
+        bit_operations = [str(value) for value in item.get("bit_operations", []) or [] if str(value)]
+        if bit_masks:
+            annotation_parts.append("masks=%s" % ",".join(bit_masks[:4]))
+        if bit_operations:
+            annotation_parts.append("ops=%s" % ",".join(bit_operations[:4]))
+        text += " [%s]" % " ".join(annotation_parts)
     return text
 
 
@@ -437,8 +447,8 @@ def _subfield_overlay_policy_class(size_class: str) -> str:
     return "irregular_overlay"
 
 
-def _subfield_overlay_interpretation(text: str, base: str, offset: int, size_class: str) -> str:
-    if _subfield_overlay_has_bitwise_access(text, base, offset):
+def _subfield_overlay_interpretation(size_class: str, bitfield_evidence: dict[str, list[str]]) -> str:
+    if bitfield_evidence["operations"]:
         return "bitfield_candidate"
     policy_class = _subfield_overlay_policy_class(size_class)
     if policy_class == "narrow_subfield":
@@ -448,9 +458,11 @@ def _subfield_overlay_interpretation(text: str, base: str, offset: int, size_cla
     return "ambiguous_overlay"
 
 
-def _subfield_overlay_has_bitwise_access(text: str, base: str, offset: int) -> bool:
+def _subfield_overlay_bitfield_evidence(text: str, base: str, offset: int) -> dict[str, list[str]]:
+    masks: set[str] = set()
+    operations: set[str] = set()
     if not text:
-        return False
+        return {"masks": [], "operations": []}
     for match in _OFFSET_DEREF_RE.finditer(text):
         if match.group("base") != base:
             continue
@@ -458,9 +470,14 @@ def _subfield_overlay_has_bitwise_access(text: str, base: str, offset: int) -> b
         if parsed_offset != offset:
             continue
         line = _line_at(text, match.start(), match.end())
-        if _line_has_bitwise_field_operation(line):
-            return True
-    return False
+        if not _line_has_bitwise_field_operation(line):
+            continue
+        masks.update(_bitwise_masks_from_line(line))
+        operations.update(_bitwise_operations_from_line(line))
+    return {
+        "masks": sorted(masks, key=_bit_mask_sort_key),
+        "operations": [item for item in _BIT_OPERATION_ORDER if item in operations],
+    }
 
 
 def _line_at(text: str, start: int, end: int) -> str:
@@ -473,6 +490,64 @@ def _line_at(text: str, start: int, end: int) -> str:
 
 def _line_has_bitwise_field_operation(line: str) -> bool:
     return re.search(r"(&=|\|=|\^=|<<|>>|\s[&|^]\s|_bittest|_interlockedbittest)", line or "") is not None
+
+
+_BIT_OPERATION_ORDER = [
+    "test_mask",
+    "clear_mask",
+    "set_mask",
+    "toggle_mask",
+    "shift",
+    "test_bit",
+    "set_bit",
+    "clear_bit",
+]
+
+
+def _bitwise_operations_from_line(line: str) -> set[str]:
+    operations: set[str] = set()
+    value = line or ""
+    if re.search(r"\s&\s*(?:0x[0-9A-Fa-f]+|\d+)", value):
+        operations.add("test_mask")
+    if "&=" in value:
+        operations.add("clear_mask")
+    if "|=" in value:
+        operations.add("set_mask")
+    if "^=" in value:
+        operations.add("toggle_mask")
+    if "<<" in value or ">>" in value:
+        operations.add("shift")
+    lowered = value.lower()
+    if "_bittestandset" in lowered or "_interlockedbittestandset" in lowered:
+        operations.add("set_bit")
+    elif "_bittestandreset" in lowered or "_interlockedbittestandreset" in lowered:
+        operations.add("clear_bit")
+    elif "_bittest" in lowered or "_interlockedbittest" in lowered:
+        operations.add("test_bit")
+    return operations
+
+
+def _bitwise_masks_from_line(line: str) -> set[str]:
+    masks: set[str] = set()
+    for match in re.finditer(r"(?:&=|\|=|\^=|\s[&|^]\s*)\s*(?P<mask>0x[0-9A-Fa-f]+|\d+)(?:u|U|l|L)*", line or ""):
+        masks.add(_normalize_bit_mask(match.group("mask")))
+    return masks
+
+
+def _normalize_bit_mask(value: str) -> str:
+    text = str(value or "").strip()
+    try:
+        number = int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+    except ValueError:
+        return text
+    return "0x%X" % number
+
+
+def _bit_mask_sort_key(value: str) -> tuple[int, str]:
+    try:
+        return int(str(value), 16), str(value)
+    except ValueError:
+        return 0, str(value)
 
 
 def _preview_type_name(type_names: set[str]) -> str:

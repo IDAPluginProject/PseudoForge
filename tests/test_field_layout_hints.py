@@ -504,10 +504,20 @@ __int64 __fastcall BitfieldSubfieldLayout(__int64 currentThread)
 
         self.assertEqual(1, len(overlays))
         self.assertEqual("bitfield_candidate", overlays[0]["overlays"][0]["interpretation"])
-        self.assertIn("[bitfield_candidate]", overlays[0]["text"])
+        self.assertEqual(["0xF", "0xFFF0"], overlays[0]["overlays"][0]["bit_masks"])
+        self.assertEqual(["test_mask", "clear_mask"], overlays[0]["overlays"][0]["bit_operations"])
+        self.assertIn(
+            "[bitfield_candidate masks=0xF,0xFFF0 ops=test_mask,clear_mask]",
+            overlays[0]["text"],
+        )
         self.assertEqual(1, len(narrow))
         self.assertEqual("bitfield_candidate", narrow[0]["fields"][0]["interpretation"])
-        self.assertIn("[bitfield_candidate]", narrow[0]["text"])
+        self.assertEqual(["0xF", "0xFFF0"], narrow[0]["fields"][0]["bit_masks"])
+        self.assertEqual(["test_mask", "clear_mask"], narrow[0]["fields"][0]["bit_operations"])
+        self.assertIn(
+            "[bitfield_candidate masks=0xF,0xFFF0 ops=test_mask,clear_mask]",
+            narrow[0]["text"],
+        )
 
     def test_same_width_type_aliases_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(

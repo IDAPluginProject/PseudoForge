@@ -50,7 +50,7 @@ FIELD_NARROW_SUBFIELD_DETAIL_RE = re.compile(
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
     r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
     r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
-    r"(?:\s+\[(?P<interpretation>[a-z_]+)\])?"
+    r"(?:\s+\[(?P<annotation>[^\]]+)\])?"
 )
 FIELD_REWRITE_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_ready:")
 FIELD_REWRITE_READY_DETAIL_RE = re.compile(
@@ -176,10 +176,14 @@ def analyze_corpus(
     subfield_overlay_size_classes: Counter[str] = Counter()
     subfield_overlay_policy_classes: Counter[str] = Counter()
     subfield_overlay_interpretations: Counter[str] = Counter()
+    subfield_overlay_bit_masks: Counter[str] = Counter()
+    subfield_overlay_bit_operations: Counter[str] = Counter()
     subfield_overlay_totals = Counter()
     narrow_subfield_bases: Counter[str] = Counter()
     narrow_subfield_size_classes: Counter[str] = Counter()
     narrow_subfield_interpretations: Counter[str] = Counter()
+    narrow_subfield_bit_masks: Counter[str] = Counter()
+    narrow_subfield_bit_operations: Counter[str] = Counter()
     narrow_subfield_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
@@ -255,6 +259,8 @@ def analyze_corpus(
                     subfield_overlay_size_classes,
                     subfield_overlay_policy_classes,
                     subfield_overlay_interpretations,
+                    subfield_overlay_bit_masks,
+                    subfield_overlay_bit_operations,
                 )
                 _update_layout_narrow_subfield_metrics(
                     narrow_subfields,
@@ -262,6 +268,8 @@ def analyze_corpus(
                     narrow_subfield_bases,
                     narrow_subfield_size_classes,
                     narrow_subfield_interpretations,
+                    narrow_subfield_bit_masks,
+                    narrow_subfield_bit_operations,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -414,6 +422,8 @@ def analyze_corpus(
             "size_classes": _counter_to_dict(Counter(dict(subfield_overlay_size_classes.most_common(top)))),
             "policy_classes": _counter_to_dict(Counter(dict(subfield_overlay_policy_classes.most_common(top)))),
             "interpretations": _counter_to_dict(Counter(dict(subfield_overlay_interpretations.most_common(top)))),
+            "bit_masks": _counter_to_dict(Counter(dict(subfield_overlay_bit_masks.most_common(top)))),
+            "bit_operations": _counter_to_dict(Counter(dict(subfield_overlay_bit_operations.most_common(top)))),
             "top_functions": top_subfield_overlay_functions[:top],
         },
         "layout_narrow_subfield_stats": {
@@ -421,6 +431,8 @@ def analyze_corpus(
             "top_bases": _counter_to_dict(Counter(dict(narrow_subfield_bases.most_common(top)))),
             "size_classes": _counter_to_dict(Counter(dict(narrow_subfield_size_classes.most_common(top)))),
             "interpretations": _counter_to_dict(Counter(dict(narrow_subfield_interpretations.most_common(top)))),
+            "bit_masks": _counter_to_dict(Counter(dict(narrow_subfield_bit_masks.most_common(top)))),
+            "bit_operations": _counter_to_dict(Counter(dict(narrow_subfield_bit_operations.most_common(top)))),
             "top_functions": top_narrow_subfield_functions[:top],
         },
         "layout_rewrite_ready_stats": {
@@ -614,10 +626,26 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Subfield Overlay Bit Masks",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("bit_masks", {})), "Mask"))
+    lines.extend(
+        [
+            "",
+            "### Subfield Overlay Bit Operations",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("bit_operations", {})), "Operation"))
+    lines.extend(
+        [
+            "",
             "### Highest Subfield Overlay Functions",
             "",
-            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Interpretations | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Interpretations | Bit masks | Bit operations | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in subfield_overlay_stats.get("top_functions", []) or []:
@@ -636,8 +664,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_interpretations", {})).items()
         )
+        bit_masks = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_bit_masks", {})).items()
+        )
+        bit_operations = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_bit_operations", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -646,6 +682,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 size_classes,
                 policy_classes,
                 interpretations,
+                bit_masks,
+                bit_operations,
                 bases,
             )
         )
@@ -685,10 +723,26 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Narrow Subfield Bit Masks",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(narrow_subfield_stats.get("bit_masks", {})), "Mask"))
+    lines.extend(
+        [
+            "",
+            "### Narrow Subfield Bit Operations",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(narrow_subfield_stats.get("bit_operations", {})), "Operation"))
+    lines.extend(
+        [
+            "",
             "### Highest Narrow Subfield Functions",
             "",
-            "| Function | EA | Candidates | Fields | Size classes | Interpretations | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Candidates | Fields | Size classes | Interpretations | Bit masks | Bit operations | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- | --- | --- |",
         ]
     )
     for item in narrow_subfield_stats.get("top_functions", []) or []:
@@ -703,8 +757,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_interpretations", {})).items()
         )
+        bit_masks = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_bit_masks", {})).items()
+        )
+        bit_operations = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_bit_operations", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -712,6 +774,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("field_count", 0) or 0),
                 size_classes,
                 interpretations,
+                bit_masks,
+                bit_operations,
                 bases,
             )
         )
@@ -1315,14 +1379,16 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
             if item
         ]
         size_class = _subfield_overlay_size_class(sizes)
-        interpretation = str(match.group("interpretation") or "unknown")
+        annotation = _parse_subfield_overlay_annotation(match.group("annotation"))
         fields.append(
             {
                 "offset": int(match.group("offset"), 16),
                 "sizes": [item for item in sizes if item > 0],
                 "size_class": size_class,
                 "policy_class": _subfield_overlay_policy_class(size_class),
-                "interpretation": interpretation,
+                "interpretation": annotation["interpretation"],
+                "bit_masks": annotation["bit_masks"],
+                "bit_operations": annotation["bit_operations"],
                 "types": [
                     item.strip()
                     for item in match.group("types").split("/")
@@ -1331,6 +1397,28 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
             }
         )
     return fields
+
+
+def _parse_subfield_overlay_annotation(value: str | None) -> dict[str, Any]:
+    parts = [item for item in str(value or "").split() if item]
+    annotation = {
+        "interpretation": "unknown",
+        "bit_masks": [],
+        "bit_operations": [],
+    }
+    for index, part in enumerate(parts):
+        if index == 0 and "=" not in part:
+            annotation["interpretation"] = part
+            continue
+        key, separator, raw_value = part.partition("=")
+        if not separator:
+            continue
+        values = [item for item in raw_value.split(",") if item]
+        if key == "masks":
+            annotation["bit_masks"] = values
+        elif key == "ops":
+            annotation["bit_operations"] = values
+    return annotation
 
 
 def _subfield_overlay_size_class(sizes: list[int]) -> str:
@@ -1388,6 +1476,8 @@ def _update_layout_subfield_overlay_metrics(
     size_classes: Counter[str],
     policy_classes: Counter[str],
     interpretations: Counter[str],
+    bit_masks: Counter[str],
+    bit_operations: Counter[str],
 ) -> None:
     if not overlays:
         return
@@ -1402,6 +1492,10 @@ def _update_layout_subfield_overlay_metrics(
             size_classes[str(field.get("size_class", "") or "unknown")] += 1
             policy_classes[str(field.get("policy_class", "") or "unknown")] += 1
             interpretations[str(field.get("interpretation", "") or "unknown")] += 1
+            for mask in field.get("bit_masks", []) or []:
+                bit_masks[str(mask)] += 1
+            for operation in field.get("bit_operations", []) or []:
+                bit_operations[str(operation)] += 1
 
 
 def _update_layout_narrow_subfield_metrics(
@@ -1410,6 +1504,8 @@ def _update_layout_narrow_subfield_metrics(
     bases: Counter[str],
     size_classes: Counter[str],
     interpretations: Counter[str],
+    bit_masks: Counter[str],
+    bit_operations: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -1423,6 +1519,10 @@ def _update_layout_narrow_subfield_metrics(
                 continue
             size_classes[str(field.get("size_class", "") or "unknown")] += 1
             interpretations[str(field.get("interpretation", "") or "unknown")] += 1
+            for mask in field.get("bit_masks", []) or []:
+                bit_masks[str(mask)] += 1
+            for operation in field.get("bit_operations", []) or []:
+                bit_operations[str(operation)] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1503,12 +1603,18 @@ def _subfield_overlay_function_summary(
     size_classes = Counter()
     policy_classes = Counter()
     interpretations = Counter()
+    bit_masks = Counter()
+    bit_operations = Counter()
     for overlay in overlays:
         for field in overlay.get("fields", []) or []:
             if isinstance(field, dict):
                 size_classes[str(field.get("size_class", "") or "unknown")] += 1
                 policy_classes[str(field.get("policy_class", "") or "unknown")] += 1
                 interpretations[str(field.get("interpretation", "") or "unknown")] += 1
+                for mask in field.get("bit_masks", []) or []:
+                    bit_masks[str(mask)] += 1
+                for operation in field.get("bit_operations", []) or []:
+                    bit_operations[str(operation)] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1518,6 +1624,8 @@ def _subfield_overlay_function_summary(
         "top_size_classes": _counter_to_dict(Counter(dict(size_classes.most_common(5)))),
         "top_policy_classes": _counter_to_dict(Counter(dict(policy_classes.most_common(5)))),
         "top_interpretations": _counter_to_dict(Counter(dict(interpretations.most_common(5)))),
+        "top_bit_masks": _counter_to_dict(Counter(dict(bit_masks.most_common(5)))),
+        "top_bit_operations": _counter_to_dict(Counter(dict(bit_operations.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in overlays), default=0.0),
         "summary_path": str(summary_path),
     }
@@ -1531,11 +1639,17 @@ def _narrow_subfield_function_summary(
 ) -> dict[str, Any]:
     size_classes = Counter()
     interpretations = Counter()
+    bit_masks = Counter()
+    bit_operations = Counter()
     for candidate in candidates:
         for field in candidate.get("fields", []) or []:
             if isinstance(field, dict):
                 size_classes[str(field.get("size_class", "") or "unknown")] += 1
                 interpretations[str(field.get("interpretation", "") or "unknown")] += 1
+                for mask in field.get("bit_masks", []) or []:
+                    bit_masks[str(mask)] += 1
+                for operation in field.get("bit_operations", []) or []:
+                    bit_operations[str(operation)] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1544,6 +1658,8 @@ def _narrow_subfield_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "top_size_classes": _counter_to_dict(Counter(dict(size_classes.most_common(5)))),
         "top_interpretations": _counter_to_dict(Counter(dict(interpretations.most_common(5)))),
+        "top_bit_masks": _counter_to_dict(Counter(dict(bit_masks.most_common(5)))),
+        "top_bit_operations": _counter_to_dict(Counter(dict(bit_operations.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
