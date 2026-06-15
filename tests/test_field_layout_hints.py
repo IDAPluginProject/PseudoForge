@@ -403,6 +403,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
+        narrow = [item for item in comments if item.get("kind") == "inferred_offset_narrow_subfields"]
 
         self.assertEqual(1, len(overlays))
         self.assertEqual("sessionSpace", overlays[0]["base"])
@@ -414,6 +415,7 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         self.assertEqual("wide_overlay", overlays[0]["overlays"][0]["policy_class"])
         self.assertIn("Subfield overlay evidence for sessionSpace", overlays[0]["text"])
         self.assertIn("+0x10 field_10 uses 4/8-byte accesses", overlays[0]["text"])
+        self.assertEqual([], narrow)
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
         self.assertNotIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
@@ -444,6 +446,7 @@ __int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
+        narrow = [item for item in comments if item.get("kind") == "inferred_offset_narrow_subfields"]
 
         self.assertEqual(1, len(overlays))
         self.assertEqual("currentThread", overlays[0]["base"])
@@ -452,6 +455,16 @@ __int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
         self.assertEqual([1, 2], overlays[0]["overlays"][0]["sizes"])
         self.assertEqual("byte_word", overlays[0]["overlays"][0]["size_class"])
         self.assertEqual("narrow_subfield", overlays[0]["overlays"][0]["policy_class"])
+        self.assertEqual(1, len(narrow))
+        self.assertEqual("currentThread", narrow[0]["base"])
+        self.assertEqual("named", narrow[0]["base_kind"])
+        self.assertEqual(1, len(narrow[0]["fields"]))
+        self.assertEqual(0x206, narrow[0]["fields"][0]["offset"])
+        self.assertEqual("byte_word", narrow[0]["fields"][0]["size_class"])
+        self.assertEqual("narrow_subfield", narrow[0]["fields"][0]["policy_class"])
+        self.assertIn("Narrow subfield candidates for currentThread", narrow[0]["text"])
+        self.assertIn("+0x206 field_206 uses 1/2-byte accesses", narrow[0]["text"])
+        self.assertIn("body rewrite remains disabled", narrow[0]["text"])
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
         self.assertNotIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])

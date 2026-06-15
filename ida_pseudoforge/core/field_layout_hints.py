@@ -72,6 +72,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 overlay_preview = _field_subfield_overlay_comment_from_layout(item)
                 if overlay_preview:
                     comments.append(overlay_preview)
+                    narrow_preview = _field_narrow_subfield_comment_from_layout(item)
+                    if narrow_preview:
+                        comments.append(narrow_preview)
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
@@ -224,6 +227,41 @@ def _field_subfield_overlay_comment_from_layout(layout: _LayoutEvidence) -> dict
         "base": layout.base,
         "base_kind": base_kind,
         "overlays": overlays,
+    }
+
+
+def _field_narrow_subfield_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+    fields = [
+        item
+        for item in _subfield_overlay_fields(layout)
+        if item.get("policy_class") == "narrow_subfield"
+    ]
+    if not fields:
+        return None
+    base_kind = _layout_base_kind(layout.base)
+    field_text = "; ".join(
+        "+0x%X %s uses %s-byte accesses (%s)"
+        % (
+            item["offset"],
+            item["name"],
+            "/".join(str(size) for size in item["sizes"]),
+            "/".join(item["types"][:4]),
+        )
+        for item in fields[:6]
+    )
+    if len(fields) > 6:
+        field_text += "; ..."
+    confidence = min(
+        _field_narrow_subfield_confidence_cap_for_base_kind(base_kind),
+        0.62 + len(fields) * 0.04 + min(layout.access_count, 12) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_narrow_subfields",
+        "text": _field_narrow_subfield_text(layout.base, base_kind, field_text),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "fields": fields,
     }
 
 
@@ -495,6 +533,14 @@ def _field_subfield_overlay_confidence_cap_for_base_kind(base_kind: str) -> floa
     return 0.76
 
 
+def _field_narrow_subfield_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.68
+    if base_kind == "generic":
+        return 0.72
+    return 0.78
+
+
 def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "temp":
         return 0.74
@@ -551,6 +597,23 @@ def _field_subfield_overlay_text(base: str, base_kind: str, overlay_text: str) -
     return (
         "Subfield overlay evidence for %s: %s. Review-only; field rewrite remains blocked for mixed-width offsets."
         % (base, overlay_text)
+    )
+
+
+def _field_narrow_subfield_text(base: str, base_kind: str, field_text: str) -> str:
+    if base_kind == "temp":
+        return (
+            "Review narrow subfields for %s (temporary base): %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
+            % (base, field_text)
+        )
+    if base_kind == "generic":
+        return (
+            "Review narrow subfields for %s (generic base): %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
+            % (base, field_text)
+        )
+    return (
+        "Narrow subfield candidates for %s: %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
+        % (base, field_text)
     )
 
 

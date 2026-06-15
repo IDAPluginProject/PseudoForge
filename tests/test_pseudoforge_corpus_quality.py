@@ -17,6 +17,7 @@ CLEANED = r"""
       - inferred_offset_field_preview: Preview fields for sessionSpace: +0x10 _DWORD field_10; +0x18 _QWORD field_18; +0x20 _BYTE field_20; +0x28 _DWORD field_28; +0x30 _WORD field_30. Preview only; no IDB type or pseudocode rewrite was applied. confidence=0.81
       - inferred_offset_field_aliases: Alias map for sessionSpace: field_10=+0x10 _DWORD; field_18=+0x18 _QWORD; field_20=+0x20 _BYTE; field_28=+0x28 _DWORD; field_30=+0x30 _WORD. Use as review-only shorthand for repeated offset dereferences. confidence=0.73
       - inferred_offset_subfield_overlays: Subfield overlay evidence for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD). Review-only; field rewrite remains blocked for mixed-width offsets. confidence=0.72
+      - inferred_offset_narrow_subfields: Narrow subfield candidates for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD). Audit-only; body rewrite remains disabled until the parent structure is trusted. confidence=0.72
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite offset threshold requires at least 8 offsets; rewrite access threshold requires at least 12 accesses. Review-only aliases remain available. confidence=0.73
       - inferred_offset_rewrite_ready: Offset field rewrite candidate for readySession: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
@@ -106,6 +107,20 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                     "narrow_subfield"
                 ],
             )
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["totals"]["candidate_comments"])
+            self.assertEqual(
+                1,
+                report["layout_narrow_subfield_stats"]["totals"]["functions_with_candidate_comments"],
+            )
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["totals"]["field_observations"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["top_bases"]["sessionSpace"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["size_classes"]["byte_word"])
+            self.assertEqual("Sample", report["layout_narrow_subfield_stats"]["top_functions"][0]["name"])
+            self.assertEqual(1, report["layout_narrow_subfield_stats"]["top_functions"][0]["field_count"])
+            self.assertEqual(
+                1,
+                report["layout_narrow_subfield_stats"]["top_functions"][0]["top_size_classes"]["byte_word"],
+            )
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["ready_candidates"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["functions_with_ready_candidates"])
             self.assertEqual(8, report["layout_rewrite_ready_stats"]["totals"]["offset_observations"])
@@ -153,6 +168,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_previews"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_aliases"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_subfield_overlays"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_narrow_subfields"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_near_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_blockers"])
@@ -164,6 +180,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertNotIn("inferred_offset_layout_hints", report["body_text_stats"])
             self.assertNotIn("inferred_offset_field_aliases", report["body_text_stats"])
             self.assertNotIn("inferred_offset_subfield_overlays", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_narrow_subfields", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_near_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_blockers", report["body_text_stats"])
@@ -213,6 +230,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Subfield Overlay Policy Classes",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Narrow Subfields",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
