@@ -124,11 +124,17 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
 """
         )
 
-        self.assertEqual(1, len(comments))
+        self.assertEqual(2, len(comments))
         self.assertEqual("temp", comments[0]["base_kind"])
         self.assertEqual(0.74, comments[0]["confidence"])
         self.assertIn("temporary base", comments[0]["text"])
-        self.assertFalse(any(item.get("kind") == "inferred_offset_field_preview" for item in comments))
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+        self.assertEqual(1, len(previews))
+        self.assertEqual("v14", previews[0]["base"])
+        self.assertEqual("temp", previews[0]["base_kind"])
+        self.assertEqual(0.7, previews[0]["confidence"])
+        self.assertIn("Review fields for v14 (temporary base)", previews[0]["text"])
+        self.assertIn("Review only; no IDB type or pseudocode rewrite was applied", previews[0]["text"])
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
@@ -186,12 +192,18 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         )
 
         self.assertEqual([], weak_comments)
-        self.assertEqual(1, len(strong_comments))
+        self.assertEqual(2, len(strong_comments))
         self.assertEqual("generic", strong_comments[0]["base_kind"])
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
         self.assertIn("context", strong_comments[0]["text"])
-        self.assertFalse(any(item.get("kind") == "inferred_offset_field_preview" for item in strong_comments))
+        previews = [item for item in strong_comments if item.get("kind") == "inferred_offset_field_preview"]
+        self.assertEqual(1, len(previews))
+        self.assertEqual("context", previews[0]["base"])
+        self.assertEqual("generic", previews[0]["base_kind"])
+        self.assertEqual(0.74, previews[0]["confidence"])
+        self.assertIn("Review fields for context (generic base)", previews[0]["text"])
+        self.assertIn("Review only; no IDB type or pseudocode rewrite was applied", previews[0]["text"])
 
 
 if __name__ == "__main__":

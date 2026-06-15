@@ -115,9 +115,10 @@ def _comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
 
 def _field_preview_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
-    if base_kind != "named":
-        return None
-    if len(layout.offsets) < 5 or layout.access_count < 5:
+    if base_kind == "named":
+        if len(layout.offsets) < 5 or layout.access_count < 5:
+            return None
+    elif len(layout.offsets) < 8 or layout.access_count < 12:
         return None
     fields = _preview_fields(layout)
     if not fields:
@@ -125,13 +126,13 @@ def _field_preview_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any
     field_text = "; ".join("+0x%X %s %s" % (item["offset"], item["type"], item["name"]) for item in fields[:8])
     if len(fields) > 8:
         field_text += "; ..."
-    confidence = min(0.82, 0.62 + len(layout.offsets) * 0.025 + min(layout.access_count, 12) * 0.005)
+    confidence = min(
+        _field_preview_confidence_cap_for_base_kind(base_kind),
+        0.62 + len(layout.offsets) * 0.025 + min(layout.access_count, 12) * 0.005,
+    )
     return {
         "kind": "inferred_offset_field_preview",
-        "text": (
-            "Preview fields for %s: %s. Preview only; no IDB type or pseudocode rewrite was applied."
-            % (layout.base, field_text)
-        ),
+        "text": _field_preview_text(layout.base, base_kind, field_text),
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
@@ -216,6 +217,31 @@ def _confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "generic":
         return 0.78
     return 0.86
+
+
+def _field_preview_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.7
+    if base_kind == "generic":
+        return 0.74
+    return 0.82
+
+
+def _field_preview_text(base: str, base_kind: str, field_text: str) -> str:
+    if base_kind == "temp":
+        return (
+            "Review fields for %s (temporary base): %s. Review only; no IDB type or pseudocode rewrite was applied."
+            % (base, field_text)
+        )
+    if base_kind == "generic":
+        return (
+            "Review fields for %s (generic base): %s. Review only; no IDB type or pseudocode rewrite was applied."
+            % (base, field_text)
+        )
+    return (
+        "Preview fields for %s: %s. Preview only; no IDB type or pseudocode rewrite was applied."
+        % (base, field_text)
+    )
 
 
 def _review_text_for_base_kind(base_kind: str) -> str:
