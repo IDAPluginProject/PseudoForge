@@ -69,10 +69,10 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
             alias_preview = _field_alias_comment_from_layout(item)
             if alias_preview:
                 comments.append(alias_preview)
-                overlay_preview = _field_subfield_overlay_comment_from_layout(item)
+                overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item)
                 if overlay_preview:
                     comments.append(overlay_preview)
-                    narrow_preview = _field_narrow_subfield_comment_from_layout(item)
+                    narrow_preview = _field_narrow_subfield_comment_from_layout(text or "", item)
                     if narrow_preview:
                         comments.append(narrow_preview)
                 blocker = _field_rewrite_blocker_comment(text or "", item)
@@ -199,19 +199,13 @@ def _field_alias_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] 
     }
 
 
-def _field_subfield_overlay_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
-    overlays = _subfield_overlay_fields(layout)
+def _field_subfield_overlay_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+    overlays = _subfield_overlay_fields(layout, text)
     if not overlays:
         return None
     base_kind = _layout_base_kind(layout.base)
     overlay_text = "; ".join(
-        "+0x%X %s uses %s-byte accesses (%s)"
-        % (
-            item["offset"],
-            item["name"],
-            "/".join(str(size) for size in item["sizes"]),
-            "/".join(item["types"][:4]),
-        )
+        _subfield_overlay_field_text(item)
         for item in overlays[:6]
     )
     if len(overlays) > 6:
@@ -230,23 +224,17 @@ def _field_subfield_overlay_comment_from_layout(layout: _LayoutEvidence) -> dict
     }
 
 
-def _field_narrow_subfield_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _field_narrow_subfield_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
     fields = [
         item
-        for item in _subfield_overlay_fields(layout)
+        for item in _subfield_overlay_fields(layout, text)
         if item.get("policy_class") == "narrow_subfield"
     ]
     if not fields:
         return None
     base_kind = _layout_base_kind(layout.base)
     field_text = "; ".join(
-        "+0x%X %s uses %s-byte accesses (%s)"
-        % (
-            item["offset"],
-            item["name"],
-            "/".join(str(size) for size in item["sizes"]),
-            "/".join(item["types"][:4]),
-        )
+        _subfield_overlay_field_text(item)
         for item in fields[:6]
     )
     if len(fields) > 6:
@@ -385,7 +373,7 @@ def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
     return fields
 
 
-def _subfield_overlay_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
+def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[dict[str, Any]]:
     fields = []
     for offset, type_names in sorted(layout.offsets.items()):
         sizes = sorted({
@@ -398,6 +386,7 @@ def _subfield_overlay_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
         if any(_field_type_storage_size(type_name) <= 0 for type_name in type_names):
             continue
         size_class = _subfield_overlay_size_class(sizes)
+        interpretation = _subfield_overlay_interpretation(text, layout.base, offset, size_class)
         fields.append(
             {
                 "offset": offset,
@@ -405,10 +394,24 @@ def _subfield_overlay_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
                 "sizes": sizes,
                 "size_class": size_class,
                 "policy_class": _subfield_overlay_policy_class(size_class),
+                "interpretation": interpretation,
                 "types": sorted(type_names),
             }
         )
     return fields
+
+
+def _subfield_overlay_field_text(item: dict[str, Any]) -> str:
+    text = "+0x%X %s uses %s-byte accesses (%s)" % (
+        item["offset"],
+        item["name"],
+        "/".join(str(size) for size in item["sizes"]),
+        "/".join(item["types"][:4]),
+    )
+    interpretation = str(item.get("interpretation", "") or "")
+    if interpretation:
+        text += " [%s]" % interpretation
+    return text
 
 
 def _subfield_overlay_size_class(sizes: list[int]) -> str:
@@ -432,6 +435,44 @@ def _subfield_overlay_policy_class(size_class: str) -> str:
     if size_class in {"dword_qword", "qword_oword"}:
         return "wide_overlay"
     return "irregular_overlay"
+
+
+def _subfield_overlay_interpretation(text: str, base: str, offset: int, size_class: str) -> str:
+    if _subfield_overlay_has_bitwise_access(text, base, offset):
+        return "bitfield_candidate"
+    policy_class = _subfield_overlay_policy_class(size_class)
+    if policy_class == "narrow_subfield":
+        return "packed_field_candidate"
+    if policy_class == "wide_overlay":
+        return "union_overlay_candidate"
+    return "ambiguous_overlay"
+
+
+def _subfield_overlay_has_bitwise_access(text: str, base: str, offset: int) -> bool:
+    if not text:
+        return False
+    for match in _OFFSET_DEREF_RE.finditer(text):
+        if match.group("base") != base:
+            continue
+        parsed_offset = _parse_offset(match.group("offset"))
+        if parsed_offset != offset:
+            continue
+        line = _line_at(text, match.start(), match.end())
+        if _line_has_bitwise_field_operation(line):
+            return True
+    return False
+
+
+def _line_at(text: str, start: int, end: int) -> str:
+    line_start = text.rfind("\n", 0, max(0, start)) + 1
+    line_end = text.find("\n", max(0, end))
+    if line_end < 0:
+        line_end = len(text)
+    return text[line_start:line_end]
+
+
+def _line_has_bitwise_field_operation(line: str) -> bool:
+    return re.search(r"(&=|\|=|\^=|<<|>>|\s[&|^]\s|_bittest|_interlockedbittest)", line or "") is not None
 
 
 def _preview_type_name(type_names: set[str]) -> str:

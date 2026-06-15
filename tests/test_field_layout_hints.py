@@ -413,8 +413,12 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         self.assertEqual([4, 8], overlays[0]["overlays"][0]["sizes"])
         self.assertEqual("dword_qword", overlays[0]["overlays"][0]["size_class"])
         self.assertEqual("wide_overlay", overlays[0]["overlays"][0]["policy_class"])
+        self.assertEqual("union_overlay_candidate", overlays[0]["overlays"][0]["interpretation"])
         self.assertIn("Subfield overlay evidence for sessionSpace", overlays[0]["text"])
-        self.assertIn("+0x10 field_10 uses 4/8-byte accesses", overlays[0]["text"])
+        self.assertIn(
+            "+0x10 field_10 uses 4/8-byte accesses (_DWORD/_QWORD) [union_overlay_candidate]",
+            overlays[0]["text"],
+        )
         self.assertEqual([], narrow)
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
@@ -455,6 +459,7 @@ __int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
         self.assertEqual([1, 2], overlays[0]["overlays"][0]["sizes"])
         self.assertEqual("byte_word", overlays[0]["overlays"][0]["size_class"])
         self.assertEqual("narrow_subfield", overlays[0]["overlays"][0]["policy_class"])
+        self.assertEqual("packed_field_candidate", overlays[0]["overlays"][0]["interpretation"])
         self.assertEqual(1, len(narrow))
         self.assertEqual("currentThread", narrow[0]["base"])
         self.assertEqual("named", narrow[0]["base_kind"])
@@ -462,13 +467,47 @@ __int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
         self.assertEqual(0x206, narrow[0]["fields"][0]["offset"])
         self.assertEqual("byte_word", narrow[0]["fields"][0]["size_class"])
         self.assertEqual("narrow_subfield", narrow[0]["fields"][0]["policy_class"])
+        self.assertEqual("packed_field_candidate", narrow[0]["fields"][0]["interpretation"])
         self.assertIn("Narrow subfield candidates for currentThread", narrow[0]["text"])
-        self.assertIn("+0x206 field_206 uses 1/2-byte accesses", narrow[0]["text"])
+        self.assertIn(
+            "+0x206 field_206 uses 1/2-byte accesses (_BYTE/_WORD) [packed_field_candidate]",
+            narrow[0]["text"],
+        )
         self.assertIn("body rewrite remains disabled", narrow[0]["text"])
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
         self.assertNotIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_bitwise_narrow_subfield_reports_bitfield_interpretation(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall BitfieldSubfieldLayout(__int64 currentThread)
+{
+  if ( (*(_BYTE *)(currentThread + 0x206) & 0xF) != 0 )
+    *(_WORD *)(currentThread + 0x206) &= 0xFFF0u;
+  return *(_QWORD *)(currentThread + 0x10)
+       + *(_QWORD *)(currentThread + 0x18)
+       + *(_QWORD *)(currentThread + 0x20)
+       + *(_QWORD *)(currentThread + 0x28)
+       + *(_QWORD *)(currentThread + 0x30)
+       + *(_QWORD *)(currentThread + 0x38)
+       + *(_QWORD *)(currentThread + 0x40)
+       + *(_QWORD *)(currentThread + 0x48)
+       + *(_QWORD *)(currentThread + 0x10)
+       + *(_QWORD *)(currentThread + 0x18);
+}
+"""
+        )
+        overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
+        narrow = [item for item in comments if item.get("kind") == "inferred_offset_narrow_subfields"]
+
+        self.assertEqual(1, len(overlays))
+        self.assertEqual("bitfield_candidate", overlays[0]["overlays"][0]["interpretation"])
+        self.assertIn("[bitfield_candidate]", overlays[0]["text"])
+        self.assertEqual(1, len(narrow))
+        self.assertEqual("bitfield_candidate", narrow[0]["fields"][0]["interpretation"])
+        self.assertIn("[bitfield_candidate]", narrow[0]["text"])
 
     def test_same_width_type_aliases_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(

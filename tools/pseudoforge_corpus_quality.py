@@ -50,6 +50,7 @@ FIELD_NARROW_SUBFIELD_DETAIL_RE = re.compile(
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
     r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
     r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
+    r"(?:\s+\[(?P<interpretation>[a-z_]+)\])?"
 )
 FIELD_REWRITE_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_ready:")
 FIELD_REWRITE_READY_DETAIL_RE = re.compile(
@@ -174,9 +175,11 @@ def analyze_corpus(
     subfield_overlay_bases: Counter[str] = Counter()
     subfield_overlay_size_classes: Counter[str] = Counter()
     subfield_overlay_policy_classes: Counter[str] = Counter()
+    subfield_overlay_interpretations: Counter[str] = Counter()
     subfield_overlay_totals = Counter()
     narrow_subfield_bases: Counter[str] = Counter()
     narrow_subfield_size_classes: Counter[str] = Counter()
+    narrow_subfield_interpretations: Counter[str] = Counter()
     narrow_subfield_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
@@ -251,12 +254,14 @@ def analyze_corpus(
                     subfield_overlay_bases,
                     subfield_overlay_size_classes,
                     subfield_overlay_policy_classes,
+                    subfield_overlay_interpretations,
                 )
                 _update_layout_narrow_subfield_metrics(
                     narrow_subfields,
                     narrow_subfield_totals,
                     narrow_subfield_bases,
                     narrow_subfield_size_classes,
+                    narrow_subfield_interpretations,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -408,12 +413,14 @@ def analyze_corpus(
             "top_bases": _counter_to_dict(Counter(dict(subfield_overlay_bases.most_common(top)))),
             "size_classes": _counter_to_dict(Counter(dict(subfield_overlay_size_classes.most_common(top)))),
             "policy_classes": _counter_to_dict(Counter(dict(subfield_overlay_policy_classes.most_common(top)))),
+            "interpretations": _counter_to_dict(Counter(dict(subfield_overlay_interpretations.most_common(top)))),
             "top_functions": top_subfield_overlay_functions[:top],
         },
         "layout_narrow_subfield_stats": {
             "totals": _counter_to_dict(narrow_subfield_totals),
             "top_bases": _counter_to_dict(Counter(dict(narrow_subfield_bases.most_common(top)))),
             "size_classes": _counter_to_dict(Counter(dict(narrow_subfield_size_classes.most_common(top)))),
+            "interpretations": _counter_to_dict(Counter(dict(narrow_subfield_interpretations.most_common(top)))),
             "top_functions": top_narrow_subfield_functions[:top],
         },
         "layout_rewrite_ready_stats": {
@@ -599,10 +606,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Subfield Overlay Interpretations",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("interpretations", {})), "Interpretation"))
+    lines.extend(
+        [
+            "",
             "### Highest Subfield Overlay Functions",
             "",
-            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Interpretations | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in subfield_overlay_stats.get("top_functions", []) or []:
@@ -617,8 +632,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_policy_classes", {})).items()
         )
+        interpretations = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_interpretations", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -626,6 +645,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("field_count", 0) or 0),
                 size_classes,
                 policy_classes,
+                interpretations,
                 bases,
             )
         )
@@ -657,10 +677,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Narrow Subfield Interpretations",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(narrow_subfield_stats.get("interpretations", {})), "Interpretation"))
+    lines.extend(
+        [
+            "",
             "### Highest Narrow Subfield Functions",
             "",
-            "| Function | EA | Candidates | Fields | Size classes | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- |",
+            "| Function | EA | Candidates | Fields | Size classes | Interpretations | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in narrow_subfield_stats.get("top_functions", []) or []:
@@ -671,14 +699,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_size_classes", {})).items()
         )
+        interpretations = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_interpretations", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("candidate_count", 0) or 0),
                 int(item.get("field_count", 0) or 0),
                 size_classes,
+                interpretations,
                 bases,
             )
         )
@@ -1282,12 +1315,14 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
             if item
         ]
         size_class = _subfield_overlay_size_class(sizes)
+        interpretation = str(match.group("interpretation") or "unknown")
         fields.append(
             {
                 "offset": int(match.group("offset"), 16),
                 "sizes": [item for item in sizes if item > 0],
                 "size_class": size_class,
                 "policy_class": _subfield_overlay_policy_class(size_class),
+                "interpretation": interpretation,
                 "types": [
                     item.strip()
                     for item in match.group("types").split("/")
@@ -1352,6 +1387,7 @@ def _update_layout_subfield_overlay_metrics(
     bases: Counter[str],
     size_classes: Counter[str],
     policy_classes: Counter[str],
+    interpretations: Counter[str],
 ) -> None:
     if not overlays:
         return
@@ -1365,6 +1401,7 @@ def _update_layout_subfield_overlay_metrics(
                 continue
             size_classes[str(field.get("size_class", "") or "unknown")] += 1
             policy_classes[str(field.get("policy_class", "") or "unknown")] += 1
+            interpretations[str(field.get("interpretation", "") or "unknown")] += 1
 
 
 def _update_layout_narrow_subfield_metrics(
@@ -1372,6 +1409,7 @@ def _update_layout_narrow_subfield_metrics(
     totals: Counter[str],
     bases: Counter[str],
     size_classes: Counter[str],
+    interpretations: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -1384,6 +1422,7 @@ def _update_layout_narrow_subfield_metrics(
             if not isinstance(field, dict):
                 continue
             size_classes[str(field.get("size_class", "") or "unknown")] += 1
+            interpretations[str(field.get("interpretation", "") or "unknown")] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1463,11 +1502,13 @@ def _subfield_overlay_function_summary(
 ) -> dict[str, Any]:
     size_classes = Counter()
     policy_classes = Counter()
+    interpretations = Counter()
     for overlay in overlays:
         for field in overlay.get("fields", []) or []:
             if isinstance(field, dict):
                 size_classes[str(field.get("size_class", "") or "unknown")] += 1
                 policy_classes[str(field.get("policy_class", "") or "unknown")] += 1
+                interpretations[str(field.get("interpretation", "") or "unknown")] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1476,6 +1517,7 @@ def _subfield_overlay_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in overlays[:8]],
         "top_size_classes": _counter_to_dict(Counter(dict(size_classes.most_common(5)))),
         "top_policy_classes": _counter_to_dict(Counter(dict(policy_classes.most_common(5)))),
+        "top_interpretations": _counter_to_dict(Counter(dict(interpretations.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in overlays), default=0.0),
         "summary_path": str(summary_path),
     }
@@ -1488,10 +1530,12 @@ def _narrow_subfield_function_summary(
     candidates: list[dict[str, Any]],
 ) -> dict[str, Any]:
     size_classes = Counter()
+    interpretations = Counter()
     for candidate in candidates:
         for field in candidate.get("fields", []) or []:
             if isinstance(field, dict):
                 size_classes[str(field.get("size_class", "") or "unknown")] += 1
+                interpretations[str(field.get("interpretation", "") or "unknown")] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1499,6 +1543,7 @@ def _narrow_subfield_function_summary(
         "field_count": sum(_int_value(item.get("field_count"), 0) for item in candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "top_size_classes": _counter_to_dict(Counter(dict(size_classes.most_common(5)))),
+        "top_interpretations": _counter_to_dict(Counter(dict(interpretations.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
