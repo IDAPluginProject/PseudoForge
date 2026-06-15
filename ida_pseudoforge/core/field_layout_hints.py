@@ -40,6 +40,9 @@ _REWRITE_THRESHOLD_BLOCKERS = {
     _REWRITE_OFFSET_THRESHOLD_BLOCKER,
     _REWRITE_ACCESS_THRESHOLD_BLOCKER,
 }
+_NARROW_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix narrow subfield access widths"
+_WIDE_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix wide overlay access widths"
+_IRREGULAR_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix irregular field access widths"
 
 
 @dataclass(slots=True)
@@ -356,12 +359,14 @@ def _subfield_overlay_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
             continue
         if any(_field_type_storage_size(type_name) <= 0 for type_name in type_names):
             continue
+        size_class = _subfield_overlay_size_class(sizes)
         fields.append(
             {
                 "offset": offset,
                 "name": "field_%X" % offset,
                 "sizes": sizes,
-                "size_class": _subfield_overlay_size_class(sizes),
+                "size_class": size_class,
+                "policy_class": _subfield_overlay_policy_class(size_class),
                 "types": sorted(type_names),
             }
         )
@@ -381,6 +386,14 @@ def _subfield_overlay_size_class(sizes: list[int]) -> str:
     if normalized == [8, 16]:
         return "qword_oword"
     return "mixed_width"
+
+
+def _subfield_overlay_policy_class(size_class: str) -> str:
+    if size_class in {"byte_word", "byte_dword", "word_dword"}:
+        return "narrow_subfield"
+    if size_class in {"dword_qword", "qword_oword"}:
+        return "wide_overlay"
+    return "irregular_overlay"
 
 
 def _preview_type_name(type_names: set[str]) -> str:
@@ -551,21 +564,40 @@ def _review_text_for_base_kind(base_kind: str) -> str:
 
 def _mixed_offset_type_blockers(layout: _LayoutEvidence) -> list[str]:
     blockers: list[str] = []
-    has_partial_width_conflict = False
+    partial_width_blockers: set[str] = set()
     has_incompatible_type_conflict = False
     for types in layout.offsets.values():
         storage_classes = {_field_type_storage_class(type_name) for type_name in types}
         if len(storage_classes) <= 1:
             continue
         if all(item.startswith("size:") for item in storage_classes):
-            has_partial_width_conflict = True
+            sizes = [
+                _field_type_storage_size(type_name)
+                for type_name in types
+            ]
+            size_class = _subfield_overlay_size_class(sizes)
+            partial_width_blockers.add(_subfield_overlay_policy_blocker(size_class))
         else:
             has_incompatible_type_conflict = True
-    if has_partial_width_conflict:
-        blockers.append("one or more offsets mix partial-width field accesses")
+    for blocker in (
+        _NARROW_SUBFIELD_OVERLAY_BLOCKER,
+        _WIDE_SUBFIELD_OVERLAY_BLOCKER,
+        _IRREGULAR_SUBFIELD_OVERLAY_BLOCKER,
+    ):
+        if blocker in partial_width_blockers:
+            blockers.append(blocker)
     if has_incompatible_type_conflict:
         blockers.append("one or more offsets have incompatible access type classes")
     return blockers
+
+
+def _subfield_overlay_policy_blocker(size_class: str) -> str:
+    policy_class = _subfield_overlay_policy_class(size_class)
+    if policy_class == "narrow_subfield":
+        return _NARROW_SUBFIELD_OVERLAY_BLOCKER
+    if policy_class == "wide_overlay":
+        return _WIDE_SUBFIELD_OVERLAY_BLOCKER
+    return _IRREGULAR_SUBFIELD_OVERLAY_BLOCKER
 
 
 def _has_volatile_access_type(layout: _LayoutEvidence) -> bool:

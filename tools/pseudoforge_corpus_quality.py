@@ -164,6 +164,7 @@ def analyze_corpus(
     layout_totals = Counter()
     subfield_overlay_bases: Counter[str] = Counter()
     subfield_overlay_size_classes: Counter[str] = Counter()
+    subfield_overlay_policy_classes: Counter[str] = Counter()
     subfield_overlay_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
@@ -236,6 +237,7 @@ def analyze_corpus(
                     subfield_overlay_totals,
                     subfield_overlay_bases,
                     subfield_overlay_size_classes,
+                    subfield_overlay_policy_classes,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -375,6 +377,7 @@ def analyze_corpus(
             "totals": _counter_to_dict(subfield_overlay_totals),
             "top_bases": _counter_to_dict(Counter(dict(subfield_overlay_bases.most_common(top)))),
             "size_classes": _counter_to_dict(Counter(dict(subfield_overlay_size_classes.most_common(top)))),
+            "policy_classes": _counter_to_dict(Counter(dict(subfield_overlay_policy_classes.most_common(top)))),
             "top_functions": top_subfield_overlay_functions[:top],
         },
         "layout_rewrite_ready_stats": {
@@ -550,10 +553,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Subfield Overlay Policy Classes",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("policy_classes", {})), "Policy class"))
+    lines.extend(
+        [
+            "",
             "### Highest Subfield Overlay Functions",
             "",
-            "| Function | EA | Overlays | Fields | Size classes | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- |",
+            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in subfield_overlay_stats.get("top_functions", []) or []:
@@ -564,14 +575,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_size_classes", {})).items()
         )
+        policy_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_policy_classes", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("overlay_count", 0) or 0),
                 int(item.get("field_count", 0) or 0),
                 size_classes,
+                policy_classes,
                 bases,
             )
         )
@@ -1150,11 +1166,13 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
             for item in match.group("sizes").split("/")
             if item
         ]
+        size_class = _subfield_overlay_size_class(sizes)
         fields.append(
             {
                 "offset": int(match.group("offset"), 16),
                 "sizes": [item for item in sizes if item > 0],
-                "size_class": _subfield_overlay_size_class(sizes),
+                "size_class": size_class,
+                "policy_class": _subfield_overlay_policy_class(size_class),
                 "types": [
                     item.strip()
                     for item in match.group("types").split("/")
@@ -1178,6 +1196,14 @@ def _subfield_overlay_size_class(sizes: list[int]) -> str:
     if normalized == [8, 16]:
         return "qword_oword"
     return "mixed_width"
+
+
+def _subfield_overlay_policy_class(size_class: str) -> str:
+    if size_class in {"byte_word", "byte_dword", "word_dword"}:
+        return "narrow_subfield"
+    if size_class in {"dword_qword", "qword_oword"}:
+        return "wide_overlay"
+    return "irregular_overlay"
 
 
 def _update_layout_hint_metrics(
@@ -1210,6 +1236,7 @@ def _update_layout_subfield_overlay_metrics(
     totals: Counter[str],
     bases: Counter[str],
     size_classes: Counter[str],
+    policy_classes: Counter[str],
 ) -> None:
     if not overlays:
         return
@@ -1222,6 +1249,7 @@ def _update_layout_subfield_overlay_metrics(
             if not isinstance(field, dict):
                 continue
             size_classes[str(field.get("size_class", "") or "unknown")] += 1
+            policy_classes[str(field.get("policy_class", "") or "unknown")] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1300,10 +1328,12 @@ def _subfield_overlay_function_summary(
     overlays: list[dict[str, Any]],
 ) -> dict[str, Any]:
     size_classes = Counter()
+    policy_classes = Counter()
     for overlay in overlays:
         for field in overlay.get("fields", []) or []:
             if isinstance(field, dict):
                 size_classes[str(field.get("size_class", "") or "unknown")] += 1
+                policy_classes[str(field.get("policy_class", "") or "unknown")] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1311,6 +1341,7 @@ def _subfield_overlay_function_summary(
         "field_count": sum(_int_value(item.get("field_count"), 0) for item in overlays),
         "bases": [str(item.get("base", "") or "unknown") for item in overlays[:8]],
         "top_size_classes": _counter_to_dict(Counter(dict(size_classes.most_common(5)))),
+        "top_policy_classes": _counter_to_dict(Counter(dict(policy_classes.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in overlays), default=0.0),
         "summary_path": str(summary_path),
     }

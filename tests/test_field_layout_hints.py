@@ -411,13 +411,50 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         self.assertEqual(16, overlays[0]["overlays"][0]["offset"])
         self.assertEqual([4, 8], overlays[0]["overlays"][0]["sizes"])
         self.assertEqual("dword_qword", overlays[0]["overlays"][0]["size_class"])
+        self.assertEqual("wide_overlay", overlays[0]["overlays"][0]["policy_class"])
         self.assertIn("Subfield overlay evidence for sessionSpace", overlays[0]["text"])
         self.assertIn("+0x10 field_10 uses 4/8-byte accesses", overlays[0]["text"])
         self.assertEqual(1, len(blockers))
-        self.assertIn("one or more offsets mix partial-width field accesses", blockers[0]["blockers"])
+        self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
+        self.assertNotIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
         self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
         self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_narrow_subfield_overlay_reports_narrow_policy_blocker(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall NarrowSubfieldLayout(__int64 currentThread)
+{
+  return *(_BYTE *)(currentThread + 0x206)
+       + *(_WORD *)(currentThread + 0x206)
+       + *(_QWORD *)(currentThread + 0x10)
+       + *(_QWORD *)(currentThread + 0x18)
+       + *(_QWORD *)(currentThread + 0x20)
+       + *(_QWORD *)(currentThread + 0x28)
+       + *(_QWORD *)(currentThread + 0x30)
+       + *(_QWORD *)(currentThread + 0x38)
+       + *(_QWORD *)(currentThread + 0x40)
+       + *(_QWORD *)(currentThread + 0x48)
+       + *(_QWORD *)(currentThread + 0x10)
+       + *(_QWORD *)(currentThread + 0x18);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        overlays = [item for item in comments if item.get("kind") == "inferred_offset_subfield_overlays"]
+
+        self.assertEqual(1, len(overlays))
+        self.assertEqual("currentThread", overlays[0]["base"])
+        self.assertEqual(1, len(overlays[0]["overlays"]))
+        self.assertEqual(0x206, overlays[0]["overlays"][0]["offset"])
+        self.assertEqual([1, 2], overlays[0]["overlays"][0]["sizes"])
+        self.assertEqual("byte_word", overlays[0]["overlays"][0]["size_class"])
+        self.assertEqual("narrow_subfield", overlays[0]["overlays"][0]["policy_class"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
+        self.assertNotIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_same_width_type_aliases_do_not_block_rewrite(self) -> None:
@@ -478,7 +515,9 @@ __int64 __fastcall UnknownTypeConflictLayout(__int64 sessionSpace)
         self.assertEqual([], overlays)
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets have incompatible access type classes", blockers[0]["blockers"])
-        self.assertNotIn("one or more offsets mix partial-width field accesses", blockers[0]["blockers"])
+        self.assertNotIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
+        self.assertNotIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
+        self.assertNotIn("one or more offsets mix irregular field access widths", blockers[0]["blockers"])
 
     def test_compound_base_assignment_blocks_rewrite_even_before_first_access(self) -> None:
         comments = field_layout_comments(

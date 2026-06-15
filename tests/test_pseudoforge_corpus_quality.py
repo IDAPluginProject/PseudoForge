@@ -93,11 +93,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["totals"]["field_observations"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["top_bases"]["sessionSpace"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["size_classes"]["byte_word"])
+            self.assertEqual(1, report["layout_subfield_overlay_stats"]["policy_classes"]["narrow_subfield"])
             self.assertEqual("Sample", report["layout_subfield_overlay_stats"]["top_functions"][0]["name"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["top_functions"][0]["field_count"])
             self.assertEqual(
                 1,
                 report["layout_subfield_overlay_stats"]["top_functions"][0]["top_size_classes"]["byte_word"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_subfield_overlay_stats"]["top_functions"][0]["top_policy_classes"][
+                    "narrow_subfield"
+                ],
             )
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["ready_candidates"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["functions_with_ready_candidates"])
@@ -202,6 +209,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Layout Subfield Overlays",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Subfield Overlay Policy Classes",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
