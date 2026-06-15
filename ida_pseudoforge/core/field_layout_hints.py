@@ -398,6 +398,7 @@ def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[di
                 "interpretation": interpretation,
                 "bit_masks": bitfield_evidence["masks"],
                 "bit_operations": bitfield_evidence["operations"],
+                "mask_families": bitfield_evidence["families"],
                 "types": sorted(type_names),
             }
         )
@@ -416,10 +417,13 @@ def _subfield_overlay_field_text(item: dict[str, Any]) -> str:
         annotation_parts = [interpretation]
         bit_masks = [str(value) for value in item.get("bit_masks", []) or [] if str(value)]
         bit_operations = [str(value) for value in item.get("bit_operations", []) or [] if str(value)]
+        mask_families = [str(value) for value in item.get("mask_families", []) or [] if str(value)]
         if bit_masks:
             annotation_parts.append("masks=%s" % ",".join(bit_masks[:4]))
         if bit_operations:
             annotation_parts.append("ops=%s" % ",".join(bit_operations[:4]))
+        if mask_families:
+            annotation_parts.append("families=%s" % ",".join(mask_families[:4]))
         text += " [%s]" % " ".join(annotation_parts)
     return text
 
@@ -462,7 +466,7 @@ def _subfield_overlay_bitfield_evidence(text: str, base: str, offset: int) -> di
     masks: set[str] = set()
     operations: set[str] = set()
     if not text:
-        return {"masks": [], "operations": []}
+        return {"masks": [], "operations": [], "families": []}
     for match in _OFFSET_DEREF_RE.finditer(text):
         if match.group("base") != base:
             continue
@@ -477,6 +481,7 @@ def _subfield_overlay_bitfield_evidence(text: str, base: str, offset: int) -> di
     return {
         "masks": sorted(masks, key=_bit_mask_sort_key),
         "operations": [item for item in _BIT_OPERATION_ORDER if item in operations],
+        "families": _bit_mask_families(masks, operations),
     }
 
 
@@ -532,6 +537,58 @@ def _bitwise_masks_from_line(line: str) -> set[str]:
     for match in re.finditer(r"(?:&=|\|=|\^=|\s[&|^]\s*)\s*(?P<mask>0x[0-9A-Fa-f]+|\d+)(?:u|U|l|L)*", line or ""):
         masks.add(_normalize_bit_mask(match.group("mask")))
     return masks
+
+
+def _bit_mask_families(masks: set[str], operations: set[str]) -> list[str]:
+    families = []
+    for mask in sorted(masks, key=_bit_mask_sort_key):
+        family = _bit_mask_family(mask, operations)
+        if family and family not in families:
+            families.append(family)
+    return families
+
+
+def _bit_mask_family(mask: str, operations: set[str]) -> str:
+    value = _parse_bit_mask(mask)
+    if value is None:
+        return "unknown_mask"
+    if value != 0 and value & (value - 1) == 0:
+        return "single_bit"
+    if _is_low_bits_mask(value):
+        return "low_nibble" if value == 0xF else "low_bits"
+    if "clear_mask" in operations and _is_clear_low_nibble_mask(value):
+        return "clear_low_nibble"
+    if _has_preserved_outer_nibbles(value):
+        return "preserve_outer_nibbles"
+    return "sparse_mask"
+
+
+def _parse_bit_mask(mask: str) -> int | None:
+    try:
+        return int(str(mask), 16) if str(mask).lower().startswith("0x") else int(str(mask), 10)
+    except ValueError:
+        return None
+
+
+def _is_low_bits_mask(value: int) -> bool:
+    return value > 0 and (value & (value + 1)) == 0
+
+
+def _is_clear_low_nibble_mask(value: int) -> bool:
+    return value > 0 and value & 0xF == 0 and _is_low_bits_mask(value | 0xF)
+
+
+def _has_preserved_outer_nibbles(value: int) -> bool:
+    if value <= 0 or value & 0xF != 0xF:
+        return False
+    nibbles = []
+    item = value
+    while item:
+        nibbles.append(item & 0xF)
+        item >>= 4
+    if len(nibbles) < 3 or nibbles[-1] == 0:
+        return False
+    return any(nibble == 0 for nibble in nibbles[1:-1])
 
 
 def _normalize_bit_mask(value: str) -> str:

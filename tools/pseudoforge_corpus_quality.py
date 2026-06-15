@@ -178,12 +178,14 @@ def analyze_corpus(
     subfield_overlay_interpretations: Counter[str] = Counter()
     subfield_overlay_bit_masks: Counter[str] = Counter()
     subfield_overlay_bit_operations: Counter[str] = Counter()
+    subfield_overlay_mask_families: Counter[str] = Counter()
     subfield_overlay_totals = Counter()
     narrow_subfield_bases: Counter[str] = Counter()
     narrow_subfield_size_classes: Counter[str] = Counter()
     narrow_subfield_interpretations: Counter[str] = Counter()
     narrow_subfield_bit_masks: Counter[str] = Counter()
     narrow_subfield_bit_operations: Counter[str] = Counter()
+    narrow_subfield_mask_families: Counter[str] = Counter()
     narrow_subfield_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
@@ -261,6 +263,7 @@ def analyze_corpus(
                     subfield_overlay_interpretations,
                     subfield_overlay_bit_masks,
                     subfield_overlay_bit_operations,
+                    subfield_overlay_mask_families,
                 )
                 _update_layout_narrow_subfield_metrics(
                     narrow_subfields,
@@ -270,6 +273,7 @@ def analyze_corpus(
                     narrow_subfield_interpretations,
                     narrow_subfield_bit_masks,
                     narrow_subfield_bit_operations,
+                    narrow_subfield_mask_families,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -424,6 +428,7 @@ def analyze_corpus(
             "interpretations": _counter_to_dict(Counter(dict(subfield_overlay_interpretations.most_common(top)))),
             "bit_masks": _counter_to_dict(Counter(dict(subfield_overlay_bit_masks.most_common(top)))),
             "bit_operations": _counter_to_dict(Counter(dict(subfield_overlay_bit_operations.most_common(top)))),
+            "mask_families": _counter_to_dict(Counter(dict(subfield_overlay_mask_families.most_common(top)))),
             "top_functions": top_subfield_overlay_functions[:top],
         },
         "layout_narrow_subfield_stats": {
@@ -433,6 +438,7 @@ def analyze_corpus(
             "interpretations": _counter_to_dict(Counter(dict(narrow_subfield_interpretations.most_common(top)))),
             "bit_masks": _counter_to_dict(Counter(dict(narrow_subfield_bit_masks.most_common(top)))),
             "bit_operations": _counter_to_dict(Counter(dict(narrow_subfield_bit_operations.most_common(top)))),
+            "mask_families": _counter_to_dict(Counter(dict(narrow_subfield_mask_families.most_common(top)))),
             "top_functions": top_narrow_subfield_functions[:top],
         },
         "layout_rewrite_ready_stats": {
@@ -642,10 +648,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Subfield Overlay Mask Families",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(subfield_overlay_stats.get("mask_families", {})), "Family"))
+    lines.extend(
+        [
+            "",
             "### Highest Subfield Overlay Functions",
             "",
-            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Interpretations | Bit masks | Bit operations | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+            "| Function | EA | Overlays | Fields | Size classes | Policy classes | Interpretations | Bit masks | Bit operations | Mask families | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in subfield_overlay_stats.get("top_functions", []) or []:
@@ -672,8 +686,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_bit_operations", {})).items()
         )
+        mask_families = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_mask_families", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -684,6 +702,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 interpretations,
                 bit_masks,
                 bit_operations,
+                mask_families,
                 bases,
             )
         )
@@ -739,10 +758,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Narrow Subfield Mask Families",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(narrow_subfield_stats.get("mask_families", {})), "Family"))
+    lines.extend(
+        [
+            "",
             "### Highest Narrow Subfield Functions",
             "",
-            "| Function | EA | Candidates | Fields | Size classes | Interpretations | Bit masks | Bit operations | Bases |",
-            "| --- | --- | ---: | ---: | --- | --- | --- | --- | --- |",
+            "| Function | EA | Candidates | Fields | Size classes | Interpretations | Bit masks | Bit operations | Mask families | Bases |",
+            "| --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in narrow_subfield_stats.get("top_functions", []) or []:
@@ -765,8 +792,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_bit_operations", {})).items()
         )
+        mask_families = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_mask_families", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -776,6 +807,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 interpretations,
                 bit_masks,
                 bit_operations,
+                mask_families,
                 bases,
             )
         )
@@ -1389,6 +1421,7 @@ def _parse_subfield_overlay_fields(value: str) -> list[dict[str, Any]]:
                 "interpretation": annotation["interpretation"],
                 "bit_masks": annotation["bit_masks"],
                 "bit_operations": annotation["bit_operations"],
+                "mask_families": annotation["mask_families"],
                 "types": [
                     item.strip()
                     for item in match.group("types").split("/")
@@ -1405,6 +1438,7 @@ def _parse_subfield_overlay_annotation(value: str | None) -> dict[str, Any]:
         "interpretation": "unknown",
         "bit_masks": [],
         "bit_operations": [],
+        "mask_families": [],
     }
     for index, part in enumerate(parts):
         if index == 0 and "=" not in part:
@@ -1418,6 +1452,8 @@ def _parse_subfield_overlay_annotation(value: str | None) -> dict[str, Any]:
             annotation["bit_masks"] = values
         elif key == "ops":
             annotation["bit_operations"] = values
+        elif key == "families":
+            annotation["mask_families"] = values
     return annotation
 
 
@@ -1478,6 +1514,7 @@ def _update_layout_subfield_overlay_metrics(
     interpretations: Counter[str],
     bit_masks: Counter[str],
     bit_operations: Counter[str],
+    mask_families: Counter[str],
 ) -> None:
     if not overlays:
         return
@@ -1496,6 +1533,8 @@ def _update_layout_subfield_overlay_metrics(
                 bit_masks[str(mask)] += 1
             for operation in field.get("bit_operations", []) or []:
                 bit_operations[str(operation)] += 1
+            for family in field.get("mask_families", []) or []:
+                mask_families[str(family)] += 1
 
 
 def _update_layout_narrow_subfield_metrics(
@@ -1506,6 +1545,7 @@ def _update_layout_narrow_subfield_metrics(
     interpretations: Counter[str],
     bit_masks: Counter[str],
     bit_operations: Counter[str],
+    mask_families: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -1523,6 +1563,8 @@ def _update_layout_narrow_subfield_metrics(
                 bit_masks[str(mask)] += 1
             for operation in field.get("bit_operations", []) or []:
                 bit_operations[str(operation)] += 1
+            for family in field.get("mask_families", []) or []:
+                mask_families[str(family)] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -1605,6 +1647,7 @@ def _subfield_overlay_function_summary(
     interpretations = Counter()
     bit_masks = Counter()
     bit_operations = Counter()
+    mask_families = Counter()
     for overlay in overlays:
         for field in overlay.get("fields", []) or []:
             if isinstance(field, dict):
@@ -1615,6 +1658,8 @@ def _subfield_overlay_function_summary(
                     bit_masks[str(mask)] += 1
                 for operation in field.get("bit_operations", []) or []:
                     bit_operations[str(operation)] += 1
+                for family in field.get("mask_families", []) or []:
+                    mask_families[str(family)] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1626,6 +1671,7 @@ def _subfield_overlay_function_summary(
         "top_interpretations": _counter_to_dict(Counter(dict(interpretations.most_common(5)))),
         "top_bit_masks": _counter_to_dict(Counter(dict(bit_masks.most_common(5)))),
         "top_bit_operations": _counter_to_dict(Counter(dict(bit_operations.most_common(5)))),
+        "top_mask_families": _counter_to_dict(Counter(dict(mask_families.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in overlays), default=0.0),
         "summary_path": str(summary_path),
     }
@@ -1641,6 +1687,7 @@ def _narrow_subfield_function_summary(
     interpretations = Counter()
     bit_masks = Counter()
     bit_operations = Counter()
+    mask_families = Counter()
     for candidate in candidates:
         for field in candidate.get("fields", []) or []:
             if isinstance(field, dict):
@@ -1650,6 +1697,8 @@ def _narrow_subfield_function_summary(
                     bit_masks[str(mask)] += 1
                 for operation in field.get("bit_operations", []) or []:
                     bit_operations[str(operation)] += 1
+                for family in field.get("mask_families", []) or []:
+                    mask_families[str(family)] += 1
     return {
         "ea": ea,
         "name": name,
@@ -1660,6 +1709,7 @@ def _narrow_subfield_function_summary(
         "top_interpretations": _counter_to_dict(Counter(dict(interpretations.most_common(5)))),
         "top_bit_masks": _counter_to_dict(Counter(dict(bit_masks.most_common(5)))),
         "top_bit_operations": _counter_to_dict(Counter(dict(bit_operations.most_common(5)))),
+        "top_mask_families": _counter_to_dict(Counter(dict(mask_families.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
