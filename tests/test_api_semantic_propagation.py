@@ -138,6 +138,107 @@ NTSTATUS __fastcall LargeLookupDispatcher(__int64 a1)
             )
         )
 
+    def test_large_dispatcher_repeated_api_argument_role_is_propagated(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall LargeObjectDispatcher(__int64 a1)
+{
+  __int64 v1;
+
+%s
+  KeWaitForSingleObject(v1, 0, 0, 0, 0);
+  KeWaitForSingleObject(v1, 0, 0, 0, 0);
+  return 0;
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("object", active["v1"])
+
+    def test_large_dispatcher_repeated_api_out_parameter_role_is_propagated(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall LargeLookupDispatcher(__int64 a1, __int64 a2)
+{
+  __int64 v1; // [rsp+20h] [rbp-8h] BYREF
+
+%s
+  PsLookupProcessByProcessId(a1, (PEPROCESS *)&v1);
+  PsLookupProcessByProcessId(a2, (PEPROCESS *)&v1);
+  return 0;
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("process", active["v1"])
+
+    def test_large_dispatcher_single_use_wrapper_local_role_is_propagated(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall LargeObjectDispatcher(__int64 a1)
+{
+  __int64 v1;
+
+%s
+  v1 = a1;
+  KeWaitForSingleObject(v1, 0, 0, 0, 0);
+  return 0;
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("object", active["v1"])
+
+    def test_large_dispatcher_conflicting_api_roles_are_not_propagated(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall LargeAmbiguousDispatcher(__int64 a1)
+{
+  __int64 v1;
+
+%s
+  KeDelayExecutionThread(v1, 0, 0);
+  KeWaitForSingleObject(v1, 0, 0, 0, 0);
+  return 0;
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertNotEqual("waitMode", active.get("v1"))
+        self.assertNotEqual("object", active.get("v1"))
+
     def test_unsafe_wrapper_role_rejection_is_reported(self) -> None:
         capture = capture_from_pseudocode(
             r"""

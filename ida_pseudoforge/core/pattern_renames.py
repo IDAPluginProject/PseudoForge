@@ -313,6 +313,11 @@ def _api_out_parameter_local_renames(
     local_names = {var.name for var in capture.lvars if var.name}
     byref_names = _byref_local_names(capture.pseudocode)
     large_dispatcher = _looks_like_large_dispatcher(capture.pseudocode or "")
+    large_dispatcher_roles = (
+        _large_dispatcher_api_role_index(capture.pseudocode or "", local_names)
+        if large_dispatcher
+        else {}
+    )
     suggestions = []
     for call in _iter_profiled_calls(capture.pseudocode):
         params = call["params"]
@@ -368,6 +373,25 @@ def _api_out_parameter_local_renames(
                 )
                 continue
             if large_dispatcher:
+                large_dispatcher_evidence = _large_dispatcher_api_role_evidence(
+                    large_dispatcher_roles,
+                    local_name,
+                    new_name,
+                    allow_single_use=False,
+                    text=capture.pseudocode or "",
+                )
+                if large_dispatcher_evidence:
+                    suggestions.append(
+                        RenameSuggestion(
+                            kind="lvar",
+                            old=local_name,
+                            new=new_name,
+                            confidence=0.80,
+                            source="api-out-param",
+                            evidence=large_dispatcher_evidence,
+                        )
+                    )
+                    continue
                 _append_api_semantic_diagnostic(
                     diagnostics,
                     stage="api-out-param",
@@ -452,6 +476,11 @@ def _api_argument_local_renames(
     parameter_names = {name for name, _type_text in extract_parameters_from_signature(capture.prototype)}
     candidate_names = local_names | parameter_names
     large_dispatcher = _looks_like_large_dispatcher(capture.pseudocode or "")
+    large_dispatcher_roles = (
+        _large_dispatcher_api_role_index(capture.pseudocode or "", local_names)
+        if large_dispatcher
+        else {}
+    )
     suggestions = []
     for call in _iter_profiled_calls(capture.pseudocode):
         params = call["params"]
@@ -485,6 +514,25 @@ def _api_argument_local_renames(
                 )
                 continue
             if local_name in local_names and large_dispatcher:
+                large_dispatcher_evidence = _large_dispatcher_api_role_evidence(
+                    large_dispatcher_roles,
+                    local_name,
+                    new_name,
+                    allow_single_use=True,
+                    text=capture.pseudocode or "",
+                )
+                if large_dispatcher_evidence:
+                    suggestions.append(
+                        RenameSuggestion(
+                            kind="lvar",
+                            old=local_name,
+                            new=new_name,
+                            confidence=0.78,
+                            source="api-argument",
+                            evidence=large_dispatcher_evidence,
+                        )
+                    )
+                    continue
                 _append_api_semantic_diagnostic(
                     diagnostics,
                     stage="api-argument",
@@ -982,6 +1030,96 @@ def _looks_like_large_dispatcher(text: str) -> bool:
     return return_count >= 16 and branch_count >= 16
 
 
+def _large_dispatcher_api_role_index(
+    text: str,
+    local_names: set[str],
+) -> dict[str, list[dict[str, str]]]:
+    roles: dict[str, list[dict[str, str]]] = {}
+    for call in _iter_profiled_calls(text):
+        params = call["params"]
+        arguments = call["arguments"]
+        for index, argument in enumerate(arguments):
+            if index >= len(params):
+                continue
+            param = params[index]
+            param_name = str(param.get("name", ""))
+            param_type = str(param.get("type", ""))
+            new_name = _semantic_name_from_api_parameter(param_name, param_type, str(call["name"]))
+            if not new_name or _is_unsafe_wrapper_parameter_role(new_name):
+                continue
+
+            plain_name = _plain_local_argument_name(argument)
+            if (
+                plain_name
+                and plain_name in local_names
+                and _looks_like_generic_temporary(plain_name)
+            ):
+                roles.setdefault(plain_name, []).append(
+                    {
+                        "stage": "api-argument",
+                        "new": new_name,
+                        "callee": str(call["name"]),
+                        "argument_index": str(index),
+                    }
+                )
+
+            addressed_name = _addressed_local_name(argument)
+            if (
+                addressed_name
+                and addressed_name in local_names
+                and _looks_like_generic_temporary(addressed_name)
+                and _is_pointer_like_profile_type(param_type)
+            ):
+                roles.setdefault(addressed_name, []).append(
+                    {
+                        "stage": "api-out-param",
+                        "new": new_name,
+                        "callee": str(call["name"]),
+                        "argument_index": str(index),
+                    }
+                )
+    return roles
+
+
+def _large_dispatcher_api_role_evidence(
+    role_index: dict[str, list[dict[str, str]]],
+    local_name: str,
+    new_name: str,
+    *,
+    allow_single_use: bool,
+    text: str,
+) -> str:
+    roles = role_index.get(local_name, [])
+    if not roles:
+        return ""
+    role_names = {role.get("new", "") for role in roles if role.get("new")}
+    if role_names != {new_name}:
+        return ""
+    same_role_count = sum(1 for role in roles if role.get("new") == new_name)
+    if same_role_count >= 2:
+        callees = sorted({role.get("callee", "") for role in roles if role.get("callee")})
+        return (
+            "large dispatcher local has a stable repeated API role %s across %d profiled calls: %s"
+            % (new_name, same_role_count, ", ".join(callees[:4]))
+        )
+    if allow_single_use and same_role_count == 1 and _looks_like_single_use_wrapper_local(text, local_name):
+        return "large dispatcher local is a single-use wrapper for API role %s" % new_name
+    return ""
+
+
+def _looks_like_single_use_wrapper_local(text: str, local_name: str) -> bool:
+    if not _looks_like_generic_temporary(local_name):
+        return False
+    escaped = re.escape(local_name)
+    use_count = len(re.findall(r"\b%s\b" % escaped, text or ""))
+    if use_count > 3:
+        return False
+    assignment_pattern = re.compile(
+        r"\b%s\s*=\s*(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*;" % escaped
+    )
+    return len(assignment_pattern.findall(text or "")) == 1
+
+
 def _iter_profiled_calls(text: str) -> list[dict[str, object]]:
     calls: list[dict[str, object]] = []
     for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(", text or ""):
@@ -1263,6 +1401,7 @@ def _unique_semantic_suggestions(
         by_target.setdefault(suggestion.new, []).append(suggestion)
         by_old.setdefault(suggestion.old, []).append(suggestion)
     result = []
+    emitted: set[tuple[str, str, str, str]] = set()
     for suggestion in suggestions:
         target_old_names = {item.old for item in by_target.get(suggestion.new, [])}
         old_target_names = {item.new for item in by_old.get(suggestion.old, [])}
@@ -1288,6 +1427,10 @@ def _unique_semantic_suggestions(
                 candidates=sorted(old_target_names),
             )
             continue
+        key = (suggestion.kind, suggestion.old, suggestion.new, suggestion.source)
+        if key in emitted:
+            continue
+        emitted.add(key)
         result.append(suggestion)
     return result
 
