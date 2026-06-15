@@ -31,6 +31,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_comparisons(result)
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
+    result = _replace_guard_dispatch_status_comparisons(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
@@ -141,6 +142,15 @@ def _replace_status_alias_comparisons(text: str) -> str:
 
 def _replace_status_flow_comparisons(text: str) -> str:
     candidates = _status_flow_candidate_names(text)
+    return _replace_status_comparisons_for_names(text, candidates)
+
+
+def _replace_guard_dispatch_status_comparisons(text: str) -> str:
+    candidates = _guard_dispatch_status_candidate_names(text)
+    return _replace_status_comparisons_for_names(text, candidates)
+
+
+def _replace_status_comparisons_for_names(text: str, candidates: set[str]) -> str:
     if not candidates:
         return text
 
@@ -329,6 +339,18 @@ def _status_flow_candidate_names(text: str) -> set[str]:
     for match in re.finditer(r"\b0\s*(?:>|<=)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b", text):
         range_checked_names.add(match.group("name"))
     return call_result_names.intersection(range_checked_names)
+
+
+def _guard_dispatch_status_candidate_names(text: str) -> set[str]:
+    candidates: set[str] = set()
+    assignment_pattern = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?P<expr>[^;]*?\bguard_dispatch_icall_no_overrides\s*\([^;]*?\)[^;]*?)\s*;",
+        flags=re.DOTALL,
+    )
+    for match in assignment_pattern.finditer(text):
+        candidates.add(match.group("name"))
+    return candidates
 
 
 def _top_level_argument_spans(text: str) -> list[tuple[int, int]]:

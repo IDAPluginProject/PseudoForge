@@ -136,6 +136,34 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
 """
 
 
+GUARD_DISPATCH_STATUS_FLOW_SAMPLE = r"""
+NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
+{
+  int callbackStatus;
+  int ternaryStatus;
+  int plainValue;
+
+  if ( a1 )
+    callbackStatus = KnownCallback(a1, a2);
+  else
+    callbackStatus = guard_dispatch_icall_no_overrides(a1, a2);
+  if ( callbackStatus == -1073741822 )
+    return callbackStatus;
+  if ( -1073741536 == callbackStatus )
+    return callbackStatus;
+  ternaryStatus = a1 == KnownCallback
+      ? KnownCallback(a1, a2)
+      : guard_dispatch_icall_no_overrides(a1, a2);
+  if ( ternaryStatus != -1073741802 )
+    return ternaryStatus;
+  plainValue = SomeIntegerCall(a1);
+  if ( plainValue == -1073741822 )
+    return STATUS_INVALID_PARAMETER;
+  return STATUS_SUCCESS;
+}
+"""
+
+
 STATUS_ARGUMENT_SAMPLE = r"""
 void __fastcall StatusArgumentSample(__int64 a1)
 {
@@ -323,6 +351,16 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("callStatus == STATUS_DELETE_PENDING", rendered)
         self.assertIn("STATUS_CALLBACK_BYPASS != callStatus", rendered)
         self.assertIn("plainValue == -1073741738", rendered)
+
+    def test_guard_dispatch_status_flow_comparison_literals_are_named(self) -> None:
+        capture = capture_from_pseudocode(GUARD_DISPATCH_STATUS_FLOW_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("callbackStatus == STATUS_NOT_IMPLEMENTED", rendered)
+        self.assertIn("STATUS_CANCELLED == callbackStatus", rendered)
+        self.assertIn("ternaryStatus != STATUS_MORE_PROCESSING_REQUIRED", rendered)
+        self.assertIn("plainValue == -1073741822", rendered)
 
     def test_profiled_status_argument_literals_are_named(self) -> None:
         capture = capture_from_pseudocode(STATUS_ARGUMENT_SAMPLE)
