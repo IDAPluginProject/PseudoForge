@@ -113,6 +113,29 @@ NTSTATUS __fastcall StatusAliasComparisonSample(int a1)
 """
 
 
+STATUS_FLOW_COMPARISON_SAMPLE = r"""
+NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
+{
+  int callStatus;
+  int plainValue;
+
+  callStatus = SomeStatusCall(a1);
+  if ( callStatus >= 0 )
+    return STATUS_SUCCESS;
+  if ( callStatus == -1073741738 )
+    return callStatus;
+  if ( -1073740541 != callStatus )
+    return STATUS_INVALID_PARAMETER;
+  plainValue = a1;
+  if ( plainValue >= 0 )
+    return STATUS_SUCCESS;
+  if ( plainValue == -1073741738 )
+    return STATUS_INVALID_PARAMETER;
+  return STATUS_SUCCESS;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -278,6 +301,15 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("status = v26, v26 == STATUS_PTE_CHANGED", rendered)
         self.assertIn("status = v26, STATUS_INTEGER_OVERFLOW == v26", rendered)
         self.assertIn("buildNumber = v27, v27 == -1073740748", rendered)
+
+    def test_status_flow_comparison_literals_require_call_result_and_range_check(self) -> None:
+        capture = capture_from_pseudocode(STATUS_FLOW_COMPARISON_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("callStatus == STATUS_DELETE_PENDING", rendered)
+        self.assertIn("STATUS_CALLBACK_BYPASS != callStatus", rendered)
+        self.assertIn("plainValue == -1073741738", rendered)
 
 
 if __name__ == "__main__":

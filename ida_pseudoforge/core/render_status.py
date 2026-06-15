@@ -30,6 +30,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     )
     result = _replace_status_comparisons(result)
     result = _replace_status_alias_comparisons(result)
+    result = _replace_status_flow_comparisons(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
@@ -137,6 +138,40 @@ def _replace_status_alias_comparisons(text: str) -> str:
     return "".join(replace_line(line) for line in text.splitlines(keepends=True))
 
 
+def _replace_status_flow_comparisons(text: str) -> str:
+    candidates = _status_flow_candidate_names(text)
+    if not candidates:
+        return text
+
+    identifier_first = re.compile(
+        r"(?P<prefix>\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=)\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+    )
+    literal_first = re.compile(
+        r"(?P<prefix>(?<![A-Za-z0-9_]))(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<operator>\s*(?:==|!=)\s*)"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+
+    def replace_identifier_first(match: re.Match[str]) -> str:
+        if match.group("name") not in candidates:
+            return match.group(0)
+        name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name
+
+    def replace_literal_first(match: re.Match[str]) -> str:
+        if match.group("name") not in candidates:
+            return match.group(0)
+        name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("operator") + match.group("name")
+
+    return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
 def _replace_rtl_raise_status_literals(text: str) -> str:
     pattern = re.compile(
         r"\bRtlRaiseStatus\(\s*(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
@@ -225,6 +260,25 @@ def _is_status_identifier(name: str) -> bool:
     if lowered in {"status", "updated", "result", "returnstatus", "ntstatus"}:
         return True
     return "status" in lowered
+
+
+def _status_flow_candidate_names(text: str) -> set[str]:
+    call_result_names = {
+        match.group("name")
+        for match in re.finditer(
+            r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(",
+            text,
+        )
+    }
+    if not call_result_names:
+        return set()
+
+    range_checked_names: set[str] = set()
+    for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:<|>=)\s*0\b", text):
+        range_checked_names.add(match.group("name"))
+    for match in re.finditer(r"\b0\s*(?:>|<=)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b", text):
+        range_checked_names.add(match.group("name"))
+    return call_result_names.intersection(range_checked_names)
 
 
 def _four_byte_scalar_names(text: str, capture: FunctionCapture | None) -> set[str]:
