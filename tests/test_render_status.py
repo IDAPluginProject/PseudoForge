@@ -57,6 +57,24 @@ __int64 __fastcall LlmStatusZeroAssignment(int a1)
 """
 
 
+STATUS_COMPARISON_SAMPLE = r"""
+NTSTATUS __fastcall StatusComparisonSample(int a1)
+{
+  NTSTATUS sectionCreateStatus;
+  int buildNumber;
+
+  sectionCreateStatus = -1073741811;
+  if ( sectionCreateStatus == -1073740277 )
+    RtlRaiseStatus(-1073741811);
+  if ( -1073740277 == sectionCreateStatus )
+    return sectionCreateStatus;
+  if ( buildNumber == -1073740277 )
+    return sectionCreateStatus;
+  return 0;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -189,6 +207,17 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("*(_DWORD *)(argument0 + 784) = STATUS_INSUFFICIENT_RESOURCES;", rendered)
         self.assertIn("v17 = 0xC000009A;", rendered)
         self.assertIn("*(_QWORD *)(argument0 + 792) = 0xC000009A;", rendered)
+
+    def test_status_comparisons_and_raise_status_literals_are_named(self) -> None:
+        capture = capture_from_pseudocode(STATUS_COMPARISON_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("status = STATUS_INVALID_PARAMETER;", rendered)
+        self.assertIn("status == STATUS_CROSS_PARTITION_VIOLATION", rendered)
+        self.assertIn("STATUS_CROSS_PARTITION_VIOLATION == status", rendered)
+        self.assertIn("RtlRaiseStatus(STATUS_INVALID_PARAMETER);", rendered)
+        self.assertIn("buildNumber == -1073740277", rendered)
 
 
 if __name__ == "__main__":
