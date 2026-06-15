@@ -83,6 +83,47 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertIn("--llm-renames-auto", run.batch_args)
             self.assertNotIn("--require-configured-llm", run.batch_args)
 
+    def test_ida_cli_no_llm_renames_omits_auto_llm_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida.exe"
+            idb_path = temp_path / "sample.idb"
+            output_dir = temp_path / "out"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [str(ida_path), str(idb_path), str(output_dir), "--no-llm-renames"]
+            )
+
+            run = pseudoforge_ida_cli._prepare_run(args)
+
+            self.assertNotIn("--llm-renames-auto", run.batch_args)
+            self.assertNotIn("--require-configured-llm", run.batch_args)
+
+    def test_ida_cli_rejects_no_llm_with_candidate_replay(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida.exe"
+            idb_path = temp_path / "sample.idb"
+            output_dir = temp_path / "out"
+            replay_dir = temp_path / "replay"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            replay_dir.mkdir()
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [
+                    str(ida_path),
+                    str(idb_path),
+                    str(output_dir),
+                    "--no-llm-renames",
+                    "--llm-candidate-replay-dir",
+                    str(replay_dir),
+                ]
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "--no-llm-renames"):
+                pseudoforge_ida_cli._prepare_run(args)
+
     def test_ida_cli_forwards_llm_candidate_cache_and_replay_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -354,6 +395,32 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
                 manifest["cancel_file"],
             )
             self.assertIn("Dry run", stdout.getvalue())
+
+    def test_ida_cli_dry_run_records_disabled_llm_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "target.i64"
+            output_dir = temp_path / "out"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exit_code = pseudoforge_ida_cli.main(
+                    [str(ida_path), str(idb_path), str(output_dir), "--dry-run", "--no-llm-renames"]
+                )
+
+            manifest_path = output_dir / "pseudoforge-ida-run.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual("", stderr.getvalue())
+            self.assertEqual("disabled", manifest["llm"]["mode"])
+            self.assertFalse(manifest["llm"]["required"])
+            self.assertNotIn("--llm-renames-auto", manifest["batch_args"])
+            self.assertIn("LLM: disabled", stdout.getvalue())
 
     def test_ida_cli_progress_monitor_prints_current_function(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

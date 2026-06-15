@@ -23,6 +23,17 @@ _SCALAR_BASE_WORDS = {
     "value",
 }
 
+_GENERIC_BASE_NAMES = {
+    "context",
+    "entry",
+    "item",
+    "node",
+    "object",
+    "parameters",
+    "params",
+    "record",
+}
+
 
 @dataclass(slots=True)
 class _LayoutEvidence:
@@ -62,7 +73,7 @@ def _collect_layouts(text: str) -> dict[str, _LayoutEvidence]:
 
 def _has_enough_layout_evidence(layout: _LayoutEvidence) -> bool:
     distinct_offsets = len(layout.offsets)
-    if _is_decompiler_temp_base(layout.base):
+    if _is_decompiler_temp_base(layout.base) or _is_generic_named_base(layout.base):
         return distinct_offsets >= 8 and layout.access_count >= 12
     if distinct_offsets >= 3 and layout.access_count >= 3:
         return True
@@ -109,6 +120,8 @@ def _normalize_type_name(type_name: str) -> str:
 
 def _is_scalar_like_base(name: str) -> bool:
     lower = str(name or "").lower()
+    if _is_generic_argument_base(lower) or _is_bugcheck_parameter_base(lower):
+        return True
     if lower in _SCALAR_BASE_WORDS:
         return True
     return any(lower.endswith(word) for word in _SCALAR_BASE_WORDS)
@@ -116,3 +129,15 @@ def _is_scalar_like_base(name: str) -> bool:
 
 def _is_decompiler_temp_base(name: str) -> bool:
     return re.fullmatch(r"[av]\d+", str(name or "")) is not None
+
+
+def _is_generic_named_base(name: str) -> bool:
+    return str(name or "").lower() in _GENERIC_BASE_NAMES
+
+
+def _is_generic_argument_base(name: str) -> bool:
+    return re.fullmatch(r"argument\d+", str(name or "")) is not None
+
+
+def _is_bugcheck_parameter_base(name: str) -> bool:
+    return re.fullmatch(r"bugcheckparameter\d+", str(name or "")) is not None

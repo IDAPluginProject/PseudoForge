@@ -79,6 +79,65 @@ __int64 __fastcall GenericTempLayout(__int64 v14)
 
         self.assertEqual([], comments)
 
+    def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall GenericArgumentLayout(__int64 argument0, __int64 BugCheckParameter2)
+{
+  if ( *(_DWORD *)(argument0 + 48) )
+    return *(_QWORD *)(argument0 + 72) + *(_DWORD *)(argument0 + 48);
+  return *(_DWORD *)(BugCheckParameter2 + 56)
+       + *(_QWORD *)(BugCheckParameter2 + 64)
+       + *(_DWORD *)(BugCheckParameter2 + 144)
+       + *(_DWORD *)(BugCheckParameter2 + 148)
+       + *(_DWORD *)(BugCheckParameter2 + 152)
+       + *(_QWORD *)(BugCheckParameter2 + 160)
+       + *(_QWORD *)(BugCheckParameter2 + 232)
+       + *(_DWORD *)(BugCheckParameter2 + 280);
+}
+"""
+        )
+
+        self.assertEqual([], comments)
+
+    def test_generic_named_context_requires_stronger_layout_evidence(self) -> None:
+        weak_comments = field_layout_comments(
+            """
+__int64 __fastcall WeakContextLayout(__int64 context)
+{
+  return *(_QWORD *)(context + 16)
+       + *(_WORD *)(context + 56)
+       + *(_BYTE *)(context + 64)
+       + *(_BYTE *)(context + 66)
+       + *(_BYTE *)(context + 69)
+       + *(_QWORD *)(context + 72);
+}
+"""
+        )
+        strong_comments = field_layout_comments(
+            """
+__int64 __fastcall StrongContextLayout(__int64 context)
+{
+  return *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 80)
+       + *(_QWORD *)(context + 88)
+       + *(_QWORD *)(context + 104)
+       + *(_QWORD *)(context + 112)
+       + *(_QWORD *)(context + 120)
+       + *(_QWORD *)(context + 128)
+       + *(_QWORD *)(context + 136);
+}
+"""
+        )
+
+        self.assertEqual([], weak_comments)
+        self.assertEqual(1, len(strong_comments))
+        self.assertIn("context", strong_comments[0]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

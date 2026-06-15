@@ -208,6 +208,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-auto-wait", action="store_true", help="Do not wait for IDA autoanalysis first.")
     parser.add_argument("--allow-no-llm", action="store_true", help="Do not fail when saved plugin LLM assist is disabled.")
     parser.add_argument(
+        "--no-llm-renames",
+        action="store_true",
+        help="Disable LLM rename assist for this batch, even when saved plugin LLM settings are enabled.",
+    )
+    parser.add_argument(
         "--llm-candidate-cache-dir",
         default="",
         help="Directory where raw per-function LLM rename candidate responses are recorded.",
@@ -233,6 +238,11 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
         raise RuntimeError("--no-pdb cannot be used together with --pdb-path or --symbol-path")
     if args.resume and args.upsert_forge:
         raise RuntimeError("--resume cannot be used together with --upsert-forge")
+    if args.no_llm_renames and (args.llm_candidate_cache_dir or args.llm_candidate_replay_dir):
+        raise RuntimeError(
+            "--no-llm-renames cannot be used together with --llm-candidate-cache-dir "
+            "or --llm-candidate-replay-dir"
+        )
 
     batch_script = ROOT / "tools" / "pseudoforge_ida_batch.py"
     if not batch_script.exists():
@@ -331,9 +341,10 @@ def _build_batch_args(
         str(functions_dir),
         "--corpus-metadata",
         str(corpus_metadata_path),
-        "--llm-renames-auto",
     ]
-    if not args.allow_no_llm and not args.llm_candidate_replay_dir:
+    if not args.no_llm_renames:
+        result.append("--llm-renames-auto")
+    if not args.no_llm_renames and not args.allow_no_llm and not args.llm_candidate_replay_dir:
         result.append("--require-configured-llm")
     if compare_dir is not None:
         result.extend(["--compare-dir", str(compare_dir)])
@@ -656,8 +667,8 @@ def _write_manifest(
             "alt_symbol_path": run.pdb_alt_symbol_path,
         },
         "llm": {
-            "mode": "candidate_replay" if run.llm_candidate_replay_dir else "plugin_config",
-            "required": not bool(args.allow_no_llm) and run.llm_candidate_replay_dir is None,
+            "mode": _manifest_llm_mode(run, args),
+            "required": _manifest_llm_required(run, args),
             "candidate_cache_dir": str(run.llm_candidate_cache_dir) if run.llm_candidate_cache_dir else "",
             "candidate_replay_dir": str(run.llm_candidate_replay_dir) if run.llm_candidate_replay_dir else "",
         },
@@ -694,6 +705,8 @@ def _print_start(run: IdaCliRun, args: argparse.Namespace) -> None:
         print("PDB: IDA defaults")
     if run.llm_candidate_replay_dir:
         print("LLM: candidate replay from %s" % run.llm_candidate_replay_dir)
+    elif args.no_llm_renames:
+        print("LLM: disabled")
     else:
         print("LLM: plugin settings%s" % ("" if not args.allow_no_llm else " (optional)"))
     if run.llm_candidate_cache_dir:
@@ -716,6 +729,20 @@ def _print_finish(
     else:
         print("Summary: not written because report was not found")
     print("Manifest: %s" % run.manifest_path)
+
+
+def _manifest_llm_mode(run: IdaCliRun, args: argparse.Namespace) -> str:
+    if args.no_llm_renames:
+        return "disabled"
+    if run.llm_candidate_replay_dir:
+        return "candidate_replay"
+    return "plugin_config"
+
+
+def _manifest_llm_required(run: IdaCliRun, args: argparse.Namespace) -> bool:
+    if args.no_llm_renames:
+        return False
+    return not bool(args.allow_no_llm) and run.llm_candidate_replay_dir is None
 
 
 def _safe_file_stem(value: str) -> str:
