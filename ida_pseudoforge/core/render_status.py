@@ -36,6 +36,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_argument_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
+    result = _replace_status_carrier_literals(result)
     return result
 
 
@@ -181,6 +182,32 @@ def _replace_status_comparisons_for_names(text: str, candidates: set[str]) -> st
         return match.group("prefix") + name + match.group("operator") + match.group("name")
 
     return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _replace_status_assignments_for_names(text: str, candidates: set[str]) -> str:
+    if not candidates:
+        return text
+
+    pattern = re.compile(
+        r"(?P<prefix>\b(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        if match.group("target") not in candidates:
+            return match.group(0)
+        name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("end")
+
+    return pattern.sub(repl, text)
+
+
+def _replace_status_carrier_literals(text: str) -> str:
+    candidates = _status_carrier_candidate_names(text)
+    result = _replace_status_assignments_for_names(text, candidates)
+    return _replace_status_comparisons_for_names(result, candidates)
 
 
 def _replace_rtl_raise_status_literals(text: str) -> str:
@@ -351,6 +378,34 @@ def _guard_dispatch_status_candidate_names(text: str) -> set[str]:
     for match in assignment_pattern.finditer(text):
         candidates.add(match.group("name"))
     return candidates
+
+
+def _status_carrier_candidate_names(text: str) -> set[str]:
+    status_assignment_counts: dict[str, int] = {}
+    assignment_pattern = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*STATUS_[A-Z0-9_]+\s*;"
+    )
+    for match in assignment_pattern.finditer(text):
+        name = match.group("name")
+        status_assignment_counts[name] = status_assignment_counts.get(name, 0) + 1
+
+    candidates: set[str] = set()
+    for name, count in status_assignment_counts.items():
+        if count >= 2 or _is_status_identifier(name) or _has_status_carrier_use(text, name):
+            candidates.add(name)
+    return candidates
+
+
+def _has_status_carrier_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    return any(
+        re.search(pattern % escaped, text)
+        for pattern in (
+            r"\b%s\s*(?:<|>=)\s*0\b",
+            r"\b0\s*(?:>|<=)\s*%s\b",
+            r"\breturn\s+(?:\(unsigned int\)\s*)?%s\s*;",
+        )
+    )
 
 
 def _top_level_argument_spans(text: str) -> list[tuple[int, int]]:

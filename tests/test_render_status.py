@@ -164,6 +164,36 @@ NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
 """
 
 
+STATUS_CARRIER_LITERAL_SAMPLE = r"""
+NTSTATUS __fastcall StatusCarrierLiteralSample(int a1, int a2)
+{
+  int v73;
+  int v127;
+  int plainValue;
+
+  v73 = 0;
+  v73 = STATUS_NO_MEMORY;
+  if ( a1 )
+    v73 = -2147483643;
+  else
+    v73 = STATUS_INTEGER_OVERFLOW;
+  if ( v73 == -1073741675 )
+    v127 = v73;
+  v127 = STATUS_INVALID_HANDLE;
+  if ( a2 )
+    v127 = STATUS_SHUTDOWN_IN_PROGRESS;
+  if ( a1 )
+    v127 = -2147483643;
+  if ( v127 != -2147483643 )
+    return v127;
+  plainValue = -2147483643;
+  if ( plainValue == -1073741675 )
+    return STATUS_INVALID_PARAMETER;
+  return STATUS_SUCCESS;
+}
+"""
+
+
 STATUS_ARGUMENT_SAMPLE = r"""
 void __fastcall StatusArgumentSample(__int64 a1)
 {
@@ -361,6 +391,19 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("STATUS_CANCELLED == callbackStatus", rendered)
         self.assertIn("ternaryStatus != STATUS_MORE_PROCESSING_REQUIRED", rendered)
         self.assertIn("plainValue == -1073741822", rendered)
+
+    def test_status_carrier_literals_are_named_after_status_assignments(self) -> None:
+        capture = capture_from_pseudocode(STATUS_CARRIER_LITERAL_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("v73 = 0;", rendered)
+        self.assertIn("v73 = STATUS_BUFFER_OVERFLOW;", rendered)
+        self.assertIn("v73 == STATUS_INTEGER_OVERFLOW", rendered)
+        self.assertIn("v127 = STATUS_BUFFER_OVERFLOW;", rendered)
+        self.assertIn("v127 != STATUS_BUFFER_OVERFLOW", rendered)
+        self.assertIn("plainValue = -2147483643;", rendered)
+        self.assertIn("plainValue == -1073741675", rendered)
 
     def test_profiled_status_argument_literals_are_named(self) -> None:
         capture = capture_from_pseudocode(STATUS_ARGUMENT_SAMPLE)
