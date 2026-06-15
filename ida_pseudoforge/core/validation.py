@@ -171,6 +171,8 @@ def validate_renames(
         elif item.new in known_names and item.new != item.old:
             item.apply = False
             warnings.append(f"Skipped colliding rename {item.old}->{item.new}")
+        elif item.source == "llm" and _is_untyped_subroutine_rename(item):
+            item.apply = False
         elif item.source == "llm" and _is_pascal_case_llm_local_rename(item):
             item.apply = False
             warnings.append(f"Skipped PascalCase LLM rename {item.old}->{item.new}")
@@ -225,6 +227,12 @@ def _is_pascal_case_llm_local_rename(item: RenameSuggestion) -> bool:
     if name.isupper():
         return False
     return any(char.islower() for char in name)
+
+
+def _is_untyped_subroutine_rename(item: RenameSuggestion) -> bool:
+    if (item.kind or "").lower() not in LLM_LOCAL_RENAME_KINDS:
+        return False
+    return bool(re.fullmatch(r"sub_[0-9A-Fa-f]+", item.old or ""))
 
 
 def _is_generic_argument_rename(item: RenameSuggestion) -> bool:

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from ida_pseudoforge.core.kernel_api import kernel_function_metadata
 from ida_pseudoforge.core.normalize import extract_parameters_from_signature, find_matching_paren, split_parameters_with_spans
 from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion
 
 
-def pattern_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+def pattern_renames(
+    capture: FunctionCapture,
+    api_semantic_diagnostics: list[dict[str, Any]] | None = None,
+) -> list[RenameSuggestion]:
     text = capture.pseudocode
     suggestions = []
     patterns = [
@@ -72,9 +76,9 @@ def pattern_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
     suggestions.extend(_runtime_memory_parameter_renames(capture))
     suggestions.extend(_output_buffer_contract_parameter_renames(capture))
     suggestions.extend(_structure_base_parameter_renames(capture))
-    suggestions.extend(_api_out_parameter_local_renames(capture))
+    suggestions.extend(_api_out_parameter_local_renames(capture, api_semantic_diagnostics))
     suggestions.extend(_api_result_local_renames(capture))
-    suggestions.extend(_api_argument_local_renames(capture))
+    suggestions.extend(_api_argument_local_renames(capture, api_semantic_diagnostics))
     suggestions.extend(_list_entry_head_parameter_renames(capture))
     suggestions.extend(_list_entry_head_local_renames(capture))
     suggestions.extend(_lookaside_entry_allocation_renames(capture))
@@ -302,9 +306,13 @@ def _pool_allocation_renames(text: str) -> list[RenameSuggestion]:
     return suggestions
 
 
-def _api_out_parameter_local_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+def _api_out_parameter_local_renames(
+    capture: FunctionCapture,
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> list[RenameSuggestion]:
     local_names = {var.name for var in capture.lvars if var.name}
     byref_names = _byref_local_names(capture.pseudocode)
+    large_dispatcher = _looks_like_large_dispatcher(capture.pseudocode or "")
     suggestions = []
     for call in _iter_profiled_calls(capture.pseudocode):
         params = call["params"]
@@ -318,16 +326,74 @@ def _api_out_parameter_local_renames(capture: FunctionCapture) -> list[RenameSug
             if not _looks_like_generic_temporary(local_name):
                 continue
             if byref_names and local_name not in byref_names:
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-out-param",
+                    reason="not_byref_local",
+                    old=local_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                )
                 continue
             param = params[index]
             param_name = str(param.get("name", ""))
             param_type = str(param.get("type", ""))
             if not _is_pointer_like_profile_type(param_type):
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-out-param",
+                    reason="not_pointer_profile_type",
+                    old=local_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                )
                 continue
-            new_name = _semantic_name_from_api_parameter(param_name, param_type)
+            new_name = _semantic_name_from_api_parameter(param_name, param_type, str(call["name"]))
             if not new_name or new_name == local_name:
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-out-param",
+                    reason="weak_parameter_name",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                )
+                continue
+            if large_dispatcher:
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-out-param",
+                    reason="large_dispatcher",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                )
                 continue
             if _would_shadow_case_variant(local_names, local_name, new_name):
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-out-param",
+                    reason="shadow",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                )
                 continue
             suggestions.append(
                 RenameSuggestion(
@@ -340,7 +406,7 @@ def _api_out_parameter_local_renames(capture: FunctionCapture) -> list[RenameSug
                     % (call["name"], index, param_name),
                 )
             )
-    return _unique_target_suggestions(suggestions)
+    return _unique_semantic_suggestions(suggestions, diagnostics, "api-out-param")
 
 
 def _api_result_local_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
@@ -375,11 +441,17 @@ def _api_result_local_renames(capture: FunctionCapture) -> list[RenameSuggestion
                 evidence="local receives %s return value of %s" % (return_type, callee),
             )
         )
-    return _unique_target_suggestions(suggestions)
+    return _unique_semantic_suggestions(suggestions)
 
 
-def _api_argument_local_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
+def _api_argument_local_renames(
+    capture: FunctionCapture,
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> list[RenameSuggestion]:
     local_names = {var.name for var in capture.lvars if var.name}
+    parameter_names = {name for name, _type_text in extract_parameters_from_signature(capture.prototype)}
+    candidate_names = local_names | parameter_names
+    large_dispatcher = _looks_like_large_dispatcher(capture.pseudocode or "")
     suggestions = []
     for call in _iter_profiled_calls(capture.pseudocode):
         params = call["params"]
@@ -388,30 +460,87 @@ def _api_argument_local_renames(capture: FunctionCapture) -> list[RenameSuggesti
             if index >= len(params):
                 continue
             local_name = _plain_local_argument_name(argument)
-            if not local_name or local_name not in local_names:
+            if not local_name or local_name not in candidate_names:
                 continue
-            if not _looks_like_generic_temporary(local_name):
+            if not (_looks_like_generic_temporary(local_name) or _looks_like_generic_argument(local_name)):
                 continue
+            is_parameter = local_name in parameter_names
             param = params[index]
             param_name = str(param.get("name", ""))
             param_type = str(param.get("type", ""))
-            new_name = _semantic_name_from_api_parameter(param_name, param_type)
+            new_name = _semantic_name_from_api_parameter(param_name, param_type, str(call["name"]))
             if not new_name or new_name == local_name:
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-argument",
+                    reason="weak_parameter_name",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                    candidate_kind="arg" if is_parameter else "lvar",
+                )
                 continue
-            if _would_shadow_case_variant(local_names, local_name, new_name):
+            if local_name in local_names and large_dispatcher:
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-argument",
+                    reason="large_dispatcher",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                    candidate_kind="lvar",
+                )
+                continue
+            if is_parameter and _is_unsafe_wrapper_parameter_role(new_name):
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-argument",
+                    reason="unsafe_wrapper_role",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                    candidate_kind="arg",
+                )
+                continue
+            if _would_shadow_case_variant(candidate_names, local_name, new_name):
+                _append_api_semantic_diagnostic(
+                    diagnostics,
+                    stage="api-argument",
+                    reason="shadow",
+                    old=local_name,
+                    new=new_name,
+                    callee=str(call["name"]),
+                    argument_index=index,
+                    argument=argument,
+                    parameter=param_name,
+                    parameter_type=param_type,
+                    candidate_kind="arg" if is_parameter else "lvar",
+                )
                 continue
             suggestions.append(
                 RenameSuggestion(
-                    kind="lvar",
+                    kind="arg" if is_parameter else "lvar",
                     old=local_name,
                     new=new_name,
-                    confidence=0.80,
+                    confidence=0.86 if is_parameter else 0.82,
                     source="api-argument",
                     evidence="local is passed to %s profile parameter %s"
                     % (call["name"], param_name),
                 )
             )
-    return _unique_target_suggestions(suggestions)
+    return _unique_semantic_suggestions(suggestions, diagnostics, "api-argument")
 
 
 def _saved_previous_mode_renames(capture: FunctionCapture) -> list[RenameSuggestion]:
@@ -833,8 +962,24 @@ def _looks_like_generic_temporary(name: str) -> bool:
     return bool(re.fullmatch(r"v\d+", name or ""))
 
 
+def _looks_like_generic_argument(name: str) -> bool:
+    return bool(re.fullmatch(r"a\d+", name or ""))
+
+
 def _looks_like_pascal_local(name: str) -> bool:
     return bool(re.fullmatch(r"[A-Z][A-Za-z0-9_]*", name or "")) and not (name or "").isupper()
+
+
+def _looks_like_large_dispatcher(text: str) -> bool:
+    lines = text.splitlines()
+    if len(lines) >= 180:
+        return True
+    return_count = len(re.findall(r"\breturn\b", text))
+    label_count = len(re.findall(r"\bLABEL_\d+\b", text))
+    branch_count = len(re.findall(r"\bif\s*\(", text)) + len(re.findall(r"(?m)^\s*case\b", text))
+    if label_count >= 8 and return_count >= 8:
+        return True
+    return return_count >= 16 and branch_count >= 16
 
 
 def _iter_profiled_calls(text: str) -> list[dict[str, object]]:
@@ -887,6 +1032,10 @@ def _plain_local_argument_name(argument: str) -> str:
     return match.group("name") if match else ""
 
 
+def _is_unsafe_wrapper_parameter_role(name: str) -> bool:
+    return name in {"irp"}
+
+
 def _semantic_name_from_api_result(function_name: str, return_type: str, local_type: str) -> str:
     if "KIRQL" in (return_type or "") and "Acquire" in function_name and "SpinLock" in function_name:
         return "oldIrql"
@@ -906,21 +1055,169 @@ def _semantic_name_from_api_result(function_name: str, return_type: str, local_t
     return ""
 
 
-def _semantic_name_from_api_parameter(param_name: str, param_type: str) -> str:
+def _semantic_name_from_api_parameter(param_name: str, param_type: str, function_name: str = "") -> str:
     if not param_name:
         return ""
-    name = _lower_camel_from_pascal(param_name)
+    name = _normalized_api_parameter_name(param_name, param_type)
     if not name:
+        return ""
+    if _is_weak_api_parameter_name(name):
         return ""
     if name == "lookaside" and "LOOKASIDE_LIST" in (param_type or ""):
         return "lookasideList"
-    if name in {"spinLock", "currentTime", "deviceObject", "returnLength", "numberOfBytesTransferred"}:
+    if name in _HIGH_SIGNAL_API_PARAMETER_NAMES:
         return name
-    if name in {"entry", "irp", "mdl", "workItem"}:
+    if _is_handle_profile_type(param_type) and name.endswith("Handle"):
+        return name
+    if _is_pointer_like_profile_type(param_type) and _has_high_signal_pointer_parameter_suffix(name):
+        return name
+    if _is_integer_profile_type(param_type) and _has_high_signal_value_parameter_suffix(name):
+        return name
+    if _is_enum_like_profile_type(param_type) and _has_high_signal_enum_parameter_suffix(name):
+        return name
+    if function_name.startswith(("Zw", "Nt")) and name.endswith(("InformationClass", "InformationLength")):
         return name
     if name.lower().endswith("irql"):
         return "oldIrql" if "restores" in (param_type or "").lower() else name
     return ""
+
+
+_HIGH_SIGNAL_API_PARAMETER_NAMES = {
+    "accessMode",
+    "alertable",
+    "baseAddress",
+    "byteCount",
+    "currentTime",
+    "desiredAccess",
+    "deviceObject",
+    "driverObject",
+    "entry",
+    "event",
+    "eventHandle",
+    "fileHandle",
+    "fileObject",
+    "filter",
+    "inputBuffer",
+    "inputBufferLength",
+    "interval",
+    "ioControlCode",
+    "ioStatusBlock",
+    "irp",
+    "keyHandle",
+    "memoryDescriptorList",
+    "mdl",
+    "newProtect",
+    "notifyRoutine",
+    "numberOfBytesTransferred",
+    "object",
+    "objectAttributes",
+    "objectType",
+    "outputBuffer",
+    "outputBufferLength",
+    "process",
+    "processHandle",
+    "processId",
+    "registration",
+    "returnLength",
+    "spinLock",
+    "thread",
+    "threadHandle",
+    "threadId",
+    "timeout",
+    "virtualAddress",
+    "waitMode",
+    "waitReason",
+    "workItem",
+}
+
+
+def _normalized_api_parameter_name(param_name: str, param_type: str) -> str:
+    name = _lower_camel_from_pascal(param_name)
+    if not name:
+        return ""
+    if name == "retFilter" and "FLT_FILTER" in (param_type or ""):
+        return "filter"
+    if name == "memoryDescriptorList" and "MDL" in (param_type or ""):
+        return "mdl"
+    return name
+
+
+def _is_weak_api_parameter_name(name: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?i)(?:arg\d+|argument\d+|param\d+|parameter\d+|reserved\d*|unused\d*|unknown\d*|buffer|length|size|flags|value)",
+            name or "",
+        )
+    )
+
+
+def _has_high_signal_pointer_parameter_suffix(name: str) -> bool:
+    return name.endswith(
+        (
+            "Attributes",
+            "Buffer",
+            "Context",
+            "Entry",
+            "Event",
+            "Filter",
+            "Handle",
+            "Information",
+            "List",
+            "Object",
+            "Process",
+            "Registration",
+            "StatusBlock",
+            "String",
+            "Thread",
+            "WorkItem",
+        )
+    )
+
+
+def _has_high_signal_value_parameter_suffix(name: str) -> bool:
+    return name.endswith(
+        (
+            "Access",
+            "ByteCount",
+            "Characteristics",
+            "Code",
+            "Count",
+            "Disposition",
+            "Flags",
+            "Length",
+            "Mask",
+            "Mode",
+            "Protect",
+            "Reason",
+            "Size",
+            "Tag",
+            "Type",
+        )
+    )
+
+
+def _has_high_signal_enum_parameter_suffix(name: str) -> bool:
+    return name.endswith(("Class", "Disposition", "Mode", "Reason", "Type"))
+
+
+def _is_handle_profile_type(type_text: str) -> bool:
+    text = (type_text or "").strip().upper()
+    return text == "HANDLE" or text.endswith("HANDLE")
+
+
+def _is_integer_profile_type(type_text: str) -> bool:
+    text = (type_text or "").upper()
+    if _is_pointer_type(text):
+        return False
+    return bool(re.search(r"\b(?:ACCESS_MASK|BOOLEAN|CHAR|DWORD|INT|KIRQL|LONG|SIZE_T|ULONG|USHORT|WORD|__INT64)\b", text))
+
+
+def _is_enum_like_profile_type(type_text: str) -> bool:
+    text = (type_text or "").strip()
+    return bool(
+        re.search(r"(?:_CLASS|CLASS|_TYPE|TYPE|_MODE|MODE|_REASON|REASON|DISPOSITION)$", text)
+        and not _is_pointer_like_profile_type(text)
+    )
 
 
 def _is_pointer_like_profile_type(type_text: str) -> bool:
@@ -953,6 +1250,87 @@ def _unique_target_suggestions(suggestions: list[RenameSuggestion]) -> list[Rena
         if len(old_names) == 1:
             result.append(target_suggestions[0])
     return result
+
+
+def _unique_semantic_suggestions(
+    suggestions: list[RenameSuggestion],
+    diagnostics: list[dict[str, Any]] | None = None,
+    stage: str = "",
+) -> list[RenameSuggestion]:
+    by_target: dict[str, list[RenameSuggestion]] = {}
+    by_old: dict[str, list[RenameSuggestion]] = {}
+    for suggestion in suggestions:
+        by_target.setdefault(suggestion.new, []).append(suggestion)
+        by_old.setdefault(suggestion.old, []).append(suggestion)
+    result = []
+    for suggestion in suggestions:
+        target_old_names = {item.old for item in by_target.get(suggestion.new, [])}
+        old_target_names = {item.new for item in by_old.get(suggestion.old, [])}
+        if len(target_old_names) != 1:
+            _append_api_semantic_diagnostic(
+                diagnostics,
+                stage=stage or suggestion.source,
+                reason="conflict_target",
+                old=suggestion.old,
+                new=suggestion.new,
+                evidence=suggestion.evidence,
+                candidates=sorted(target_old_names),
+            )
+            continue
+        if len(old_target_names) != 1:
+            _append_api_semantic_diagnostic(
+                diagnostics,
+                stage=stage or suggestion.source,
+                reason="conflict_old",
+                old=suggestion.old,
+                new=suggestion.new,
+                evidence=suggestion.evidence,
+                candidates=sorted(old_target_names),
+            )
+            continue
+        result.append(suggestion)
+    return result
+
+
+def _append_api_semantic_diagnostic(
+    diagnostics: list[dict[str, Any]] | None,
+    *,
+    stage: str,
+    reason: str,
+    old: str,
+    new: str = "",
+    callee: str = "",
+    argument_index: int = -1,
+    argument: str = "",
+    parameter: str = "",
+    parameter_type: str = "",
+    candidate_kind: str = "",
+    evidence: str = "",
+    candidates: list[str] | None = None,
+) -> None:
+    if diagnostics is None:
+        return
+    item: dict[str, Any] = {
+        "stage": stage,
+        "status": "rejected",
+        "reason": reason,
+        "old": old,
+    }
+    optional_values: dict[str, Any] = {
+        "new": new,
+        "callee": callee,
+        "argument_index": argument_index if argument_index >= 0 else "",
+        "argument": argument,
+        "parameter": parameter,
+        "parameter_type": parameter_type,
+        "candidate_kind": candidate_kind,
+        "evidence": evidence,
+        "candidates": candidates or [],
+    }
+    for key, value in optional_values.items():
+        if value not in ("", [], None):
+            item[key] = value
+    diagnostics.append(item)
 
 
 def _would_shadow_case_variant(local_names: set[str], old_name: str, new_name: str) -> bool:

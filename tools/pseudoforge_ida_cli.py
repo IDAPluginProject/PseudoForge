@@ -214,13 +214,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
-    ida_path = Path(args.ida_path)
-    idb_path = Path(args.idb_path)
-    output_dir = Path(args.output_dir)
-    if not ida_path.exists():
-        raise RuntimeError("IDA executable not found: %s" % ida_path)
-    if not idb_path.exists():
-        raise RuntimeError("IDB path not found: %s" % idb_path)
+    ida_path = _resolve_existing_path(args.ida_path, "IDA executable")
+    idb_path = _resolve_existing_path(args.idb_path, "IDB path")
+    output_dir = Path(args.output_dir).expanduser().resolve()
     if args.no_pdb and (args.pdb_path or args.symbol_path):
         raise RuntimeError("--no-pdb cannot be used together with --pdb-path or --symbol-path")
     if args.resume and args.upsert_forge:
@@ -240,11 +236,13 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
     forge_path = output_dir / ("%s.forge" % safe_stem)
     ida_log_path = output_dir / ("%s_%s_ida.log" % (safe_stem, timestamp))
     cancel_file_is_default = not bool(args.cancel_file)
-    cancel_file = Path(args.cancel_file) if args.cancel_file else output_dir / "pseudoforge-ida-cancel.txt"
+    cancel_file = Path(args.cancel_file).expanduser().resolve() if args.cancel_file else output_dir / "pseudoforge-ida-cancel.txt"
     corpus_metadata_path = output_dir / "pseudoforge-corpus-metadata.json"
     corpus_index_path = output_dir / "pseudoforge-corpus-index.json"
     corpus_overview_path = output_dir / "pseudoforge-corpus-overview.md"
-    compare_dir = Path(args.compare_dir) if args.compare_dir else None
+    compare_dir = Path(args.compare_dir).expanduser().resolve() if args.compare_dir else None
+    profile_dir = Path(args.profile_dir).expanduser().resolve() if args.profile_dir else None
+    ea_file = _resolve_existing_path(args.ea_file, "EA file") if args.ea_file else None
     pdb_paths = _resolve_pdb_paths(args.pdb_path)
     pdb_symbol_path, pdb_alt_symbol_path = _build_symbol_paths(args.symbol_path, pdb_paths)
     ida_env = _build_ida_env(pdb_symbol_path, pdb_alt_symbol_path)
@@ -258,6 +256,8 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
         cancel_file=cancel_file,
         corpus_metadata_path=corpus_metadata_path,
         compare_dir=compare_dir,
+        profile_dir=profile_dir,
+        ea_file=ea_file,
     )
     ida_args = _build_ida_args(args, ida_path, idb_path, ida_log_path, batch_args)
     return IdaCliRun(
@@ -295,8 +295,10 @@ def _build_batch_args(
     cancel_file: Path,
     corpus_metadata_path: Path,
     compare_dir: Path | None,
+    profile_dir: Path | None,
+    ea_file: Path | None,
 ) -> list[str]:
-    target_path = Path(args.target_path) if args.target_path else idb_path
+    target_path = Path(args.target_path).expanduser().resolve() if args.target_path else idb_path
     result = [
         str(batch_script),
         "--report",
@@ -315,7 +317,8 @@ def _build_batch_args(
         result.append("--require-configured-llm")
     if compare_dir is not None:
         result.extend(["--compare-dir", str(compare_dir)])
-    _append_option(result, "--profile-dir", args.profile_dir)
+    if profile_dir is not None:
+        result.extend(["--profile-dir", str(profile_dir)])
     result.extend(["--cancel-file", str(cancel_file)])
     _append_int_option(result, "--max-functions", args.max_functions)
     _append_int_option(result, "--max-seconds", args.max_seconds)
@@ -323,7 +326,8 @@ def _build_batch_args(
     _append_int_option(result, "--metadata-max-names", args.metadata_max_names)
     for ea in args.ea:
         _append_option(result, "--ea", ea)
-    _append_option(result, "--ea-file", args.ea_file)
+    if ea_file is not None:
+        result.extend(["--ea-file", str(ea_file)])
     _append_option(result, "--start-ea", args.start_ea)
     _append_option(result, "--end-ea", args.end_ea)
     _append_option(result, "--name-regex", args.name_regex)
@@ -498,6 +502,13 @@ def _append_int_option(result: list[str], name: str, value: int) -> None:
         result.extend([name, str(value)])
 
 
+def _resolve_existing_path(value: str, label: str) -> Path:
+    path = Path(value).expanduser().resolve()
+    if not path.exists():
+        raise RuntimeError("%s not found: %s" % (label, path))
+    return path
+
+
 def _resolve_pdb_paths(values: list[str]) -> list[Path]:
     result: list[Path] = []
     for value in values or []:
@@ -508,7 +519,7 @@ def _resolve_pdb_paths(values: list[str]) -> list[Path]:
             path = Path(text)
             if not path.exists():
                 raise RuntimeError("PDB path not found: %s" % path)
-            result.append(path)
+            result.append(path.expanduser().resolve())
     return result
 
 

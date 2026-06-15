@@ -292,7 +292,7 @@ class LlmRenameFilterTests(unittest.TestCase):
         self.assertIn("char *v93;", rendered)
         self.assertNotIn("destinationBuffer", body)
 
-    def test_pascalcase_llm_local_renames_are_rejected(self) -> None:
+    def test_pascalcase_llm_local_renames_are_style_normalized(self) -> None:
         capture = capture_from_pseudocode(
             """
 __int64 __fastcall PascalCaseKernelSample(__int64 *a1)
@@ -342,13 +342,13 @@ __int64 __fastcall PascalCaseKernelSample(__int64 *a1)
         plan = build_clean_plan(capture, rename_provider=provider)
         rename_map = {item.old: item.new for item in plan.renames if item.apply}
 
-        self.assertNotIn("a1", rename_map)
-        self.assertNotIn("v3", rename_map)
-        self.assertNotIn("v5", rename_map)
+        self.assertEqual(rename_map["a1"], "subsection")
+        self.assertEqual(rename_map["v3"], "controlArea")
+        self.assertEqual(rename_map["v5"], "controlAreaFlags")
         self.assertEqual(rename_map["v7"], "subsectionBase")
-        self.assertIn("Skipped PascalCase LLM rename a1->Subsection", plan.warnings)
-        self.assertIn("Skipped PascalCase LLM rename v3->ControlArea", plan.warnings)
-        self.assertIn("Skipped PascalCase LLM rename v5->ControlAreaFlags", plan.warnings)
+        self.assertNotIn("Skipped PascalCase LLM rename a1->Subsection", plan.warnings)
+        self.assertNotIn("Skipped PascalCase LLM rename v3->ControlArea", plan.warnings)
+        self.assertNotIn("Skipped PascalCase LLM rename v5->ControlAreaFlags", plan.warnings)
 
     def test_llm_path_suppresses_generic_prototype_argument_renames(self) -> None:
         capture = capture_from_pseudocode(

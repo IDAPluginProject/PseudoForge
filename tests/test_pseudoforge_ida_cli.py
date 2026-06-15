@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,19 +51,20 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             )
 
             run = pseudoforge_ida_cli._prepare_run(args)
+            resolved_output_dir = output_dir.resolve()
 
             self.assertIn("--export-dir", run.batch_args)
-            self.assertIn(str(output_dir / "functions"), run.batch_args)
+            self.assertIn(str(resolved_output_dir / "functions"), run.batch_args)
             self.assertIn("--corpus-metadata", run.batch_args)
-            self.assertIn(str(output_dir / "pseudoforge-corpus-metadata.json"), run.batch_args)
+            self.assertIn(str(resolved_output_dir / "pseudoforge-corpus-metadata.json"), run.batch_args)
             self.assertIn("--llm-renames-auto", run.batch_args)
             self.assertIn("--require-configured-llm", run.batch_args)
             self.assertIn("--overwrite-forge", run.batch_args)
             self.assertIn("-Opdb:off", run.ida_args)
             self.assertTrue(any(item.startswith("-S") for item in run.ida_args))
-            self.assertEqual(output_dir / "pseudoforge-ida-cancel.txt", run.cancel_file)
+            self.assertEqual(resolved_output_dir / "pseudoforge-ida-cancel.txt", run.cancel_file)
             self.assertIn("--cancel-file", run.batch_args)
-            self.assertIn(str(output_dir / "pseudoforge-ida-cancel.txt"), run.batch_args)
+            self.assertIn(str(resolved_output_dir / "pseudoforge-ida-cancel.txt"), run.batch_args)
 
     def test_ida_cli_allow_no_llm_omits_required_llm_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -141,7 +143,58 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertIn("--ea", run.batch_args)
             self.assertIn("0x140291E88", run.batch_args)
             self.assertIn("--ea-file", run.batch_args)
-            self.assertIn(str(ea_file), run.batch_args)
+            self.assertIn(str(ea_file.resolve()), run.batch_args)
+
+    def test_ida_cli_resolves_relative_paths_before_passing_them_to_ida(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "driver.sys.i64"
+            ea_file = temp_path / "failed-eas.txt"
+            profile_dir = temp_path / "profiles"
+            compare_dir = temp_path / "compare"
+            pdb_dir = temp_path / "symbols"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            ea_file.write_text("0x140200008\n", encoding="utf-8")
+            profile_dir.mkdir()
+            compare_dir.mkdir()
+            pdb_dir.mkdir()
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(temp_path)
+                args = pseudoforge_ida_cli._build_parser().parse_args(
+                    [
+                        "ida64.exe",
+                        "driver.sys.i64",
+                        "out",
+                        "--target-path",
+                        "driver.sys",
+                        "--ea-file",
+                        "failed-eas.txt",
+                        "--profile-dir",
+                        "profiles",
+                        "--compare-dir",
+                        "compare",
+                        "--cancel-file",
+                        "cancel.txt",
+                        "--pdb-path",
+                        "symbols",
+                    ]
+                )
+                run = pseudoforge_ida_cli._prepare_run(args)
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(ida_path.resolve(), run.ida_path)
+            self.assertEqual(idb_path.resolve(), run.idb_path)
+            self.assertEqual((temp_path / "out").resolve(), run.output_dir)
+            self.assertEqual((temp_path / "cancel.txt").resolve(), run.cancel_file)
+            self.assertIn(str(ea_file.resolve()), run.batch_args)
+            self.assertIn(str(profile_dir.resolve()), run.batch_args)
+            self.assertIn(str(compare_dir.resolve()), run.batch_args)
+            self.assertIn(str((temp_path / "driver.sys").resolve()), run.batch_args)
+            self.assertIn(str(pdb_dir.resolve()), run.pdb_symbol_path)
 
     def test_ida_cli_uses_explicit_cancel_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -164,10 +217,10 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
 
             run = pseudoforge_ida_cli._prepare_run(args)
 
-            self.assertEqual(cancel_file, run.cancel_file)
+            self.assertEqual(cancel_file.resolve(), run.cancel_file)
             self.assertFalse(run.cancel_file_is_default)
             self.assertIn("--cancel-file", run.batch_args)
-            self.assertIn(str(cancel_file), run.batch_args)
+            self.assertIn(str(cancel_file.resolve()), run.batch_args)
 
     def test_ida_cli_pdb_path_sets_child_symbol_environment(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -199,8 +252,8 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             run = pseudoforge_ida_cli._prepare_run(args)
 
             self.assertIsNotNone(run.ida_env)
-            self.assertIn(str(pdb_dir), run.pdb_symbol_path)
-            self.assertIn(str(pdb_file.parent), run.pdb_symbol_path)
+            self.assertIn(str(pdb_dir.resolve()), run.pdb_symbol_path)
+            self.assertIn(str(pdb_file.parent.resolve()), run.pdb_symbol_path)
             self.assertIn(r"srv*C:\Symbols*https://msdl.microsoft.com/download/symbols", run.pdb_symbol_path)
             self.assertEqual(run.pdb_symbol_path, run.ida_env["_NT_SYMBOL_PATH"])
             self.assertEqual(run.pdb_alt_symbol_path, run.ida_env["_NT_ALT_SYMBOL_PATH"])
@@ -256,15 +309,15 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertTrue(manifest["pdb"]["enabled"])
             self.assertFalse(manifest["pdb"]["disabled"])
             self.assertEqual(
-                str(output_dir / "pseudoforge-corpus-index.json"),
+                str(output_dir.resolve() / "pseudoforge-corpus-index.json"),
                 manifest["corpus_index_path"],
             )
             self.assertEqual(
-                str(output_dir / "pseudoforge-corpus-overview.md"),
+                str(output_dir.resolve() / "pseudoforge-corpus-overview.md"),
                 manifest["corpus_overview_path"],
             )
             self.assertEqual(
-                str(output_dir / "pseudoforge-ida-cancel.txt"),
+                str(output_dir.resolve() / "pseudoforge-ida-cancel.txt"),
                 manifest["cancel_file"],
             )
             self.assertIn("Dry run", stdout.getvalue())

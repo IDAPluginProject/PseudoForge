@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.rename_normalization import normalize_rename_suggestions
 from ida_pseudoforge.core.validation import validate_renames
 from ida_pseudoforge.models.base import RenameAssistProvider
 
@@ -16,6 +17,7 @@ def suggest_renames_with_provider(
     effective_min_confidence = _effective_min_confidence(capture, min_confidence)
     raw_response = provider.suggest_renames(capture)
     suggestions, warnings = parse_llm_rename_response(raw_response, min_confidence=effective_min_confidence)
+    suggestions = normalize_rename_suggestions(capture, suggestions)
     validated, validation_warnings = validate_renames(capture, suggestions)
     warnings = _filter_llm_warnings(capture, warnings, effective_min_confidence)
     return validated, warnings + validation_warnings

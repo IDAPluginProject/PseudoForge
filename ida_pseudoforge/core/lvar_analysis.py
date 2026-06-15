@@ -32,6 +32,7 @@ from ida_pseudoforge.core.normalize import (
 from ida_pseudoforge.core.pattern_renames import pattern_renames
 from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.rename_normalization import normalize_rename_suggestions
 from ida_pseudoforge.core.validation import validate_renames
 
 
@@ -46,16 +47,18 @@ def build_clean_plan(
 ) -> CleanPlan:
     rule_report = RuleReport()
     rule_engine = _build_rule_engine(rule_report, rule_dirs, capture)
+    api_semantic_diagnostics: list[dict[str, Any]] = []
     suggestions = []
     suggestions.extend(_parameter_renames(capture, include_generic=rename_provider is None))
     suggestions.extend(_local_rule_renames(capture))
-    suggestions.extend(pattern_renames(capture))
+    suggestions.extend(pattern_renames(capture, api_semantic_diagnostics=api_semantic_diagnostics))
     suggestions.extend(kernel_rename_suggestions(capture))
     suggestions.extend(_rule_rename_suggestions(capture, rule_engine, rule_report))
     llm_warnings = []
     if rename_provider is not None:
         llm_suggestions, llm_warnings = suggest_renames_with_provider(capture, rename_provider)
         suggestions.extend(llm_suggestions)
+    suggestions = normalize_rename_suggestions(capture, suggestions)
     suggestions = _dedupe_suggestions(suggestions)
     validated, warnings = validate_renames(capture, suggestions)
     _attach_rename_identities(validated, capture)
@@ -85,6 +88,10 @@ def build_clean_plan(
         )
     )
 
+    rule_report_payload = rule_report.to_dict()
+    if api_semantic_diagnostics:
+        rule_report_payload["api_semantic_diagnostics"] = api_semantic_diagnostics
+
     return CleanPlan(
         function_ea=capture.ea,
         function_name=capture.name,
@@ -95,7 +102,7 @@ def build_clean_plan(
         buffer_contracts=buffer_contracts,
         comments=comments,
         warnings=combined_warnings,
-        rule_report=rule_report.to_dict(),
+        rule_report=rule_report_payload,
     )
 
 
@@ -206,7 +213,10 @@ def _rule_text_rewrite_report(
 
 def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -> list[RenameSuggestion]:
     function_name = capture.name or extract_function_name(capture.prototype)
+    params = extract_parameters_from_signature(capture.prototype)
     explicit_names = FUNCTION_PARAMETER_NAMES.get(function_name, [])
+    if not explicit_names:
+        explicit_names = _profile_parameter_names(function_name, len(params))
     if not explicit_names:
         explicit_names = driver_entry_parameter_names(capture)
     if not explicit_names:
@@ -217,7 +227,6 @@ def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -
         explicit_names = registry_callback_parameter_names(capture)
     if not explicit_names:
         explicit_names = _callback_parameter_names(capture, function_name)
-    params = extract_parameters_from_signature(capture.prototype)
     suggestions = []
 
     for index, (old_name, type_text) in enumerate(params):
@@ -244,6 +253,44 @@ def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -
             )
 
     return suggestions
+
+
+def _profile_parameter_names(function_name: str, expected_count: int) -> list[str]:
+    metadata = kernel_function_metadata(function_name)
+    params = metadata.get("params", [])
+    if not isinstance(params, list) or not params:
+        return []
+    if expected_count <= 0 or len(params) != expected_count:
+        return []
+    result = []
+    for param in params:
+        if not isinstance(param, dict):
+            return []
+        name = _lower_camel_from_pascal(str(param.get("name", "")))
+        if not name:
+            return []
+        result.append(name)
+    return result
+
+
+def _lower_camel_from_pascal(name: str) -> str:
+    if not name:
+        return ""
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+        return ""
+    if name.startswith("_"):
+        return ""
+    if name.upper() == name:
+        return name.lower()
+    if not name[0].isupper():
+        return name
+    prefix_len = 1
+    while prefix_len < len(name) and name[prefix_len].isupper():
+        next_index = prefix_len + 1
+        if next_index < len(name) and name[next_index].islower():
+            break
+        prefix_len += 1
+    return name[:prefix_len].lower() + name[prefix_len:]
 
 
 def _callback_parameter_names(capture: FunctionCapture, function_name: str) -> list[str]:
@@ -360,9 +407,12 @@ def _source_priority(source: str) -> int:
         "kernel-zw-probe": 96,
         "kernel-list": 95,
         "kernel-pool": 94,
+        "api-out-param": 89,
         "runtime-memory": 93,
         "semantic-rule": 90,
         "buffer-contract": 88,
+        "api-result": 87,
+        "api-argument": 86,
         "pattern": 80,
         "rule": 70,
         "llm": 50,
