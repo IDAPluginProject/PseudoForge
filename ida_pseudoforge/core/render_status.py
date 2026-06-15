@@ -31,6 +31,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_comparisons(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
+    result = _replace_status_ternaries(result, capture)
     return result
 
 
@@ -127,7 +128,7 @@ def _replace_32bit_error_status_literals(text: str, capture: FunctionCapture | N
         result = assignment_pattern.sub(replace_assignment, result)
 
     store_pattern = re.compile(
-        r"(?m)(?P<prefix>^[ \t]*\*\(_DWORD\s+\*\)[^=\n]+?=\s*)"
+        r"(?m)(?P<prefix>^[ \t]*(?:\*\(_DWORD\s+\*\)[^=\n]+?|\*\(\(_DWORD\s+\*\)[^=\n]+?\))\s*=\s*)"
         r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
     )
 
@@ -138,6 +139,40 @@ def _replace_32bit_error_status_literals(text: str, capture: FunctionCapture | N
         return match.group("prefix") + name + match.group("end")
 
     return store_pattern.sub(replace_store, result)
+
+
+def _replace_status_ternaries(text: str, capture: FunctionCapture | None) -> str:
+    four_byte_targets = _four_byte_status_candidate_names(text, capture)
+
+    pattern = re.compile(
+        r"(?P<prefix>\b(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<condition>[^;\n?]+?)\?\s*)"
+        r"(?P<true_literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<true_suffix>u?LL|ULL|LL|u|U|L)?"
+        r"(?P<middle>\s*:\s*)"
+        r"(?P<false_literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<false_suffix>u?LL|ULL|LL|u|U|L)?"
+        r"(?P<end>\s*;)"
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        target = match.group("target")
+        if target not in four_byte_targets and not _is_status_identifier(target):
+            return match.group(0)
+
+        true_literal = match.group("true_literal")
+        false_literal = match.group("false_literal")
+        true_name = _error_status_name_for_literal(true_literal)
+        false_name = _error_status_name_for_literal(false_literal)
+        true_is_zero = _is_zero_literal(true_literal)
+        false_is_zero = _is_zero_literal(false_literal)
+        true_original = true_literal + (match.group("true_suffix") or "")
+        false_original = false_literal + (match.group("false_suffix") or "")
+
+        if true_name and false_is_zero:
+            return match.group("prefix") + true_name + match.group("middle") + false_original + match.group("end")
+        if false_name and true_is_zero:
+            return match.group("prefix") + true_original + match.group("middle") + false_name + match.group("end")
+        return match.group(0)
+
+    return pattern.sub(repl, text)
 
 
 def _is_status_identifier(name: str) -> bool:
@@ -167,8 +202,7 @@ def _four_byte_scalar_names(text: str, capture: FunctionCapture | None) -> set[s
 def _is_four_byte_scalar_type(type_text: str) -> bool:
     if "*" in type_text or "&" in type_text:
         return False
-    normalized = re.sub(r"\b(?:const|volatile|signed)\b", " ", type_text, flags=re.IGNORECASE)
-    normalized = re.sub(r"\s+", " ", normalized).strip().upper()
+    normalized = _normalize_scalar_type(type_text)
     return normalized in {
         "_DWORD",
         "INT",
@@ -185,6 +219,30 @@ def _is_four_byte_scalar_type(type_text: str) -> bool:
     }
 
 
+def _four_byte_status_candidate_names(text: str, capture: FunctionCapture | None) -> set[str]:
+    names: set[str] = set()
+    if capture is not None:
+        for local in capture.lvars:
+            if _is_four_byte_status_candidate_type(local.type):
+                names.add(local.name)
+
+    declaration_pattern = re.compile(
+        r"(?m)^\s*(?P<type>(?:const\s+)?[A-Za-z_][A-Za-z0-9_\s]*?)\s+"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:;|=|\[)"
+    )
+    for match in declaration_pattern.finditer(text):
+        if _is_four_byte_status_candidate_type(match.group("type")):
+            names.add(match.group("name"))
+    return names
+
+
+def _is_four_byte_status_candidate_type(type_text: str) -> bool:
+    if not _is_four_byte_scalar_type(type_text):
+        return False
+    normalized = _normalize_scalar_type(type_text)
+    return normalized != "ACCESS_MASK"
+
+
 def _error_status_name_for_literal(literal: str) -> str:
     value = _parse_numeric_literal(literal)
     if value is None:
@@ -193,6 +251,11 @@ def _error_status_name_for_literal(literal: str) -> str:
     if (unsigned_value & 0xF0000000) != 0xC0000000:
         return ""
     return _status_name_for_literal(literal, allow_zero=False)
+
+
+def _is_zero_literal(literal: str) -> bool:
+    value = _parse_numeric_literal(literal)
+    return value == 0
 
 
 def _status_name_for_literal(literal: str, allow_zero: bool) -> str:
@@ -227,6 +290,11 @@ def _parse_numeric_literal(literal: str) -> int | None:
         return int(literal, 10)
     except ValueError:
         return None
+
+
+def _normalize_scalar_type(type_text: str) -> str:
+    normalized = re.sub(r"\b(?:const|volatile|signed)\b", " ", type_text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", normalized).strip().upper()
 
 
 def _looks_like_status_function(capture: FunctionCapture | None, text: str) -> bool:

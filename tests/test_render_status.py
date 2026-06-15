@@ -75,6 +75,25 @@ NTSTATUS __fastcall StatusComparisonSample(int a1)
 """
 
 
+STATUS_TERNARY_SAMPLE = r"""
+__int64 __fastcall StatusTernarySample(int a1, int a2)
+{
+  signed int v26;
+  unsigned int v27;
+  __int64 mask;
+  ACCESS_MASK desiredAccess;
+  NTSTATUS status;
+
+  v26 = a1 < a2 ? 0xC0000095 : 0;
+  v27 = a1 ? 0 : -1073741670;
+  mask = a1 ? 0xC0000095 : 0;
+  desiredAccess = a1 ? 0xC0000095 : 0;
+  status = a1 ? 0xC0000095 : 0LL;
+  return v26;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -194,6 +213,7 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
 
   v16 = 0xC000009A;
   *(_DWORD *)(a1 + 784) = 0xC000009A;
+  *((_DWORD *)a1 + 6) = -1073741670;
   v17 = 0xC000009A;
   *(_QWORD *)(a1 + 792) = 0xC000009A;
   return v16;
@@ -205,6 +225,7 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
 
         self.assertIn("v16 = STATUS_INSUFFICIENT_RESOURCES;", rendered)
         self.assertIn("*(_DWORD *)(argument0 + 784) = STATUS_INSUFFICIENT_RESOURCES;", rendered)
+        self.assertIn("*((_DWORD *)argument0 + 6) = STATUS_INSUFFICIENT_RESOURCES;", rendered)
         self.assertIn("v17 = 0xC000009A;", rendered)
         self.assertIn("*(_QWORD *)(argument0 + 792) = 0xC000009A;", rendered)
 
@@ -218,6 +239,17 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("STATUS_CROSS_PARTITION_VIOLATION == status", rendered)
         self.assertIn("RtlRaiseStatus(STATUS_INVALID_PARAMETER);", rendered)
         self.assertIn("buildNumber == -1073740277", rendered)
+
+    def test_status_ternary_error_arms_are_named_for_32bit_status_candidates(self) -> None:
+        capture = capture_from_pseudocode(STATUS_TERNARY_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("v26 = argument0 < argument1 ? STATUS_INTEGER_OVERFLOW : 0;", rendered)
+        self.assertIn("v27 = argument0 ? 0 : STATUS_INSUFFICIENT_RESOURCES;", rendered)
+        self.assertIn("status = argument0 ? STATUS_INTEGER_OVERFLOW : 0LL;", rendered)
+        self.assertIn("mask = argument0 ? 0xC0000095 : 0;", rendered)
+        self.assertIn("desiredAccess = argument0 ? 0xC0000095 : 0;", rendered)
 
 
 if __name__ == "__main__":
