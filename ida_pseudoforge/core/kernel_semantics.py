@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ida_pseudoforge.core.field_layout_hints import field_layout_comments
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, parse_c_integer_literal
 from ida_pseudoforge.core.normalize import (
     extract_call_arguments,
@@ -342,6 +343,8 @@ def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> lis
                 0.84,
             )
         )
+
+    comments.extend(field_layout_comments(text))
 
     if "previousMode" in text and "STATUS_PRIVILEGE_NOT_HELD" in text:
         comments.append(
