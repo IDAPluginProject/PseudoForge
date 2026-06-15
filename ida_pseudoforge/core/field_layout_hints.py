@@ -215,8 +215,8 @@ def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
         blockers.append("one or more typed offsets are not naturally aligned")
     if _is_mmio_like_base(layout.base):
         blockers.append("base name looks MMIO/register-backed")
-    if _base_is_mutated(text, layout.base):
-        blockers.append("base is assigned or incremented")
+    if _base_changes_during_layout_accesses(text, layout):
+        blockers.append("base changes during layout accesses")
     if _base_address_taken(text, layout.base):
         blockers.append("base address is taken")
     if _base_has_array_index_use(text, layout.base):
@@ -411,12 +411,44 @@ def _is_mmio_like_base(name: str) -> bool:
     return any(token in lowered for token in ("mmio", "mappedio", "register", "bar", "csr", "port"))
 
 
-def _base_is_mutated(text: str, base: str) -> bool:
+def _base_changes_during_layout_accesses(text: str, layout: _LayoutEvidence) -> bool:
+    if _base_is_incremented(text, layout.base):
+        return True
+    assignments = _base_direct_assignments(text, layout.base)
+    if not assignments:
+        return False
+    first_access = _first_layout_access_start(text, layout.base)
+    if first_access < 0:
+        return True
+    if len(assignments) > 1:
+        return True
+    assignment = assignments[0]
+    if assignment.group("op") != "=":
+        return True
+    return assignment.start() > first_access
+
+
+def _base_is_incremented(text: str, base: str) -> bool:
     escaped = re.escape(base)
     return bool(
-        re.search(r"(?m)^\s*%s\s*(?:[-+*/%%&|^]?=|\+\+|--)" % escaped, text or "")
+        re.search(r"(?m)^\s*%s\s*(?:\+\+|--)" % escaped, text or "")
         or re.search(r"(?m)^\s*(?:\+\+|--)\s*%s\b" % escaped, text or "")
     )
+
+
+def _base_direct_assignments(text: str, base: str) -> list[re.Match[str]]:
+    pattern = re.compile(
+        r"(?m)^\s*%s\s*(?P<op>\+=|-=|\*=|/=|%%=|&=|\|=|\^=|=)(?!=)\s*(?P<rhs>[^;\n]*);\s*(?://[^\n]*)?$"
+        % re.escape(base)
+    )
+    return list(pattern.finditer(text or ""))
+
+
+def _first_layout_access_start(text: str, base: str) -> int:
+    for match in _OFFSET_DEREF_RE.finditer(text or ""):
+        if match.group("base") == base:
+            return match.start()
+    return -1
 
 
 def _base_address_taken(text: str, base: str) -> bool:

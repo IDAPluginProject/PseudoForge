@@ -271,6 +271,33 @@ __int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
         self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
 
+    def test_stable_one_time_base_alias_assignment_does_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableAliasLayout(__int64 a1)
+{
+  __int64 sessionSpace;
+
+  sessionSpace = a1;
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40);
+}
+"""
+        )
+
+        self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+
     def test_named_layout_rewrite_blocker_reports_mixed_type_and_base_mutation(self) -> None:
         comments = field_layout_comments(
             """
@@ -297,8 +324,34 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
 
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets have conflicting access types", blockers[0]["blockers"])
-        self.assertIn("base is assigned or incremented", blockers[0]["blockers"])
+        self.assertIn("base changes during layout accesses", blockers[0]["blockers"])
         self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+
+    def test_compound_base_assignment_blocks_rewrite_even_before_first_access(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall CompoundAliasLayout(__int64 sessionSpace)
+{
+  sessionSpace += 8;
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base changes during layout accesses", blockers[0]["blockers"])
 
 
 if __name__ == "__main__":
