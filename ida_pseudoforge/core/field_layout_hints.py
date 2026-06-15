@@ -243,8 +243,7 @@ def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
         blockers.append("one or more typed offsets are not naturally aligned")
     if _is_mmio_like_base(layout.base):
         blockers.append("base name looks MMIO/register-backed")
-    if _base_changes_during_layout_accesses(text, layout):
-        blockers.append("base changes during layout accesses")
+    blockers.extend(_base_change_blockers(text, layout.base))
     if _base_address_taken(text, layout.base):
         blockers.append("base address is taken")
     if _base_has_array_index_use(text, layout.base):
@@ -439,21 +438,38 @@ def _is_mmio_like_base(name: str) -> bool:
     return any(token in lowered for token in ("mmio", "mappedio", "register", "bar", "csr", "port"))
 
 
-def _base_changes_during_layout_accesses(text: str, layout: _LayoutEvidence) -> bool:
-    if _base_is_incremented(text, layout.base):
-        return True
-    assignments = _base_direct_assignments(text, layout.base)
+def _base_change_blockers(text: str, base: str) -> list[str]:
+    blockers: list[str] = []
+    if _base_is_incremented(text, base):
+        blockers.append("base is incremented or decremented")
+    assignments = _base_direct_assignments(text, base)
     if not assignments:
-        return False
-    first_access = _first_layout_access_start(text, layout.base)
+        return blockers
+    first_access = _first_layout_access_start(text, base)
     if first_access < 0:
-        return True
-    if len(assignments) > 1:
-        return True
-    assignment = assignments[0]
-    if assignment.group("op") != "=":
-        return True
-    return assignment.start() > first_access
+        blockers.append("base assignment order cannot be proven")
+        return blockers
+    simple_assignments = [item for item in assignments if item.group("op") == "="]
+    if len(simple_assignments) != len(assignments):
+        blockers.append("base uses compound assignment")
+    pre_access_rhs = [
+        _normalize_assignment_rhs(item.group("rhs"))
+        for item in simple_assignments
+        if item.start() < first_access
+    ]
+    distinct_pre_access_rhs = {item for item in pre_access_rhs if item}
+    if len(distinct_pre_access_rhs) > 1:
+        blockers.append("base has multiple initializers before layout access")
+    stable_rhs = pre_access_rhs[-1] if pre_access_rhs else ""
+    for assignment in simple_assignments:
+        if assignment.start() < first_access:
+            continue
+        rhs = _normalize_assignment_rhs(assignment.group("rhs"))
+        if stable_rhs and rhs == stable_rhs:
+            continue
+        blockers.append("base is reassigned after layout access")
+        break
+    return blockers
 
 
 def _base_is_incremented(text: str, base: str) -> bool:
@@ -470,6 +486,10 @@ def _base_direct_assignments(text: str, base: str) -> list[re.Match[str]]:
         % re.escape(base)
     )
     return list(pattern.finditer(text or ""))
+
+
+def _normalize_assignment_rhs(value: str) -> str:
+    return " ".join(str(value or "").strip().split())
 
 
 def _first_layout_access_start(text: str, base: str) -> int:
