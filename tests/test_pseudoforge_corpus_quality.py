@@ -88,6 +88,16 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["functions_with_profiled_status_argument_literals"])
             self.assertEqual(2, report["text_stats"]["inferred_offset_layout_hints"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_previews"])
+            self.assertEqual(1, report["body_text_stats"]["offset_deref_patterns"])
+            self.assertEqual(2, report["body_text_stats"]["label_tokens"])
+            self.assertEqual(3, report["body_text_stats"]["decimal_status_like_literals"])
+            self.assertEqual(1, report["body_text_stats"]["hex_status_like_literals"])
+            self.assertEqual(2, report["body_text_stats"]["profiled_status_argument_literals"])
+            self.assertNotIn("inferred_offset_layout_hints", report["body_text_stats"])
+            self.assertLess(
+                report["body_text_stats"]["generic_identifier_tokens"],
+                report["text_stats"]["generic_identifier_tokens"],
+            )
 
     def test_cli_writes_json_and_markdown_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -122,6 +132,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Inferred Layout Hints",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Code Body Residue",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
 
