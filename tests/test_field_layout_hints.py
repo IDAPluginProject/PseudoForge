@@ -56,6 +56,8 @@ __int64 __fastcall FieldLayoutSample(__int64 a1)
         self.assertIn("Preview fields for sessionSpace", rendered)
         self.assertIn("inferred_offset_field_aliases", rendered)
         self.assertIn("Alias map for sessionSpace", rendered)
+        self.assertIn("inferred_offset_rewrite_blockers", rendered)
+        self.assertIn("rewrite threshold requires at least 8 offsets and 12 accesses", rendered)
 
     def test_sparse_offset_accesses_do_not_emit_layout_comment(self) -> None:
         comments = field_layout_comments(
@@ -98,6 +100,7 @@ __int64 __fastcall NamedLayout(__int64 sessionSpace)
         )
         previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
         aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
 
         self.assertEqual(1, len(previews))
         self.assertEqual("sessionSpace", previews[0]["base"])
@@ -111,6 +114,10 @@ __int64 __fastcall NamedLayout(__int64 sessionSpace)
         self.assertEqual(0.73, aliases[0]["confidence"])
         self.assertIn("field_10=+0x10 _DWORD", aliases[0]["text"])
         self.assertIn("review-only shorthand", aliases[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("sessionSpace", blockers[0]["base"])
+        self.assertEqual("named", blockers[0]["base_kind"])
+        self.assertIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
 
     def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
         comments = field_layout_comments(
@@ -133,7 +140,7 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
 """
         )
 
-        self.assertEqual(3, len(comments))
+        self.assertEqual(4, len(comments))
         self.assertEqual("temp", comments[0]["base_kind"])
         self.assertEqual(0.74, comments[0]["confidence"])
         self.assertIn("temporary base", comments[0]["text"])
@@ -151,6 +158,12 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertEqual(0.66, aliases[0]["confidence"])
         self.assertIn("Review aliases for v14 (temporary base)", aliases[0]["text"])
         self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("v14", blockers[0]["base"])
+        self.assertEqual("temp", blockers[0]["base_kind"])
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
@@ -208,7 +221,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         )
 
         self.assertEqual([], weak_comments)
-        self.assertEqual(3, len(strong_comments))
+        self.assertEqual(4, len(strong_comments))
         self.assertEqual("generic", strong_comments[0]["base_kind"])
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
@@ -227,6 +240,65 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual(0.7, aliases[0]["confidence"])
         self.assertIn("Review aliases for context (generic base)", aliases[0]["text"])
         self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
+        blockers = [item for item in strong_comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("context", blockers[0]["base"])
+        self.assertEqual("generic", blockers[0]["base_kind"])
+        self.assertIn("base name is generic", blockers[0]["blockers"])
+        self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+
+    def test_named_layout_without_negative_evidence_has_no_rewrite_blocker(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
+{
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40);
+}
+"""
+        )
+
+        self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+
+    def test_named_layout_rewrite_blocker_reports_mixed_type_and_base_mutation(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionSpace)
+{
+  result = *(_DWORD *)(sessionSpace + 16);
+  result += *(_QWORD *)(sessionSpace + 16);
+  result += *(_QWORD *)(sessionSpace + 24);
+  result += *(_QWORD *)(sessionSpace + 32);
+  result += *(_QWORD *)(sessionSpace + 40);
+  result += *(_QWORD *)(sessionSpace + 48);
+  result += *(_QWORD *)(sessionSpace + 56);
+  result += *(_QWORD *)(sessionSpace + 64);
+  result += *(_QWORD *)(sessionSpace + 72);
+  result += *(_QWORD *)(sessionSpace + 80);
+  result += *(_QWORD *)(sessionSpace + 88);
+  result += *(_QWORD *)(sessionSpace + 96);
+  sessionSpace = nextSessionSpace;
+  return result + *(_QWORD *)(sessionSpace + 104);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("one or more offsets have conflicting access types", blockers[0]["blockers"])
+        self.assertIn("base is assigned or incremented", blockers[0]["blockers"])
+        self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
 
 
 if __name__ == "__main__":

@@ -29,6 +29,13 @@ DECIMAL_STATUS_RE = re.compile(
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
+FIELD_REWRITE_BLOCKER_RE = re.compile(r"-\s+inferred_offset_rewrite_blockers:")
+FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<reasons>.*?)\.\s+Review-only aliases remain available\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 LAYOUT_HINT_RE = re.compile(
     r"-\s+inferred_offset_layout:\s+Offset layout hint:\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s+has\s+"
@@ -123,11 +130,15 @@ def analyze_corpus(
     layout_hint_bases: Counter[str] = Counter()
     layout_hint_types: Counter[str] = Counter()
     layout_totals = Counter()
+    rewrite_blocker_bases: Counter[str] = Counter()
+    rewrite_blocker_reasons: Counter[str] = Counter()
+    rewrite_blocker_totals = Counter()
     totals = Counter()
     text_totals = Counter()
     body_text_totals = Counter()
     top_warning_functions = []
     top_layout_hint_functions = []
+    top_rewrite_blocker_functions = []
 
     for summary_path in summary_paths:
         summary = _coerce_dict(_read_json(summary_path))
@@ -166,16 +177,26 @@ def analyze_corpus(
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
-                layout_hints = _update_text_metrics(text_totals, body_text_totals, cleaned_path)
+                layout_hints, rewrite_blockers = _update_text_metrics(text_totals, body_text_totals, cleaned_path)
                 _update_layout_hint_metrics(
                     layout_hints,
                     layout_totals,
                     layout_hint_bases,
                     layout_hint_types,
                 )
+                _update_layout_rewrite_blocker_metrics(
+                    rewrite_blockers,
+                    rewrite_blocker_totals,
+                    rewrite_blocker_bases,
+                    rewrite_blocker_reasons,
+                )
                 if layout_hints:
                     top_layout_hint_functions.append(
                         _layout_hint_function_summary(name, ea, summary_path, layout_hints)
+                    )
+                if rewrite_blockers:
+                    top_rewrite_blocker_functions.append(
+                        _rewrite_blocker_function_summary(name, ea, summary_path, rewrite_blockers)
                     )
 
         llm_statuses[str(summary.get("llm_status", "") or "unknown")] += 1
@@ -199,6 +220,13 @@ def analyze_corpus(
             -int(item["hint_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_rewrite_blocker_functions.sort(
+        key=lambda item: (
+            -int(item["blocker_count"]),
+            -int(item["reason_count"]),
             str(item["name"]),
         )
     )
@@ -244,6 +272,12 @@ def analyze_corpus(
             "observed_types": _counter_to_dict(Counter(dict(layout_hint_types.most_common(top)))),
             "top_functions": top_layout_hint_functions[:top],
         },
+        "layout_rewrite_blocker_stats": {
+            "totals": _counter_to_dict(rewrite_blocker_totals),
+            "top_bases": _counter_to_dict(Counter(dict(rewrite_blocker_bases.most_common(top)))),
+            "reasons": _counter_to_dict(Counter(dict(rewrite_blocker_reasons.most_common(top)))),
+            "top_functions": top_rewrite_blocker_functions[:top],
+        },
         "text_stats": _counter_to_dict(text_totals),
         "body_text_stats": _counter_to_dict(body_text_totals),
         "top_warning_functions": top_warning_functions[:top],
@@ -258,7 +292,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rule_stats = _coerce_dict(report.get("rule_stats", {}))
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
     layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
+    rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
+    rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
     body_text_stats = _coerce_dict(report.get("body_text_stats", {}))
     lines = [
@@ -362,6 +398,56 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
                 bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Rewrite Blockers",
+            "",
+            "- Blockers: `%s` across `%s` functions"
+            % (rewrite_blocker_totals.get("blockers", 0), rewrite_blocker_totals.get("functions_with_blockers", 0)),
+            "- Reason observations: `%s`" % rewrite_blocker_totals.get("reason_observations", 0),
+            "",
+            "### Rewrite Blocker Reasons",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_blocker_stats.get("reasons", {})), "Reason"))
+    lines.extend(
+        [
+            "",
+            "### Rewrite Blocker Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_blocker_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Rewrite Blocker Functions",
+            "",
+            "| Function | EA | Blockers | Reasons | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in rewrite_blocker_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        reasons = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_reasons", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("blocker_count", 0) or 0),
+                int(item.get("reason_count", 0) or 0),
+                bases,
+                reasons,
             )
         )
     lines.extend(
@@ -529,14 +615,15 @@ def _update_text_metrics(
     text_totals: Counter[str],
     body_text_totals: Counter[str],
     path: Path,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     text = _read_text(path)
     if not text:
-        return []
+        return [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
     layout_hints = _extract_layout_hints(text)
+    rewrite_blockers = _extract_layout_rewrite_blockers(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
         text_totals["functions_with_inferred_offset_layout_hints"] += 1
@@ -554,7 +641,14 @@ def _update_text_metrics(
         "inferred_offset_field_aliases",
         "functions_with_inferred_offset_field_aliases",
     )
-    return layout_hints
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_REWRITE_BLOCKER_RE,
+        "inferred_offset_rewrite_blockers",
+        "functions_with_inferred_offset_rewrite_blockers",
+    )
+    return layout_hints, rewrite_blockers
 
 
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
@@ -677,6 +771,24 @@ def _extract_layout_hints(text: str) -> list[dict[str, Any]]:
     return hints
 
 
+def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
+    blockers = []
+    for match in FIELD_REWRITE_BLOCKER_DETAIL_RE.finditer(text or ""):
+        reasons = [
+            item.strip()
+            for item in match.group("reasons").split(";")
+            if item.strip()
+        ]
+        blockers.append(
+            {
+                "base": match.group("base"),
+                "reasons": reasons,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return blockers
+
+
 def _parse_layout_hint_types(value: str) -> list[str]:
     result = []
     for item in str(value or "").split(","):
@@ -712,6 +824,25 @@ def _update_layout_hint_metrics(
             types[str(type_name)] += 1
 
 
+def _update_layout_rewrite_blocker_metrics(
+    blockers: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    reasons: Counter[str],
+) -> None:
+    if not blockers:
+        return
+    totals["functions_with_blockers"] += 1
+    for blocker in blockers:
+        totals["blockers"] += 1
+        base = str(blocker.get("base", "") or "unknown")
+        bases[base] += 1
+        reason_items = [str(item) for item in blocker.get("reasons", []) or []]
+        totals["reason_observations"] += len(reason_items)
+        for reason in reason_items:
+            reasons[reason] += 1
+
+
 def _layout_hint_function_summary(
     name: str,
     ea: str,
@@ -726,6 +857,29 @@ def _layout_hint_function_summary(
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in hints), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in hints), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in hints), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _rewrite_blocker_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    blockers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    reasons = Counter()
+    bases = []
+    for blocker in blockers:
+        bases.append(str(blocker.get("base", "") or "unknown"))
+        for reason in blocker.get("reasons", []) or []:
+            reasons[str(reason)] += 1
+    return {
+        "ea": ea,
+        "name": name,
+        "blocker_count": len(blockers),
+        "reason_count": sum(reasons.values()),
+        "bases": bases[:8],
+        "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),
     }
 

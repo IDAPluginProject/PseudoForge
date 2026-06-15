@@ -59,6 +59,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
             alias_preview = _field_alias_comment_from_layout(item)
             if alias_preview:
                 comments.append(alias_preview)
+                blocker = _field_rewrite_blocker_comment(text or "", item)
+                if blocker:
+                    comments.append(blocker)
     return comments
 
 
@@ -173,6 +176,54 @@ def _field_alias_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] 
     }
 
 
+def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+    blockers = _field_rewrite_blockers(text, layout)
+    if not blockers:
+        return None
+    base_kind = _layout_base_kind(layout.base)
+    confidence = min(
+        _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind),
+        0.64 + min(len(blockers), 4) * 0.03 + min(layout.access_count, 12) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_rewrite_blockers",
+        "text": (
+            "Offset field rewrite blocked for %s: %s. Review-only aliases remain available."
+            % (layout.base, "; ".join(blockers[:6]))
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "blockers": blockers,
+    }
+
+
+def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
+    blockers: list[str] = []
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind == "temp":
+        blockers.append("base is a decompiler temporary")
+    elif base_kind == "generic":
+        blockers.append("base name is generic")
+    if len(layout.offsets) < 8 or layout.access_count < 12:
+        blockers.append("rewrite threshold requires at least 8 offsets and 12 accesses")
+    if _has_mixed_offset_types(layout):
+        blockers.append("one or more offsets have conflicting access types")
+    if _has_volatile_access_type(layout):
+        blockers.append("volatile-looking access type is present")
+    if _has_unaligned_field_access(layout):
+        blockers.append("one or more typed offsets are not naturally aligned")
+    if _is_mmio_like_base(layout.base):
+        blockers.append("base name looks MMIO/register-backed")
+    if _base_is_mutated(text, layout.base):
+        blockers.append("base is assigned or incremented")
+    if _base_address_taken(text, layout.base):
+        blockers.append("base address is taken")
+    if _base_has_array_index_use(text, layout.base):
+        blockers.append("base is also indexed like an array")
+    return list(dict.fromkeys(blockers))
+
+
 def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
     fields = []
     for offset in sorted(layout.offsets):
@@ -268,6 +319,14 @@ def _field_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
     return 0.78
 
 
+def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.74
+    if base_kind == "generic":
+        return 0.76
+    return 0.82
+
+
 def _field_preview_text(base: str, base_kind: str, field_text: str) -> str:
     if base_kind == "temp":
         return (
@@ -308,3 +367,61 @@ def _review_text_for_base_kind(base_kind: str) -> str:
     if base_kind == "generic":
         return "Review as a generic base before inferring a structure."
     return "Review as an inferred structure base."
+
+
+def _has_mixed_offset_types(layout: _LayoutEvidence) -> bool:
+    return any(len(types) > 1 for types in layout.offsets.values())
+
+
+def _has_volatile_access_type(layout: _LayoutEvidence) -> bool:
+    return any(
+        "volatile" in type_name.lower()
+        for types in layout.offsets.values()
+        for type_name in types
+    )
+
+
+def _has_unaligned_field_access(layout: _LayoutEvidence) -> bool:
+    for offset, types in layout.offsets.items():
+        for type_name in types:
+            alignment = _natural_type_alignment(type_name)
+            if alignment and offset % alignment != 0:
+                return True
+    return False
+
+
+def _natural_type_alignment(type_name: str) -> int:
+    normalized = " ".join(str(type_name or "").replace("volatile ", "").split())
+    lowered = normalized.lower()
+    if lowered in {"char", "signed char", "unsigned char", "_byte", "byte", "uchar", "boolean"}:
+        return 1
+    if lowered in {"short", "unsigned short", "_word", "word", "ushort", "wchar_t"}:
+        return 2
+    if lowered in {"int", "unsigned int", "long", "unsigned long", "_dword", "dword", "ulong", "ntstatus"}:
+        return 4
+    if lowered in {"__int64", "unsigned __int64", "_qword", "qword", "ulong64", "size_t"}:
+        return 8
+    if re.fullmatch(r"P[A-Z0-9_]+", normalized):
+        return 8
+    return 0
+
+
+def _is_mmio_like_base(name: str) -> bool:
+    lowered = str(name or "").lower()
+    return any(token in lowered for token in ("mmio", "mappedio", "register", "bar", "csr", "port"))
+
+
+def _base_is_mutated(text: str, base: str) -> bool:
+    escaped = re.escape(base)
+    return bool(
+        re.search(r"(?m)^\s*%s\s*(?:[-+*/%%&|^]?=|\+\+|--)" % escaped, text or "")
+        or re.search(r"(?m)^\s*(?:\+\+|--)\s*%s\b" % escaped, text or "")
+    )
+
+
+def _base_address_taken(text: str, base: str) -> bool:
+    return re.search(r"&\s*%s\b" % re.escape(base), text or "") is not None
+
+
+def _base_has_array_index_use(text: str, base: str) -> bool:
+    return re.search(r"\b%s\s*\[" % re.escape(base), text or "") is not None

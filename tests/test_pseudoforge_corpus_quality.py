@@ -16,6 +16,7 @@ CLEANED = r"""
       - inferred_offset_layout: Offset layout hint: sessionSpace has 6 typed dereference(s) across 3 offset(s) +0x10, +0x18, +0x20; observed types: _DWORD, _QWORD. Review as an inferred structure base. confidence=0.83
       - inferred_offset_field_preview: Preview fields for sessionSpace: +0x10 _DWORD field_10; +0x18 _QWORD field_18; +0x20 _BYTE field_20; +0x28 _DWORD field_28; +0x30 _WORD field_30. Preview only; no IDB type or pseudocode rewrite was applied. confidence=0.81
       - inferred_offset_field_aliases: Alias map for sessionSpace: field_10=+0x10 _DWORD; field_18=+0x18 _QWORD; field_20=+0x20 _BYTE; field_28=+0x28 _DWORD; field_30=+0x30 _WORD. Use as review-only shorthand for repeated offset dereferences. confidence=0.73
+      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite threshold requires at least 8 offsets and 12 accesses. Review-only aliases remain available. confidence=0.73
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
 */
 __int64 __fastcall Sample(__int64 a1)
@@ -81,6 +82,17 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(2, report["layout_hint_stats"]["observed_types"]["_DWORD"])
             self.assertEqual("Sample", report["layout_hint_stats"]["top_functions"][0]["name"])
             self.assertEqual(8, report["layout_hint_stats"]["top_functions"][0]["max_offsets"])
+            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["blockers"])
+            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["functions_with_blockers"])
+            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["reason_observations"])
+            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["top_bases"]["sessionSpace"])
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["reasons"][
+                    "rewrite threshold requires at least 8 offsets and 12 accesses"
+                ],
+            )
+            self.assertEqual("Sample", report["layout_rewrite_blocker_stats"]["top_functions"][0]["name"])
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["text_stats"]["label_tokens"])
             self.assertEqual(3, report["text_stats"]["decimal_status_like_literals"])
@@ -90,6 +102,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(2, report["text_stats"]["inferred_offset_layout_hints"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_previews"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_aliases"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_blockers"])
             self.assertEqual(1, report["body_text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["body_text_stats"]["label_tokens"])
             self.assertEqual(3, report["body_text_stats"]["decimal_status_like_literals"])
@@ -97,6 +110,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(2, report["body_text_stats"]["profiled_status_argument_literals"])
             self.assertNotIn("inferred_offset_layout_hints", report["body_text_stats"])
             self.assertNotIn("inferred_offset_field_aliases", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_rewrite_blockers", report["body_text_stats"])
             self.assertLess(
                 report["body_text_stats"]["generic_identifier_tokens"],
                 report["text_stats"]["generic_identifier_tokens"],
@@ -135,6 +149,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Inferred Layout Hints",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Rewrite Blockers",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

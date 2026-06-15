@@ -208,7 +208,7 @@ Record these release-note inputs:
 - profiled status-argument literal residue
 - offset dereference residue
 - code-body residue from `body_text_stats`
-- inferred layout hint, field-preview, and field-alias counts
+- inferred layout hint, field-preview, field-alias, and rewrite-blocker counts
 - API semantic diagnostic reasons
 
 ## Compare Quality Reports
@@ -252,6 +252,7 @@ items = [
     ("inferred_offset_layout_hints", ("text_stats", "inferred_offset_layout_hints")),
     ("inferred_offset_field_previews", ("text_stats", "inferred_offset_field_previews")),
     ("inferred_offset_field_aliases", ("text_stats", "inferred_offset_field_aliases")),
+    ("inferred_offset_rewrite_blockers", ("text_stats", "inferred_offset_rewrite_blockers")),
     ("api_semantic_rejections", ("totals", "api_semantic_rejections")),
 ]
 
@@ -300,6 +301,8 @@ Investigate before release:
   conservative header comments and whether code-body residue stayed flat
 - temp or generic layout hints increase without a deliberate claim-ceiling
   change
+- inferred offset rewrite blockers increase after a change that should make
+  field rewrite evidence stronger
 - API semantic rejection reasons shift toward `conflict_target` or
   `large_dispatcher` unexpectedly
 
@@ -313,6 +316,8 @@ Positive release signals:
   validation/filter change
 - layout hints, field previews, or field aliases increase only when claim
   ceilings and review wording remain conservative
+- inferred offset rewrite blockers decline while code-body residue does not
+  regress
 
 ## Release Checklist
 
@@ -353,7 +358,8 @@ hex_status_like_literals=1
 profiled_status_argument_literals=1
 inferred_offset_layout_hints=12
 inferred_offset_field_previews=11
-inferred_offset_field_aliases=0
+inferred_offset_field_aliases=11
+inferred_offset_rewrite_blockers=11
 body_generic_identifier_tokens=11609
 body_offset_deref_patterns=719
 body_label_tokens=541
