@@ -84,6 +84,7 @@ Key documentation:
 - [ida_pseudocode_refactor_plugin_design.md](ida_pseudocode_refactor_plugin_design.md): overall product and architecture design.
 - [deterministic_rules_matching_engine_design.md](deterministic_rules_matching_engine_design.md): deterministic JSON rule engine design.
 - [docs/rules.md](docs/rules.md): project-local and user-global rule authoring workflow.
+- [docs/pseudoforge-release-validation.md](docs/pseudoforge-release-validation.md): release-quality validation workflow for tests, deterministic IDA replay, LLM candidate replay, and corpus quality metrics.
 - [docs/kernel-corpus-install-usage.md](docs/kernel-corpus-install-usage.md): user-facing Kernel Corpus release-package installation, MCP/skill setup, and daily usage guide.
 - [docs/kernel-corpus-runbook.md](docs/kernel-corpus-runbook.md): build, query, MCP, lifecycle, atlas, and freshness workflow for Kernel Corpus packs.
 - [tools/kernel_corpus/DESIGN.md](tools/kernel_corpus/DESIGN.md): Kernel Corpus SQLite/MCP design and phase status.
@@ -128,6 +129,12 @@ python -B .\tools\release_pseudoforge.py --bump minor
 python -B .\tools\release_pseudoforge.py --version 0.2.0
 python -B .\tools\release_pseudoforge.py --no-version-bump
 ```
+
+Before public release, run the release validation workflow in
+[docs/pseudoforge-release-validation.md](docs/pseudoforge-release-validation.md).
+That workflow covers the normal test gate, deterministic no-LLM IDA replay,
+LLM candidate replay when rename filters change, and corpus quality metric
+comparison.
 
 ## Current Implementation Status
 
@@ -1998,6 +2005,10 @@ Safety boundaries:
 9. `flow` rules can only report already recovered dispatcher facts; they do not synthesize switch bodies or replace hard-coded flow recovery.
 
 ## Validation
+
+For release-quality validation, including deterministic IDA replay and corpus
+quality metric comparison, use
+[docs/pseudoforge-release-validation.md](docs/pseudoforge-release-validation.md).
 
 Unit tests:
 
