@@ -56,6 +56,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
         preview = _field_preview_comment_from_layout(item)
         if preview:
             comments.append(preview)
+            alias_preview = _field_alias_comment_from_layout(item)
+            if alias_preview:
+                comments.append(alias_preview)
     return comments
 
 
@@ -133,6 +136,36 @@ def _field_preview_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any
     return {
         "kind": "inferred_offset_field_preview",
         "text": _field_preview_text(layout.base, base_kind, field_text),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "fields": fields,
+    }
+
+
+def _field_alias_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind == "named":
+        if len(layout.offsets) < 5 or layout.access_count < 5:
+            return None
+    elif len(layout.offsets) < 8 or layout.access_count < 12:
+        return None
+    fields = _preview_fields(layout)
+    if not fields:
+        return None
+    alias_text = "; ".join(
+        "%s=+0x%X %s" % (item["name"], item["offset"], item["type"])
+        for item in fields[:8]
+    )
+    if len(fields) > 8:
+        alias_text += "; ..."
+    confidence = min(
+        _field_alias_confidence_cap_for_base_kind(base_kind),
+        0.58 + len(layout.offsets) * 0.025 + min(layout.access_count, 12) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_field_aliases",
+        "text": _field_alias_text(layout.base, base_kind, alias_text),
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
@@ -227,6 +260,14 @@ def _field_preview_confidence_cap_for_base_kind(base_kind: str) -> float:
     return 0.82
 
 
+def _field_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.66
+    if base_kind == "generic":
+        return 0.7
+    return 0.78
+
+
 def _field_preview_text(base: str, base_kind: str, field_text: str) -> str:
     if base_kind == "temp":
         return (
@@ -241,6 +282,23 @@ def _field_preview_text(base: str, base_kind: str, field_text: str) -> str:
     return (
         "Preview fields for %s: %s. Preview only; no IDB type or pseudocode rewrite was applied."
         % (base, field_text)
+    )
+
+
+def _field_alias_text(base: str, base_kind: str, alias_text: str) -> str:
+    if base_kind == "temp":
+        return (
+            "Review aliases for %s (temporary base): %s. Review-only shorthand; do not treat as a recovered structure type."
+            % (base, alias_text)
+        )
+    if base_kind == "generic":
+        return (
+            "Review aliases for %s (generic base): %s. Review-only shorthand; do not treat as a recovered structure type."
+            % (base, alias_text)
+        )
+    return (
+        "Alias map for %s: %s. Use as review-only shorthand for repeated offset dereferences."
+        % (base, alias_text)
     )
 
 

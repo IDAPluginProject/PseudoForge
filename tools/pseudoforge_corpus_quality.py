@@ -28,6 +28,7 @@ DECIMAL_STATUS_RE = re.compile(
 )
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
+FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
 LAYOUT_HINT_RE = re.compile(
     r"-\s+inferred_offset_layout:\s+Offset layout hint:\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s+has\s+"
@@ -545,6 +546,13 @@ def _update_text_metrics(
         FIELD_PREVIEW_RE,
         "inferred_offset_field_previews",
         "functions_with_inferred_offset_field_previews",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_ALIAS_RE,
+        "inferred_offset_field_aliases",
+        "functions_with_inferred_offset_field_aliases",
     )
     return layout_hints
 

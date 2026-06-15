@@ -54,6 +54,8 @@ __int64 __fastcall FieldLayoutSample(__int64 a1)
         self.assertIn("Offset layout hint: sessionSpace", rendered)
         self.assertIn("inferred_offset_field_preview", rendered)
         self.assertIn("Preview fields for sessionSpace", rendered)
+        self.assertIn("inferred_offset_field_aliases", rendered)
+        self.assertIn("Alias map for sessionSpace", rendered)
 
     def test_sparse_offset_accesses_do_not_emit_layout_comment(self) -> None:
         comments = field_layout_comments(
@@ -95,6 +97,7 @@ __int64 __fastcall NamedLayout(__int64 sessionSpace)
 """
         )
         previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
 
         self.assertEqual(1, len(previews))
         self.assertEqual("sessionSpace", previews[0]["base"])
@@ -102,6 +105,12 @@ __int64 __fastcall NamedLayout(__int64 sessionSpace)
         self.assertEqual(5, len(previews[0]["fields"]))
         self.assertIn("+0x10 _DWORD field_10", previews[0]["text"])
         self.assertIn("Preview only; no IDB type or pseudocode rewrite was applied", previews[0]["text"])
+        self.assertEqual(1, len(aliases))
+        self.assertEqual("sessionSpace", aliases[0]["base"])
+        self.assertEqual("named", aliases[0]["base_kind"])
+        self.assertEqual(0.73, aliases[0]["confidence"])
+        self.assertIn("field_10=+0x10 _DWORD", aliases[0]["text"])
+        self.assertIn("review-only shorthand", aliases[0]["text"])
 
     def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
         comments = field_layout_comments(
@@ -124,7 +133,7 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
 """
         )
 
-        self.assertEqual(2, len(comments))
+        self.assertEqual(3, len(comments))
         self.assertEqual("temp", comments[0]["base_kind"])
         self.assertEqual(0.74, comments[0]["confidence"])
         self.assertIn("temporary base", comments[0]["text"])
@@ -135,6 +144,13 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertEqual(0.7, previews[0]["confidence"])
         self.assertIn("Review fields for v14 (temporary base)", previews[0]["text"])
         self.assertIn("Review only; no IDB type or pseudocode rewrite was applied", previews[0]["text"])
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        self.assertEqual(1, len(aliases))
+        self.assertEqual("v14", aliases[0]["base"])
+        self.assertEqual("temp", aliases[0]["base_kind"])
+        self.assertEqual(0.66, aliases[0]["confidence"])
+        self.assertIn("Review aliases for v14 (temporary base)", aliases[0]["text"])
+        self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
@@ -192,7 +208,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         )
 
         self.assertEqual([], weak_comments)
-        self.assertEqual(2, len(strong_comments))
+        self.assertEqual(3, len(strong_comments))
         self.assertEqual("generic", strong_comments[0]["base_kind"])
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
@@ -204,6 +220,13 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual(0.74, previews[0]["confidence"])
         self.assertIn("Review fields for context (generic base)", previews[0]["text"])
         self.assertIn("Review only; no IDB type or pseudocode rewrite was applied", previews[0]["text"])
+        aliases = [item for item in strong_comments if item.get("kind") == "inferred_offset_field_aliases"]
+        self.assertEqual(1, len(aliases))
+        self.assertEqual("context", aliases[0]["base"])
+        self.assertEqual("generic", aliases[0]["base_kind"])
+        self.assertEqual(0.7, aliases[0]["confidence"])
+        self.assertIn("Review aliases for context (generic base)", aliases[0]["text"])
+        self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
 
 
 if __name__ == "__main__":

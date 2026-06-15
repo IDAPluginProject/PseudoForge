@@ -208,7 +208,7 @@ Record these release-note inputs:
 - profiled status-argument literal residue
 - offset dereference residue
 - code-body residue from `body_text_stats`
-- inferred layout hint and field-preview counts
+- inferred layout hint, field-preview, and field-alias counts
 - API semantic diagnostic reasons
 
 ## Compare Quality Reports
@@ -251,6 +251,7 @@ items = [
     ("body_label_tokens", ("body_text_stats", "label_tokens")),
     ("inferred_offset_layout_hints", ("text_stats", "inferred_offset_layout_hints")),
     ("inferred_offset_field_previews", ("text_stats", "inferred_offset_field_previews")),
+    ("inferred_offset_field_aliases", ("text_stats", "inferred_offset_field_aliases")),
     ("api_semantic_rejections", ("totals", "api_semantic_rejections")),
 ]
 
@@ -310,8 +311,8 @@ Positive release signals:
 - deterministic replay keeps `llm_status=disabled`
 - candidate replay produces deterministic parity except for the intended
   validation/filter change
-- layout hints or field previews increase only when claim ceilings and review
-  wording remain conservative
+- layout hints, field previews, or field aliases increase only when claim
+  ceilings and review wording remain conservative
 
 ## Release Checklist
 
@@ -352,6 +353,7 @@ hex_status_like_literals=1
 profiled_status_argument_literals=1
 inferred_offset_layout_hints=12
 inferred_offset_field_previews=11
+inferred_offset_field_aliases=0
 body_generic_identifier_tokens=11609
 body_offset_deref_patterns=719
 body_label_tokens=541
