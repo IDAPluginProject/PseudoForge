@@ -558,11 +558,15 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
     if len(distinct_pre_access_rhs) > 1:
         blockers.append("base has multiple initializers before layout access")
     stable_rhs = pre_access_rhs[-1] if pre_access_rhs else ""
+    stable_reload_sources = set()
+    if stable_rhs:
+        stable_reload_sources.add(stable_rhs)
+    stable_reload_sources.update(_stable_aliases_for_base_before_access(text, base, first_access))
     for assignment in simple_assignments:
         if assignment.start() < first_access:
             continue
         rhs = _normalize_assignment_rhs(assignment.group("rhs"))
-        if stable_rhs and rhs == stable_rhs:
+        if rhs in stable_reload_sources:
             continue
         blockers.append("base is reassigned after layout access")
         break
@@ -583,6 +587,29 @@ def _base_direct_assignments(text: str, base: str) -> list[re.Match[str]]:
         % re.escape(base)
     )
     return list(pattern.finditer(text or ""))
+
+
+def _stable_aliases_for_base_before_access(text: str, base: str, first_access: int) -> set[str]:
+    aliases: set[str] = set()
+    if first_access < 0:
+        return aliases
+    pattern = re.compile(
+        r"(?m)^\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\([^;\n]*\)\s*)?%s\s*;\s*(?://[^\n]*)?$"
+        % re.escape(base)
+    )
+    for match in pattern.finditer(text or ""):
+        if match.start() >= first_access:
+            continue
+        alias = match.group("alias")
+        if alias == base:
+            continue
+        alias_assignments = _base_direct_assignments(text, alias)
+        if len(alias_assignments) != 1:
+            continue
+        if alias_assignments[0].start() != match.start():
+            continue
+        aliases.add(alias)
+    return aliases
 
 
 def _normalize_assignment_rhs(value: str) -> str:
