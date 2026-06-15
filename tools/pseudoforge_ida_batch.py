@@ -43,6 +43,10 @@ from ida_pseudoforge.core.llm_failures import (
     is_llm_provider_cyber_policy_block,
     summarize_llm_failure,
 )
+from ida_pseudoforge.core.llm_candidate_cache import (
+    LlmCandidateRecordingProvider,
+    LlmCandidateReplayProvider,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
@@ -258,6 +262,16 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--llm-model", default="", help="Override model for this run.")
     parser.add_argument("--llm-command", default="", help="Override CLI provider command template.")
     parser.add_argument("--llm-timeout", type=int, default=0, help="Override per-function LLM timeout seconds.")
+    parser.add_argument(
+        "--llm-candidate-cache-dir",
+        default="",
+        help="Directory where raw per-function LLM rename candidate responses are recorded.",
+    )
+    parser.add_argument(
+        "--llm-candidate-replay-dir",
+        default="",
+        help="Directory containing recorded raw LLM rename candidate responses to replay instead of calling a provider.",
+    )
     parser.add_argument("--report", default="", help="JSONL progress report path.")
     parser.add_argument("--cancel-file", default="", help="Stop before the next function when this file exists.")
     parser.add_argument("--max-functions", type=int, default=0, help="Maximum functions to process. 0 means all.")
@@ -344,6 +358,7 @@ def _analyze_function(
             capture,
             rename_provider,
         )
+        llm_candidate_artifacts = _llm_candidate_artifacts(rename_provider)
         render_result = _render_cleaned_with_ida_postprocess(capture, plan)
         plan = render_result.plan
         cleaned = render_result.cleaned
@@ -372,6 +387,8 @@ def _analyze_function(
         if llm_info.get("enabled"):
             result["llm_provider"] = llm_info.get("provider", "")
             result["llm_model"] = llm_info.get("model", "")
+        if llm_candidate_artifacts:
+            result["llm_candidate_artifacts"] = dict(llm_candidate_artifacts)
         if llm_error:
             result["llm_error"] = llm_error
         if llm_error_summary:
@@ -400,6 +417,7 @@ def _analyze_function(
                 llm_error_class,
                 llm_error_summary,
                 llm_info,
+                llm_candidate_artifacts,
             )
         return result
     except Exception as exc:
@@ -447,6 +465,22 @@ def _batch_progress_record(ea: int, name: str, index: int, selected_functions: i
 
 
 def _build_llm_context(args: argparse.Namespace) -> tuple[Any | None, dict[str, Any]]:
+    replay_dir = str(getattr(args, "llm_candidate_replay_dir", "") or "").strip()
+    cache_dir = str(getattr(args, "llm_candidate_cache_dir", "") or "").strip()
+    if replay_dir:
+        provider_instance: Any = LlmCandidateReplayProvider(replay_dir)
+        info = {
+            "enabled": True,
+            "mode": "replay",
+            "provider": "candidate_replay",
+            "model": "",
+            "candidate_replay_dir": str(Path(replay_dir)),
+        }
+        if cache_dir:
+            info["candidate_cache_dir"] = str(Path(cache_dir))
+            provider_instance = LlmCandidateRecordingProvider(provider_instance, cache_dir, provider_info=info)
+        return provider_instance, info
+
     force_enabled = bool(getattr(args, "llm_renames", False))
     auto_enabled = bool(getattr(args, "llm_renames_auto", False))
     require_configured = bool(getattr(args, "require_configured_llm", False))
@@ -484,13 +518,18 @@ def _build_llm_context(args: argparse.Namespace) -> tuple[Any | None, dict[str, 
     else:
         api_key = ""
     provider_instance = build_rename_provider(llm_config, api_key=api_key)
-    return provider_instance, {
+    info = {
         "enabled": True,
+        "mode": "provider",
         "provider": provider,
         "model": llm_config.model,
         "timeout_seconds": llm_config.timeout_seconds,
         "config_enabled": bool(saved_config.llm.enabled),
     }
+    if cache_dir:
+        info["candidate_cache_dir"] = str(Path(cache_dir))
+        provider_instance = LlmCandidateRecordingProvider(provider_instance, cache_dir, provider_info=info)
+    return provider_instance, info
 
 
 def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
@@ -499,10 +538,25 @@ def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
     try:
         return build_clean_plan(capture, rename_provider=rename_provider), "ok", "", "", ""
     except Exception as exc:
+        if bool(getattr(rename_provider, "strict_replay", False)):
+            raise
         plan = build_clean_plan(capture)
         plan.warnings.insert(0, format_llm_fallback_warning(exc))
         error_class = "cyber_policy_block" if is_llm_provider_cyber_policy_block(exc) else "provider_failure"
         return plan, "fallback", str(exc), error_class, summarize_llm_failure(exc)
+
+
+def _llm_candidate_artifacts(rename_provider: Any | None) -> dict[str, str]:
+    if rename_provider is None:
+        return {}
+    result: dict[str, str] = {}
+    cache_path = str(getattr(rename_provider, "last_candidate_cache_path", "") or "")
+    replay_path = str(getattr(rename_provider, "last_candidate_replay_path", "") or "")
+    if cache_path:
+        result["llm_candidate_cache"] = cache_path
+    if replay_path:
+        result["llm_candidate_replay"] = replay_path
+    return result
 
 
 def _render_cleaned_with_ida_postprocess(
@@ -732,6 +786,7 @@ def _write_export_artifacts(
     llm_error_class: str,
     llm_error_summary: str,
     llm_info: dict[str, Any],
+    llm_candidate_artifacts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     function_dir = export_dir / _function_file_stem(capture.ea, capture.name)
     extra_summary: dict[str, object] = {
@@ -748,6 +803,8 @@ def _write_export_artifacts(
         extra_summary["llm_error_class"] = llm_error_class
     if llm_error_summary:
         extra_summary["llm_error_summary"] = llm_error_summary
+    if llm_candidate_artifacts:
+        extra_summary["llm_candidate_artifacts"] = dict(llm_candidate_artifacts)
 
     artifacts = write_export_bundle(
         function_dir,
@@ -757,6 +814,7 @@ def _write_export_artifacts(
         summary_suffix="ida-batch-summary",
         cleaned_text=cleaned_text.rstrip() + "\n",
         extra_summary=extra_summary,
+        extra_artifacts=llm_candidate_artifacts,
         file_stem="function",
     )
     return {

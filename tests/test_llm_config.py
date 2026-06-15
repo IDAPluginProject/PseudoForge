@@ -22,6 +22,12 @@ from ida_pseudoforge.config import (
 )
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.llm_assist import parse_llm_rename_response, suggest_renames_with_provider
+from ida_pseudoforge.core.llm_candidate_cache import (
+    LlmCandidateRecordingProvider,
+    LlmCandidateReplayProvider,
+    find_llm_candidate_cache,
+    read_llm_candidate_response,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.models.cli_provider import CliRenameProvider
@@ -202,6 +208,39 @@ class LlmConfigTests(unittest.TestCase):
         self.assertFalse(warnings)
         self.assertEqual(len(suggestions), 1)
         self.assertEqual(suggestions[0].new, "byteLength")
+
+    def test_llm_candidate_cache_records_and_replays_raw_response(self) -> None:
+        class FakeProvider:
+            def suggest_renames(self, capture):
+                return '{"renames":[{"old":"v1","new":"cachedValue","confidence":0.95,"reason":"fixture"}]}'
+
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CacheSample(int a1)
+{
+  int v1;
+
+  v1 = a1 + 1;
+  return v1;
+}
+""",
+            name="CacheSample",
+            ea=0x140001000,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = LlmCandidateRecordingProvider(
+                FakeProvider(),
+                temp_dir,
+                provider_info={"provider": "fixture", "model": "test"},
+            )
+            raw = recorder.suggest_renames(capture)
+            cache_path = find_llm_candidate_cache(temp_dir, capture)
+            replay = LlmCandidateReplayProvider(temp_dir)
+
+            self.assertIsNotNone(cache_path)
+            self.assertEqual(raw, read_llm_candidate_response(cache_path))
+            self.assertEqual(raw, replay.suggest_renames(capture))
+            self.assertEqual(str(cache_path), replay.last_candidate_replay_path)
 
     def test_large_dispatcher_llm_raises_confidence_floor_and_hides_low_confidence_warnings(self) -> None:
         class FakeProvider:

@@ -209,6 +209,36 @@ __int64 __fastcall LlmBatchSample(int a1)
         self.assertEqual(error_summary, "provider cyber policy block request_id=req_policy_123")
         self.assertIn("blocked by provider cyber policy", plan.warnings[0])
 
+    def test_ida_batch_replay_missing_candidate_cache_is_strict(self) -> None:
+        capture = capture_from_pseudocode(BATCH_BOOLEAN_SAMPLE, name="MissingReplay", ea=0x140001000)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = ida_batch_module.LlmCandidateReplayProvider(temp_dir)
+
+            with self.assertRaisesRegex(FileNotFoundError, "replay cache"):
+                _build_plan_with_optional_llm(capture, provider)
+
+    def test_ida_batch_llm_context_replay_bypasses_saved_config_requirement(self) -> None:
+        old_load = ida_batch_module.load_config
+        ida_batch_module.load_config = lambda: PseudoForgeConfig(llm=LlmConfig(enabled=False))
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                args = argparse.Namespace(
+                    llm_renames=False,
+                    llm_renames_auto=True,
+                    require_configured_llm=True,
+                    llm_candidate_replay_dir=temp_dir,
+                    llm_candidate_cache_dir="",
+                )
+
+                provider, info = ida_batch_module._build_llm_context(args)
+        finally:
+            ida_batch_module.load_config = old_load
+
+        self.assertIsNotNone(provider)
+        self.assertTrue(getattr(provider, "strict_replay", False))
+        self.assertEqual(info["mode"], "replay")
+        self.assertEqual(info["provider"], "candidate_replay")
+
     def test_ida_batch_llm_context_drops_saved_local_key_but_keeps_explicit_override(self) -> None:
         old_load = ida_batch_module.load_config
         old_provider = ida_batch_module.build_rename_provider
@@ -384,6 +414,7 @@ __int64 __fastcall LlmBatchSample(int a1)
                 llm_error_class="",
                 llm_error_summary="",
                 llm_info={"enabled": True, "provider": "ollama", "model": "llama3.2", "timeout_seconds": 60},
+                llm_candidate_artifacts={"llm_candidate_cache": str(Path(temp_dir) / "cache.json")},
             )
 
             artifacts = export["artifacts"]
@@ -396,6 +427,7 @@ __int64 __fastcall LlmBatchSample(int a1)
             self.assertIn("BatchExportEdited", cleaned_text)
             self.assertEqual(summary["llm_status"], "ok")
             self.assertEqual(summary["llm_provider"], "ollama")
+            self.assertEqual(summary["artifacts"]["llm_candidate_cache"], str(Path(temp_dir) / "cache.json"))
 
     def test_ida_batch_export_uses_short_paths_for_long_mangled_symbols(self) -> None:
         long_name = (

@@ -34,6 +34,7 @@ def write_export_bundle(
     summary_suffix: str = "summary",
     cleaned_text: str | None = None,
     extra_summary: dict[str, object] | None = None,
+    extra_artifacts: dict[str, str] | None = None,
     file_stem: str | None = None,
 ) -> dict[str, str]:
     output_path = Path(output_dir)
@@ -100,6 +101,8 @@ def write_export_bundle(
         "raw_vs_cleaned_diff": str(diff_path),
         "summary": str(summary_path),
     }
+    if extra_artifacts:
+        artifacts.update({str(key): str(value) for key, value in extra_artifacts.items()})
     summary_payload = _export_summary_payload(capture, plan, entrypoint, warnings, artifacts)
     if extra_summary:
         summary_payload.update(extra_summary)

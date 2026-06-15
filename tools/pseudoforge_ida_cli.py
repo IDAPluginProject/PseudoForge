@@ -41,6 +41,8 @@ class IdaCliRun:
     corpus_index_path: Path
     corpus_overview_path: Path
     compare_dir: Path | None
+    llm_candidate_cache_dir: Path | None
+    llm_candidate_replay_dir: Path | None
     batch_args: list[str]
     ida_args: list[str]
     ida_env: dict[str, str] | None
@@ -205,6 +207,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-auto-wait", action="store_true", help="Do not wait for IDA autoanalysis first.")
     parser.add_argument("--allow-no-llm", action="store_true", help="Do not fail when saved plugin LLM assist is disabled.")
+    parser.add_argument(
+        "--llm-candidate-cache-dir",
+        default="",
+        help="Directory where raw per-function LLM rename candidate responses are recorded.",
+    )
+    parser.add_argument(
+        "--llm-candidate-replay-dir",
+        default="",
+        help="Directory containing recorded raw LLM rename candidate responses to replay instead of calling a provider.",
+    )
     parser.add_argument("--visible", action="store_true", help="Do not request a hidden IDA window.")
     parser.add_argument("--no-wait", action="store_true", help="Start IDA and return immediately.")
     parser.add_argument("--no-summary", action="store_true", help="Do not print a text summary after IDA exits.")
@@ -242,6 +254,12 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
     corpus_overview_path = output_dir / "pseudoforge-corpus-overview.md"
     compare_dir = Path(args.compare_dir).expanduser().resolve() if args.compare_dir else None
     profile_dir = Path(args.profile_dir).expanduser().resolve() if args.profile_dir else None
+    llm_candidate_cache_dir = Path(args.llm_candidate_cache_dir).expanduser().resolve() if args.llm_candidate_cache_dir else None
+    llm_candidate_replay_dir = (
+        _resolve_existing_path(args.llm_candidate_replay_dir, "LLM candidate replay directory")
+        if args.llm_candidate_replay_dir
+        else None
+    )
     ea_file = _resolve_existing_path(args.ea_file, "EA file") if args.ea_file else None
     pdb_paths = _resolve_pdb_paths(args.pdb_path)
     pdb_symbol_path, pdb_alt_symbol_path = _build_symbol_paths(args.symbol_path, pdb_paths)
@@ -276,6 +294,8 @@ def _prepare_run(args: argparse.Namespace) -> IdaCliRun:
         corpus_index_path=corpus_index_path,
         corpus_overview_path=corpus_overview_path,
         compare_dir=compare_dir,
+        llm_candidate_cache_dir=llm_candidate_cache_dir,
+        llm_candidate_replay_dir=llm_candidate_replay_dir,
         batch_args=batch_args,
         ida_args=ida_args,
         ida_env=ida_env,
@@ -313,12 +333,16 @@ def _build_batch_args(
         str(corpus_metadata_path),
         "--llm-renames-auto",
     ]
-    if not args.allow_no_llm:
+    if not args.allow_no_llm and not args.llm_candidate_replay_dir:
         result.append("--require-configured-llm")
     if compare_dir is not None:
         result.extend(["--compare-dir", str(compare_dir)])
     if profile_dir is not None:
         result.extend(["--profile-dir", str(profile_dir)])
+    if args.llm_candidate_cache_dir:
+        result.extend(["--llm-candidate-cache-dir", str(Path(args.llm_candidate_cache_dir).expanduser().resolve())])
+    if args.llm_candidate_replay_dir:
+        result.extend(["--llm-candidate-replay-dir", str(Path(args.llm_candidate_replay_dir).expanduser().resolve())])
     result.extend(["--cancel-file", str(cancel_file)])
     _append_int_option(result, "--max-functions", args.max_functions)
     _append_int_option(result, "--max-seconds", args.max_seconds)
@@ -622,6 +646,8 @@ def _write_manifest(
         "corpus_index_path": str(run.corpus_index_path),
         "corpus_overview_path": str(run.corpus_overview_path),
         "compare_dir": str(run.compare_dir) if run.compare_dir else "",
+        "llm_candidate_cache_dir": str(run.llm_candidate_cache_dir) if run.llm_candidate_cache_dir else "",
+        "llm_candidate_replay_dir": str(run.llm_candidate_replay_dir) if run.llm_candidate_replay_dir else "",
         "pdb": {
             "enabled": not bool(args.no_pdb),
             "disabled": bool(args.no_pdb),
@@ -630,8 +656,10 @@ def _write_manifest(
             "alt_symbol_path": run.pdb_alt_symbol_path,
         },
         "llm": {
-            "mode": "plugin_config",
-            "required": not bool(args.allow_no_llm),
+            "mode": "candidate_replay" if run.llm_candidate_replay_dir else "plugin_config",
+            "required": not bool(args.allow_no_llm) and run.llm_candidate_replay_dir is None,
+            "candidate_cache_dir": str(run.llm_candidate_cache_dir) if run.llm_candidate_cache_dir else "",
+            "candidate_replay_dir": str(run.llm_candidate_replay_dir) if run.llm_candidate_replay_dir else "",
         },
         "ida_args": list(run.ida_args),
         "batch_args": list(run.batch_args),
@@ -664,7 +692,12 @@ def _print_start(run: IdaCliRun, args: argparse.Namespace) -> None:
         print("PDB symbol path: %s" % run.pdb_symbol_path)
     else:
         print("PDB: IDA defaults")
-    print("LLM: plugin settings%s" % ("" if not args.allow_no_llm else " (optional)"))
+    if run.llm_candidate_replay_dir:
+        print("LLM: candidate replay from %s" % run.llm_candidate_replay_dir)
+    else:
+        print("LLM: plugin settings%s" % ("" if not args.allow_no_llm else " (optional)"))
+    if run.llm_candidate_cache_dir:
+        print("LLM candidate cache: %s" % run.llm_candidate_cache_dir)
     if not args.no_wait and not args.dry_run:
         print("Press Ctrl+C to request cancellation.")
 

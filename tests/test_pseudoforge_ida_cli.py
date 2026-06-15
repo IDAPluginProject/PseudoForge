@@ -83,6 +83,39 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertIn("--llm-renames-auto", run.batch_args)
             self.assertNotIn("--require-configured-llm", run.batch_args)
 
+    def test_ida_cli_forwards_llm_candidate_cache_and_replay_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida.exe"
+            idb_path = temp_path / "sample.idb"
+            output_dir = temp_path / "out"
+            cache_dir = temp_path / "cache"
+            replay_dir = temp_path / "replay"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+            replay_dir.mkdir()
+            args = pseudoforge_ida_cli._build_parser().parse_args(
+                [
+                    str(ida_path),
+                    str(idb_path),
+                    str(output_dir),
+                    "--llm-candidate-cache-dir",
+                    str(cache_dir),
+                    "--llm-candidate-replay-dir",
+                    str(replay_dir),
+                ]
+            )
+
+            run = pseudoforge_ida_cli._prepare_run(args)
+
+            self.assertEqual(cache_dir.resolve(), run.llm_candidate_cache_dir)
+            self.assertEqual(replay_dir.resolve(), run.llm_candidate_replay_dir)
+            self.assertIn("--llm-candidate-cache-dir", run.batch_args)
+            self.assertIn(str(cache_dir.resolve()), run.batch_args)
+            self.assertIn("--llm-candidate-replay-dir", run.batch_args)
+            self.assertIn(str(replay_dir.resolve()), run.batch_args)
+            self.assertNotIn("--require-configured-llm", run.batch_args)
+
     def test_ida_cli_upsert_forge_does_not_overwrite_existing_aggregate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
