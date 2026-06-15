@@ -163,13 +163,29 @@ __int64 __fastcall AccessLimitedLayout(__int64 sessionSpace)
         access_blockers = [
             item for item in access_limited if item.get("kind") == "inferred_offset_rewrite_blockers"
         ]
+        offset_near_ready = [
+            item for item in offset_limited if item.get("kind") == "inferred_offset_rewrite_near_ready"
+        ]
+        access_near_ready = [
+            item for item in access_limited if item.get("kind") == "inferred_offset_rewrite_near_ready"
+        ]
 
         self.assertEqual(1, len(offset_blockers))
         self.assertIn("rewrite offset threshold requires at least 8 offsets", offset_blockers[0]["blockers"])
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", offset_blockers[0]["blockers"])
+        self.assertEqual(1, len(offset_near_ready))
+        self.assertEqual("offset", offset_near_ready[0]["missing_threshold"])
+        self.assertEqual(5, offset_near_ready[0]["offset_count"])
+        self.assertEqual(12, offset_near_ready[0]["access_count"])
+        self.assertIn("missing offset threshold only", offset_near_ready[0]["text"])
         self.assertEqual(1, len(access_blockers))
         self.assertNotIn("rewrite offset threshold requires at least 8 offsets", access_blockers[0]["blockers"])
         self.assertIn("rewrite access threshold requires at least 12 accesses", access_blockers[0]["blockers"])
+        self.assertEqual(1, len(access_near_ready))
+        self.assertEqual("access", access_near_ready[0]["missing_threshold"])
+        self.assertEqual(8, access_near_ready[0]["offset_count"])
+        self.assertEqual(8, access_near_ready[0]["access_count"])
+        self.assertIn("missing access threshold only", access_near_ready[0]["text"])
 
     def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
         comments = field_layout_comments(

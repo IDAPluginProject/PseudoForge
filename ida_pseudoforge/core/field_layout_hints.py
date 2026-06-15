@@ -34,6 +34,13 @@ _GENERIC_BASE_NAMES = {
     "record",
 }
 
+_REWRITE_OFFSET_THRESHOLD_BLOCKER = "rewrite offset threshold requires at least 8 offsets"
+_REWRITE_ACCESS_THRESHOLD_BLOCKER = "rewrite access threshold requires at least 12 accesses"
+_REWRITE_THRESHOLD_BLOCKERS = {
+    _REWRITE_OFFSET_THRESHOLD_BLOCKER,
+    _REWRITE_ACCESS_THRESHOLD_BLOCKER,
+}
+
 
 @dataclass(slots=True)
 class _LayoutEvidence:
@@ -62,6 +69,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
+                    near_ready = _field_rewrite_near_ready_comment(item, blocker)
+                    if near_ready:
+                        comments.append(near_ready)
                 else:
                     ready = _field_rewrite_ready_comment(item)
                     if ready:
@@ -226,6 +236,44 @@ def _field_rewrite_ready_comment(layout: _LayoutEvidence) -> dict[str, Any] | No
     }
 
 
+def _field_rewrite_near_ready_comment(
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind != "named":
+        return None
+    blockers = {
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    }
+    if len(blockers) != 1 or not blockers.issubset(_REWRITE_THRESHOLD_BLOCKERS):
+        return None
+    missing = "offset" if _REWRITE_OFFSET_THRESHOLD_BLOCKER in blockers else "access"
+    if missing == "offset" and (len(layout.offsets) < 5 or layout.access_count < 12):
+        return None
+    if missing == "access" and (len(layout.offsets) < 8 or layout.access_count < 8):
+        return None
+    confidence = min(
+        0.76,
+        0.61 + len(layout.offsets) * 0.02 + min(layout.access_count, 16) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_rewrite_near_ready",
+        "text": (
+            "Offset field rewrite near-ready for %s: %d typed dereference(s) across %d offset(s), missing %s threshold only. Audit only; body rewrite was not applied."
+            % (layout.base, layout.access_count, len(layout.offsets), missing)
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "missing_threshold": missing,
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
+    }
+
+
 def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
     blockers: list[str] = []
     base_kind = _layout_base_kind(layout.base)
@@ -275,9 +323,9 @@ def _preview_type_name(type_names: set[str]) -> str:
 def _field_rewrite_threshold_blockers(layout: _LayoutEvidence) -> list[str]:
     blockers: list[str] = []
     if len(layout.offsets) < 8:
-        blockers.append("rewrite offset threshold requires at least 8 offsets")
+        blockers.append(_REWRITE_OFFSET_THRESHOLD_BLOCKER)
     if layout.access_count < 12:
-        blockers.append("rewrite access threshold requires at least 12 accesses")
+        blockers.append(_REWRITE_ACCESS_THRESHOLD_BLOCKER)
     return blockers
 
 

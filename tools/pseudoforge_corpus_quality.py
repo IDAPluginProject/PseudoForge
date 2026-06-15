@@ -38,6 +38,16 @@ FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"Audit only; body rewrite was not applied\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_REWRITE_NEAR_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_near_ready:")
+FIELD_REWRITE_NEAR_READY_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_near_ready:\s+Offset field rewrite near-ready for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\),\s+missing\s+"
+    r"(?P<missing>offset|access)\s+threshold only\.\s+"
+    r"Audit only; body rewrite was not applied\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_REWRITE_BLOCKER_RE = re.compile(r"-\s+inferred_offset_rewrite_blockers:")
 FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
@@ -141,6 +151,9 @@ def analyze_corpus(
     layout_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
+    rewrite_near_ready_bases: Counter[str] = Counter()
+    rewrite_near_ready_missing: Counter[str] = Counter()
+    rewrite_near_ready_totals = Counter()
     rewrite_blocker_bases: Counter[str] = Counter()
     rewrite_blocker_reasons: Counter[str] = Counter()
     rewrite_blocker_totals = Counter()
@@ -150,6 +163,7 @@ def analyze_corpus(
     top_warning_functions = []
     top_layout_hint_functions = []
     top_rewrite_ready_functions = []
+    top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
 
     for summary_path in summary_paths:
@@ -189,7 +203,7 @@ def analyze_corpus(
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
-                layout_hints, rewrite_ready, rewrite_blockers = _update_text_metrics(
+                layout_hints, rewrite_ready, rewrite_near_ready, rewrite_blockers = _update_text_metrics(
                     text_totals,
                     body_text_totals,
                     cleaned_path,
@@ -205,6 +219,12 @@ def analyze_corpus(
                     rewrite_ready_totals,
                     rewrite_ready_bases,
                 )
+                _update_layout_rewrite_near_ready_metrics(
+                    rewrite_near_ready,
+                    rewrite_near_ready_totals,
+                    rewrite_near_ready_bases,
+                    rewrite_near_ready_missing,
+                )
                 _update_layout_rewrite_blocker_metrics(
                     rewrite_blockers,
                     rewrite_blocker_totals,
@@ -218,6 +238,10 @@ def analyze_corpus(
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
                         _rewrite_ready_function_summary(name, ea, summary_path, rewrite_ready)
+                    )
+                if rewrite_near_ready:
+                    top_rewrite_near_ready_functions.append(
+                        _rewrite_near_ready_function_summary(name, ea, summary_path, rewrite_near_ready)
                     )
                 if rewrite_blockers:
                     top_rewrite_blocker_functions.append(
@@ -251,6 +275,14 @@ def analyze_corpus(
     top_rewrite_ready_functions.sort(
         key=lambda item: (
             -int(item["ready_count"]),
+            -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_rewrite_near_ready_functions.sort(
+        key=lambda item: (
+            -int(item["near_ready_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
             str(item["name"]),
@@ -310,6 +342,12 @@ def analyze_corpus(
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
             "top_functions": top_rewrite_ready_functions[:top],
         },
+        "layout_rewrite_near_ready_stats": {
+            "totals": _counter_to_dict(rewrite_near_ready_totals),
+            "top_bases": _counter_to_dict(Counter(dict(rewrite_near_ready_bases.most_common(top)))),
+            "missing_thresholds": _counter_to_dict(Counter(dict(rewrite_near_ready_missing.most_common(top)))),
+            "top_functions": top_rewrite_near_ready_functions[:top],
+        },
         "layout_rewrite_blocker_stats": {
             "totals": _counter_to_dict(rewrite_blocker_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_blocker_bases.most_common(top)))),
@@ -331,9 +369,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
     layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
+    rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
+    rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
     body_text_stats = _coerce_dict(report.get("body_text_stats", {}))
@@ -476,6 +516,61 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("ready_count", 0) or 0),
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Rewrite Near-Ready",
+            "",
+            "- Near-ready candidates: `%s` across `%s` functions"
+            % (
+                rewrite_near_ready_totals.get("near_ready_candidates", 0),
+                rewrite_near_ready_totals.get("functions_with_near_ready_candidates", 0),
+            ),
+            "- Near-ready offset observations: `%s`" % rewrite_near_ready_totals.get("offset_observations", 0),
+            "- Near-ready access observations: `%s`" % rewrite_near_ready_totals.get("access_observations", 0),
+            "",
+            "### Missing Thresholds",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_near_ready_stats.get("missing_thresholds", {})), "Threshold"))
+    lines.extend(
+        [
+            "",
+            "### Near-Ready Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_near_ready_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Near-Ready Functions",
+            "",
+            "| Function | EA | Near-ready | Max offsets | Max accesses | Missing | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in rewrite_near_ready_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        missing = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("missing_thresholds", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("near_ready_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                missing,
                 bases,
             )
         )
@@ -694,15 +789,16 @@ def _update_text_metrics(
     text_totals: Counter[str],
     body_text_totals: Counter[str],
     path: Path,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     text = _read_text(path)
     if not text:
-        return [], [], []
+        return [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
     layout_hints = _extract_layout_hints(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
+    rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
@@ -731,11 +827,18 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_REWRITE_NEAR_READY_RE,
+        "inferred_offset_rewrite_near_ready",
+        "functions_with_inferred_offset_rewrite_near_ready",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_BLOCKER_RE,
         "inferred_offset_rewrite_blockers",
         "functions_with_inferred_offset_rewrite_blockers",
     )
-    return layout_hints, rewrite_ready, rewrite_blockers
+    return layout_hints, rewrite_ready, rewrite_near_ready, rewrite_blockers
 
 
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
@@ -872,6 +975,21 @@ def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_rewrite_near_ready(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_REWRITE_NEAR_READY_DETAIL_RE.finditer(text or ""):
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offset_count": _int_value(match.group("offset_count"), 0),
+                "missing_threshold": match.group("missing"),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
     blockers = []
     for match in FIELD_REWRITE_BLOCKER_DETAIL_RE.finditer(text or ""):
@@ -940,6 +1058,23 @@ def _update_layout_rewrite_ready_metrics(
         bases[str(candidate.get("base", "") or "unknown")] += 1
 
 
+def _update_layout_rewrite_near_ready_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    missing_thresholds: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_near_ready_candidates"] += 1
+    for candidate in candidates:
+        totals["near_ready_candidates"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        missing_thresholds[str(candidate.get("missing_threshold", "") or "unknown")] += 1
+
+
 def _update_layout_rewrite_blocker_metrics(
     blockers: list[dict[str, Any]],
     totals: Counter[str],
@@ -988,6 +1123,29 @@ def _rewrite_ready_function_summary(
         "name": name,
         "ready_count": len(candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _rewrite_near_ready_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    missing_thresholds = Counter(
+        str(item.get("missing_threshold", "") or "unknown")
+        for item in candidates
+    )
+    return {
+        "ea": ea,
+        "name": name,
+        "near_ready_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "missing_thresholds": _counter_to_dict(missing_thresholds),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),

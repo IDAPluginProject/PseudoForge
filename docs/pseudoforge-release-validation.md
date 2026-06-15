@@ -208,7 +208,7 @@ Record these release-note inputs:
 - profiled status-argument literal residue
 - offset dereference residue
 - code-body residue from `body_text_stats`
-- inferred layout hint, field-preview, field-alias, rewrite-ready, and rewrite-blocker counts
+- inferred layout hint, field-preview, field-alias, rewrite-ready, rewrite-near-ready, and rewrite-blocker counts
 - API semantic diagnostic reasons
 
 ## Compare Quality Reports
@@ -253,6 +253,7 @@ items = [
     ("inferred_offset_field_previews", ("text_stats", "inferred_offset_field_previews")),
     ("inferred_offset_field_aliases", ("text_stats", "inferred_offset_field_aliases")),
     ("inferred_offset_rewrite_ready", ("text_stats", "inferred_offset_rewrite_ready")),
+    ("inferred_offset_rewrite_near_ready", ("text_stats", "inferred_offset_rewrite_near_ready")),
     ("inferred_offset_rewrite_blockers", ("text_stats", "inferred_offset_rewrite_blockers")),
     ("api_semantic_rejections", ("totals", "api_semantic_rejections")),
 ]
@@ -363,6 +364,7 @@ inferred_offset_layout_hints=12
 inferred_offset_field_previews=11
 inferred_offset_field_aliases=11
 inferred_offset_rewrite_ready=0
+inferred_offset_rewrite_near_ready=0
 inferred_offset_rewrite_blockers=11
 body_generic_identifier_tokens=11609
 body_offset_deref_patterns=719
