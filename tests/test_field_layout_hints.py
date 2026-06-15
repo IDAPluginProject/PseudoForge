@@ -36,7 +36,7 @@ __int64 __fastcall FieldLayoutSample(__int64 a1)
   v1 = *(_DWORD *)(a1 + 16);
   v2 = *(_QWORD *)(a1 + 24);
   if ( *(_BYTE *)(a1 + 32) )
-    return *(_DWORD *)(a1 + 40) + v1;
+    return *(_DWORD *)(a1 + 40) + *(_WORD *)(a1 + 48) + v1;
   return v1 + v2;
 }
 """
@@ -52,6 +52,8 @@ __int64 __fastcall FieldLayoutSample(__int64 a1)
         self.assertIn("+0x20", comments[0]["text"])
         self.assertIn("inferred_offset_layout", rendered)
         self.assertIn("Offset layout hint: sessionSpace", rendered)
+        self.assertIn("inferred_offset_field_preview", rendered)
+        self.assertIn("Preview fields for sessionSpace", rendered)
 
     def test_sparse_offset_accesses_do_not_emit_layout_comment(self) -> None:
         comments = field_layout_comments(
@@ -79,6 +81,28 @@ __int64 __fastcall GenericTempLayout(__int64 v14)
 
         self.assertEqual([], comments)
 
+    def test_named_layout_with_dense_offsets_emits_preview_only_fields(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall NamedLayout(__int64 sessionSpace)
+{
+  return *(_DWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_BYTE *)(sessionSpace + 32)
+       + *(_WORD *)(sessionSpace + 40)
+       + *(_DWORD *)(sessionSpace + 48);
+}
+"""
+        )
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+
+        self.assertEqual(1, len(previews))
+        self.assertEqual("sessionSpace", previews[0]["base"])
+        self.assertEqual("named", previews[0]["base_kind"])
+        self.assertEqual(5, len(previews[0]["fields"]))
+        self.assertIn("+0x10 _DWORD field_10", previews[0]["text"])
+        self.assertIn("Preview only; no IDB type or pseudocode rewrite was applied", previews[0]["text"])
+
     def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
         comments = field_layout_comments(
             """
@@ -104,6 +128,7 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertEqual("temp", comments[0]["base_kind"])
         self.assertEqual(0.74, comments[0]["confidence"])
         self.assertIn("temporary base", comments[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_field_preview" for item in comments))
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
@@ -166,6 +191,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
         self.assertIn("context", strong_comments[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_field_preview" for item in strong_comments))
 
 
 if __name__ == "__main__":

@@ -50,7 +50,13 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
         if _has_enough_layout_evidence(item)
     ]
     candidates.sort(key=lambda item: (-len(item.offsets), -item.access_count, item.base.lower()))
-    return [_comment_from_layout(item) for item in candidates[:max(0, int(max_comments or 0))]]
+    comments = []
+    for item in candidates[:max(0, int(max_comments or 0))]:
+        comments.append(_comment_from_layout(item))
+        preview = _field_preview_comment_from_layout(item)
+        if preview:
+            comments.append(preview)
+    return comments
 
 
 def _collect_layouts(text: str) -> dict[str, _LayoutEvidence]:
@@ -105,6 +111,54 @@ def _comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
         "confidence": round(confidence, 2),
         "base_kind": base_kind,
     }
+
+
+def _field_preview_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind != "named":
+        return None
+    if len(layout.offsets) < 5 or layout.access_count < 5:
+        return None
+    fields = _preview_fields(layout)
+    if not fields:
+        return None
+    field_text = "; ".join("+0x%X %s %s" % (item["offset"], item["type"], item["name"]) for item in fields[:8])
+    if len(fields) > 8:
+        field_text += "; ..."
+    confidence = min(0.82, 0.62 + len(layout.offsets) * 0.025 + min(layout.access_count, 12) * 0.005)
+    return {
+        "kind": "inferred_offset_field_preview",
+        "text": (
+            "Preview fields for %s: %s. Preview only; no IDB type or pseudocode rewrite was applied."
+            % (layout.base, field_text)
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "fields": fields,
+    }
+
+
+def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
+    fields = []
+    for offset in sorted(layout.offsets):
+        fields.append(
+            {
+                "offset": offset,
+                "name": "field_%X" % offset,
+                "type": _preview_type_name(layout.offsets[offset]),
+            }
+        )
+    return fields
+
+
+def _preview_type_name(type_names: set[str]) -> str:
+    cleaned = [item for item in sorted(type_names) if item]
+    if not cleaned:
+        return "unknown"
+    if len(cleaned) == 1:
+        return cleaned[0]
+    return "mixed(%s)" % "/".join(cleaned[:3])
 
 
 def _parse_offset(value: str) -> int | None:

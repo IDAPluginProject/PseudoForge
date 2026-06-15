@@ -23,6 +23,7 @@ OFFSET_DEREF_RE = re.compile(
 LABEL_RE = re.compile(r"\bLABEL_\d+\b")
 DECIMAL_STATUS_RE = re.compile(r"\b(?:return|=|==|!=)\s*(-?107374\d+|-?\d{8,}|322122\d+)\b")
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
+FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 LAYOUT_HINT_RE = re.compile(
     r"-\s+inferred_offset_layout:\s+Offset layout hint:\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s+has\s+"
@@ -527,6 +528,13 @@ def _update_text_metrics(text_totals: Counter[str], path: Path) -> list[dict[str
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
         text_totals["functions_with_inferred_offset_layout_hints"] += 1
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_PREVIEW_RE,
+        "inferred_offset_field_previews",
+        "functions_with_inferred_offset_field_previews",
+    )
     return layout_hints
 
 
