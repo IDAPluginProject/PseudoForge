@@ -233,8 +233,7 @@ def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
         blockers.append("base is a decompiler temporary")
     elif base_kind == "generic":
         blockers.append("base name is generic")
-    if len(layout.offsets) < 8 or layout.access_count < 12:
-        blockers.append("rewrite threshold requires at least 8 offsets and 12 accesses")
+    blockers.extend(_field_rewrite_threshold_blockers(layout))
     if _has_mixed_offset_types(layout):
         blockers.append("one or more offsets have conflicting access types")
     if _has_volatile_access_type(layout):
@@ -271,6 +270,15 @@ def _preview_type_name(type_names: set[str]) -> str:
     if len(cleaned) == 1:
         return cleaned[0]
     return "mixed(%s)" % "/".join(cleaned[:3])
+
+
+def _field_rewrite_threshold_blockers(layout: _LayoutEvidence) -> list[str]:
+    blockers: list[str] = []
+    if len(layout.offsets) < 8:
+        blockers.append("rewrite offset threshold requires at least 8 offsets")
+    if layout.access_count < 12:
+        blockers.append("rewrite access threshold requires at least 12 accesses")
+    return blockers
 
 
 def _parse_offset(value: str) -> int | None:

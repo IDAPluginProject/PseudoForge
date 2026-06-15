@@ -57,7 +57,8 @@ __int64 __fastcall FieldLayoutSample(__int64 a1)
         self.assertIn("inferred_offset_field_aliases", rendered)
         self.assertIn("Alias map for sessionSpace", rendered)
         self.assertIn("inferred_offset_rewrite_blockers", rendered)
-        self.assertIn("rewrite threshold requires at least 8 offsets and 12 accesses", rendered)
+        self.assertIn("rewrite offset threshold requires at least 8 offsets", rendered)
+        self.assertIn("rewrite access threshold requires at least 12 accesses", rendered)
 
     def test_sparse_offset_accesses_do_not_emit_layout_comment(self) -> None:
         comments = field_layout_comments(
@@ -117,7 +118,58 @@ __int64 __fastcall NamedLayout(__int64 sessionSpace)
         self.assertEqual(1, len(blockers))
         self.assertEqual("sessionSpace", blockers[0]["base"])
         self.assertEqual("named", blockers[0]["base_kind"])
-        self.assertIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
+        self.assertIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
+
+    def test_named_layout_threshold_blockers_are_split_by_evidence_type(self) -> None:
+        offset_limited = field_layout_comments(
+            """
+__int64 __fastcall OffsetLimitedLayout(__int64 sessionSpace)
+{
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24);
+}
+"""
+        )
+        access_limited = field_layout_comments(
+            """
+__int64 __fastcall AccessLimitedLayout(__int64 sessionSpace)
+{
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72);
+}
+"""
+        )
+
+        offset_blockers = [
+            item for item in offset_limited if item.get("kind") == "inferred_offset_rewrite_blockers"
+        ]
+        access_blockers = [
+            item for item in access_limited if item.get("kind") == "inferred_offset_rewrite_blockers"
+        ]
+
+        self.assertEqual(1, len(offset_blockers))
+        self.assertIn("rewrite offset threshold requires at least 8 offsets", offset_blockers[0]["blockers"])
+        self.assertNotIn("rewrite access threshold requires at least 12 accesses", offset_blockers[0]["blockers"])
+        self.assertEqual(1, len(access_blockers))
+        self.assertNotIn("rewrite offset threshold requires at least 8 offsets", access_blockers[0]["blockers"])
+        self.assertIn("rewrite access threshold requires at least 12 accesses", access_blockers[0]["blockers"])
 
     def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
         comments = field_layout_comments(
@@ -163,7 +215,8 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertEqual("v14", blockers[0]["base"])
         self.assertEqual("temp", blockers[0]["base_kind"])
         self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
-        self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
+        self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
@@ -246,7 +299,8 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual("context", blockers[0]["base"])
         self.assertEqual("generic", blockers[0]["base_kind"])
         self.assertIn("base name is generic", blockers[0]["blockers"])
-        self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
+        self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in strong_comments))
 
     def test_named_layout_without_negative_evidence_has_no_rewrite_blocker(self) -> None:
@@ -336,7 +390,8 @@ __int64 __fastcall MutatedNamedLayout(__int64 sessionSpace, __int64 nextSessionS
         self.assertEqual(1, len(blockers))
         self.assertIn("one or more offsets have conflicting access types", blockers[0]["blockers"])
         self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
-        self.assertNotIn("rewrite threshold requires at least 8 offsets and 12 accesses", blockers[0]["blockers"])
+        self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
+        self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_same_width_type_aliases_do_not_block_rewrite(self) -> None:

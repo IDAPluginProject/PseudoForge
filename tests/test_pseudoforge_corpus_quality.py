@@ -16,7 +16,7 @@ CLEANED = r"""
       - inferred_offset_layout: Offset layout hint: sessionSpace has 6 typed dereference(s) across 3 offset(s) +0x10, +0x18, +0x20; observed types: _DWORD, _QWORD. Review as an inferred structure base. confidence=0.83
       - inferred_offset_field_preview: Preview fields for sessionSpace: +0x10 _DWORD field_10; +0x18 _QWORD field_18; +0x20 _BYTE field_20; +0x28 _DWORD field_28; +0x30 _WORD field_30. Preview only; no IDB type or pseudocode rewrite was applied. confidence=0.81
       - inferred_offset_field_aliases: Alias map for sessionSpace: field_10=+0x10 _DWORD; field_18=+0x18 _QWORD; field_20=+0x20 _BYTE; field_28=+0x28 _DWORD; field_30=+0x30 _WORD. Use as review-only shorthand for repeated offset dereferences. confidence=0.73
-      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite threshold requires at least 8 offsets and 12 accesses. Review-only aliases remain available. confidence=0.73
+      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite offset threshold requires at least 8 offsets; rewrite access threshold requires at least 12 accesses. Review-only aliases remain available. confidence=0.73
       - inferred_offset_rewrite_ready: Offset field rewrite candidate for readySession: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
 */
@@ -93,12 +93,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(12, report["layout_rewrite_ready_stats"]["top_functions"][0]["max_access_count"])
             self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["blockers"])
             self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["functions_with_blockers"])
-            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["reason_observations"])
+            self.assertEqual(2, report["layout_rewrite_blocker_stats"]["totals"]["reason_observations"])
             self.assertEqual(1, report["layout_rewrite_blocker_stats"]["top_bases"]["sessionSpace"])
             self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["reasons"][
-                    "rewrite threshold requires at least 8 offsets and 12 accesses"
+                    "rewrite offset threshold requires at least 8 offsets"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["reasons"][
+                    "rewrite access threshold requires at least 12 accesses"
                 ],
             )
             self.assertEqual("Sample", report["layout_rewrite_blocker_stats"]["top_functions"][0]["name"])
