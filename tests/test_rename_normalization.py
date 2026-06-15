@@ -50,6 +50,31 @@ class RenameNormalizationTests(unittest.TestCase):
         self.assertEqual("ioStatusBlock", pascal_to_lower_camel("IoStatusBlock"))
         self.assertEqual("cpuSetMask", pascal_to_lower_camel("CPUSetMask"))
         self.assertEqual("mdlAddress", pascal_to_lower_camel("MDLAddress"))
+        self.assertEqual("desc0DataPtr", pascal_to_lower_camel("Desc0_DataPtr"))
+        self.assertEqual("arg3Rbx", pascal_to_lower_camel("Arg3_Rbx"))
+
+    def test_pascal_underscore_llm_local_name_is_normalized_before_validation(self) -> None:
+        capture = _capture()
+        provider = JsonRenameProvider(
+            {
+                "renames": [
+                    {
+                        "kind": "lvar",
+                        "old": "v1",
+                        "new": "Desc0_DataPtr",
+                        "confidence": 0.95,
+                        "reason": "descriptor data pointer local",
+                    }
+                ]
+            }
+        )
+
+        plan = build_clean_plan(capture, rename_provider=provider)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertTrue(any(item.old == "v1" and item.new == "desc0DataPtr" and item.apply for item in plan.renames))
+        self.assertNotIn("Skipped PascalCase LLM rename v1->Desc0_DataPtr", plan.warnings)
+        self.assertIn("desc0DataPtr", rendered)
 
     def test_low_confidence_pascal_case_candidate_is_left_for_validator(self) -> None:
         capture = _manual_capture()
@@ -70,6 +95,18 @@ class RenameNormalizationTests(unittest.TestCase):
         normalized = normalize_rename_suggestions(capture, suggestions)
 
         self.assertEqual("ProcessStruct", normalized[0].new)
+
+    def test_upper_snake_and_type_like_underscore_candidates_are_not_normalized(self) -> None:
+        capture = _manual_capture()
+        suggestions = [
+            RenameSuggestion("lvar", "v1", "IO_STATUS_BLOCK", 0.95, "llm", "type-like constant"),
+            RenameSuggestion("lvar", "v1", "Range_Type", 0.95, "llm", "type-like suffix"),
+        ]
+
+        normalized = normalize_rename_suggestions(capture, suggestions)
+
+        self.assertEqual("IO_STATUS_BLOCK", normalized[0].new)
+        self.assertEqual("Range_Type", normalized[1].new)
 
 
 def _capture() -> FunctionCapture:

@@ -64,7 +64,7 @@ def _should_normalize_pascal_case_llm_rename(
     if item.confidence < MIN_STYLE_NORMALIZATION_CONFIDENCE:
         return False
     name = item.new or ""
-    if not _looks_like_pascal_case_local_name(name):
+    if not _looks_like_pascal_or_underscore_local_name(name):
         return False
     if _looks_type_like(name):
         return False
@@ -77,6 +77,12 @@ def _is_known_local_or_argument(old_name: str, local_names: set[str], parameter_
     return bool(re.fullmatch(r"(?:a|v)\d+", old_name or ""))
 
 
+def _looks_like_pascal_or_underscore_local_name(name: str) -> bool:
+    if "_" in name:
+        return _looks_like_pascal_underscore_local_name(name)
+    return _looks_like_pascal_case_local_name(name)
+
+
 def _looks_like_pascal_case_local_name(name: str) -> bool:
     if not name or not name[0].isupper():
         return False
@@ -87,10 +93,23 @@ def _looks_like_pascal_case_local_name(name: str) -> bool:
     return any(char.islower() for char in name)
 
 
+def _looks_like_pascal_underscore_local_name(name: str) -> bool:
+    if not name or name.startswith("_") or name.endswith("_") or "__" in name:
+        return False
+    parts = name.split("_")
+    if len(parts) < 2:
+        return False
+    if all(part.upper() == part for part in parts):
+        return False
+    return all(_looks_like_pascal_case_local_name(part) for part in parts)
+
+
 def _looks_type_like(name: str) -> bool:
     if name.startswith("_"):
         return True
     if "::" in name:
+        return True
+    if "_" in name and name.upper() == name:
         return True
     if any(name.endswith(suffix) for suffix in TYPE_LIKE_SUFFIXES):
         return True
@@ -102,12 +121,25 @@ def _looks_type_like(name: str) -> bool:
 def pascal_to_lower_camel(name: str) -> str:
     if not name:
         return name
+    if "_" in name:
+        return _pascal_underscore_to_lower_camel(name)
     if len(name) == 1:
         return name.lower()
     if not name[0].isupper():
         return name
     word_end = _leading_acronym_end(name)
     return name[:word_end].lower() + name[word_end:]
+
+
+def _pascal_underscore_to_lower_camel(name: str) -> str:
+    parts = name.split("_")
+    if not parts:
+        return name
+    normalized = [pascal_to_lower_camel(part) for part in parts]
+    if any(not part for part in normalized):
+        return name
+    tail = [part[:1].upper() + part[1:] for part in normalized[1:]]
+    return normalized[0] + "".join(tail)
 
 
 def _leading_acronym_end(name: str) -> int:
