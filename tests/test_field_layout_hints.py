@@ -1059,6 +1059,55 @@ __int64 __fastcall CastEquivalentInitializerLayout(__int64 a1)
         self.assertEqual(8, ready[0]["offset_count"])
         self.assertEqual(12, ready[0]["access_count"])
 
+    def test_type_blocked_named_layout_reports_partial_rewrite_opportunity(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PartialTypeBlockedLayout(__int64 sessionSpace)
+{
+  return *(_BYTE *)(sessionSpace + 0x206)
+       + *(_WORD *)(sessionSpace + 0x206)
+       + *(_QWORD *)(sessionSpace + 0x10)
+       + *(_QWORD *)(sessionSpace + 0x18)
+       + *(_QWORD *)(sessionSpace + 0x20)
+       + *(_QWORD *)(sessionSpace + 0x28)
+       + *(_QWORD *)(sessionSpace + 0x30)
+       + *(_QWORD *)(sessionSpace + 0x38)
+       + *(_QWORD *)(sessionSpace + 0x40)
+       + *(_QWORD *)(sessionSpace + 0x48)
+       + *(_QWORD *)(sessionSpace + 0x10)
+       + *(_QWORD *)(sessionSpace + 0x18)
+       + *(_QWORD *)(sessionSpace + 0x20)
+       + *(_QWORD *)(sessionSpace + 0x28);
+}
+"""
+        )
+        partial = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_partial_opportunity"
+        ]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
+        self.assertEqual(1, len(partial))
+        self.assertEqual("sessionSpace", partial[0]["base"])
+        self.assertEqual("named", partial[0]["base_kind"])
+        self.assertEqual(8, partial[0]["safe_offset_count"])
+        self.assertEqual(12, partial[0]["safe_access_count"])
+        self.assertEqual(1, partial[0]["excluded_offset_count"])
+        self.assertEqual(2, partial[0]["excluded_access_count"])
+        self.assertEqual(
+            ["one or more offsets mix narrow subfield access widths"],
+            partial[0]["excluded_reasons"],
+        )
+        self.assertEqual(8, len(partial[0]["safe_fields"]))
+        self.assertEqual(1, len(partial[0]["excluded_fields"]))
+        self.assertEqual(0x206, partial[0]["excluded_fields"][0]["offset"])
+        self.assertIn("safe fields field_10", partial[0]["text"])
+        self.assertIn("canonical body rewrite remains disabled", partial[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_preview" for item in comments))
+
 
 if __name__ == "__main__":
     unittest.main()

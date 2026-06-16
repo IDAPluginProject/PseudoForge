@@ -43,6 +43,17 @@ _REWRITE_THRESHOLD_BLOCKERS = {
 _NARROW_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix narrow subfield access widths"
 _WIDE_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix wide overlay access widths"
 _IRREGULAR_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix irregular field access widths"
+_INCOMPATIBLE_ACCESS_TYPE_BLOCKER = "one or more offsets have incompatible access type classes"
+_UNALIGNED_TYPED_OFFSET_BLOCKER = "one or more typed offsets are not naturally aligned"
+_VOLATILE_ACCESS_TYPE_BLOCKER = "volatile-looking access type is present"
+_OFFSET_LOCAL_TYPE_BLOCKERS = {
+    _NARROW_SUBFIELD_OVERLAY_BLOCKER,
+    _WIDE_SUBFIELD_OVERLAY_BLOCKER,
+    _IRREGULAR_SUBFIELD_OVERLAY_BLOCKER,
+    _INCOMPATIBLE_ACCESS_TYPE_BLOCKER,
+    _UNALIGNED_TYPED_OFFSET_BLOCKER,
+    _VOLATILE_ACCESS_TYPE_BLOCKER,
+}
 
 
 @dataclass(slots=True)
@@ -93,6 +104,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                     near_ready = _field_rewrite_near_ready_comment(item, blocker)
                     if near_ready:
                         comments.append(near_ready)
+                    partial_opportunity = _field_rewrite_partial_opportunity_comment(text or "", item, blocker)
+                    if partial_opportunity:
+                        comments.append(partial_opportunity)
                 else:
                     ready = _field_rewrite_ready_comment(text or "", item)
                     if ready:
@@ -546,6 +560,92 @@ def _field_rewrite_near_ready_comment(
     }
 
 
+def _field_rewrite_partial_opportunity_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+) -> dict[str, Any] | None:
+    blockers = [
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    ]
+    if not blockers or not any(item in _OFFSET_LOCAL_TYPE_BLOCKERS for item in blockers):
+        return None
+    if any(item not in _OFFSET_LOCAL_TYPE_BLOCKERS for item in blockers):
+        return None
+    identity = _trusted_layout_rewrite_identity(text, layout)
+    if _layout_base_kind(layout.base) != "named" and not identity:
+        return None
+    partition = _partial_rewrite_offset_partition(layout)
+    safe_offsets = {
+        int(item["offset"])
+        for item in partition["safe_fields"]
+    }
+    excluded_offsets = {
+        int(item["offset"])
+        for item in partition["excluded_fields"]
+    }
+    if not safe_offsets or not excluded_offsets:
+        return None
+    safe_access_count = _layout_rewrite_access_count_for_offsets(text, layout, safe_offsets)
+    excluded_access_count = _layout_rewrite_access_count_for_offsets(text, layout, excluded_offsets)
+    if len(safe_offsets) < 8 or safe_access_count < 12:
+        return None
+    field_names = [
+        str(item["name"])
+        for item in partition["safe_fields"]
+        if str(item.get("name", ""))
+    ]
+    if not field_names:
+        return None
+    field_text = ", ".join(field_names[:8])
+    if len(field_names) > 8:
+        field_text += ", ..."
+    reason_text = "; ".join(partition["excluded_reasons"][:6])
+    source_provenance = str(identity.get("source_provenance", "") or "none")
+    source = str(identity.get("source", "") or "")
+    source_text = ""
+    if source_provenance != "none" and source:
+        source_text = " Source provenance %s from %s." % (source_provenance, source)
+    confidence = min(
+        0.77,
+        0.63 + len(safe_offsets) * 0.012 + min(safe_access_count, 24) * 0.003,
+    )
+    comment = {
+        "kind": "inferred_offset_rewrite_partial_opportunity",
+        "text": (
+            "Offset field partial rewrite opportunity for %s: %d safe dereference(s) across %d safe offset(s), "
+            "%d excluded dereference(s) across %d excluded offset(s), safe fields %s. Excluded reasons %s.%s "
+            "Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented."
+            % (
+                layout.base,
+                safe_access_count,
+                len(safe_offsets),
+                excluded_access_count,
+                len(excluded_offsets),
+                field_text,
+                reason_text,
+                source_text,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "safe_fields": partition["safe_fields"],
+        "excluded_fields": partition["excluded_fields"],
+        "excluded_reasons": partition["excluded_reasons"],
+        "safe_offset_count": len(safe_offsets),
+        "safe_access_count": safe_access_count,
+        "excluded_offset_count": len(excluded_offsets),
+        "excluded_access_count": excluded_access_count,
+        "source_provenance": source_provenance,
+    }
+    if source:
+        comment["source"] = source
+    return comment
+
+
 def _field_rewrite_blockers(
     text: str,
     layout: _LayoutEvidence,
@@ -569,9 +669,9 @@ def _non_identity_layout_rewrite_blockers(text: str, layout: _LayoutEvidence) ->
     blockers.extend(_field_rewrite_threshold_blockers(layout))
     blockers.extend(_mixed_offset_type_blockers(layout))
     if _has_volatile_access_type(layout):
-        blockers.append("volatile-looking access type is present")
+        blockers.append(_VOLATILE_ACCESS_TYPE_BLOCKER)
     if _has_unaligned_field_access(layout):
-        blockers.append("one or more typed offsets are not naturally aligned")
+        blockers.append(_UNALIGNED_TYPED_OFFSET_BLOCKER)
     if _is_mmio_like_base(layout.base):
         blockers.append("base name looks MMIO/register-backed")
     blockers.extend(_base_change_blockers(text, layout.base))
@@ -599,6 +699,16 @@ def _trusted_generic_parameter_layout_identity(text: str, layout: _LayoutEvidenc
     }
 
 
+def _trusted_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict[str, str]:
+    identity = _trusted_stable_base_source_identity(text, layout.base)
+    if identity:
+        return identity
+    identity = _trusted_generic_parameter_layout_identity(text, layout)
+    if identity:
+        return identity
+    return {}
+
+
 def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
     fields = []
     for offset in sorted(layout.offsets):
@@ -622,6 +732,66 @@ def _layout_rewrite_access_count(text: str, layout: _LayoutEvidence) -> int:
         if offset in offsets:
             count += 1
     return count
+
+
+def _layout_rewrite_access_count_for_offsets(text: str, layout: _LayoutEvidence, offsets: set[int]) -> int:
+    count = 0
+    for match in _OFFSET_DEREF_RE.finditer(text or ""):
+        if match.group("base") != layout.base:
+            continue
+        offset = _parse_offset(match.group("offset"))
+        if offset in offsets:
+            count += 1
+    return count
+
+
+def _partial_rewrite_offset_partition(layout: _LayoutEvidence) -> dict[str, Any]:
+    safe_fields = []
+    excluded_fields = []
+    excluded_reasons: list[str] = []
+    for offset in sorted(layout.offsets):
+        reasons = _offset_local_type_blockers(layout, offset)
+        field = {
+            "offset": offset,
+            "name": "field_%X" % offset,
+            "type": _preview_type_name(layout.offsets[offset]),
+        }
+        if reasons:
+            field["reasons"] = reasons
+            excluded_fields.append(field)
+            for reason in reasons:
+                if reason not in excluded_reasons:
+                    excluded_reasons.append(reason)
+        else:
+            safe_fields.append(field)
+    return {
+        "safe_fields": safe_fields,
+        "excluded_fields": excluded_fields,
+        "excluded_reasons": excluded_reasons,
+    }
+
+
+def _offset_local_type_blockers(layout: _LayoutEvidence, offset: int) -> list[str]:
+    type_names = layout.offsets.get(offset, set())
+    blockers: list[str] = []
+    storage_classes = {_field_type_storage_class(type_name) for type_name in type_names}
+    if len(storage_classes) > 1:
+        if all(item.startswith("size:") for item in storage_classes):
+            sizes = [
+                _field_type_storage_size(type_name)
+                for type_name in type_names
+            ]
+            blockers.append(_subfield_overlay_policy_blocker(_subfield_overlay_size_class(sizes)))
+        else:
+            blockers.append(_INCOMPATIBLE_ACCESS_TYPE_BLOCKER)
+    if any("volatile" in type_name.lower() for type_name in type_names):
+        blockers.append(_VOLATILE_ACCESS_TYPE_BLOCKER)
+    for type_name in type_names:
+        alignment = _natural_type_alignment(type_name)
+        if alignment and offset % alignment != 0:
+            blockers.append(_UNALIGNED_TYPED_OFFSET_BLOCKER)
+            break
+    return list(dict.fromkeys(blockers))
 
 
 def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[dict[str, Any]]:
@@ -1246,7 +1416,7 @@ def _mixed_offset_type_blockers(layout: _LayoutEvidence) -> list[str]:
         if blocker in partial_width_blockers:
             blockers.append(blocker)
     if has_incompatible_type_conflict:
-        blockers.append("one or more offsets have incompatible access type classes")
+        blockers.append(_INCOMPATIBLE_ACCESS_TYPE_BLOCKER)
     return blockers
 
 

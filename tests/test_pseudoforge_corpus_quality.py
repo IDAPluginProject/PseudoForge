@@ -145,6 +145,67 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             ),
         )
 
+    def test_analyze_corpus_reports_layout_rewrite_partial_opportunities(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140002000_Partial"
+            function_dir.mkdir(parents=True)
+            cleaned_path = function_dir / "Partial.cleaned.cpp"
+            summary_path = function_dir / "Partial.ida-batch-summary.json"
+            cleaned_path.write_text(
+                r"""
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for sessionSpace: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.75
+*/
+__int64 __fastcall Partial(__int64 sessionSpace)
+{
+  return *(_QWORD *)(sessionSpace + 0x10);
+}
+""",
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "Partial",
+                        "function_ea": "0x140002000",
+                        "artifacts": {
+                            "cleaned_pseudocode": "Partial.cleaned.cpp",
+                            "summary": "Partial.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+
+            stats = report["layout_rewrite_partial_opportunity_stats"]
+            self.assertEqual(1, stats["totals"]["partial_opportunities"])
+            self.assertEqual(1, stats["totals"]["functions_with_partial_opportunities"])
+            self.assertEqual(8, stats["totals"]["safe_offset_observations"])
+            self.assertEqual(12, stats["totals"]["safe_access_observations"])
+            self.assertEqual(1, stats["totals"]["excluded_offset_observations"])
+            self.assertEqual(2, stats["totals"]["excluded_access_observations"])
+            self.assertEqual(1, stats["top_bases"]["sessionSpace"])
+            self.assertEqual(1, stats["source_provenance"]["none"])
+            self.assertEqual(
+                1,
+                stats["reasons"]["one or more offsets mix narrow subfield access widths"],
+            )
+            self.assertEqual("Partial", stats["top_functions"][0]["name"])
+            self.assertEqual(8, stats["top_functions"][0]["max_safe_offsets"])
+            self.assertEqual(12, stats["top_functions"][0]["max_safe_access_count"])
+            self.assertEqual(1, stats["top_functions"][0]["max_excluded_offsets"])
+            self.assertEqual(2, stats["top_functions"][0]["max_excluded_access_count"])
+            self.assertEqual(
+                1,
+                report["text_stats"]["inferred_offset_rewrite_partial_opportunities"],
+            )
+
     def test_analyze_corpus_counts_warning_rename_rule_and_text_residue_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

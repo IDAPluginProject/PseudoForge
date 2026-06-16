@@ -161,6 +161,22 @@ FIELD_REWRITE_NEAR_READY_DETAIL_RE = re.compile(
     r"Audit only; body rewrite was not applied\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE = re.compile(r"-\s+inferred_offset_rewrite_partial_opportunity:")
+FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_partial_opportunity:\s+"
+    r"Offset field partial rewrite opportunity for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<safe_access_count>\d+)\s+safe dereference\(s\)\s+across\s+"
+    r"(?P<safe_offset_count>\d+)\s+safe offset\(s\),\s+"
+    r"(?P<excluded_access_count>\d+)\s+excluded dereference\(s\)\s+across\s+"
+    r"(?P<excluded_offset_count>\d+)\s+excluded offset\(s\),\s+"
+    r"safe fields\s+(?P<safe_fields>.*?)\.\s+"
+    r"Excluded reasons\s+(?P<reasons>.*?)\.\s+"
+    r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
+    r"Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_REWRITE_BLOCKER_RE = re.compile(r"-\s+inferred_offset_rewrite_blockers:")
 FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
@@ -306,6 +322,10 @@ def analyze_corpus(
     rewrite_near_ready_bases: Counter[str] = Counter()
     rewrite_near_ready_missing: Counter[str] = Counter()
     rewrite_near_ready_totals = Counter()
+    rewrite_partial_opportunity_bases: Counter[str] = Counter()
+    rewrite_partial_opportunity_source_provenance: Counter[str] = Counter()
+    rewrite_partial_opportunity_reasons: Counter[str] = Counter()
+    rewrite_partial_opportunity_totals = Counter()
     rewrite_blocker_bases: Counter[str] = Counter()
     rewrite_blocker_reasons: Counter[str] = Counter()
     rewrite_blocker_review_profiles: Counter[str] = Counter()
@@ -335,6 +355,7 @@ def analyze_corpus(
     top_rewrite_preview_functions = []
     top_rewrite_preview_artifact_functions = []
     top_rewrite_near_ready_functions = []
+    top_rewrite_partial_opportunity_functions = []
     top_rewrite_blocker_functions = []
     top_decimal_status_residue_functions = []
     top_ntstatus_body_unprofiled_functions = []
@@ -401,6 +422,7 @@ def analyze_corpus(
                     rewrite_ready,
                     rewrite_previews,
                     rewrite_near_ready,
+                    rewrite_partial_opportunities,
                     rewrite_blockers,
                     decimal_status_body_literals,
                     ntstatus_body_literals,
@@ -482,6 +504,13 @@ def analyze_corpus(
                     rewrite_near_ready_bases,
                     rewrite_near_ready_missing,
                 )
+                _update_layout_rewrite_partial_opportunity_metrics(
+                    rewrite_partial_opportunities,
+                    rewrite_partial_opportunity_totals,
+                    rewrite_partial_opportunity_bases,
+                    rewrite_partial_opportunity_source_provenance,
+                    rewrite_partial_opportunity_reasons,
+                )
                 _update_layout_rewrite_blocker_metrics(
                     rewrite_blockers,
                     layout_hints,
@@ -541,6 +570,15 @@ def analyze_corpus(
                 if rewrite_near_ready:
                     top_rewrite_near_ready_functions.append(
                         _rewrite_near_ready_function_summary(name, ea, summary_path, rewrite_near_ready)
+                    )
+                if rewrite_partial_opportunities:
+                    top_rewrite_partial_opportunity_functions.append(
+                        _rewrite_partial_opportunity_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            rewrite_partial_opportunities,
+                        )
                     )
                 if rewrite_blockers:
                     top_rewrite_blocker_functions.append(
@@ -696,6 +734,14 @@ def analyze_corpus(
             str(item["name"]),
         )
     )
+    top_rewrite_partial_opportunity_functions.sort(
+        key=lambda item: (
+            -int(item["partial_opportunity_count"]),
+            -int(item["max_safe_access_count"]),
+            -int(item["max_safe_offsets"]),
+            str(item["name"]),
+        )
+    )
     top_rewrite_blocker_functions.sort(
         key=lambda item: (
             -int(item["blocker_count"]),
@@ -846,6 +892,15 @@ def analyze_corpus(
             "missing_thresholds": _counter_to_dict(Counter(dict(rewrite_near_ready_missing.most_common(top)))),
             "top_functions": top_rewrite_near_ready_functions[:top],
         },
+        "layout_rewrite_partial_opportunity_stats": {
+            "totals": _counter_to_dict(rewrite_partial_opportunity_totals),
+            "top_bases": _counter_to_dict(Counter(dict(rewrite_partial_opportunity_bases.most_common(top)))),
+            "source_provenance": _counter_to_dict(
+                Counter(dict(rewrite_partial_opportunity_source_provenance.most_common(top)))
+            ),
+            "reasons": _counter_to_dict(Counter(dict(rewrite_partial_opportunity_reasons.most_common(top)))),
+            "top_functions": top_rewrite_partial_opportunity_functions[:top],
+        },
         "layout_rewrite_blocker_stats": {
             "totals": _counter_to_dict(rewrite_blocker_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_blocker_bases.most_common(top)))),
@@ -904,6 +959,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_preview_stats = _coerce_dict(report.get("layout_rewrite_preview_stats", {}))
     rewrite_preview_artifact_stats = _coerce_dict(report.get("layout_rewrite_preview_artifact_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
+    rewrite_partial_opportunity_stats = _coerce_dict(report.get("layout_rewrite_partial_opportunity_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
     decimal_status_residue_stats = _coerce_dict(report.get("decimal_status_residue_stats", {}))
@@ -919,6 +975,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_preview_totals = _coerce_dict(rewrite_preview_stats.get("totals", {}))
     rewrite_preview_artifact_totals = _coerce_dict(rewrite_preview_artifact_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
+    rewrite_partial_opportunity_totals = _coerce_dict(rewrite_partial_opportunity_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
     body_text_stats = _coerce_dict(report.get("body_text_stats", {}))
@@ -1786,6 +1843,72 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Layout Rewrite Partial Opportunities",
+            "",
+            "- Partial opportunities: `%s` across `%s` functions"
+            % (
+                rewrite_partial_opportunity_totals.get("partial_opportunities", 0),
+                rewrite_partial_opportunity_totals.get("functions_with_partial_opportunities", 0),
+            ),
+            "- Safe offset observations: `%s`" % rewrite_partial_opportunity_totals.get("safe_offset_observations", 0),
+            "- Safe access observations: `%s`" % rewrite_partial_opportunity_totals.get("safe_access_observations", 0),
+            "- Excluded offset observations: `%s`"
+            % rewrite_partial_opportunity_totals.get("excluded_offset_observations", 0),
+            "- Excluded access observations: `%s`"
+            % rewrite_partial_opportunity_totals.get("excluded_access_observations", 0),
+            "",
+            "### Partial Opportunity Reasons",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_partial_opportunity_stats.get("reasons", {})), "Reason"))
+    lines.extend(
+        [
+            "",
+            "### Partial Opportunity Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_partial_opportunity_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Partial Opportunity Functions",
+            "",
+            "| Function | EA | Opportunities | Safe offsets | Safe accesses | Excluded offsets | Excluded accesses | Source provenance | Bases | Reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in rewrite_partial_opportunity_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("source_provenance", {})).items()
+        )
+        reasons = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_reasons", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("partial_opportunity_count", 0) or 0),
+                int(item.get("max_safe_offsets", 0) or 0),
+                int(item.get("max_safe_access_count", 0) or 0),
+                int(item.get("max_excluded_offsets", 0) or 0),
+                int(item.get("max_excluded_access_count", 0) or 0),
+                _markdown_table_cell(provenance),
+                bases,
+                _markdown_table_cell(reasons),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Layout Rewrite Blockers",
             "",
             "- Blockers: `%s` across `%s` functions"
@@ -2348,10 +2471,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -2367,6 +2491,7 @@ def _update_text_metrics(
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_previews = _extract_layout_rewrite_previews(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
+    rewrite_partial_opportunities = _extract_layout_rewrite_partial_opportunities(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
@@ -2451,6 +2576,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE,
+        "inferred_offset_rewrite_partial_opportunities",
+        "functions_with_inferred_offset_rewrite_partial_opportunities",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_BLOCKER_RE,
         "inferred_offset_rewrite_blockers",
         "functions_with_inferred_offset_rewrite_blockers",
@@ -2466,6 +2598,7 @@ def _update_text_metrics(
         rewrite_ready,
         rewrite_previews,
         rewrite_near_ready,
+        rewrite_partial_opportunities,
         rewrite_blockers,
         decimal_status_body_literals,
         ntstatus_body_literals,
@@ -3474,6 +3607,36 @@ def _extract_layout_rewrite_near_ready(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_rewrite_partial_opportunities(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE.finditer(text or ""):
+        safe_fields = [
+            item.strip()
+            for item in match.group("safe_fields").split(",")
+            if item.strip() and item.strip() != "..."
+        ]
+        reasons = [
+            item.strip()
+            for item in match.group("reasons").split(";")
+            if item.strip()
+        ]
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "source": match.groupdict().get("source") or "",
+                "source_provenance": match.groupdict().get("source_provenance") or "none",
+                "safe_access_count": _int_value(match.group("safe_access_count"), 0),
+                "safe_offset_count": _int_value(match.group("safe_offset_count"), 0),
+                "excluded_access_count": _int_value(match.group("excluded_access_count"), 0),
+                "excluded_offset_count": _int_value(match.group("excluded_offset_count"), 0),
+                "safe_fields": safe_fields,
+                "reasons": reasons,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
     blockers = []
     for match in FIELD_REWRITE_BLOCKER_DETAIL_RE.finditer(text or ""):
@@ -3873,6 +4036,28 @@ def _update_layout_rewrite_near_ready_metrics(
         totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
         bases[str(candidate.get("base", "") or "unknown")] += 1
         missing_thresholds[str(candidate.get("missing_threshold", "") or "unknown")] += 1
+
+
+def _update_layout_rewrite_partial_opportunity_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    source_provenance: Counter[str],
+    reasons: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_partial_opportunities"] += 1
+    for candidate in candidates:
+        totals["partial_opportunities"] += 1
+        totals["safe_access_observations"] += _int_value(candidate.get("safe_access_count"), 0)
+        totals["safe_offset_observations"] += _int_value(candidate.get("safe_offset_count"), 0)
+        totals["excluded_access_observations"] += _int_value(candidate.get("excluded_access_count"), 0)
+        totals["excluded_offset_observations"] += _int_value(candidate.get("excluded_offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
+        for reason in candidate.get("reasons", []) or []:
+            reasons[str(reason)] += 1
 
 
 def _update_layout_rewrite_blocker_metrics(
@@ -4537,6 +4722,45 @@ def _rewrite_near_ready_function_summary(
         "missing_thresholds": _counter_to_dict(missing_thresholds),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _rewrite_partial_opportunity_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    reasons = Counter()
+    source_provenance = Counter(
+        str(item.get("source_provenance", "") or "none")
+        for item in candidates
+    )
+    for candidate in candidates:
+        for reason in candidate.get("reasons", []) or []:
+            reasons[str(reason)] += 1
+    return {
+        "ea": ea,
+        "name": name,
+        "partial_opportunity_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
+        "max_safe_offsets": max((_int_value(item.get("safe_offset_count"), 0) for item in candidates), default=0),
+        "max_safe_access_count": max(
+            (_int_value(item.get("safe_access_count"), 0) for item in candidates),
+            default=0,
+        ),
+        "max_excluded_offsets": max(
+            (_int_value(item.get("excluded_offset_count"), 0) for item in candidates),
+            default=0,
+        ),
+        "max_excluded_access_count": max(
+            (_int_value(item.get("excluded_access_count"), 0) for item in candidates),
+            default=0,
+        ),
+        "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
