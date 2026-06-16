@@ -1036,6 +1036,8 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
         rhs = _normalize_assignment_rhs(assignment.group("rhs"))
         if rhs in stable_reload_sources:
             continue
+        if _next_layout_access_start(text, base, assignment.end()) < 0:
+            continue
         blockers.append("base is reassigned after layout access")
         break
     return blockers
@@ -1086,6 +1088,13 @@ def _normalize_assignment_rhs(value: str) -> str:
 
 def _first_layout_access_start(text: str, base: str) -> int:
     for match in _OFFSET_DEREF_RE.finditer(text or ""):
+        if match.group("base") == base:
+            return match.start()
+    return -1
+
+
+def _next_layout_access_start(text: str, base: str, start: int) -> int:
+    for match in _OFFSET_DEREF_RE.finditer(text or "", max(0, int(start))):
         if match.group("base") == base:
             return match.start()
     return -1

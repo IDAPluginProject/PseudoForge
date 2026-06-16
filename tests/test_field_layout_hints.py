@@ -379,6 +379,39 @@ __int64 __fastcall StableAliasLayout(__int64 a1)
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
         self.assertTrue(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_terminal_base_reassignment_after_layout_access_does_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall TerminalBaseReassignmentLayout(__int64 sessionSpace, __int64 nextSessionSpace)
+{
+  __int64 result;
+
+  result = *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40);
+  sessionSpace = nextSessionSpace;
+  return result;
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("sessionSpace", ready[0]["base"])
+        self.assertEqual(8, ready[0]["offset_count"])
+        self.assertEqual(12, ready[0]["access_count"])
+
     def test_named_layout_rewrite_blocker_reports_mixed_type_and_base_mutation(self) -> None:
         comments = field_layout_comments(
             """
