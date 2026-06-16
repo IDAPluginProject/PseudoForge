@@ -37,7 +37,9 @@ CLEANED = r"""
 __int64 __fastcall Sample(__int64 a1)
 {
   __int64 v1;
+  __int64 v14;
 
+  v14 = argument2;
   v1 = *(_DWORD *)(a1 + 24LL);
   if ( v1 )
     goto LABEL_1;
@@ -190,6 +192,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["layout_stable_base_source_stats"]["top_bases"]["v14"])
             self.assertEqual(1, report["layout_stable_base_source_stats"]["sources"]["argument2"])
             self.assertEqual(1, report["layout_stable_base_source_stats"]["source_kinds"]["argument"])
+            self.assertEqual(
+                1,
+                report["layout_stable_base_source_stats"]["source_provenance"][
+                    "direct_argument_alias"
+                ],
+            )
             self.assertEqual("Sample", report["layout_stable_base_source_stats"]["top_functions"][0]["name"])
             self.assertEqual(
                 1,
@@ -198,6 +206,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 1,
                 report["layout_stable_base_source_stats"]["top_functions"][0]["top_source_kinds"]["argument"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_stable_base_source_stats"]["top_functions"][0]["top_source_provenance"][
+                    "direct_argument_alias"
+                ],
             )
             self.assertEqual(1, report["layout_generic_base_evidence_stats"]["totals"]["evidence_comments"])
             self.assertEqual(
@@ -516,6 +530,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ]["identity_evidence"],
             )
             self.assertEqual(
+                {"direct_argument_alias": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["identity_source_provenance"],
+            )
+            self.assertEqual(
                 {"stable_source_promotion_review": 1},
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
@@ -544,6 +564,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
                 ]["items"][0]["identity_source_kind"],
+            )
+            self.assertEqual(
+                "direct_argument_alias",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["identity_source_provenance"],
+            )
+            self.assertEqual(
+                "none",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["identity_source_rhs_kind"],
             )
             self.assertEqual(
                 "stable_source_promotion_review",
@@ -590,6 +622,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 {"stable_argument_source": 1, "none": 1},
                 report["layout_rewrite_blocker_stats"]["top_functions"][0]["identity_evidence"],
+            )
+            self.assertEqual(
+                {"direct_argument_alias": 1, "none": 1},
+                report["layout_rewrite_blocker_stats"]["top_functions"][0][
+                    "identity_source_provenance"
+                ],
             )
             self.assertEqual(
                 {"stable_source_promotion_review": 1, "missing_identity_evidence": 1},
@@ -962,19 +1000,19 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 | stable_source_promotion_review=1 |",
+                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 | direct_argument_alias=1 | stable_source_promotion_review=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | missing_identity_evidence=1 |",
+                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | missing_identity_evidence=1 |",
+                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | missing_identity_evidence=1 |",
+                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

@@ -269,6 +269,7 @@ def analyze_corpus(
     stable_base_source_bases: Counter[str] = Counter()
     stable_base_source_sources: Counter[str] = Counter()
     stable_base_source_kinds: Counter[str] = Counter()
+    stable_base_source_provenance: Counter[str] = Counter()
     stable_base_source_totals = Counter()
     generic_base_evidence_bases: Counter[str] = Counter()
     generic_base_evidence_profiles: Counter[str] = Counter()
@@ -408,6 +409,7 @@ def analyze_corpus(
                     stable_base_source_bases,
                     stable_base_source_sources,
                     stable_base_source_kinds,
+                    stable_base_source_provenance,
                 )
                 _update_layout_generic_base_evidence_metrics(
                     generic_base_evidence,
@@ -730,6 +732,7 @@ def analyze_corpus(
             "top_bases": _counter_to_dict(Counter(dict(stable_base_source_bases.most_common(top)))),
             "sources": _counter_to_dict(Counter(dict(stable_base_source_sources.most_common(top)))),
             "source_kinds": _counter_to_dict(Counter(dict(stable_base_source_kinds.most_common(top)))),
+            "source_provenance": _counter_to_dict(Counter(dict(stable_base_source_provenance.most_common(top)))),
             "top_functions": top_stable_base_source_functions[:top],
         },
         "layout_generic_base_evidence_stats": {
@@ -968,10 +971,23 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Stable Base Source Provenance",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(stable_base_source_stats.get("source_provenance", {})),
+            "Provenance",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Highest Stable Base Source Functions",
             "",
-            "| Function | EA | Source comments | Max offsets | Max accesses | Sources | Source kinds | Bases |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Source comments | Max offsets | Max accesses | Sources | Source kinds | Source provenance | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in stable_base_source_stats.get("top_functions", []) or []:
@@ -986,8 +1002,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_source_kinds", {})).items()
         )
+        source_provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_source_provenance", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -996,6 +1016,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 sources,
                 source_kinds,
+                source_provenance,
                 bases,
             )
         )
@@ -1532,8 +1553,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Rewrite Blocker Review Queues",
             "",
-            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence | Promotion classes |",
-            "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence | Source provenance | Promotion classes |",
+            "| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
@@ -1546,12 +1567,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("identity_evidence", {})).items()
         )
+        source_provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("identity_source_provenance", {})).items()
+        )
         promotion_classes = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("promotion_review_classes", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 queue_name,
                 int(queue.get("blockers", 0) or 0),
@@ -1560,6 +1585,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(queue.get("max_access_count", 0) or 0),
                 _markdown_table_cell(top_bases),
                 _markdown_table_cell(identity_evidence),
+                _markdown_table_cell(source_provenance),
                 _markdown_table_cell(promotion_classes),
             )
         )
@@ -1576,8 +1602,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Blocker Functions",
             "",
-            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Promotion classes | Bases | Top reasons |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Source provenance | Promotion classes | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in rewrite_blocker_stats.get("top_functions", []) or []:
@@ -1596,12 +1622,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("identity_evidence", {})).items()
         )
+        source_provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("identity_source_provenance", {})).items()
+        )
         promotion_classes = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("promotion_review_classes", {})).items()
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -1611,6 +1641,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(profiles),
                 _markdown_table_cell(identity_evidence),
+                _markdown_table_cell(source_provenance),
                 _markdown_table_cell(promotion_classes),
                 bases,
                 reasons,
@@ -2966,17 +2997,129 @@ def _extract_layout_bitfield_aliases(text: str) -> list[dict[str, Any]]:
 def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
+        provenance = _layout_source_provenance(
+            text,
+            match.group("base"),
+            match.group("source"),
+            match.group("source_kind"),
+        )
         candidates.append(
             {
                 "base": match.group("base"),
                 "source": match.group("source"),
                 "source_kind": match.group("source_kind"),
+                "source_provenance": provenance["source_provenance"],
+                "source_rhs_kind": provenance["source_rhs_kind"],
+                "base_alias_assignments": provenance["base_alias_assignments"],
+                "source_assignments": provenance["source_assignments"],
                 "access_count": _int_value(match.group("access_count"), 0),
                 "offset_count": _int_value(match.group("offset_count"), 0),
                 "confidence": _float_value(match.group("confidence"), 0.0),
             }
         )
     return candidates
+
+
+def _layout_source_provenance(
+    text: str,
+    base: str,
+    source: str,
+    source_kind: str,
+) -> dict[str, Any]:
+    normalized_source = str(source or "").strip()
+    base_alias_assignments = [
+        item
+        for item in _layout_direct_assignments(text, base)
+        if _normalize_layout_rhs(item["rhs"]) == normalized_source
+    ]
+    source_assignments = _layout_direct_assignments(text, normalized_source)
+    source_rhs_kinds = Counter(
+        _layout_rhs_kind(_normalize_layout_rhs(item["rhs"]))
+        for item in source_assignments
+    )
+    source_rhs_kind = next(iter(source_rhs_kinds), "none")
+    if len(source_rhs_kinds) > 1:
+        source_rhs_kind = "mixed"
+    source_provenance = _layout_source_provenance_class(
+        str(source_kind or ""),
+        base_alias_assignments,
+        source_assignments,
+        source_rhs_kind,
+    )
+    return {
+        "source_provenance": source_provenance,
+        "source_rhs_kind": source_rhs_kind,
+        "base_alias_assignments": len(base_alias_assignments),
+        "source_assignments": len(source_assignments),
+    }
+
+
+def _layout_source_provenance_class(
+    source_kind: str,
+    base_alias_assignments: list[dict[str, str]],
+    source_assignments: list[dict[str, str]],
+    source_rhs_kind: str,
+) -> str:
+    if not base_alias_assignments:
+        return "missing_alias_assignment"
+    if source_kind == "argument":
+        return "direct_argument_alias"
+    if source_kind == "named":
+        if len(source_assignments) == 1 and source_rhs_kind == "call_result":
+            return "named_call_result_alias"
+        if len(source_assignments) == 1 and source_rhs_kind == "direct_identifier":
+            return "named_direct_alias"
+        if len(source_assignments) == 1 and source_rhs_kind in {"address", "deref", "pointer_arithmetic"}:
+            return "named_derived_pointer_alias"
+        if len(source_assignments) > 1:
+            return "named_multi_assignment_alias"
+        return "named_existing_alias"
+    if source_kind == "generic":
+        return "generic_source_alias"
+    if source_kind == "temporary":
+        return "temporary_source_alias"
+    return "unknown_source_alias"
+
+
+def _layout_direct_assignments(text: str, name: str) -> list[dict[str, str]]:
+    if not name:
+        return []
+    pattern = re.compile(
+        r"(?m)^\s*%s\s*=\s*(?P<rhs>[^;\n]*);\s*(?://[^\n]*)?$"
+        % re.escape(name)
+    )
+    return [
+        {
+            "rhs": match.group("rhs"),
+        }
+        for match in pattern.finditer(text or "")
+    ]
+
+
+def _normalize_layout_rhs(rhs: str) -> str:
+    result = str(rhs or "").strip()
+    while True:
+        updated = re.sub(r"^\([A-Za-z_][A-Za-z0-9_\s\*]*\)\s*", "", result).strip()
+        if updated == result:
+            return result
+        result = updated
+
+
+def _layout_rhs_kind(rhs: str) -> str:
+    value = _normalize_layout_rhs(rhs)
+    if not value:
+        return "empty"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        return "direct_identifier"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\s*\([^;\n]*\)", value):
+        return "call_result"
+    if value.startswith("&"):
+        return "address"
+    if value.startswith("*"):
+        return "deref"
+    if re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\b\s*(?:\+|-)", value):
+        return "pointer_arithmetic"
+    return "expression"
 
 
 def _extract_layout_generic_base_evidence(text: str) -> list[dict[str, Any]]:
@@ -3286,6 +3429,7 @@ def _update_layout_stable_base_source_metrics(
     bases: Counter[str],
     sources: Counter[str],
     source_kinds: Counter[str],
+    source_provenance: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -3297,6 +3441,7 @@ def _update_layout_stable_base_source_metrics(
         bases[str(candidate.get("base", "") or "unknown")] += 1
         sources[str(candidate.get("source", "") or "unknown")] += 1
         source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
+        source_provenance[str(candidate.get("source_provenance", "") or "unknown")] += 1
 
 
 def _update_layout_generic_base_evidence_metrics(
@@ -3419,6 +3564,8 @@ def _update_layout_rewrite_blocker_metrics(
                     "identity_source": str(identity.get("source", "") or ""),
                     "identity_source_kind": str(identity.get("source_kind", "") or ""),
                     "identity_blocker_profile": str(identity.get("blocker_profile", "") or ""),
+                    "identity_source_provenance": str(identity.get("source_provenance", "") or ""),
+                    "identity_source_rhs_kind": str(identity.get("source_rhs_kind", "") or ""),
                     "identity_confidence": _float_value(identity.get("confidence"), 0.0),
                     "promotion_review_class": promotion_review_class,
                     "promotion_risk_factors": promotion_risk_factors,
@@ -3473,6 +3620,8 @@ def _layout_identity_evidence_by_base(
                 "source": str(item.get("source", "") or ""),
                 "source_kind": source_kind,
                 "blocker_profile": "",
+                "source_provenance": str(item.get("source_provenance", "") or "unknown"),
+                "source_rhs_kind": str(item.get("source_rhs_kind", "") or "unknown"),
                 "confidence": _float_value(item.get("confidence"), 0.0),
                 "offset_count": _int_value(item.get("offset_count"), 0),
                 "access_count": _int_value(item.get("access_count"), 0),
@@ -3552,6 +3701,8 @@ def _layout_promotion_review_class(identity: dict[str, Any], reasons: list[str])
         return "missing_identity_evidence"
     if _has_layout_source_stability_risk(reasons):
         return "source_stability_blocked"
+    if _has_layout_source_provenance_risk(identity):
+        return "source_provenance_blocked"
     if _has_layout_type_evidence_risk(reasons):
         return "type_evidence_blocked"
     if _has_layout_threshold_gap(reasons):
@@ -3574,6 +3725,8 @@ def _layout_promotion_risk_factors(identity: dict[str, Any], reasons: list[str])
         factors.append("missing_identity_evidence")
     if _has_layout_source_stability_risk(reasons):
         factors.append("source_stability_risk")
+    if _has_layout_source_provenance_risk(identity):
+        factors.append("source_provenance_risk")
     if _has_layout_type_evidence_risk(reasons):
         factors.append("type_evidence_risk")
     if _has_layout_threshold_gap(reasons):
@@ -3581,6 +3734,20 @@ def _layout_promotion_risk_factors(identity: dict[str, Any], reasons: list[str])
     if not factors:
         factors.append("identity_only")
     return factors
+
+
+def _has_layout_source_provenance_risk(identity: dict[str, Any]) -> bool:
+    provenance = str(identity.get("source_provenance", "") or "")
+    if not provenance:
+        return False
+    return provenance in {
+        "missing_alias_assignment",
+        "named_derived_pointer_alias",
+        "named_multi_assignment_alias",
+        "temporary_source_alias",
+        "generic_source_alias",
+        "unknown_source_alias",
+    }
 
 
 def _has_layout_source_stability_risk(reasons: list[str]) -> bool:
@@ -3665,6 +3832,10 @@ def _layout_rewrite_blocker_review_queues(
         function_names = {str(item.get("name", "") or "") for item in items}
         bases = Counter(str(item.get("base", "") or "unknown") for item in items)
         identity_evidence = Counter(str(item.get("identity_evidence", "") or "none") for item in items)
+        identity_source_provenance = Counter(
+            str(item.get("identity_source_provenance", "") or "none")
+            for item in items
+        )
         promotion_review_classes = Counter(
             str(item.get("promotion_review_class", "") or "manual_review")
             for item in items
@@ -3689,6 +3860,9 @@ def _layout_rewrite_blocker_review_queues(
             ),
             "top_bases": _counter_to_dict(Counter(dict(bases.most_common(top)))),
             "identity_evidence": _counter_to_dict(Counter(dict(identity_evidence.most_common(top)))),
+            "identity_source_provenance": _counter_to_dict(
+                Counter(dict(identity_source_provenance.most_common(top)))
+            ),
             "promotion_review_classes": _counter_to_dict(
                 Counter(dict(promotion_review_classes.most_common(top)))
             ),
@@ -3831,9 +4005,11 @@ def _stable_base_source_function_summary(
 ) -> dict[str, Any]:
     sources = Counter()
     source_kinds = Counter()
+    source_provenance = Counter()
     for candidate in candidates:
         sources[str(candidate.get("source", "") or "unknown")] += 1
         source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
+        source_provenance[str(candidate.get("source_provenance", "") or "unknown")] += 1
     return {
         "ea": ea,
         "name": name,
@@ -3841,6 +4017,7 @@ def _stable_base_source_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "top_sources": _counter_to_dict(Counter(dict(sources.most_common(5)))),
         "top_source_kinds": _counter_to_dict(Counter(dict(source_kinds.most_common(5)))),
+        "top_source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
@@ -3953,6 +4130,7 @@ def _rewrite_blocker_function_summary(
     reasons = Counter()
     review_profiles = Counter()
     identity_evidence = Counter()
+    identity_source_provenance = Counter()
     promotion_review_classes = Counter()
     bases = []
     layout_evidence = _layout_evidence_by_base(layout_hints)
@@ -3976,6 +4154,7 @@ def _rewrite_blocker_function_summary(
         identity = identity_by_base.get(base, {"identity_evidence": "none"})
         reason_items = [str(reason) for reason in blocker.get("reasons", []) or []]
         identity_evidence[str(identity.get("identity_evidence", "") or "none")] += 1
+        identity_source_provenance[str(identity.get("source_provenance", "") or "none")] += 1
         promotion_review_classes[_layout_promotion_review_class(identity, reason_items)] += 1
         for reason in reason_items:
             reasons[str(reason)] += 1
@@ -3993,6 +4172,7 @@ def _rewrite_blocker_function_summary(
         "max_blocker_confidence": max_blocker_confidence,
         "review_profiles": _counter_to_dict(Counter(dict(review_profiles.most_common(5)))),
         "identity_evidence": _counter_to_dict(Counter(dict(identity_evidence.most_common(5)))),
+        "identity_source_provenance": _counter_to_dict(Counter(dict(identity_source_provenance.most_common(5)))),
         "promotion_review_classes": _counter_to_dict(Counter(dict(promotion_review_classes.most_common(5)))),
         "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),
