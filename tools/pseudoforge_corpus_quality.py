@@ -262,6 +262,8 @@ def analyze_corpus(
     rewrite_blocker_totals = Counter()
     ntstatus_body_unprofiled_values: Counter[str] = Counter()
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
+    ntstatus_body_unprofiled_value_contexts: dict[str, Counter[str]] = {}
+    ntstatus_body_unprofiled_context_kinds: Counter[str] = Counter()
     totals = Counter()
     text_totals = Counter()
     body_text_totals = Counter()
@@ -458,6 +460,8 @@ def analyze_corpus(
                         unprofiled_ntstatus_body_literals,
                         ntstatus_body_unprofiled_values,
                         ntstatus_body_unprofiled_value_functions,
+                        ntstatus_body_unprofiled_value_contexts,
+                        ntstatus_body_unprofiled_context_kinds,
                         name,
                     )
                     top_ntstatus_body_unprofiled_functions.append(
@@ -678,7 +682,11 @@ def analyze_corpus(
             "top_unprofiled_error_values": _ntstatus_unprofiled_value_summaries(
                 ntstatus_body_unprofiled_values,
                 ntstatus_body_unprofiled_value_functions,
+                ntstatus_body_unprofiled_value_contexts,
                 top,
+            ),
+            "unprofiled_error_context_kinds": _counter_to_dict(
+                Counter(dict(ntstatus_body_unprofiled_context_kinds.most_common(top)))
             ),
             "top_unprofiled_error_functions": top_ntstatus_body_unprofiled_functions[:top],
         },
@@ -1466,20 +1474,26 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Unprofiled NTSTATUS Error Values",
             "",
-            "| Value | Signed | Facility | Code | Count | Functions |",
-            "| --- | ---: | ---: | ---: | ---: | ---: |",
+            "| Value | Signed | Facility | Code | Hint | Kinds | Count | Functions |",
+            "| --- | ---: | ---: | ---: | --- | --- | ---: | ---: |",
         ]
     )
     for item in ntstatus_body_residue_stats.get("top_unprofiled_error_values", []) or []:
         if not isinstance(item, dict):
             continue
+        context_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("context_kinds", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | `%s` | `%s` | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | %s | %s | %s | %s |"
             % (
                 str(item.get("hex_value", "")),
                 int(item.get("signed_value", 0) or 0),
                 str(item.get("facility_hex", "")),
                 str(item.get("code_hex", "")),
+                _markdown_table_cell(item.get("review_hint", "")),
+                _markdown_table_cell(context_kinds),
                 int(item.get("count", 0) or 0),
                 int(item.get("function_count", 0) or 0),
             )
@@ -1487,10 +1501,23 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Unprofiled NTSTATUS Error Context Kinds",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(ntstatus_body_residue_stats.get("unprofiled_error_context_kinds", {})),
+            "Kind",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Functions With Unprofiled NTSTATUS Errors",
             "",
-            "| Function | EA | Literals | Values | Lines | Context | Raw literals |",
-            "| --- | --- | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Literals | Hint | Kinds | Values | Lines | Context | Raw literals |",
+            "| --- | --- | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in ntstatus_body_residue_stats.get("top_unprofiled_error_functions", []) or []:
@@ -1504,6 +1531,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("raw_literals", {})).items()
         )
+        context_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("context_kinds", {})).items()
+        )
         lines_text = ", ".join(
             str(context.get("line", ""))
             for context in item.get("contexts", []) or []
@@ -1515,11 +1546,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             if isinstance(context, dict)
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("literal_count", 0) or 0),
+                _markdown_table_cell(item.get("review_hint", "")),
+                _markdown_table_cell(context_kinds),
                 _markdown_table_cell(values),
                 _markdown_table_cell(lines_text),
                 _markdown_table_cell(context_text),
@@ -1855,7 +1888,8 @@ def _count_ntstatus_family_literals(counter: Counter[str], text: str) -> None:
 def _ntstatus_family_literals(text: str) -> list[dict[str, Any]]:
     result = []
     for match in NUMERIC_LITERAL_RE.finditer(text or ""):
-        if not _is_ntstatus_literal_context(text, match):
+        context_kind = _ntstatus_literal_context_kind(text, match)
+        if not context_kind:
             continue
         parsed = _parse_numeric_literal(match.group("literal"))
         if parsed is None:
@@ -1882,6 +1916,7 @@ def _ntstatus_family_literals(text: str) -> list[dict[str, Any]]:
                 "customer": bool((unsigned_value >> 29) & 1),
                 "line": _line_number_for_offset(text, match.start()),
                 "line_text": _line_for_match(text, match.start(), match.end()).strip(),
+                "context_kind": context_kind,
                 "severity": severity,
                 "profile_name": profile_name,
                 "profiled": profile_name != "",
@@ -1894,19 +1929,25 @@ def _update_ntstatus_body_unprofiled_value_metrics(
     literals: list[dict[str, Any]],
     values: Counter[str],
     value_functions: dict[str, set[str]],
+    value_contexts: dict[str, Counter[str]],
+    context_kinds: Counter[str],
     function_name: str,
 ) -> None:
     for item in literals:
         hex_value = str(item.get("hex_value", "") or "")
         if not hex_value:
             continue
+        context_kind = str(item.get("context_kind", "") or "unknown")
         values[hex_value] += 1
         value_functions.setdefault(hex_value, set()).add(str(function_name or ""))
+        value_contexts.setdefault(hex_value, Counter())[context_kind] += 1
+        context_kinds[context_kind] += 1
 
 
 def _ntstatus_unprofiled_value_summaries(
     values: Counter[str],
     value_functions: dict[str, set[str]],
+    value_contexts: dict[str, Counter[str]],
     top: int,
 ) -> list[dict[str, Any]]:
     result = []
@@ -1923,6 +1964,8 @@ def _ntstatus_unprofiled_value_summaries(
                 "code": unsigned_value & 0xFFFF,
                 "code_hex": "0x%04X" % (unsigned_value & 0xFFFF),
                 "customer": bool((unsigned_value >> 29) & 1),
+                "context_kinds": _counter_to_dict(value_contexts.get(hex_value, Counter())),
+                "review_hint": _ntstatus_review_hint(value_contexts.get(hex_value, Counter())),
                 "count": int(count),
                 "function_count": len(value_functions.get(hex_value, set())),
             }
@@ -1938,10 +1981,13 @@ def _ntstatus_body_unprofiled_function_summary(
 ) -> dict[str, Any]:
     values = Counter(str(item.get("hex_value", "") or "") for item in literals)
     raw_literals = Counter(str(item.get("literal", "") or "") for item in literals)
+    context_kinds = Counter(str(item.get("context_kind", "") or "unknown") for item in literals)
     return {
         "ea": ea,
         "name": name,
         "literal_count": len(literals),
+        "review_hint": _ntstatus_review_hint(context_kinds),
+        "context_kinds": _counter_to_dict(context_kinds),
         "values": _counter_to_dict(values),
         "raw_literals": _counter_to_dict(raw_literals),
         "contexts": [
@@ -1949,6 +1995,7 @@ def _ntstatus_body_unprofiled_function_summary(
                 "line": int(item.get("line", 0) or 0),
                 "literal": str(item.get("literal", "") or ""),
                 "hex_value": str(item.get("hex_value", "") or ""),
+                "kind": str(item.get("context_kind", "") or "unknown"),
                 "source": str(item.get("line_text", "") or ""),
             }
             for item in literals
@@ -1961,6 +2008,17 @@ def _ntstatus_facility_value(unsigned_value: int) -> int:
     return (int(unsigned_value) >> 16) & 0xFFF
 
 
+def _ntstatus_review_hint(context_kinds: Counter[str]) -> str:
+    kinds = {str(kind) for kind in context_kinds if str(kind)}
+    if not kinds:
+        return "manual_review"
+    if kinds <= {"comparison"}:
+        return "comparison_sentinel_candidate"
+    if kinds & {"return", "assignment", "status_argument", "guard_dispatch_fallback"}:
+        return "status_profile_candidate"
+    return "manual_review"
+
+
 def _signed_32bit_value(unsigned_value: int) -> int:
     value = int(unsigned_value) & 0xFFFFFFFF
     if value & 0x80000000:
@@ -1969,22 +2027,26 @@ def _signed_32bit_value(unsigned_value: int) -> int:
 
 
 def _is_ntstatus_literal_context(text: str, match: re.Match[str]) -> bool:
+    return _ntstatus_literal_context_kind(text, match) != ""
+
+
+def _ntstatus_literal_context_kind(text: str, match: re.Match[str]) -> str:
     line = _line_for_match(text, match.start(), match.end())
     token = re.escape(match.group(0))
     if _line_has_bitwise_literal_context(line, token):
-        return False
-    return any(
-        re.search(pattern % token, line)
-        for pattern in (
-            r"\breturn\s+(?:\([^)]+\)\s*)?%s\s*;",
-            r"(?:==|!=)\s*%s\b",
-            r"(?<![A-Za-z0-9_])%s\s*(?:==|!=)",
-            r"\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:\([^)]+\)\s*)?%s\s*;",
-            r"\bSetFailureLocation\s*\([^;\n]*%s",
-            r"\bguard_dispatch_icall_no_overrides\s*\([^;\n]*[?:][^;\n]*%s",
-            r"\b%s[^;\n]*[?:][^;\n]*guard_dispatch_icall_no_overrides\s*\(",
-        )
-    )
+        return ""
+    for kind, pattern in (
+        ("return", r"\breturn\s+(?:\([^)]+\)\s*)?%s\s*;"),
+        ("comparison", r"(?:==|!=)\s*%s\b"),
+        ("comparison", r"(?<![A-Za-z0-9_])%s\s*(?:==|!=)"),
+        ("assignment", r"\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:\([^)]+\)\s*)?%s\s*;"),
+        ("status_argument", r"\bSetFailureLocation\s*\([^;\n]*%s"),
+        ("guard_dispatch_fallback", r"\bguard_dispatch_icall_no_overrides\s*\([^;\n]*[?:][^;\n]*%s"),
+        ("guard_dispatch_fallback", r"\b%s[^;\n]*[?:][^;\n]*guard_dispatch_icall_no_overrides\s*\("),
+    ):
+        if re.search(pattern % token, line):
+            return kind
+    return ""
 
 
 def _line_for_match(text: str, start: int, end: int) -> str:

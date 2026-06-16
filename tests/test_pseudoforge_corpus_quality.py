@@ -375,11 +375,31 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(0x3333, ntstatus_stats["top_unprofiled_error_values"][0]["code"])
             self.assertEqual("0x3333", ntstatus_stats["top_unprofiled_error_values"][0]["code_hex"])
             self.assertFalse(ntstatus_stats["top_unprofiled_error_values"][0]["customer"])
+            self.assertEqual(
+                {"comparison": 1},
+                ntstatus_stats["top_unprofiled_error_values"][0]["context_kinds"],
+            )
+            self.assertEqual(
+                "comparison_sentinel_candidate",
+                ntstatus_stats["top_unprofiled_error_values"][0]["review_hint"],
+            )
             self.assertEqual(1, ntstatus_stats["top_unprofiled_error_values"][0]["count"])
             self.assertEqual(1, ntstatus_stats["top_unprofiled_error_values"][0]["function_count"])
             self.assertEqual(
+                {"comparison": 1},
+                ntstatus_stats["unprofiled_error_context_kinds"],
+            )
+            self.assertEqual(
                 "Sample",
                 ntstatus_stats["top_unprofiled_error_functions"][0]["name"],
+            )
+            self.assertEqual(
+                "comparison_sentinel_candidate",
+                ntstatus_stats["top_unprofiled_error_functions"][0]["review_hint"],
+            )
+            self.assertEqual(
+                {"comparison": 1},
+                ntstatus_stats["top_unprofiled_error_functions"][0]["context_kinds"],
             )
             self.assertEqual(
                 {"0xC0033333": 1},
@@ -392,6 +412,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 "if ( v1 == -1073532109 )",
                 ntstatus_stats["top_unprofiled_error_functions"][0]["contexts"][0]["source"],
+            )
+            self.assertEqual(
+                "comparison",
+                ntstatus_stats["top_unprofiled_error_functions"][0]["contexts"][0]["kind"],
             )
             self.assertGreater(
                 ntstatus_stats["top_unprofiled_error_functions"][0]["contexts"][0]["line"],
@@ -545,11 +569,19 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| Value | Signed | Facility | Code | Count | Functions |",
+                "| Value | Signed | Facility | Code | Hint | Kinds | Count | Functions |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| Function | EA | Literals | Values | Lines | Context | Raw literals |",
+                "Unprofiled NTSTATUS Error Context Kinds",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| Function | EA | Literals | Hint | Kinds | Values | Lines | Context | Raw literals |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "comparison_sentinel_candidate",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
