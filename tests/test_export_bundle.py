@@ -357,7 +357,7 @@ __int64 __fastcall LayoutPreviewBlocked(__int64 argument2)
             self.assertEqual("blocked_by_validation", preview_metadata["canonical_rewrite_status"])
             self.assertIn("v4 advertised 3 access(es) but rewrote 2", preview_metadata["canonical_rewrite_errors"])
 
-    def test_partial_layout_rewrite_preview_rewrites_only_allowed_offsets(self) -> None:
+    def test_partial_layout_rewrite_can_update_canonical_allowed_offsets(self) -> None:
         cleaned_text = """
 /*
     Kernel insights:
@@ -407,14 +407,20 @@ __int64 __fastcall LayoutPartialPreview(__int64 currentThread)
             cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
             preview_text = Path(artifacts["layout_rewrite_preview"]).read_text(encoding="utf-8")
             preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
-            self.assertEqual(cleaned_text, cleaned_output)
+            self.assertNotEqual(cleaned_text, cleaned_output)
+            self.assertIn("currentThread->field_20 /* _QWORD +0x20 */", cleaned_output)
+            self.assertIn("currentThread->field_24C /* _DWORD +0x24C */", cleaned_output)
+            self.assertIn("*(_BYTE *)(currentThread + 0x206)", cleaned_output)
+            self.assertIn("*(_WORD *)(currentThread + 0x206)", cleaned_output)
+            self.assertIn("Validated partial layout rewrite applied to canonical cleaned output.", cleaned_output)
+            self.assertNotIn("canonical body rewrite remains disabled", cleaned_output)
             self.assertIn("currentThread->field_20 /* _QWORD +0x20 */", preview_text)
             self.assertIn("currentThread->field_24C /* _DWORD +0x24C */", preview_text)
             self.assertIn("*(_BYTE *)(currentThread + 0x206)", preview_text)
             self.assertIn("*(_WORD *)(currentThread + 0x206)", preview_text)
             self.assertTrue(preview_metadata["canonical_rewrite_requested"])
-            self.assertFalse(preview_metadata["canonical_cleaned_output_modified"])
-            self.assertEqual("partial_preview_only", preview_metadata["canonical_rewrite_status"])
+            self.assertTrue(preview_metadata["canonical_cleaned_output_modified"])
+            self.assertEqual("applied_partial", preview_metadata["canonical_rewrite_status"])
             self.assertEqual("passed", preview_metadata["validation"]["status"])
             self.assertEqual([], preview_metadata["validation"]["errors"])
             self.assertEqual(12, preview_metadata["rewritten_accesses"])

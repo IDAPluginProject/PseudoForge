@@ -14,7 +14,9 @@ _OFFSET_DEREF_RE = re.compile(
 
 _PREVIEW_ONLY_COMMENT = "Preview artifact only; body rewrite was not applied."
 _AUDIT_ONLY_NOT_APPLIED_COMMENT = "Audit only; body rewrite was not applied."
+_PARTIAL_REVIEW_ONLY_COMMENT = "Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented."
 _CANONICAL_APPLIED_COMMENT = "Validated layout rewrite applied to canonical cleaned output."
+_CANONICAL_PARTIAL_APPLIED_COMMENT = "Validated partial layout rewrite applied to canonical cleaned output."
 
 _REWRITE_PREVIEW_RE = re.compile(
     r"-\s+inferred_offset_rewrite_preview:\s+Offset field rewrite preview for\s+"
@@ -100,7 +102,8 @@ def build_layout_rewrite_preview_bundle(
     if apply_validated_body_rewrite:
         if validation.get("status") == "passed":
             if _has_partial_layout_rewrite_plan(plans):
-                canonical_rewrite_status = "partial_preview_only"
+                canonical_text = _canonical_layout_rewrite_text(rewritten)
+                canonical_rewrite_status = "applied_partial"
             else:
                 canonical_text = _canonical_layout_rewrite_text(rewritten)
                 canonical_rewrite_status = "applied"
@@ -513,6 +516,7 @@ def _plan_allowed_offsets(plan: dict[str, Any]) -> set[int]:
 def _canonical_layout_rewrite_text(rewritten_text: str) -> str:
     text = str(rewritten_text or "").replace(_PREVIEW_ONLY_COMMENT, _CANONICAL_APPLIED_COMMENT)
     text = text.replace(_AUDIT_ONLY_NOT_APPLIED_COMMENT, _CANONICAL_APPLIED_COMMENT)
+    text = text.replace(_PARTIAL_REVIEW_ONLY_COMMENT, _CANONICAL_PARTIAL_APPLIED_COMMENT)
     return text.rstrip() + "\n"
 
 
