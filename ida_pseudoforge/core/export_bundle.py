@@ -10,6 +10,7 @@ from ida_pseudoforge.core.buffer_contracts import (
     render_buffer_contract_report,
     render_buffer_struct_header,
 )
+from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
@@ -55,6 +56,9 @@ def write_export_bundle(
     raw_path = output_path / f"{safe_name}.raw.cpp"
     warnings_path = output_path / f"{safe_name}.warnings.json"
     diff_path = output_path / f"{safe_name}.raw-vs-cleaned.diff"
+    layout_rewrite_preview_path = output_path / f"{safe_name}.layout-rewrite-preview.cpp"
+    layout_rewrite_preview_diff_path = output_path / f"{safe_name}.layout-rewrite-preview.diff"
+    layout_rewrite_preview_json_path = output_path / f"{safe_name}.layout-rewrite-preview.json"
     summary_path = output_path / f"{safe_name}.{safe_artifact_stem(summary_suffix or 'summary', 48)}.json"
 
     if cleaned_text is None:
@@ -86,6 +90,14 @@ def write_export_bundle(
     raw_path.write_text(raw_text, encoding="utf-8")
     warnings_path.write_text(json.dumps(warnings, indent=2, ensure_ascii=True), encoding="utf-8")
     diff_path.write_text(_raw_vs_cleaned_diff(safe_name, raw_text, cleaned_text), encoding="utf-8")
+    layout_rewrite_preview = build_layout_rewrite_preview_bundle(cleaned_text, safe_name)
+    if layout_rewrite_preview is not None:
+        layout_rewrite_preview_path.write_text(layout_rewrite_preview.text, encoding="utf-8")
+        layout_rewrite_preview_diff_path.write_text(layout_rewrite_preview.diff, encoding="utf-8")
+        layout_rewrite_preview_json_path.write_text(
+            json.dumps(layout_rewrite_preview.metadata, indent=2, ensure_ascii=True),
+            encoding="utf-8",
+        )
 
     artifacts = {
         "cleaned_pseudocode": str(cleaned_path),
@@ -101,6 +113,14 @@ def write_export_bundle(
         "raw_vs_cleaned_diff": str(diff_path),
         "summary": str(summary_path),
     }
+    if layout_rewrite_preview is not None:
+        artifacts.update(
+            {
+                "layout_rewrite_preview": str(layout_rewrite_preview_path),
+                "layout_rewrite_preview_diff": str(layout_rewrite_preview_diff_path),
+                "layout_rewrite_preview_metadata": str(layout_rewrite_preview_json_path),
+            }
+        )
     if extra_artifacts:
         artifacts.update({str(key): str(value) for key, value in extra_artifacts.items()})
     summary_payload = _export_summary_payload(capture, plan, entrypoint, warnings, artifacts)
