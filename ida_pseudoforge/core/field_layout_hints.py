@@ -54,6 +54,16 @@ _OFFSET_LOCAL_TYPE_BLOCKERS = {
     _UNALIGNED_TYPED_OFFSET_BLOCKER,
     _VOLATILE_ACCESS_TYPE_BLOCKER,
 }
+_BASE_STABILITY_BLOCKER_FRAGMENTS = (
+    "multiple initializers",
+    "reassigned after layout access",
+    "assignment order cannot be proven",
+    "compound assignment",
+    "incremented or decremented",
+    "address is taken",
+    "indexed like an array",
+)
+_MAX_BASE_STABILITY_RHS_SAMPLES = 4
 
 
 @dataclass(slots=True)
@@ -101,6 +111,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
+                    stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
+                    if stability:
+                        comments.append(stability)
                     near_ready = _field_rewrite_near_ready_comment(item, blocker)
                     if near_ready:
                         comments.append(near_ready)
@@ -432,6 +445,59 @@ def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[s
         "base": layout.base,
         "base_kind": base_kind,
         "blockers": blockers,
+    }
+
+
+def _field_base_stability_comment_from_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+) -> dict[str, Any] | None:
+    blockers = [str(item) for item in blocker.get("blockers", []) or [] if str(item)]
+    if not any(_is_base_stability_blocker_reason(item) for item in blockers):
+        return None
+    trace = _base_assignment_trace(text, layout.base)
+    if not trace:
+        return None
+    rhs_samples = [
+        str(item)
+        for item in trace.get("distinct_pre_access_rhs", []) or []
+        if str(item)
+    ][:_MAX_BASE_STABILITY_RHS_SAMPLES]
+    rhs_text = "none"
+    if rhs_samples:
+        rhs_text = "; ".join(rhs_samples)
+        if int(trace.get("distinct_pre_access_rhs_count", 0) or 0) > len(rhs_samples):
+            rhs_text += "; ..."
+    confidence = min(
+        0.76,
+        0.62
+        + min(int(trace.get("pre_access_assignment_count", 0) or 0), 4) * 0.025
+        + min(int(trace.get("risky_post_access_assignment_count", 0) or 0), 3) * 0.025,
+    )
+    return {
+        "kind": "inferred_offset_base_stability",
+        "text": (
+            "Base stability evidence for %s: %d initializer(s) before first layout access across "
+            "%d distinct RHS (%s); %d post-access assignment(s), %d followed by later layout access. "
+            "Review initializer dominance before enabling canonical rewrite."
+            % (
+                layout.base,
+                int(trace.get("pre_access_assignment_count", 0) or 0),
+                int(trace.get("distinct_pre_access_rhs_count", 0) or 0),
+                rhs_text,
+                int(trace.get("post_access_assignment_count", 0) or 0),
+                int(trace.get("risky_post_access_assignment_count", 0) or 0),
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "pre_access_assignment_count": int(trace.get("pre_access_assignment_count", 0) or 0),
+        "distinct_pre_access_rhs_count": int(trace.get("distinct_pre_access_rhs_count", 0) or 0),
+        "distinct_pre_access_rhs": rhs_samples,
+        "post_access_assignment_count": int(trace.get("post_access_assignment_count", 0) or 0),
+        "risky_post_access_assignment_count": int(trace.get("risky_post_access_assignment_count", 0) or 0),
     }
 
 
@@ -1564,6 +1630,47 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
         blockers.append("base is reassigned after layout access")
         break
     return blockers
+
+
+def _is_base_stability_blocker_reason(reason: str) -> bool:
+    lowered = str(reason or "").lower()
+    return any(fragment in lowered for fragment in _BASE_STABILITY_BLOCKER_FRAGMENTS)
+
+
+def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    assignments = _base_direct_assignments(text, base)
+    pre_access = [item for item in assignments if item.start() < first_access]
+    post_access = [item for item in assignments if item.start() >= first_access]
+    simple_pre_rhs = [
+        _normalize_assignment_rhs(item.group("rhs"))
+        for item in pre_access
+        if item.group("op") == "="
+    ]
+    distinct_pre_rhs = list(dict.fromkeys(item for item in simple_pre_rhs if item))
+    stable_reload_sources = set()
+    if simple_pre_rhs:
+        stable_reload_sources.add(simple_pre_rhs[-1])
+    stable_reload_sources.update(_stable_aliases_for_base_before_access(text, base, first_access))
+    risky_post_access_count = 0
+    for assignment in post_access:
+        if assignment.group("op") != "=":
+            risky_post_access_count += 1
+            continue
+        rhs = _normalize_assignment_rhs(assignment.group("rhs"))
+        if rhs in stable_reload_sources:
+            continue
+        if _next_layout_access_start(text, base, assignment.end()) >= 0:
+            risky_post_access_count += 1
+    return {
+        "pre_access_assignment_count": len(pre_access),
+        "distinct_pre_access_rhs_count": len(distinct_pre_rhs),
+        "distinct_pre_access_rhs": distinct_pre_rhs,
+        "post_access_assignment_count": len(post_access),
+        "risky_post_access_assignment_count": risky_post_access_count,
+    }
 
 
 def _base_is_incremented(text: str, base: str) -> bool:

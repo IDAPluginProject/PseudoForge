@@ -98,6 +98,17 @@ FIELD_STABLE_BASE_SOURCE_DETAIL_RE = re.compile(
     r"Review-only source identity evidence for temp/generic base promotion)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_BASE_STABILITY_RE = re.compile(r"-\s+inferred_offset_base_stability:")
+FIELD_BASE_STABILITY_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_base_stability:\s+Base stability evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<pre_access_assignment_count>\d+)\s+initializer\(s\)\s+before first layout access across\s+"
+    r"(?P<distinct_pre_access_rhs_count>\d+)\s+distinct RHS\s+\((?P<rhs>.*?)\);\s+"
+    r"(?P<post_access_assignment_count>\d+)\s+post-access assignment\(s\),\s+"
+    r"(?P<risky_post_access_assignment_count>\d+)\s+followed by later layout access\.\s+"
+    r"Review initializer dominance before enabling canonical rewrite\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_GENERIC_BASE_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_generic_base_evidence:")
 FIELD_GENERIC_BASE_EVIDENCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_generic_base_evidence:\s+Generic base evidence for\s+"
@@ -305,6 +316,9 @@ def analyze_corpus(
     stable_base_source_kinds: Counter[str] = Counter()
     stable_base_source_provenance: Counter[str] = Counter()
     stable_base_source_totals = Counter()
+    base_stability_bases: Counter[str] = Counter()
+    base_stability_rhs: Counter[str] = Counter()
+    base_stability_totals = Counter()
     generic_base_evidence_bases: Counter[str] = Counter()
     generic_base_evidence_profiles: Counter[str] = Counter()
     generic_base_evidence_totals = Counter()
@@ -353,6 +367,7 @@ def analyze_corpus(
     top_narrow_subfield_functions = []
     top_bitfield_alias_functions = []
     top_stable_base_source_functions = []
+    top_base_stability_functions = []
     top_generic_base_evidence_functions = []
     top_generic_base_trust_candidate_functions = []
     top_rewrite_ready_functions = []
@@ -422,6 +437,7 @@ def analyze_corpus(
                     narrow_subfields,
                     bitfield_aliases,
                     stable_base_sources,
+                    base_stability,
                     generic_base_evidence,
                     generic_base_trust_candidates,
                     rewrite_ready,
@@ -477,6 +493,12 @@ def analyze_corpus(
                     stable_base_source_sources,
                     stable_base_source_kinds,
                     stable_base_source_provenance,
+                )
+                _update_layout_base_stability_metrics(
+                    base_stability,
+                    base_stability_totals,
+                    base_stability_bases,
+                    base_stability_rhs,
                 )
                 _update_layout_generic_base_evidence_metrics(
                     generic_base_evidence,
@@ -550,6 +572,10 @@ def analyze_corpus(
                 if stable_base_sources:
                     top_stable_base_source_functions.append(
                         _stable_base_source_function_summary(name, ea, summary_path, stable_base_sources)
+                    )
+                if base_stability:
+                    top_base_stability_functions.append(
+                        _base_stability_function_summary(name, ea, summary_path, base_stability)
                     )
                 if generic_base_evidence:
                     top_generic_base_evidence_functions.append(
@@ -688,6 +714,14 @@ def analyze_corpus(
             -int(item["source_comment_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_base_stability_functions.sort(
+        key=lambda item: (
+            -int(item["stability_comment_count"]),
+            -int(item["max_distinct_pre_access_rhs"]),
+            -int(item["max_risky_post_access_assignments"]),
             str(item["name"]),
         )
     )
@@ -853,6 +887,12 @@ def analyze_corpus(
             "source_provenance": _counter_to_dict(Counter(dict(stable_base_source_provenance.most_common(top)))),
             "top_functions": top_stable_base_source_functions[:top],
         },
+        "layout_base_stability_stats": {
+            "totals": _counter_to_dict(base_stability_totals),
+            "top_bases": _counter_to_dict(Counter(dict(base_stability_bases.most_common(top)))),
+            "rhs_samples": _counter_to_dict(Counter(dict(base_stability_rhs.most_common(top)))),
+            "top_functions": top_base_stability_functions[:top],
+        },
         "layout_generic_base_evidence_stats": {
             "totals": _counter_to_dict(generic_base_evidence_totals),
             "top_bases": _counter_to_dict(Counter(dict(generic_base_evidence_bases.most_common(top)))),
@@ -961,6 +1001,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
     stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
+    base_stability_stats = _coerce_dict(report.get("layout_base_stability_stats", {}))
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
     generic_base_trust_candidate_stats = _coerce_dict(report.get("layout_generic_base_trust_candidate_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
@@ -977,6 +1018,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
     stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
+    base_stability_totals = _coerce_dict(base_stability_stats.get("totals", {}))
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
     generic_base_trust_candidate_totals = _coerce_dict(generic_base_trust_candidate_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
@@ -1174,6 +1216,65 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 source_kinds,
                 source_provenance,
                 bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Base Stability Evidence",
+            "",
+            "- Base stability comments: `%s` across `%s` functions"
+            % (
+                base_stability_totals.get("stability_comments", 0),
+                base_stability_totals.get("functions_with_stability_comments", 0),
+            ),
+            "- Pre-access assignments: `%s`" % base_stability_totals.get("pre_access_assignments", 0),
+            "- Distinct pre-access RHS observations: `%s`"
+            % base_stability_totals.get("distinct_pre_access_rhs_observations", 0),
+            "- Post-access assignments: `%s`" % base_stability_totals.get("post_access_assignments", 0),
+            "- Risky post-access assignments: `%s`"
+            % base_stability_totals.get("risky_post_access_assignments", 0),
+            "",
+            "### Base Stability Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(base_stability_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Base Stability RHS Samples",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(base_stability_stats.get("rhs_samples", {})), "RHS"))
+    lines.extend(
+        [
+            "",
+            "### Highest Base Stability Functions",
+            "",
+            "| Function | EA | Comments | Max distinct RHS | Max risky post-access | Bases | RHS samples |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in base_stability_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        rhs_samples = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("rhs_samples", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("stability_comment_count", 0) or 0),
+                int(item.get("max_distinct_pre_access_rhs", 0) or 0),
+                int(item.get("max_risky_post_access_assignments", 0) or 0),
+                bases,
+                _markdown_table_cell(rhs_samples),
             )
         )
     lines.extend(
@@ -2558,10 +2659,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -2572,6 +2674,7 @@ def _update_text_metrics(
     narrow_subfields = _extract_layout_narrow_subfields(text)
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
     stable_base_sources = _extract_layout_stable_base_sources(text)
+    base_stability = _extract_layout_base_stability(text)
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
     generic_base_trust_candidates = _extract_layout_generic_base_trust_candidates(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
@@ -2623,6 +2726,13 @@ def _update_text_metrics(
         FIELD_STABLE_BASE_SOURCE_RE,
         "inferred_offset_stable_base_sources",
         "functions_with_inferred_offset_stable_base_sources",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_BASE_STABILITY_RE,
+        "inferred_offset_base_stability",
+        "functions_with_inferred_offset_base_stability",
     )
     _count_pattern(
         text_totals,
@@ -2679,6 +2789,7 @@ def _update_text_metrics(
         narrow_subfields,
         bitfield_aliases,
         stable_base_sources,
+        base_stability,
         generic_base_evidence,
         generic_base_trust_candidates,
         rewrite_ready,
@@ -3507,6 +3618,40 @@ def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_base_stability(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_BASE_STABILITY_DETAIL_RE.finditer(text or ""):
+        rhs_samples = [
+            item.strip()
+            for item in match.group("rhs").split(";")
+            if item.strip() and item.strip() != "none" and item.strip() != "..."
+        ]
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "pre_access_assignment_count": _int_value(
+                    match.group("pre_access_assignment_count"),
+                    0,
+                ),
+                "distinct_pre_access_rhs_count": _int_value(
+                    match.group("distinct_pre_access_rhs_count"),
+                    0,
+                ),
+                "distinct_pre_access_rhs": rhs_samples,
+                "post_access_assignment_count": _int_value(
+                    match.group("post_access_assignment_count"),
+                    0,
+                ),
+                "risky_post_access_assignment_count": _int_value(
+                    match.group("risky_post_access_assignment_count"),
+                    0,
+                ),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _layout_source_provenance(
     text: str,
     base: str,
@@ -4003,6 +4148,32 @@ def _update_layout_stable_base_source_metrics(
         sources[str(candidate.get("source", "") or "unknown")] += 1
         source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
         source_provenance[str(candidate.get("source_provenance", "") or "unknown")] += 1
+
+
+def _update_layout_base_stability_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    rhs_samples: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_stability_comments"] += 1
+    for candidate in candidates:
+        totals["stability_comments"] += 1
+        totals["pre_access_assignments"] += _int_value(candidate.get("pre_access_assignment_count"), 0)
+        totals["distinct_pre_access_rhs_observations"] += _int_value(
+            candidate.get("distinct_pre_access_rhs_count"),
+            0,
+        )
+        totals["post_access_assignments"] += _int_value(candidate.get("post_access_assignment_count"), 0)
+        totals["risky_post_access_assignments"] += _int_value(
+            candidate.get("risky_post_access_assignment_count"),
+            0,
+        )
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        for rhs in candidate.get("distinct_pre_access_rhs", []) or []:
+            rhs_samples[str(rhs)] += 1
 
 
 def _update_layout_generic_base_evidence_metrics(
@@ -4690,6 +4861,37 @@ def _stable_base_source_function_summary(
         "top_source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _base_stability_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rhs_samples = Counter(
+        str(rhs)
+        for candidate in candidates
+        for rhs in candidate.get("distinct_pre_access_rhs", []) or []
+        if str(rhs)
+    )
+    return {
+        "ea": ea,
+        "name": name,
+        "stability_comment_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "rhs_samples": _counter_to_dict(Counter(dict(rhs_samples.most_common(5)))),
+        "max_distinct_pre_access_rhs": max(
+            (_int_value(item.get("distinct_pre_access_rhs_count"), 0) for item in candidates),
+            default=0,
+        ),
+        "max_risky_post_access_assignments": max(
+            (_int_value(item.get("risky_post_access_assignment_count"), 0) for item in candidates),
+            default=0,
+        ),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }

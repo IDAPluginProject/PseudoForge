@@ -31,6 +31,7 @@ CLEANED = r"""
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
+      - inferred_offset_base_stability: Base stability evidence for v14: 2 initializer(s) before first layout access across 2 distinct RHS (argument2; argument3); 1 post-access assignment(s), 1 followed by later layout access. Review initializer dominance before enabling canonical rewrite. confidence=0.70
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v14: base is a decompiler temporary. Review-only aliases remain available. confidence=0.73
       - inferred_offset_generic_base_evidence: Generic base evidence for context: 20 typed dereference(s) across 10 offset(s), blocker profile generic_only. Review-only; rewrite remains blocked until the base identity is trusted. confidence=0.74
       - inferred_offset_generic_base_trust_candidate: Generic base trust candidate for context: parameter source, generic-only blockers, 20 typed dereference(s) across 10 offset(s). Promotion eligible only when no other rewrite blocker is present; canonical rewrite still requires explicit validation-gated export. confidence=0.76
@@ -348,6 +349,35 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 1,
                 report["layout_stable_base_source_stats"]["top_functions"][0]["top_source_provenance"][
                     "direct_argument_alias"
+                ],
+            )
+            self.assertEqual(1, report["layout_base_stability_stats"]["totals"]["stability_comments"])
+            self.assertEqual(
+                1,
+                report["layout_base_stability_stats"]["totals"]["functions_with_stability_comments"],
+            )
+            self.assertEqual(2, report["layout_base_stability_stats"]["totals"]["pre_access_assignments"])
+            self.assertEqual(
+                2,
+                report["layout_base_stability_stats"]["totals"]["distinct_pre_access_rhs_observations"],
+            )
+            self.assertEqual(1, report["layout_base_stability_stats"]["totals"]["post_access_assignments"])
+            self.assertEqual(
+                1,
+                report["layout_base_stability_stats"]["totals"]["risky_post_access_assignments"],
+            )
+            self.assertEqual(1, report["layout_base_stability_stats"]["top_bases"]["v14"])
+            self.assertEqual(1, report["layout_base_stability_stats"]["rhs_samples"]["argument2"])
+            self.assertEqual(1, report["layout_base_stability_stats"]["rhs_samples"]["argument3"])
+            self.assertEqual("Sample", report["layout_base_stability_stats"]["top_functions"][0]["name"])
+            self.assertEqual(
+                2,
+                report["layout_base_stability_stats"]["top_functions"][0]["max_distinct_pre_access_rhs"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_base_stability_stats"]["top_functions"][0][
+                    "max_risky_post_access_assignments"
                 ],
             )
             self.assertEqual(1, report["layout_generic_base_evidence_stats"]["totals"]["evidence_comments"])
@@ -891,6 +921,7 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             self.assertEqual(1, report["text_stats"]["inferred_offset_narrow_subfields"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_bitfield_aliases"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_stable_base_sources"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_base_stability"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
@@ -1141,6 +1172,14 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             )
             self.assertIn(
                 "Layout Stable Base Sources",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Base Stability Evidence",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `Sample` | `0x140001000` | 1 | 2 | 1 | `v14` | argument2=1, argument3=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

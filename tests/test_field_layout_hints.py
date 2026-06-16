@@ -988,9 +988,19 @@ __int64 __fastcall MutatedSavedAliasReloadLayout(__int64 a1, __int64 a2)
 """
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        stability = [item for item in comments if item.get("kind") == "inferred_offset_base_stability"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(stability))
+        self.assertEqual("sessionSpace", stability[0]["base"])
+        self.assertEqual(1, stability[0]["pre_access_assignment_count"])
+        self.assertEqual(1, stability[0]["distinct_pre_access_rhs_count"])
+        self.assertEqual(["a1"], stability[0]["distinct_pre_access_rhs"])
+        self.assertEqual(1, stability[0]["post_access_assignment_count"])
+        self.assertEqual(1, stability[0]["risky_post_access_assignment_count"])
+        self.assertIn("Base stability evidence for sessionSpace", stability[0]["text"])
+        self.assertIn("1 followed by later layout access", stability[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_multiple_different_initializers_before_layout_access_block_rewrite(self) -> None:
@@ -1019,10 +1029,19 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        stability = [item for item in comments if item.get("kind") == "inferred_offset_base_stability"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
         self.assertEqual([], sources)
+        self.assertEqual(1, len(stability))
+        self.assertEqual("sessionSpace", stability[0]["base"])
+        self.assertEqual(2, stability[0]["pre_access_assignment_count"])
+        self.assertEqual(2, stability[0]["distinct_pre_access_rhs_count"])
+        self.assertEqual(["a1", "a2"], stability[0]["distinct_pre_access_rhs"])
+        self.assertEqual(0, stability[0]["post_access_assignment_count"])
+        self.assertEqual(0, stability[0]["risky_post_access_assignment_count"])
+        self.assertIn("a1; a2", stability[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_cast_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
