@@ -65,7 +65,9 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
 
     def test_decimal_status_residue_review_classes_separate_magic_and_bitmasks(self) -> None:
         literals = _decimal_status_like_literals(
+            "unsigned __int64 tick;\n"
             "status = 3221226238LL;\n"
+            "tick = 3221226238LL;\n"
             "if ( result == -1073532109 )\n"
             "if ( (flags & 0x4200000) == 69206016 )\n"
             "if ( ok || *BinAddress != 1852400232 )\n"
@@ -75,6 +77,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
         self.assertEqual(
             [
                 "profiled_status_literal_candidate",
+                "profiled_status_literal_weak_target",
                 "unprofiled_ntstatus_error_candidate",
                 "bitmask_comparison_candidate",
                 "ascii_magic_candidate",
@@ -82,6 +85,9 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             ],
             [item["review_class"] for item in literals],
         )
+        self.assertEqual("status_identifier_target", literals[0]["target_evidence"])
+        self.assertEqual("wide_or_nonstatus_target", literals[1]["target_evidence"])
+        self.assertEqual("unsigned __int64", literals[1]["target_type"])
 
     def test_layout_rewrite_blocker_profiles_split_base_identity(self) -> None:
         self.assertEqual(
@@ -529,6 +535,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 },
                 decimal_stats["review_classes"],
             )
+            self.assertEqual(
+                {"complex_or_memory_target": 4},
+                decimal_stats["target_evidence"],
+            )
             self.assertEqual("Sample", decimal_stats["top_functions"][0]["name"])
             self.assertEqual(4, decimal_stats["top_functions"][0]["literal_count"])
             self.assertEqual(3, decimal_stats["top_functions"][0]["profiled_count"])
@@ -541,12 +551,20 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 decimal_stats["top_functions"][0]["review_classes"],
             )
             self.assertEqual(
+                {"complex_or_memory_target": 4},
+                decimal_stats["top_functions"][0]["target_evidence"],
+            )
+            self.assertEqual(
                 "if ( v1 == -1073740748 )",
                 decimal_stats["top_functions"][0]["contexts"][0]["source"],
             )
             self.assertEqual(
                 "profiled_status_literal_candidate",
                 decimal_stats["top_functions"][0]["contexts"][0]["review_class"],
+            )
+            self.assertEqual(
+                "complex_or_memory_target",
+                decimal_stats["top_functions"][0]["contexts"][0]["target_evidence"],
             )
             ntstatus_stats = report["ntstatus_body_residue_stats"]
             self.assertEqual(
@@ -800,7 +818,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `Sample` | `0x140001000` | 4 | 3 | 1 | profiled_status_literal_candidate=3, unprofiled_ntstatus_error_candidate=1 | comparison=3, return=1 |",
+                "| `Sample` | `0x140001000` | 4 | 3 | 1 | profiled_status_literal_candidate=3, unprofiled_ntstatus_error_candidate=1 | complex_or_memory_target=4 | comparison=3, return=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

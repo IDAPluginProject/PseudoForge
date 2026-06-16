@@ -283,6 +283,7 @@ def analyze_corpus(
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
     decimal_status_residue_review_classes: Counter[str] = Counter()
+    decimal_status_residue_target_evidence: Counter[str] = Counter()
     ntstatus_body_unprofiled_values: Counter[str] = Counter()
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
     ntstatus_body_unprofiled_value_contexts: dict[str, Counter[str]] = {}
@@ -487,6 +488,7 @@ def analyze_corpus(
                         decimal_status_residue_profiles,
                         decimal_status_residue_context_kinds,
                         decimal_status_residue_review_classes,
+                        decimal_status_residue_target_evidence,
                     )
                     top_decimal_status_residue_functions.append(
                         _decimal_status_residue_function_summary(
@@ -763,6 +765,7 @@ def analyze_corpus(
             "profile_names": _counter_to_dict(Counter(dict(decimal_status_residue_profiles.most_common(top)))),
             "context_kinds": _counter_to_dict(Counter(dict(decimal_status_residue_context_kinds.most_common(top)))),
             "review_classes": _counter_to_dict(Counter(dict(decimal_status_residue_review_classes.most_common(top)))),
+            "target_evidence": _counter_to_dict(Counter(dict(decimal_status_residue_target_evidence.most_common(top)))),
             "top_functions": top_decimal_status_residue_functions[:top],
         },
         "text_stats": _counter_to_dict(text_totals),
@@ -1627,10 +1630,23 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "#### Decimal Status-Like Target Evidence",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(decimal_status_residue_stats.get("target_evidence", {})),
+            "Evidence",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "#### Functions With Decimal Status-Like Residue",
             "",
-            "| Function | EA | Literals | Profiled | Unprofiled | Classes | Kinds | Values | Context |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Literals | Profiled | Unprofiled | Classes | Targets | Kinds | Values | Context |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
         ]
     )
     for item in decimal_status_residue_stats.get("top_functions", []) or []:
@@ -1648,13 +1664,22 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("review_classes", {})).items()
         )
+        target_evidence = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("target_evidence", {})).items()
+        )
         context_text = "; ".join(
-            "L%s: %s" % (context.get("line", ""), context.get("source", ""))
+            "L%s [%s]: %s"
+            % (
+                context.get("line", ""),
+                context.get("target_evidence", ""),
+                context.get("source", ""),
+            )
             for context in item.get("contexts", []) or []
             if isinstance(context, dict)
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -1662,6 +1687,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("profiled_count", 0) or 0),
                 int(item.get("unprofiled_count", 0) or 0),
                 _markdown_table_cell(review_classes),
+                _markdown_table_cell(target_evidence),
                 _markdown_table_cell(context_kinds),
                 _markdown_table_cell(values),
                 _markdown_table_cell(context_text),
@@ -2100,6 +2126,7 @@ def _strip_pseudoforge_header(text: str) -> str:
 
 def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
     result = []
+    declaration_types = _local_declaration_types(text)
     for match in NUMERIC_LITERAL_RE.finditer(text or ""):
         literal = match.group("literal")
         if literal.lower().startswith("0x") or not _is_decimal_status_like_literal(literal):
@@ -2114,6 +2141,9 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
         profile_name = _ntstatus_profile_name(parsed, literal)
         line_text = _line_for_match(text, match.start(), match.end()).strip()
         severity = _ntstatus_severity_name(unsigned_value)
+        target_name = _decimal_status_assignment_target(line_text, literal)
+        target_type = declaration_types.get(target_name, "")
+        target_evidence = _decimal_status_target_evidence(text, target_name, target_type)
         result.append(
             {
                 "literal": literal,
@@ -2124,6 +2154,9 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
                 "profiled": profile_name != "",
                 "context_kind": context_kind,
                 "severity": severity,
+                "target_name": target_name,
+                "target_type": target_type,
+                "target_evidence": target_evidence,
                 "review_class": _decimal_status_review_class(
                     unsigned_value,
                     profile_name,
@@ -2131,6 +2164,7 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
                     context_kind,
                     line_text,
                     literal,
+                    target_evidence,
                 ),
                 "line": _line_number_for_offset(text, match.start()),
                 "line_text": line_text,
@@ -2162,6 +2196,33 @@ def _decimal_status_like_context_kind(text: str, match: re.Match[str]) -> str:
     return ""
 
 
+def _decimal_status_assignment_target(line_text: str, literal: str) -> str:
+    match = re.match(
+        r"\s*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?:\([^)]+\)\s*)?%s(?:u?LL|ULL|LL|u|U|L)?\b" % re.escape(literal),
+        line_text or "",
+    )
+    if match is None:
+        return ""
+    return match.group("target")
+
+
+def _decimal_status_target_evidence(text: str, target_name: str, target_type: str) -> str:
+    if not target_name:
+        return "complex_or_memory_target"
+    if _is_status_identifier_name(target_name):
+        return "status_identifier_target"
+    if _is_ntstatus_type(target_type):
+        return "ntstatus_declared_target"
+    if _is_four_byte_status_candidate_type(target_type):
+        if _has_status_carrier_use(text, target_name):
+            return "four_byte_status_carrier_target"
+        return "four_byte_scalar_target"
+    if target_type:
+        return "wide_or_nonstatus_target"
+    return "unknown_target"
+
+
 def _decimal_status_review_class(
     unsigned_value: int,
     profile_name: str,
@@ -2169,8 +2230,15 @@ def _decimal_status_review_class(
     context_kind: str,
     line_text: str,
     literal: str,
+    target_evidence: str,
 ) -> str:
     if profile_name:
+        if context_kind == "assignment" and target_evidence not in {
+            "status_identifier_target",
+            "ntstatus_declared_target",
+            "four_byte_status_carrier_target",
+        }:
+            return "profiled_status_literal_weak_target"
         return "profiled_status_literal_candidate"
     if severity == "error":
         return "unprofiled_ntstatus_error_candidate"
@@ -2190,12 +2258,72 @@ def _is_ascii_magic_value(unsigned_value: int) -> bool:
     return False
 
 
+def _local_declaration_types(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    declaration_pattern = re.compile(
+        r"(?m)^\s*(?P<type>(?:const\s+)?[A-Za-z_][A-Za-z0-9_\s\*]*?)\s+"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:;|=|\[)"
+    )
+    for match in declaration_pattern.finditer(text or ""):
+        name = match.group("name")
+        result.setdefault(name, re.sub(r"\s+", " ", match.group("type")).strip())
+    return result
+
+
+def _is_status_identifier_name(name: str) -> bool:
+    lowered = str(name or "").lower()
+    if lowered in {"status", "updated", "result", "returnstatus", "ntstatus"}:
+        return True
+    return "status" in lowered
+
+
+def _normalize_scalar_type(type_text: str) -> str:
+    normalized = re.sub(r"\b(?:const|volatile|signed)\b", " ", type_text or "", flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", normalized).strip().upper()
+
+
+def _is_ntstatus_type(type_text: str) -> bool:
+    return _normalize_scalar_type(type_text) == "NTSTATUS"
+
+
+def _is_four_byte_status_candidate_type(type_text: str) -> bool:
+    if not type_text or "*" in type_text or "&" in type_text:
+        return False
+    normalized = _normalize_scalar_type(type_text)
+    return normalized in {
+        "_DWORD",
+        "INT",
+        "UNSIGNED INT",
+        "LONG",
+        "ULONG",
+        "DWORD",
+        "NTSTATUS",
+        "__INT32",
+        "UNSIGNED __INT32",
+        "INT32_T",
+        "UINT32_T",
+    }
+
+
+def _has_status_carrier_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    return any(
+        re.search(pattern % escaped, text or "")
+        for pattern in (
+            r"\b%s\s*(?:<|>=)\s*0\b",
+            r"\b0\s*(?:>|<=)\s*%s\b",
+            r"\breturn\s+(?:\(unsigned int\)\s*)?%s\s*;",
+        )
+    )
+
+
 def _update_decimal_status_residue_metrics(
     literals: list[dict[str, Any]],
     values: Counter[str],
     profile_names: Counter[str],
     context_kinds: Counter[str],
     review_classes: Counter[str],
+    target_evidence: Counter[str],
 ) -> None:
     for item in literals:
         values[str(item.get("hex_value", "") or "unknown")] += 1
@@ -2203,6 +2331,7 @@ def _update_decimal_status_residue_metrics(
         profile_names[profile_name] += 1
         context_kinds[str(item.get("context_kind", "") or "unknown")] += 1
         review_classes[str(item.get("review_class", "") or "manual_review")] += 1
+        target_evidence[str(item.get("target_evidence", "") or "none")] += 1
 
 
 def _decimal_status_residue_function_summary(
@@ -2215,6 +2344,7 @@ def _decimal_status_residue_function_summary(
     values = Counter(str(item.get("hex_value", "") or "unknown") for item in literals)
     profile_names = Counter(str(item.get("profile_name", "") or "unprofiled") for item in literals)
     review_classes = Counter(str(item.get("review_class", "") or "manual_review") for item in literals)
+    target_evidence = Counter(str(item.get("target_evidence", "") or "none") for item in literals)
     contexts = []
     for item in literals[:5]:
         contexts.append(
@@ -2225,6 +2355,9 @@ def _decimal_status_residue_function_summary(
                 "hex_value": str(item.get("hex_value", "") or ""),
                 "profile_name": str(item.get("profile_name", "") or ""),
                 "review_class": str(item.get("review_class", "") or "manual_review"),
+                "target_name": str(item.get("target_name", "") or ""),
+                "target_type": str(item.get("target_type", "") or ""),
+                "target_evidence": str(item.get("target_evidence", "") or "none"),
                 "source": str(item.get("line_text", "") or ""),
             }
         )
@@ -2239,6 +2372,7 @@ def _decimal_status_residue_function_summary(
         "values": dict(values.most_common()),
         "profile_names": dict(profile_names.most_common()),
         "review_classes": dict(review_classes.most_common()),
+        "target_evidence": dict(target_evidence.most_common()),
         "contexts": contexts,
         "summary_path": str(summary_path),
     }
