@@ -492,11 +492,17 @@ __int64 __fastcall StrongParameterContext(__int64 context)
         self.assertEqual(0.76, candidates[0]["confidence"])
         self.assertIn("Generic base trust candidate for context", candidates[0]["text"])
         self.assertIn("parameter source", candidates[0]["text"])
-        self.assertIn("Promotion review only", candidates[0]["text"])
+        self.assertIn("explicit validation-gated export", candidates[0]["text"])
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
-        self.assertEqual(1, len(blockers))
-        self.assertEqual(["base name is generic"], blockers[0]["blockers"])
-        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+        self.assertEqual([], blockers)
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+        self.assertEqual(1, len(ready))
+        self.assertEqual("generic_parameter_trust", ready[0]["source_provenance"])
+        self.assertEqual("context", ready[0]["source"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("generic_parameter_trust", previews[0]["source_provenance"])
+        self.assertIn("Source provenance generic_parameter_trust from context", previews[0]["text"])
 
     def test_generic_base_evidence_profiles_other_blockers(self) -> None:
         comments = field_layout_comments(

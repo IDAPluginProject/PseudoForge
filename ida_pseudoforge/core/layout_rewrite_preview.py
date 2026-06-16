@@ -13,6 +13,7 @@ _OFFSET_DEREF_RE = re.compile(
 )
 
 _PREVIEW_ONLY_COMMENT = "Preview artifact only; body rewrite was not applied."
+_AUDIT_ONLY_NOT_APPLIED_COMMENT = "Audit only; body rewrite was not applied."
 _CANONICAL_APPLIED_COMMENT = "Validated layout rewrite applied to canonical cleaned output."
 
 _REWRITE_PREVIEW_RE = re.compile(
@@ -222,6 +223,7 @@ def _raw_offset_deref_for_base_exists(text: str, base: str) -> bool:
 
 def _canonical_layout_rewrite_text(rewritten_text: str) -> str:
     text = str(rewritten_text or "").replace(_PREVIEW_ONLY_COMMENT, _CANONICAL_APPLIED_COMMENT)
+    text = text.replace(_AUDIT_ONLY_NOT_APPLIED_COMMENT, _CANONICAL_APPLIED_COMMENT)
     return text.rstrip() + "\n"
 
 

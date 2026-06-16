@@ -340,7 +340,9 @@ def _field_generic_base_evidence_comment_from_layout(text: str, layout: _LayoutE
     base_kind = _layout_base_kind(layout.base)
     if base_kind != "generic":
         return None
-    blockers = _field_rewrite_blockers(text, layout)
+    if _trusted_generic_parameter_layout_identity(text, layout):
+        return None
+    blockers = _field_rewrite_blockers(text, layout, allow_generic_parameter_trust=False)
     if "base name is generic" not in blockers:
         return None
     blocker_profile = _generic_base_blocker_profile(blockers)
@@ -371,7 +373,7 @@ def _field_generic_base_trust_candidate_comment_from_layout(text: str, layout: _
         return None
     if len(layout.offsets) < 10 or layout.access_count < 16:
         return None
-    blockers = _field_rewrite_blockers(text, layout)
+    blockers = _field_rewrite_blockers(text, layout, allow_generic_parameter_trust=False)
     if _generic_base_blocker_profile(blockers) != "generic_only":
         return None
     if not _base_is_function_parameter(text, layout.base):
@@ -422,6 +424,8 @@ def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[s
 def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
     identity = _trusted_stable_base_source_identity(text, layout.base)
+    if not identity:
+        identity = _trusted_generic_parameter_layout_identity(text, layout)
     if base_kind != "named" and not identity:
         return None
     if len(layout.offsets) < 8 or layout.access_count < 12:
@@ -542,14 +546,26 @@ def _field_rewrite_near_ready_comment(
     }
 
 
-def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
+def _field_rewrite_blockers(
+    text: str,
+    layout: _LayoutEvidence,
+    allow_generic_parameter_trust: bool = True,
+) -> list[str]:
     blockers: list[str] = []
     base_kind = _layout_base_kind(layout.base)
     if base_kind == "temp":
         if not _trusted_stable_base_source_identity(text, layout.base):
             blockers.append("base is a decompiler temporary")
     elif base_kind == "generic":
-        blockers.append("base name is generic")
+        identity = _trusted_generic_parameter_layout_identity(text, layout)
+        if not allow_generic_parameter_trust or not identity:
+            blockers.append("base name is generic")
+    blockers.extend(_non_identity_layout_rewrite_blockers(text, layout))
+    return list(dict.fromkeys(blockers))
+
+
+def _non_identity_layout_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
+    blockers: list[str] = []
     blockers.extend(_field_rewrite_threshold_blockers(layout))
     blockers.extend(_mixed_offset_type_blockers(layout))
     if _has_volatile_access_type(layout):
@@ -564,6 +580,23 @@ def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
     if _base_has_array_index_use(text, layout.base):
         blockers.append("base is also indexed like an array")
     return list(dict.fromkeys(blockers))
+
+
+def _trusted_generic_parameter_layout_identity(text: str, layout: _LayoutEvidence) -> dict[str, str] | None:
+    if _layout_base_kind(layout.base) != "generic":
+        return None
+    if len(layout.offsets) < 10 or layout.access_count < 16:
+        return None
+    if not _base_is_function_parameter(text, layout.base):
+        return None
+    if _non_identity_layout_rewrite_blockers(text, layout):
+        return None
+    return {
+        "source": layout.base,
+        "source_kind": "generic",
+        "source_provenance": "generic_parameter_trust",
+        "source_rhs_kind": "parameter",
+    }
 
 
 def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
@@ -1104,8 +1137,8 @@ def _field_generic_base_trust_candidate_text(
 ) -> str:
     return (
         "Generic base trust candidate for %s: parameter source, generic-only blockers, "
-        "%d typed dereference(s) across %d offset(s). Promotion review only; "
-        "rewrite remains disabled until external type identity is confirmed."
+        "%d typed dereference(s) across %d offset(s). Promotion eligible only when no other "
+        "rewrite blocker is present; canonical rewrite still requires explicit validation-gated export."
         % (base, access_count, offset_count)
     )
 

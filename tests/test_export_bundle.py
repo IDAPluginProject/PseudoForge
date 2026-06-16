@@ -154,6 +154,7 @@ class ExportBundleTests(unittest.TestCase):
         cleaned_text = """
 /*
     Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v4: 2 typed dereference(s) across 2 offset(s), no rewrite blockers found. Source provenance direct_argument_alias from argument2. Audit only; body rewrite was not applied. confidence=0.78
       - inferred_offset_rewrite_preview: Offset field rewrite preview for v4: 2 dereference(s) can map to 2 field alias(es) field_10, field_18. Source provenance direct_argument_alias from argument2. Preview artifact only; body rewrite was not applied. confidence=0.78
 */
 __int64 __fastcall LayoutPreview(__int64 argument2)
@@ -261,6 +262,7 @@ __int64 __fastcall LayoutPreviewMismatch(__int64 argument2)
         cleaned_text = """
 /*
     Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v4: 2 typed dereference(s) across 2 offset(s), no rewrite blockers found. Source provenance direct_argument_alias from argument2. Audit only; body rewrite was not applied. confidence=0.78
       - inferred_offset_rewrite_preview: Offset field rewrite preview for v4: 2 dereference(s) can map to 2 field alias(es) field_10, field_18. Source provenance direct_argument_alias from argument2. Preview artifact only; body rewrite was not applied. confidence=0.78
 */
 __int64 __fastcall LayoutPreviewApply(__int64 argument2)
@@ -301,6 +303,8 @@ __int64 __fastcall LayoutPreviewApply(__int64 argument2)
             self.assertIn("v4->field_18 /* _QWORD +0x18 */", cleaned_output)
             self.assertNotIn("*(_DWORD *)(v4 + 16)", cleaned_output)
             self.assertIn("Validated layout rewrite applied to canonical cleaned output.", cleaned_output)
+            self.assertNotIn("Audit only; body rewrite was not applied.", cleaned_output)
+            self.assertNotIn("Preview artifact only; body rewrite was not applied.", cleaned_output)
             self.assertIn("Canonical cleaned output was modified by validated opt-in rewrite.", preview_text)
             self.assertTrue(preview_metadata["canonical_rewrite_requested"])
             self.assertTrue(preview_metadata["canonical_cleaned_output_modified"])

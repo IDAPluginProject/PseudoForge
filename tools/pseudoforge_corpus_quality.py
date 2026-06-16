@@ -115,8 +115,8 @@ FIELD_GENERIC_BASE_TRUST_CANDIDATE_DETAIL_RE = re.compile(
     r"(?P<blocker_profile>[a-z-]+)\s+blockers,\s+"
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\)\.\s+"
-    r"Promotion review only;\s+"
-    r"rewrite remains disabled until external type identity is confirmed\.\s+"
+    r"Promotion eligible only when no other rewrite blocker is present;\s+"
+    r"canonical rewrite still requires explicit validation-gated export\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
@@ -136,7 +136,7 @@ FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"(?P<offset_count>\d+)\s+offset\(s\),\s+no rewrite blockers found\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
     r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
-    r"Audit only; body rewrite was not applied\.\s+"
+    r"(?:Audit only; body rewrite was not applied|Validated layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 FIELD_REWRITE_PREVIEW_RE = re.compile(r"-\s+inferred_offset_rewrite_preview:")
@@ -148,7 +148,7 @@ FIELD_REWRITE_PREVIEW_DETAIL_RE = re.compile(
     r"(?P<fields>.*?)\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
     r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
-    r"Preview artifact only; body rewrite was not applied\.\s+"
+    r"(?:Preview artifact only; body rewrite was not applied|Validated layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 FIELD_REWRITE_NEAR_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_near_ready:")
