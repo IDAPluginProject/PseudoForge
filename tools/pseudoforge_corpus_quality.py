@@ -36,6 +36,8 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "temp_base_identity_candidates",
     "generic_base_identity_candidates",
     "base_stability_blockers",
+    "multiple_initializer_base_blockers",
+    "reassigned_base_blockers",
     "type_evidence_blockers",
     "narrow_subfield_type_blockers",
     "wide_overlay_type_blockers",
@@ -2832,8 +2834,12 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
         if "base name is generic" in lowered:
             profiles.add("base_identity_candidates")
             profiles.add("generic_base_identity_candidates")
-        if "multiple initializers" in lowered or "reassigned" in lowered:
+        if "multiple initializers" in lowered:
             profiles.add("base_stability_blockers")
+            profiles.add("multiple_initializer_base_blockers")
+        if "reassigned" in lowered:
+            profiles.add("base_stability_blockers")
+            profiles.add("reassigned_base_blockers")
         if "mix narrow" in lowered:
             profiles.add("type_evidence_blockers")
             profiles.add("narrow_subfield_type_blockers")

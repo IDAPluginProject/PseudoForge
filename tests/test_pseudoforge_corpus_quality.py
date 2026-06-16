@@ -68,6 +68,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             _layout_rewrite_blocker_review_profiles(["base name is generic"]),
         )
         self.assertEqual(
+            ["base_stability_blockers", "multiple_initializer_base_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["base has multiple initializers before layout access"]
+            ),
+        )
+        self.assertEqual(
+            ["base_stability_blockers", "reassigned_base_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["base is reassigned after layout access"]
+            ),
+        )
+        self.assertEqual(
             ["threshold_gap_candidates", "offset_threshold_gap_candidates"],
             _layout_rewrite_blocker_review_profiles(
                 ["rewrite offset threshold requires at least 8 offsets"]
