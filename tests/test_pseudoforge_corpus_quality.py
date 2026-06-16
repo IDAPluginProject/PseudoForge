@@ -73,6 +73,24 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ["rewrite offset threshold requires at least 8 offsets"]
             ),
         )
+        self.assertEqual(
+            ["type_evidence_blockers", "narrow_subfield_type_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["one or more offsets mix narrow subfield access widths"]
+            ),
+        )
+        self.assertEqual(
+            ["type_evidence_blockers", "wide_overlay_type_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["one or more offsets mix wide overlay access widths"]
+            ),
+        )
+        self.assertEqual(
+            ["type_evidence_blockers", "alignment_type_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["one or more typed offsets are not naturally aligned"]
+            ),
+        )
 
     def test_analyze_corpus_counts_warning_rename_rule_and_text_residue_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

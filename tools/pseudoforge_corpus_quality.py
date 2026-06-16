@@ -37,6 +37,9 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "generic_base_identity_candidates",
     "base_stability_blockers",
     "type_evidence_blockers",
+    "narrow_subfield_type_blockers",
+    "wide_overlay_type_blockers",
+    "alignment_type_blockers",
     "threshold_gap_candidates",
     "manual_review",
 )
@@ -2829,8 +2832,15 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
             profiles.add("generic_base_identity_candidates")
         if "multiple initializers" in lowered or "reassigned" in lowered:
             profiles.add("base_stability_blockers")
-        if "mix narrow" in lowered or "mix wide" in lowered or "not naturally aligned" in lowered:
+        if "mix narrow" in lowered:
             profiles.add("type_evidence_blockers")
+            profiles.add("narrow_subfield_type_blockers")
+        if "mix wide" in lowered:
+            profiles.add("type_evidence_blockers")
+            profiles.add("wide_overlay_type_blockers")
+        if "not naturally aligned" in lowered:
+            profiles.add("type_evidence_blockers")
+            profiles.add("alignment_type_blockers")
         if "rewrite access threshold" in lowered or "rewrite offset threshold" in lowered:
             profiles.add("threshold_gap_candidates")
     if not profiles:
