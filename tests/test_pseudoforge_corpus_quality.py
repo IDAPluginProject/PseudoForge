@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from tools.pseudoforge_corpus_quality import (
+    DECIMAL_STATUS_RE,
     _layout_rewrite_blocker_review_profiles,
     analyze_corpus,
     main,
@@ -58,6 +59,9 @@ LABEL_1:
 
 
 class PseudoForgeCorpusQualityTests(unittest.TestCase):
+    def test_decimal_status_pattern_counts_integer_suffixes(self) -> None:
+        self.assertEqual(1, len(DECIMAL_STATUS_RE.findall("status = 3221226238LL;")))
+
     def test_layout_rewrite_blocker_profiles_split_base_identity(self) -> None:
         self.assertEqual(
             ["base_identity_candidates", "temp_base_identity_candidates"],
@@ -483,6 +487,28 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(6, report["body_text_stats"]["ntstatus_error_family_literals"])
             self.assertEqual(1, report["body_text_stats"]["ntstatus_informational_family_literals"])
             self.assertEqual(1, report["body_text_stats"]["ntstatus_unprofiled_error_family_literals"])
+            decimal_stats = report["decimal_status_residue_stats"]
+            self.assertEqual(
+                {"comparison": 3, "return": 1},
+                decimal_stats["context_kinds"],
+            )
+            self.assertEqual(
+                {
+                    "STATUS_PTE_CHANGED": 1,
+                    "STATUS_INTEGER_OVERFLOW": 1,
+                    "unprofiled": 1,
+                    "STATUS_INVALID_PARAMETER": 1,
+                },
+                decimal_stats["profile_names"],
+            )
+            self.assertEqual("Sample", decimal_stats["top_functions"][0]["name"])
+            self.assertEqual(4, decimal_stats["top_functions"][0]["literal_count"])
+            self.assertEqual(3, decimal_stats["top_functions"][0]["profiled_count"])
+            self.assertEqual(1, decimal_stats["top_functions"][0]["unprofiled_count"])
+            self.assertEqual(
+                "if ( v1 == -1073740748 )",
+                decimal_stats["top_functions"][0]["contexts"][0]["source"],
+            )
             ntstatus_stats = report["ntstatus_body_residue_stats"]
             self.assertEqual(
                 "0xC0033333",
@@ -728,6 +754,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Unprofiled NTSTATUS Error Values",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Decimal Status-Like Residue",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `Sample` | `0x140001000` | 4 | 3 | 1 | comparison=3, return=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

@@ -23,8 +23,9 @@ OFFSET_DEREF_RE = re.compile(
 )
 LABEL_RE = re.compile(r"\bLABEL_\d+\b")
 DECIMAL_STATUS_RE = re.compile(
-    r"(?:\breturn\b|(?<![=!<>])(?:==|!=|=))\s*-?(?:107374\d+|\d{8,}|322122\d+)\b"
-    r"|\b-?(?:107374\d+|\d{8,}|322122\d+)\s*(?:==|!=)"
+    r"(?:\breturn\b|(?<![=!<>])(?:==|!=|=))\s*"
+    r"-?(?:107374\d+|\d{8,}|322122\d+)(?:u?LL|ULL|LL|u|U|L)?\b"
+    r"|\b-?(?:107374\d+|\d{8,}|322122\d+)(?:u?LL|ULL|LL|u|U|L)?\s*(?:==|!=)"
 )
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
 NUMERIC_LITERAL_RE = re.compile(
@@ -278,6 +279,9 @@ def analyze_corpus(
     rewrite_blocker_review_profiles: Counter[str] = Counter()
     rewrite_blocker_review_queues: dict[str, list[dict[str, Any]]] = {}
     rewrite_blocker_totals = Counter()
+    decimal_status_residue_values: Counter[str] = Counter()
+    decimal_status_residue_profiles: Counter[str] = Counter()
+    decimal_status_residue_context_kinds: Counter[str] = Counter()
     ntstatus_body_unprofiled_values: Counter[str] = Counter()
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
     ntstatus_body_unprofiled_value_contexts: dict[str, Counter[str]] = {}
@@ -296,6 +300,7 @@ def analyze_corpus(
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
+    top_decimal_status_residue_functions = []
     top_ntstatus_body_unprofiled_functions = []
 
     for summary_path in summary_paths:
@@ -346,6 +351,7 @@ def analyze_corpus(
                     rewrite_ready,
                     rewrite_near_ready,
                     rewrite_blockers,
+                    decimal_status_body_literals,
                     ntstatus_body_literals,
                 ) = _update_text_metrics(
                     text_totals,
@@ -473,6 +479,21 @@ def analyze_corpus(
                     top_rewrite_blocker_functions.append(
                         _rewrite_blocker_function_summary(name, ea, summary_path, rewrite_blockers)
                     )
+                if decimal_status_body_literals:
+                    _update_decimal_status_residue_metrics(
+                        decimal_status_body_literals,
+                        decimal_status_residue_values,
+                        decimal_status_residue_profiles,
+                        decimal_status_residue_context_kinds,
+                    )
+                    top_decimal_status_residue_functions.append(
+                        _decimal_status_residue_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            decimal_status_body_literals,
+                        )
+                    )
                 unprofiled_ntstatus_body_literals = [
                     item
                     for item in ntstatus_body_literals
@@ -585,6 +606,13 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["blocker_count"]),
             -int(item["reason_count"]),
+            str(item["name"]),
+        )
+    )
+    top_decimal_status_residue_functions.sort(
+        key=lambda item: (
+            -int(item["literal_count"]),
+            -int(item["profiled_count"]),
             str(item["name"]),
         )
     )
@@ -728,6 +756,12 @@ def analyze_corpus(
             ),
             "top_unprofiled_error_functions": ntstatus_unprofiled_function_summaries,
         },
+        "decimal_status_residue_stats": {
+            "values": _counter_to_dict(Counter(dict(decimal_status_residue_values.most_common(top)))),
+            "profile_names": _counter_to_dict(Counter(dict(decimal_status_residue_profiles.most_common(top)))),
+            "context_kinds": _counter_to_dict(Counter(dict(decimal_status_residue_context_kinds.most_common(top)))),
+            "top_functions": top_decimal_status_residue_functions[:top],
+        },
         "text_stats": _counter_to_dict(text_totals),
         "body_text_stats": _counter_to_dict(body_text_totals),
         "top_warning_functions": top_warning_functions[:top],
@@ -752,6 +786,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
+    decimal_status_residue_stats = _coerce_dict(report.get("decimal_status_residue_stats", {}))
     ntstatus_review_queues = _coerce_dict(ntstatus_body_residue_stats.get("review_queues", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
@@ -1548,6 +1583,72 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Decimal Status-Like Residue",
+            "",
+            "#### Decimal Status-Like Context Kinds",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(decimal_status_residue_stats.get("context_kinds", {})),
+            "Kind",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "#### Decimal Status-Like Profile Names",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(decimal_status_residue_stats.get("profile_names", {})),
+            "Profile",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "#### Functions With Decimal Status-Like Residue",
+            "",
+            "| Function | EA | Literals | Profiled | Unprofiled | Kinds | Values | Context |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in decimal_status_residue_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        context_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("context_kinds", {})).items()
+        )
+        values = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("values", {})).items()
+        )
+        context_text = "; ".join(
+            "L%s: %s" % (context.get("line", ""), context.get("source", ""))
+            for context in item.get("contexts", []) or []
+            if isinstance(context, dict)
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("literal_count", 0) or 0),
+                int(item.get("profiled_count", 0) or 0),
+                int(item.get("unprofiled_count", 0) or 0),
+                _markdown_table_cell(context_kinds),
+                _markdown_table_cell(values),
+                _markdown_table_cell(context_text),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "### Unprofiled NTSTATUS Error Values",
             "",
             "| Value | Signed | Facility | Code | Hint | Kinds | Count | Functions |",
@@ -1834,13 +1935,15 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
+    decimal_status_body_literals = _decimal_status_like_literals(body_text)
     ntstatus_body_literals = _ntstatus_family_literals(body_text)
     layout_hints = _extract_layout_hints(text)
     subfield_overlays = _extract_layout_subfield_overlays(text)
@@ -1943,6 +2046,7 @@ def _update_text_metrics(
         rewrite_ready,
         rewrite_near_ready,
         rewrite_blockers,
+        decimal_status_body_literals,
         ntstatus_body_literals,
     )
 
@@ -1971,6 +2075,108 @@ def _strip_pseudoforge_header(text: str) -> str:
     if not any(marker in header for marker in ("Generated by PseudoForge", "Kernel insights:", "Rename candidates:")):
         return text
     return text[match.end() :]
+
+
+def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
+    result = []
+    for match in NUMERIC_LITERAL_RE.finditer(text or ""):
+        literal = match.group("literal")
+        if literal.lower().startswith("0x") or not _is_decimal_status_like_literal(literal):
+            continue
+        context_kind = _decimal_status_like_context_kind(text, match)
+        if not context_kind:
+            continue
+        parsed = _parse_numeric_literal(literal)
+        if parsed is None:
+            continue
+        unsigned_value = parsed & 0xFFFFFFFF
+        profile_name = _ntstatus_profile_name(parsed, literal)
+        result.append(
+            {
+                "literal": literal,
+                "unsigned_value": unsigned_value,
+                "signed_value": _signed_32bit_value(unsigned_value),
+                "hex_value": "0x%08X" % unsigned_value,
+                "profile_name": profile_name,
+                "profiled": profile_name != "",
+                "context_kind": context_kind,
+                "line": _line_number_for_offset(text, match.start()),
+                "line_text": _line_for_match(text, match.start(), match.end()).strip(),
+            }
+        )
+    return result
+
+
+def _is_decimal_status_like_literal(literal: str) -> bool:
+    digits = str(literal or "")
+    if digits.startswith("-"):
+        digits = digits[1:]
+    return digits.startswith("107374") or digits.startswith("322122") or len(digits) >= 8
+
+
+def _decimal_status_like_context_kind(text: str, match: re.Match[str]) -> str:
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    line_end = text.find("\n", match.end())
+    if line_end < 0:
+        line_end = len(text)
+    prefix = text[line_start : match.start()]
+    suffix = text[match.end() : line_end]
+    if re.search(r"\breturn\s*$", prefix):
+        return "return"
+    if re.search(r"(?:==|!=)\s*$", prefix) or re.match(r"\s*(?:==|!=)", suffix):
+        return "comparison"
+    if re.search(r"(?<![=!<>])=\s*$", prefix):
+        return "assignment"
+    return ""
+
+
+def _update_decimal_status_residue_metrics(
+    literals: list[dict[str, Any]],
+    values: Counter[str],
+    profile_names: Counter[str],
+    context_kinds: Counter[str],
+) -> None:
+    for item in literals:
+        values[str(item.get("hex_value", "") or "unknown")] += 1
+        profile_name = str(item.get("profile_name", "") or "unprofiled")
+        profile_names[profile_name] += 1
+        context_kinds[str(item.get("context_kind", "") or "unknown")] += 1
+
+
+def _decimal_status_residue_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    literals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    context_kinds = Counter(str(item.get("context_kind", "") or "unknown") for item in literals)
+    values = Counter(str(item.get("hex_value", "") or "unknown") for item in literals)
+    profile_names = Counter(str(item.get("profile_name", "") or "unprofiled") for item in literals)
+    contexts = []
+    for item in literals[:5]:
+        contexts.append(
+            {
+                "line": int(item.get("line", 0) or 0),
+                "kind": str(item.get("context_kind", "") or "unknown"),
+                "literal": str(item.get("literal", "") or ""),
+                "hex_value": str(item.get("hex_value", "") or ""),
+                "profile_name": str(item.get("profile_name", "") or ""),
+                "source": str(item.get("line_text", "") or ""),
+            }
+        )
+    profiled_count = sum(1 for item in literals if bool(item.get("profiled")))
+    return {
+        "name": name,
+        "ea": ea,
+        "literal_count": len(literals),
+        "profiled_count": profiled_count,
+        "unprofiled_count": len(literals) - profiled_count,
+        "context_kinds": dict(context_kinds.most_common()),
+        "values": dict(values.most_common()),
+        "profile_names": dict(profile_names.most_common()),
+        "contexts": contexts,
+        "summary_path": str(summary_path),
+    }
 
 
 def _count_profiled_status_argument_literals(counter: Counter[str], text: str) -> None:
