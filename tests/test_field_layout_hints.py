@@ -371,7 +371,60 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertIn("base name is generic", blockers[0]["blockers"])
         self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_generic_base_trust_candidate" for item in strong_comments)
+        )
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in strong_comments))
+
+    def test_generic_parameter_base_with_generic_only_blocker_emits_trust_candidate(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StrongParameterContext(__int64 context)
+{
+  return *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 80)
+       + *(_QWORD *)(context + 88)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 80)
+       + *(_QWORD *)(context + 88);
+}
+"""
+        )
+
+        candidates = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_generic_base_trust_candidate"
+        ]
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("context", candidates[0]["base"])
+        self.assertEqual("generic", candidates[0]["base_kind"])
+        self.assertEqual("parameter", candidates[0]["source_kind"])
+        self.assertEqual("generic_only", candidates[0]["blocker_profile"])
+        self.assertEqual(10, candidates[0]["offset_count"])
+        self.assertEqual(20, candidates[0]["access_count"])
+        self.assertEqual(0.76, candidates[0]["confidence"])
+        self.assertIn("Generic base trust candidate for context", candidates[0]["text"])
+        self.assertIn("parameter source", candidates[0]["text"])
+        self.assertIn("Promotion review only", candidates[0]["text"])
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertEqual(["base name is generic"], blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_generic_base_evidence_profiles_other_blockers(self) -> None:
         comments = field_layout_comments(
@@ -403,6 +456,7 @@ __int64 __fastcall MixedGenericContext(__int64 context)
         self.assertEqual("generic_with_other_blockers", generic_evidence[0]["blocker_profile"])
         self.assertEqual(0.7, generic_evidence[0]["confidence"])
         self.assertIn("generic_with_other_blockers", generic_evidence[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_generic_base_trust_candidate" for item in comments))
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         self.assertEqual(1, len(blockers))
         self.assertIn("base name is generic", blockers[0]["blockers"])

@@ -75,6 +75,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 generic_base_evidence = _field_generic_base_evidence_comment_from_layout(text or "", item)
                 if generic_base_evidence:
                     comments.append(generic_base_evidence)
+                trust_candidate = _field_generic_base_trust_candidate_comment_from_layout(text or "", item)
+                if trust_candidate:
+                    comments.append(trust_candidate)
                 overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item)
                 if overlay_preview:
                     comments.append(overlay_preview)
@@ -350,6 +353,38 @@ def _field_generic_base_evidence_comment_from_layout(text: str, layout: _LayoutE
         "base": layout.base,
         "base_kind": base_kind,
         "blocker_profile": blocker_profile,
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
+    }
+
+
+def _field_generic_base_trust_candidate_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind != "generic":
+        return None
+    if len(layout.offsets) < 10 or layout.access_count < 16:
+        return None
+    blockers = _field_rewrite_blockers(text, layout)
+    if _generic_base_blocker_profile(blockers) != "generic_only":
+        return None
+    if not _base_is_function_parameter(text, layout.base):
+        return None
+    confidence = min(
+        0.76,
+        0.6 + len(layout.offsets) * 0.018 + min(layout.access_count, 20) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_generic_base_trust_candidate",
+        "text": _field_generic_base_trust_candidate_text(
+            layout.base,
+            layout.access_count,
+            len(layout.offsets),
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "source_kind": "parameter",
+        "blocker_profile": "generic_only",
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
     }
@@ -980,11 +1015,87 @@ def _field_generic_base_evidence_text(
     )
 
 
+def _field_generic_base_trust_candidate_text(
+    base: str,
+    access_count: int,
+    offset_count: int,
+) -> str:
+    return (
+        "Generic base trust candidate for %s: parameter source, generic-only blockers, "
+        "%d typed dereference(s) across %d offset(s). Promotion review only; "
+        "rewrite remains disabled until external type identity is confirmed."
+        % (base, access_count, offset_count)
+    )
+
+
 def _generic_base_blocker_profile(blockers: list[str]) -> str:
     blocker_set = {str(item) for item in blockers if str(item)}
     if blocker_set == {"base name is generic"}:
         return "generic_only"
     return "generic_with_other_blockers"
+
+
+def _base_is_function_parameter(text: str, base: str) -> bool:
+    return str(base or "") in _function_parameter_names(text)
+
+
+def _function_parameter_names(text: str) -> set[str]:
+    signature = str(text or "")
+    brace_index = signature.find("{")
+    if brace_index >= 0:
+        signature = signature[:brace_index]
+    open_index = signature.rfind("(")
+    close_index = signature.rfind(")")
+    if open_index < 0 or close_index <= open_index:
+        return set()
+    parameter_text = signature[open_index + 1 : close_index]
+    names = set()
+    for parameter in _split_top_level_parameters(parameter_text):
+        identifiers = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", parameter)
+        if not identifiers:
+            continue
+        name = identifiers[-1]
+        if _looks_like_parameter_type_token(name):
+            continue
+        names.add(name)
+    return names
+
+
+def _split_top_level_parameters(text: str) -> list[str]:
+    parts = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(text or ""):
+        if char in "([{<":
+            depth += 1
+            continue
+        if char in ")]}>":
+            depth = max(0, depth - 1)
+            continue
+        if char == "," and depth == 0:
+            parts.append(text[start:index].strip())
+            start = index + 1
+    tail = str(text or "")[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _looks_like_parameter_type_token(name: str) -> bool:
+    return str(name or "") in {
+        "PVOID",
+        "VOID",
+        "bool",
+        "char",
+        "double",
+        "float",
+        "int",
+        "long",
+        "short",
+        "size_t",
+        "unsigned",
+        "void",
+    }
 
 
 def _review_text_for_base_kind(base_kind: str) -> str:

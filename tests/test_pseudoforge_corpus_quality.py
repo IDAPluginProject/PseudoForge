@@ -25,6 +25,7 @@ CLEANED = r"""
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
       - inferred_offset_generic_base_evidence: Generic base evidence for context: 20 typed dereference(s) across 10 offset(s), blocker profile generic_only. Review-only; rewrite remains blocked until the base identity is trusted. confidence=0.74
+      - inferred_offset_generic_base_trust_candidate: Generic base trust candidate for context: parameter source, generic-only blockers, 20 typed dereference(s) across 10 offset(s). Promotion review only; rewrite remains disabled until external type identity is confirmed. confidence=0.76
 */
 __int64 __fastcall Sample(__int64 a1)
 {
@@ -128,6 +129,46 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 20,
                 report["layout_generic_base_evidence_stats"]["top_functions"][0]["max_access_count"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_generic_base_trust_candidate_stats"]["totals"]["trust_candidates"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_generic_base_trust_candidate_stats"]["totals"][
+                    "functions_with_trust_candidates"
+                ],
+            )
+            self.assertEqual(
+                10,
+                report["layout_generic_base_trust_candidate_stats"]["totals"]["offset_observations"],
+            )
+            self.assertEqual(
+                20,
+                report["layout_generic_base_trust_candidate_stats"]["totals"]["access_observations"],
+            )
+            self.assertEqual(1, report["layout_generic_base_trust_candidate_stats"]["top_bases"]["context"])
+            self.assertEqual(1, report["layout_generic_base_trust_candidate_stats"]["source_kinds"]["parameter"])
+            self.assertEqual(
+                1,
+                report["layout_generic_base_trust_candidate_stats"]["blocker_profiles"]["generic_only"],
+            )
+            self.assertEqual(
+                "Sample",
+                report["layout_generic_base_trust_candidate_stats"]["top_functions"][0]["name"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_generic_base_trust_candidate_stats"]["top_functions"][0]["source_kinds"][
+                    "parameter"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_generic_base_trust_candidate_stats"]["top_functions"][0]["blocker_profiles"][
+                    "generic_only"
+                ],
             )
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["totals"]["overlay_comments"])
             self.assertEqual(
@@ -295,6 +336,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["inferred_offset_bitfield_aliases"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_stable_base_sources"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_evidence"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_near_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_blockers"])
@@ -310,6 +352,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertNotIn("inferred_offset_bitfield_aliases", report["body_text_stats"])
             self.assertNotIn("inferred_offset_stable_base_sources", report["body_text_stats"])
             self.assertNotIn("inferred_offset_generic_base_evidence", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_generic_base_trust_candidates", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_near_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_blockers", report["body_text_stats"])
@@ -367,6 +410,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Generic Base Evidence Profiles",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Generic Base Trust Candidates",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Generic Base Trust Source Kinds",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

@@ -77,6 +77,18 @@ FIELD_GENERIC_BASE_EVIDENCE_DETAIL_RE = re.compile(
     r"Review-only; rewrite remains blocked until the base identity is trusted\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_GENERIC_BASE_TRUST_CANDIDATE_RE = re.compile(r"-\s+inferred_offset_generic_base_trust_candidate:")
+FIELD_GENERIC_BASE_TRUST_CANDIDATE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_generic_base_trust_candidate:\s+Generic base trust candidate for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<source_kind>[a-z_]+)\s+source,\s+"
+    r"(?P<blocker_profile>[a-z-]+)\s+blockers,\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\)\.\s+"
+    r"Promotion review only;\s+"
+    r"rewrite remains disabled until external type identity is confirmed\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
     r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
     r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
@@ -232,6 +244,10 @@ def analyze_corpus(
     generic_base_evidence_bases: Counter[str] = Counter()
     generic_base_evidence_profiles: Counter[str] = Counter()
     generic_base_evidence_totals = Counter()
+    generic_base_trust_candidate_bases: Counter[str] = Counter()
+    generic_base_trust_candidate_sources: Counter[str] = Counter()
+    generic_base_trust_candidate_profiles: Counter[str] = Counter()
+    generic_base_trust_candidate_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -250,6 +266,7 @@ def analyze_corpus(
     top_bitfield_alias_functions = []
     top_stable_base_source_functions = []
     top_generic_base_evidence_functions = []
+    top_generic_base_trust_candidate_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
@@ -298,6 +315,7 @@ def analyze_corpus(
                     bitfield_aliases,
                     stable_base_sources,
                     generic_base_evidence,
+                    generic_base_trust_candidates,
                     rewrite_ready,
                     rewrite_near_ready,
                     rewrite_blockers,
@@ -353,6 +371,13 @@ def analyze_corpus(
                     generic_base_evidence_bases,
                     generic_base_evidence_profiles,
                 )
+                _update_layout_generic_base_trust_candidate_metrics(
+                    generic_base_trust_candidates,
+                    generic_base_trust_candidate_totals,
+                    generic_base_trust_candidate_bases,
+                    generic_base_trust_candidate_sources,
+                    generic_base_trust_candidate_profiles,
+                )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
                     rewrite_ready_totals,
@@ -393,6 +418,15 @@ def analyze_corpus(
                 if generic_base_evidence:
                     top_generic_base_evidence_functions.append(
                         _generic_base_evidence_function_summary(name, ea, summary_path, generic_base_evidence)
+                    )
+                if generic_base_trust_candidates:
+                    top_generic_base_trust_candidate_functions.append(
+                        _generic_base_trust_candidate_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            generic_base_trust_candidates,
+                        )
                     )
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
@@ -463,6 +497,14 @@ def analyze_corpus(
     top_generic_base_evidence_functions.sort(
         key=lambda item: (
             -int(item["evidence_count"]),
+            -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_generic_base_trust_candidate_functions.sort(
+        key=lambda item: (
+            -int(item["candidate_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
             str(item["name"]),
@@ -574,6 +616,13 @@ def analyze_corpus(
             "blocker_profiles": _counter_to_dict(Counter(dict(generic_base_evidence_profiles.most_common(top)))),
             "top_functions": top_generic_base_evidence_functions[:top],
         },
+        "layout_generic_base_trust_candidate_stats": {
+            "totals": _counter_to_dict(generic_base_trust_candidate_totals),
+            "top_bases": _counter_to_dict(Counter(dict(generic_base_trust_candidate_bases.most_common(top)))),
+            "source_kinds": _counter_to_dict(Counter(dict(generic_base_trust_candidate_sources.most_common(top)))),
+            "blocker_profiles": _counter_to_dict(Counter(dict(generic_base_trust_candidate_profiles.most_common(top)))),
+            "top_functions": top_generic_base_trust_candidate_functions[:top],
+        },
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
@@ -610,6 +659,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
     stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
+    generic_base_trust_candidate_stats = _coerce_dict(report.get("layout_generic_base_trust_candidate_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
@@ -619,6 +669,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
     stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
+    generic_base_trust_candidate_totals = _coerce_dict(generic_base_trust_candidate_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
@@ -846,6 +897,74 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("evidence_count", 0) or 0),
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
+                profiles,
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Generic Base Trust Candidates",
+            "",
+            "- Generic base trust candidates: `%s` across `%s` functions"
+            % (
+                generic_base_trust_candidate_totals.get("trust_candidates", 0),
+                generic_base_trust_candidate_totals.get("functions_with_trust_candidates", 0),
+            ),
+            "- Trust candidate offset observations: `%s`" % generic_base_trust_candidate_totals.get("offset_observations", 0),
+            "- Trust candidate access observations: `%s`" % generic_base_trust_candidate_totals.get("access_observations", 0),
+            "",
+            "### Generic Base Trust Source Kinds",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(generic_base_trust_candidate_stats.get("source_kinds", {})), "Kind"))
+    lines.extend(
+        [
+            "",
+            "### Generic Base Trust Profiles",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(generic_base_trust_candidate_stats.get("blocker_profiles", {})), "Profile"))
+    lines.extend(
+        [
+            "",
+            "### Generic Base Trust Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(generic_base_trust_candidate_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Generic Base Trust Candidate Functions",
+            "",
+            "| Function | EA | Candidates | Max offsets | Max accesses | Sources | Profiles | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in generic_base_trust_candidate_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        sources = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("source_kinds", {})).items()
+        )
+        profiles = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("blocker_profiles", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("candidate_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                sources,
                 profiles,
                 bases,
             )
@@ -1458,10 +1577,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -1471,6 +1591,7 @@ def _update_text_metrics(
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
     stable_base_sources = _extract_layout_stable_base_sources(text)
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
+    generic_base_trust_candidates = _extract_layout_generic_base_trust_candidates(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
@@ -1529,6 +1650,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_GENERIC_BASE_TRUST_CANDIDATE_RE,
+        "inferred_offset_generic_base_trust_candidates",
+        "functions_with_inferred_offset_generic_base_trust_candidates",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_READY_RE,
         "inferred_offset_rewrite_ready",
         "functions_with_inferred_offset_rewrite_ready",
@@ -1554,6 +1682,7 @@ def _update_text_metrics(
         bitfield_aliases,
         stable_base_sources,
         generic_base_evidence,
+        generic_base_trust_candidates,
         rewrite_ready,
         rewrite_near_ready,
         rewrite_blockers,
@@ -1748,6 +1877,22 @@ def _extract_layout_generic_base_evidence(text: str) -> list[dict[str, Any]]:
             {
                 "base": match.group("base"),
                 "blocker_profile": match.group("blocker_profile"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offset_count": _int_value(match.group("offset_count"), 0),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
+def _extract_layout_generic_base_trust_candidates(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_GENERIC_BASE_TRUST_CANDIDATE_DETAIL_RE.finditer(text or ""):
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "source_kind": match.group("source_kind"),
+                "blocker_profile": match.group("blocker_profile").replace("-", "_"),
                 "access_count": _int_value(match.group("access_count"), 0),
                 "offset_count": _int_value(match.group("offset_count"), 0),
                 "confidence": _float_value(match.group("confidence"), 0.0),
@@ -2062,6 +2207,25 @@ def _update_layout_generic_base_evidence_metrics(
         blocker_profiles[str(candidate.get("blocker_profile", "") or "unknown")] += 1
 
 
+def _update_layout_generic_base_trust_candidate_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    source_kinds: Counter[str],
+    blocker_profiles: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_trust_candidates"] += 1
+    for candidate in candidates:
+        totals["trust_candidates"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
+        blocker_profiles[str(candidate.get("blocker_profile", "") or "unknown")] += 1
+
+
 def _update_layout_rewrite_ready_metrics(
     candidates: list[dict[str, Any]],
     totals: Counter[str],
@@ -2278,6 +2442,34 @@ def _generic_base_evidence_function_summary(
         "name": name,
         "evidence_count": len(candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "blocker_profiles": _counter_to_dict(blocker_profiles),
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _generic_base_trust_candidate_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_kinds = Counter(
+        str(item.get("source_kind", "") or "unknown")
+        for item in candidates
+    )
+    blocker_profiles = Counter(
+        str(item.get("blocker_profile", "") or "unknown")
+        for item in candidates
+    )
+    return {
+        "ea": ea,
+        "name": name,
+        "candidate_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "source_kinds": _counter_to_dict(source_kinds),
         "blocker_profiles": _counter_to_dict(blocker_profiles),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
