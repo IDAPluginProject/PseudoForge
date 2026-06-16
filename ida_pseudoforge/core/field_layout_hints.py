@@ -1526,7 +1526,19 @@ def _has_unaligned_field_access(layout: _LayoutEvidence) -> bool:
 def _field_type_storage_class(type_name: str) -> str:
     normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
     lowered = normalized.lower()
-    if lowered in {"char", "signed char", "unsigned char", "_byte", "byte", "uchar", "boolean", "bool"}:
+    if lowered in {
+        "__int8",
+        "signed __int8",
+        "unsigned __int8",
+        "char",
+        "signed char",
+        "unsigned char",
+        "_byte",
+        "byte",
+        "uchar",
+        "boolean",
+        "bool",
+    }:
         return "size:1"
     if lowered in {
         "__int16",
@@ -1572,9 +1584,21 @@ def _field_type_storage_size(type_name: str) -> int:
 
 
 def _natural_type_alignment(type_name: str) -> int:
-    normalized = " ".join(str(type_name or "").replace("volatile ", "").split())
+    normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
     lowered = normalized.lower()
-    if lowered in {"char", "signed char", "unsigned char", "_byte", "byte", "uchar", "boolean"}:
+    if lowered in {
+        "__int8",
+        "signed __int8",
+        "unsigned __int8",
+        "char",
+        "signed char",
+        "unsigned char",
+        "_byte",
+        "byte",
+        "uchar",
+        "boolean",
+        "bool",
+    }:
         return 1
     if lowered in {"short", "unsigned short", "_word", "word", "ushort", "wchar_t"}:
         return 2

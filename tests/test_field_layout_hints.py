@@ -842,6 +842,38 @@ __int64 __fastcall SameWidthAliasLayout(__int64 sessionSpace)
         self.assertEqual([], blockers)
         self.assertEqual(1, len(ready))
 
+    def test_unsigned_int8_alias_does_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall ByteAliasLayout(__int64 sessionSpace)
+{
+  return *(unsigned __int8 *)(sessionSpace + 0x20)
+       + *(_BYTE *)(sessionSpace + 0x21)
+       + *(unsigned __int8 *)(sessionSpace + 0x21)
+       + *(_BYTE *)(sessionSpace + 0x22)
+       + *(_QWORD *)(sessionSpace + 0x28)
+       + *(_DWORD *)(sessionSpace + 0x30)
+       + *(_DWORD *)(sessionSpace + 0x34)
+       + *(_QWORD *)(sessionSpace + 0x38)
+       + *(_QWORD *)(sessionSpace + 0x40)
+       + *(_QWORD *)(sessionSpace + 0x48)
+       + *(_QWORD *)(sessionSpace + 0x50)
+       + *(_QWORD *)(sessionSpace + 0x58);
+}
+"""
+        )
+
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(aliases))
+        self.assertIn("field_21=+0x21 mixed(_BYTE/unsigned __int8)", aliases[0]["text"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual(1, len(previews))
+
     def test_unknown_type_class_conflicts_are_reported_separately(self) -> None:
         comments = field_layout_comments(
             """
