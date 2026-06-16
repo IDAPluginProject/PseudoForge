@@ -260,6 +260,8 @@ def analyze_corpus(
     rewrite_blocker_bases: Counter[str] = Counter()
     rewrite_blocker_reasons: Counter[str] = Counter()
     rewrite_blocker_totals = Counter()
+    ntstatus_body_unprofiled_values: Counter[str] = Counter()
+    ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
     totals = Counter()
     text_totals = Counter()
     body_text_totals = Counter()
@@ -274,6 +276,7 @@ def analyze_corpus(
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
+    top_ntstatus_body_unprofiled_functions = []
 
     for summary_path in summary_paths:
         summary = _coerce_dict(_read_json(summary_path))
@@ -323,6 +326,7 @@ def analyze_corpus(
                     rewrite_ready,
                     rewrite_near_ready,
                     rewrite_blockers,
+                    ntstatus_body_literals,
                 ) = _update_text_metrics(
                     text_totals,
                     body_text_totals,
@@ -444,6 +448,26 @@ def analyze_corpus(
                     top_rewrite_blocker_functions.append(
                         _rewrite_blocker_function_summary(name, ea, summary_path, rewrite_blockers)
                     )
+                unprofiled_ntstatus_body_literals = [
+                    item
+                    for item in ntstatus_body_literals
+                    if not bool(item.get("profiled")) and str(item.get("severity", "")) == "error"
+                ]
+                if unprofiled_ntstatus_body_literals:
+                    _update_ntstatus_body_unprofiled_value_metrics(
+                        unprofiled_ntstatus_body_literals,
+                        ntstatus_body_unprofiled_values,
+                        ntstatus_body_unprofiled_value_functions,
+                        name,
+                    )
+                    top_ntstatus_body_unprofiled_functions.append(
+                        _ntstatus_body_unprofiled_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            unprofiled_ntstatus_body_literals,
+                        )
+                    )
 
         llm_statuses[str(summary.get("llm_status", "") or "unknown")] += 1
         _update_rename_metrics(rename_items, rename_sources, rename_sources_applied)
@@ -534,6 +558,12 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["blocker_count"]),
             -int(item["reason_count"]),
+            str(item["name"]),
+        )
+    )
+    top_ntstatus_body_unprofiled_functions.sort(
+        key=lambda item: (
+            -int(item["literal_count"]),
             str(item["name"]),
         )
     )
@@ -644,6 +674,14 @@ def analyze_corpus(
             "reasons": _counter_to_dict(Counter(dict(rewrite_blocker_reasons.most_common(top)))),
             "top_functions": top_rewrite_blocker_functions[:top],
         },
+        "ntstatus_body_residue_stats": {
+            "top_unprofiled_error_values": _ntstatus_unprofiled_value_summaries(
+                ntstatus_body_unprofiled_values,
+                ntstatus_body_unprofiled_value_functions,
+                top,
+            ),
+            "top_unprofiled_error_functions": top_ntstatus_body_unprofiled_functions[:top],
+        },
         "text_stats": _counter_to_dict(text_totals),
         "body_text_stats": _counter_to_dict(body_text_totals),
         "top_warning_functions": top_warning_functions[:top],
@@ -667,6 +705,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
+    ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
@@ -1425,6 +1464,57 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Unprofiled NTSTATUS Error Values",
+            "",
+            "| Value | Signed | Count | Functions |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    for item in ntstatus_body_residue_stats.get("top_unprofiled_error_values", []) or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "| `%s` | %s | %s | %s |"
+            % (
+                str(item.get("hex_value", "")),
+                int(item.get("signed_value", 0) or 0),
+                int(item.get("count", 0) or 0),
+                int(item.get("function_count", 0) or 0),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "### Functions With Unprofiled NTSTATUS Errors",
+            "",
+            "| Function | EA | Literals | Values | Raw literals |",
+            "| --- | --- | ---: | --- | --- |",
+        ]
+    )
+    for item in ntstatus_body_residue_stats.get("top_unprofiled_error_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        values = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("values", {})).items()
+        )
+        raw_literals = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("raw_literals", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("literal_count", 0) or 0),
+                values,
+                raw_literals,
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Highest Warning Functions",
             "",
             "| Function | EA | Warnings | Top classes |",
@@ -1582,13 +1672,15 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
+    ntstatus_body_literals = _ntstatus_family_literals(body_text)
     layout_hints = _extract_layout_hints(text)
     subfield_overlays = _extract_layout_subfield_overlays(text)
     narrow_subfields = _extract_layout_narrow_subfields(text)
@@ -1690,6 +1782,7 @@ def _update_text_metrics(
         rewrite_ready,
         rewrite_near_ready,
         rewrite_blockers,
+        ntstatus_body_literals,
     )
 
 
@@ -1766,11 +1859,74 @@ def _ntstatus_family_literals(text: str) -> list[dict[str, Any]]:
             {
                 "literal": match.group("literal"),
                 "unsigned_value": unsigned_value,
+                "signed_value": _signed_32bit_value(unsigned_value),
+                "hex_value": "0x%08X" % unsigned_value,
                 "severity": severity,
+                "profile_name": profile_name,
                 "profiled": profile_name != "",
             }
         )
     return result
+
+
+def _update_ntstatus_body_unprofiled_value_metrics(
+    literals: list[dict[str, Any]],
+    values: Counter[str],
+    value_functions: dict[str, set[str]],
+    function_name: str,
+) -> None:
+    for item in literals:
+        hex_value = str(item.get("hex_value", "") or "")
+        if not hex_value:
+            continue
+        values[hex_value] += 1
+        value_functions.setdefault(hex_value, set()).add(str(function_name or ""))
+
+
+def _ntstatus_unprofiled_value_summaries(
+    values: Counter[str],
+    value_functions: dict[str, set[str]],
+    top: int,
+) -> list[dict[str, Any]]:
+    result = []
+    for hex_value, count in values.most_common(top):
+        unsigned_value = _parse_numeric_literal(hex_value)
+        if unsigned_value is None:
+            continue
+        result.append(
+            {
+                "hex_value": hex_value,
+                "signed_value": _signed_32bit_value(unsigned_value & 0xFFFFFFFF),
+                "count": int(count),
+                "function_count": len(value_functions.get(hex_value, set())),
+            }
+        )
+    return result
+
+
+def _ntstatus_body_unprofiled_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    literals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    values = Counter(str(item.get("hex_value", "") or "") for item in literals)
+    raw_literals = Counter(str(item.get("literal", "") or "") for item in literals)
+    return {
+        "ea": ea,
+        "name": name,
+        "literal_count": len(literals),
+        "values": _counter_to_dict(values),
+        "raw_literals": _counter_to_dict(raw_literals),
+        "summary_path": str(summary_path),
+    }
+
+
+def _signed_32bit_value(unsigned_value: int) -> int:
+    value = int(unsigned_value) & 0xFFFFFFFF
+    if value & 0x80000000:
+        return value - 0x100000000
+    return value
 
 
 def _is_ntstatus_literal_context(text: str, match: re.Match[str]) -> bool:

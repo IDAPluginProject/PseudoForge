@@ -361,6 +361,29 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(6, report["body_text_stats"]["ntstatus_error_family_literals"])
             self.assertEqual(1, report["body_text_stats"]["ntstatus_informational_family_literals"])
             self.assertEqual(1, report["body_text_stats"]["ntstatus_unprofiled_error_family_literals"])
+            ntstatus_stats = report["ntstatus_body_residue_stats"]
+            self.assertEqual(
+                "0xC0033333",
+                ntstatus_stats["top_unprofiled_error_values"][0]["hex_value"],
+            )
+            self.assertEqual(
+                -1073532109,
+                ntstatus_stats["top_unprofiled_error_values"][0]["signed_value"],
+            )
+            self.assertEqual(1, ntstatus_stats["top_unprofiled_error_values"][0]["count"])
+            self.assertEqual(1, ntstatus_stats["top_unprofiled_error_values"][0]["function_count"])
+            self.assertEqual(
+                "Sample",
+                ntstatus_stats["top_unprofiled_error_functions"][0]["name"],
+            )
+            self.assertEqual(
+                {"0xC0033333": 1},
+                ntstatus_stats["top_unprofiled_error_functions"][0]["values"],
+            )
+            self.assertEqual(
+                {"-1073532109": 1},
+                ntstatus_stats["top_unprofiled_error_functions"][0]["raw_literals"],
+            )
             self.assertNotIn("inferred_offset_layout_hints", report["body_text_stats"])
             self.assertNotIn("inferred_offset_field_aliases", report["body_text_stats"])
             self.assertNotIn("inferred_offset_subfield_overlays", report["body_text_stats"])
@@ -502,6 +525,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Code Body Residue",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Unprofiled NTSTATUS Error Values",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
 
