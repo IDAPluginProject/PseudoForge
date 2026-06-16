@@ -32,6 +32,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
+    result = _replace_guard_dispatch_status_ternary_fallbacks(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
@@ -202,6 +203,72 @@ def _replace_status_assignments_for_names(text: str, candidates: set[str]) -> st
         return match.group("prefix") + name + match.group("end")
 
     return pattern.sub(repl, text)
+
+
+def _replace_guard_dispatch_status_ternary_fallbacks(text: str) -> str:
+    pattern = re.compile(
+        r"(?m)^(?P<prefix>[ \t]*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*)"
+        r"(?P<condition>[^;\n?]+?)\?\s*"
+        r"(?P<true_arm>[^:\n;]+?)\s*:\s*"
+        r"(?P<false_arm>[^;\n]+?)(?P<end>\s*;)"
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        target = match.group("target")
+        if not (_is_status_identifier(target) or _has_status_carrier_use(text, target)):
+            return match.group(0)
+        if _target_has_bitwise_use(text, target):
+            return match.group(0)
+
+        true_arm = match.group("true_arm")
+        false_arm = match.group("false_arm")
+        true_has_guard = "guard_dispatch_icall_no_overrides" in true_arm
+        false_has_guard = "guard_dispatch_icall_no_overrides" in false_arm
+        if true_has_guard == false_has_guard:
+            return match.group(0)
+
+        if true_has_guard:
+            replacement = _replace_guard_dispatch_status_literal_arm(false_arm)
+            if replacement == false_arm:
+                return match.group(0)
+            return (
+                match.group("prefix")
+                + match.group("condition")
+                + "? "
+                + true_arm
+                + " : "
+                + replacement
+                + match.group("end")
+            )
+
+        replacement = _replace_guard_dispatch_status_literal_arm(true_arm)
+        if replacement == true_arm:
+            return match.group(0)
+        return (
+            match.group("prefix")
+            + match.group("condition")
+            + "? "
+            + replacement
+            + " : "
+            + false_arm
+            + match.group("end")
+        )
+
+    return pattern.sub(repl, text)
+
+
+def _replace_guard_dispatch_status_literal_arm(arm: str) -> str:
+    match = re.fullmatch(
+        r"(?P<prefix>\s*)(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<tail>\s*)",
+        arm,
+    )
+    if match is None:
+        return arm
+    name = _error_status_name_for_literal(match.group("literal"))
+    if not name:
+        return arm
+    return match.group("prefix") + name + match.group("tail")
 
 
 def _replace_status_carrier_literals(text: str) -> str:
@@ -404,6 +471,20 @@ def _has_status_carrier_use(text: str, name: str) -> bool:
             r"\b%s\s*(?:<|>=)\s*0\b",
             r"\b0\s*(?:>|<=)\s*%s\b",
             r"\breturn\s+(?:\(unsigned int\)\s*)?%s\s*;",
+        )
+    )
+
+
+def _target_has_bitwise_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    bitwise_operator = r"(?:\||\^|<<|>>|(?<!&)&(?!&))"
+    return any(
+        re.search(pattern % escaped, text)
+        for pattern in (
+            r"\b%s\s*(?:\|=|\^=|&=|<<=|>>=)",
+            r"\b%s\s*%s" % ("%s", bitwise_operator),
+            r"%s\s*%s\b" % (bitwise_operator, "%s"),
+            r"~\s*%s\b",
         )
     )
 

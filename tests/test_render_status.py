@@ -141,6 +141,9 @@ NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
 {
   int callbackStatus;
   int ternaryStatus;
+  int fallbackStatus;
+  int alternateFallbackStatus;
+  int bitwiseFallback;
   int plainValue;
 
   if ( a1 )
@@ -156,6 +159,14 @@ NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
       : guard_dispatch_icall_no_overrides(a1, a2);
   if ( ternaryStatus != -1073741802 )
     return ternaryStatus;
+  fallbackStatus = qword_140FD8390 ? guard_dispatch_icall_no_overrides(a1, a2) : -1073741637;
+  if ( fallbackStatus < 0 )
+    return fallbackStatus;
+  alternateFallbackStatus = qword_140FD8390 ? -1073741637 : guard_dispatch_icall_no_overrides(a1, a2);
+  if ( alternateFallbackStatus < 0 )
+    return alternateFallbackStatus;
+  bitwiseFallback = qword_140FD8390 ? guard_dispatch_icall_no_overrides(a1, a2) : -1073741637;
+  plainValue = bitwiseFallback | 0x10000000;
   plainValue = SomeIntegerCall(a1);
   if ( plainValue == -1073741822 )
     return STATUS_INVALID_PARAMETER;
@@ -390,6 +401,19 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("callbackStatus == STATUS_NOT_IMPLEMENTED", rendered)
         self.assertIn("STATUS_CANCELLED == callbackStatus", rendered)
         self.assertIn("ternaryStatus != STATUS_MORE_PROCESSING_REQUIRED", rendered)
+        self.assertIn(
+            "fallbackStatus = qword_140FD8390 ? guard_dispatch_icall_no_overrides(argument0, argument1) : STATUS_NOT_SUPPORTED;",
+            rendered,
+        )
+        self.assertIn(
+            "alternateFallbackStatus = qword_140FD8390 ? STATUS_NOT_SUPPORTED : guard_dispatch_icall_no_overrides(argument0, argument1);",
+            rendered,
+        )
+        self.assertIn(
+            "bitwiseFallback = qword_140FD8390 ? guard_dispatch_icall_no_overrides(argument0, argument1) : -1073741637;",
+            rendered,
+        )
+        self.assertIn("plainValue = bitwiseFallback | 0x10000000;", rendered)
         self.assertIn("plainValue == -1073741822", rendered)
 
     def test_status_carrier_literals_are_named_after_status_assignments(self) -> None:
