@@ -235,6 +235,45 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_temp_base_with_stable_argument_source_reports_source_hint(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableTempSourceLayout(__int64 argument2)
+{
+  __int64 v4;
+
+  v4 = argument2;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("temp", sources[0]["base_kind"])
+        self.assertEqual("argument2", sources[0]["source"])
+        self.assertEqual("argument", sources[0]["source_kind"])
+        self.assertEqual(8, sources[0]["offset_count"])
+        self.assertEqual(12, sources[0]["access_count"])
+        self.assertIn("Stable base source for v4: argument2 (argument source)", sources[0]["text"])
+        self.assertIn("keeps rewrite blocked", sources[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
             """
@@ -789,9 +828,11 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
 """
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual([], sources)
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_cast_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:

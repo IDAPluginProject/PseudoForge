@@ -23,6 +23,7 @@ CLEANED = r"""
       - inferred_offset_rewrite_ready: Offset field rewrite candidate for readySession: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
+      - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
 */
 __int64 __fastcall Sample(__int64 a1)
 {
@@ -87,6 +88,25 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(2, report["layout_hint_stats"]["observed_types"]["_DWORD"])
             self.assertEqual("Sample", report["layout_hint_stats"]["top_functions"][0]["name"])
             self.assertEqual(8, report["layout_hint_stats"]["top_functions"][0]["max_offsets"])
+            self.assertEqual(1, report["layout_stable_base_source_stats"]["totals"]["source_comments"])
+            self.assertEqual(
+                1,
+                report["layout_stable_base_source_stats"]["totals"]["functions_with_source_comments"],
+            )
+            self.assertEqual(8, report["layout_stable_base_source_stats"]["totals"]["offset_observations"])
+            self.assertEqual(13, report["layout_stable_base_source_stats"]["totals"]["access_observations"])
+            self.assertEqual(1, report["layout_stable_base_source_stats"]["top_bases"]["v14"])
+            self.assertEqual(1, report["layout_stable_base_source_stats"]["sources"]["argument2"])
+            self.assertEqual(1, report["layout_stable_base_source_stats"]["source_kinds"]["argument"])
+            self.assertEqual("Sample", report["layout_stable_base_source_stats"]["top_functions"][0]["name"])
+            self.assertEqual(
+                1,
+                report["layout_stable_base_source_stats"]["top_functions"][0]["top_sources"]["argument2"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_stable_base_source_stats"]["top_functions"][0]["top_source_kinds"]["argument"],
+            )
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["totals"]["overlay_comments"])
             self.assertEqual(
                 1,
@@ -251,6 +271,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["inferred_offset_subfield_overlays"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_narrow_subfields"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_bitfield_aliases"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_stable_base_sources"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_near_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_blockers"])
@@ -264,6 +285,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertNotIn("inferred_offset_subfield_overlays", report["body_text_stats"])
             self.assertNotIn("inferred_offset_narrow_subfields", report["body_text_stats"])
             self.assertNotIn("inferred_offset_bitfield_aliases", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_stable_base_sources", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_near_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_blockers", report["body_text_stats"])
@@ -305,6 +327,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Inferred Layout Hints",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Stable Base Sources",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Stable Base Source Kinds",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

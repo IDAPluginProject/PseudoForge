@@ -69,6 +69,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
             alias_preview = _field_alias_comment_from_layout(item)
             if alias_preview:
                 comments.append(alias_preview)
+                source_preview = _field_stable_base_source_comment_from_layout(text or "", item)
+                if source_preview:
+                    comments.append(source_preview)
                 overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item)
                 if overlay_preview:
                     comments.append(overlay_preview)
@@ -284,6 +287,39 @@ def _field_bitfield_alias_comment_from_layout(text: str, layout: _LayoutEvidence
         "base": layout.base,
         "base_kind": base_kind,
         "fields": fields,
+    }
+
+
+def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind == "named":
+        return None
+    source = _stable_base_source_before_layout_access(text, layout.base)
+    if not source:
+        return None
+    source_kind = _layout_source_kind(source)
+    if source_kind not in {"argument", "named"}:
+        return None
+    confidence = min(
+        _field_stable_base_source_confidence_cap_for_base_kind(base_kind, source_kind),
+        0.58 + len(layout.offsets) * 0.02 + min(layout.access_count, 12) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_stable_base_source",
+        "text": _field_stable_base_source_text(
+            layout.base,
+            source,
+            source_kind,
+            layout.access_count,
+            len(layout.offsets),
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "source": source,
+        "source_kind": source_kind,
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
     }
 
 
@@ -778,6 +814,14 @@ def _field_bitfield_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
     return 0.74
 
 
+def _field_stable_base_source_confidence_cap_for_base_kind(base_kind: str, source_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.72 if source_kind == "named" else 0.68
+    if base_kind == "generic":
+        return 0.68 if source_kind == "named" else 0.64
+    return 0.74
+
+
 def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "temp":
         return 0.74
@@ -868,6 +912,20 @@ def _field_bitfield_alias_text(base: str, base_kind: str, alias_text: str) -> st
     return (
         "Bitfield aliases for %s: %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
         % (base, alias_text)
+    )
+
+
+def _field_stable_base_source_text(
+    base: str,
+    source: str,
+    source_kind: str,
+    access_count: int,
+    offset_count: int,
+) -> str:
+    return (
+        "Stable base source for %s: %s (%s source), %d typed dereference(s) across %d offset(s). "
+        "Review-only; temp/generic base keeps rewrite blocked until source identity is trusted."
+        % (base, source, source_kind, access_count, offset_count)
     )
 
 
@@ -1080,6 +1138,45 @@ def _stable_aliases_for_base_before_access(text: str, base: str, first_access: i
             continue
         aliases.add(alias)
     return aliases
+
+
+def _stable_base_source_before_layout_access(text: str, base: str) -> str:
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return ""
+    assignments = _base_direct_assignments(text, base)
+    pre_access_assignments = [
+        item
+        for item in assignments
+        if item.start() < first_access
+    ]
+    if not pre_access_assignments:
+        return ""
+    if any(item.group("op") != "=" for item in pre_access_assignments):
+        return ""
+    pre_access_rhs = [
+        _normalize_assignment_rhs(item.group("rhs"))
+        for item in pre_access_assignments
+    ]
+    distinct_pre_access_rhs = {item for item in pre_access_rhs if item}
+    if len(distinct_pre_access_rhs) != 1:
+        return ""
+    return pre_access_rhs[-1] if pre_access_rhs else ""
+
+
+def _layout_source_kind(source: str) -> str:
+    value = str(source or "").strip()
+    if _is_generic_argument_base(value):
+        return "argument"
+    if _is_decompiler_temp_base(value):
+        return "temporary"
+    if _is_generic_named_base(value):
+        return "generic"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        if _is_scalar_like_base(value):
+            return "scalar"
+        return "named"
+    return "expression"
 
 
 def _normalize_assignment_rhs(value: str) -> str:

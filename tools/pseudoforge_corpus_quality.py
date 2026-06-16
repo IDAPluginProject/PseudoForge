@@ -56,6 +56,17 @@ FIELD_BITFIELD_ALIAS_DETAIL_RE = re.compile(
     r"body rewrite remains disabled until the parent structure is trusted\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_STABLE_BASE_SOURCE_RE = re.compile(r"-\s+inferred_offset_stable_base_source:")
+FIELD_STABLE_BASE_SOURCE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_stable_base_source:\s+Stable base source for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s+"
+    r"\((?P<source_kind>[a-z_]+)\s+source\),\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\)\.\s+"
+    r"Review-only; temp/generic base keeps rewrite blocked until source identity is trusted\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
     r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
     r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
@@ -204,6 +215,10 @@ def analyze_corpus(
     bitfield_alias_names: Counter[str] = Counter()
     bitfield_alias_masks: Counter[str] = Counter()
     bitfield_alias_totals = Counter()
+    stable_base_source_bases: Counter[str] = Counter()
+    stable_base_source_sources: Counter[str] = Counter()
+    stable_base_source_kinds: Counter[str] = Counter()
+    stable_base_source_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -220,6 +235,7 @@ def analyze_corpus(
     top_subfield_overlay_functions = []
     top_narrow_subfield_functions = []
     top_bitfield_alias_functions = []
+    top_stable_base_source_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
@@ -266,6 +282,7 @@ def analyze_corpus(
                     subfield_overlays,
                     narrow_subfields,
                     bitfield_aliases,
+                    stable_base_sources,
                     rewrite_ready,
                     rewrite_near_ready,
                     rewrite_blockers,
@@ -308,6 +325,13 @@ def analyze_corpus(
                     bitfield_alias_names,
                     bitfield_alias_masks,
                 )
+                _update_layout_stable_base_source_metrics(
+                    stable_base_sources,
+                    stable_base_source_totals,
+                    stable_base_source_bases,
+                    stable_base_source_sources,
+                    stable_base_source_kinds,
+                )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
                     rewrite_ready_totals,
@@ -340,6 +364,10 @@ def analyze_corpus(
                 if bitfield_aliases:
                     top_bitfield_alias_functions.append(
                         _bitfield_alias_function_summary(name, ea, summary_path, bitfield_aliases)
+                    )
+                if stable_base_sources:
+                    top_stable_base_source_functions.append(
+                        _stable_base_source_function_summary(name, ea, summary_path, stable_base_sources)
                     )
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
@@ -396,6 +424,14 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["alias_comment_count"]),
             -int(item["field_count"]),
+            str(item["name"]),
+        )
+    )
+    top_stable_base_source_functions.sort(
+        key=lambda item: (
+            -int(item["source_comment_count"]),
+            -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
             str(item["name"]),
         )
     )
@@ -492,6 +528,13 @@ def analyze_corpus(
             "masks": _counter_to_dict(Counter(dict(bitfield_alias_masks.most_common(top)))),
             "top_functions": top_bitfield_alias_functions[:top],
         },
+        "layout_stable_base_source_stats": {
+            "totals": _counter_to_dict(stable_base_source_totals),
+            "top_bases": _counter_to_dict(Counter(dict(stable_base_source_bases.most_common(top)))),
+            "sources": _counter_to_dict(Counter(dict(stable_base_source_sources.most_common(top)))),
+            "source_kinds": _counter_to_dict(Counter(dict(stable_base_source_kinds.most_common(top)))),
+            "top_functions": top_stable_base_source_functions[:top],
+        },
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
@@ -526,6 +569,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     subfield_overlay_stats = _coerce_dict(report.get("layout_subfield_overlay_stats", {}))
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
+    stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
@@ -533,6 +577,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
+    stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
@@ -638,6 +683,74 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("hint_count", 0) or 0),
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Stable Base Sources",
+            "",
+            "- Stable base source comments: `%s` across `%s` functions"
+            % (
+                stable_base_source_totals.get("source_comments", 0),
+                stable_base_source_totals.get("functions_with_source_comments", 0),
+            ),
+            "- Stable source offset observations: `%s`" % stable_base_source_totals.get("offset_observations", 0),
+            "- Stable source access observations: `%s`" % stable_base_source_totals.get("access_observations", 0),
+            "",
+            "### Stable Base Source Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(stable_base_source_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Stable Base Source Names",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(stable_base_source_stats.get("sources", {})), "Source"))
+    lines.extend(
+        [
+            "",
+            "### Stable Base Source Kinds",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(stable_base_source_stats.get("source_kinds", {})), "Kind"))
+    lines.extend(
+        [
+            "",
+            "### Highest Stable Base Source Functions",
+            "",
+            "| Function | EA | Source comments | Max offsets | Max accesses | Sources | Source kinds | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in stable_base_source_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        sources = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_sources", {})).items()
+        )
+        source_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_source_kinds", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("source_comment_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                sources,
+                source_kinds,
                 bases,
             )
         )
@@ -1247,10 +1360,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -1258,6 +1372,7 @@ def _update_text_metrics(
     subfield_overlays = _extract_layout_subfield_overlays(text)
     narrow_subfields = _extract_layout_narrow_subfields(text)
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
+    stable_base_sources = _extract_layout_stable_base_sources(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
@@ -1302,6 +1417,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_STABLE_BASE_SOURCE_RE,
+        "inferred_offset_stable_base_sources",
+        "functions_with_inferred_offset_stable_base_sources",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_READY_RE,
         "inferred_offset_rewrite_ready",
         "functions_with_inferred_offset_rewrite_ready",
@@ -1320,7 +1442,16 @@ def _update_text_metrics(
         "inferred_offset_rewrite_blockers",
         "functions_with_inferred_offset_rewrite_blockers",
     )
-    return layout_hints, subfield_overlays, narrow_subfields, bitfield_aliases, rewrite_ready, rewrite_near_ready, rewrite_blockers
+    return (
+        layout_hints,
+        subfield_overlays,
+        narrow_subfields,
+        bitfield_aliases,
+        stable_base_sources,
+        rewrite_ready,
+        rewrite_near_ready,
+        rewrite_blockers,
+    )
 
 
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
@@ -1482,6 +1613,22 @@ def _extract_layout_bitfield_aliases(text: str) -> list[dict[str, Any]]:
                 "base": match.group("base"),
                 "field_count": len(fields),
                 "fields": fields,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
+def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "source": match.group("source"),
+                "source_kind": match.group("source_kind"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offset_count": _int_value(match.group("offset_count"), 0),
                 "confidence": _float_value(match.group("confidence"), 0.0),
             }
         )
@@ -1758,6 +1905,25 @@ def _update_layout_bitfield_alias_metrics(
                 masks[str(mask)] += 1
 
 
+def _update_layout_stable_base_source_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    sources: Counter[str],
+    source_kinds: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_source_comments"] += 1
+    for candidate in candidates:
+        totals["source_comments"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        sources[str(candidate.get("source", "") or "unknown")] += 1
+        source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
+
+
 def _update_layout_rewrite_ready_metrics(
     candidates: list[dict[str, Any]],
     totals: Counter[str],
@@ -1929,6 +2095,31 @@ def _bitfield_alias_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "top_aliases": _counter_to_dict(Counter(dict(aliases.most_common(5)))),
         "top_masks": _counter_to_dict(Counter(dict(masks.most_common(5)))),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _stable_base_source_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sources = Counter()
+    source_kinds = Counter()
+    for candidate in candidates:
+        sources[str(candidate.get("source", "") or "unknown")] += 1
+        source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
+    return {
+        "ea": ea,
+        "name": name,
+        "source_comment_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "top_sources": _counter_to_dict(Counter(dict(sources.most_common(5)))),
+        "top_source_kinds": _counter_to_dict(Counter(dict(source_kinds.most_common(5)))),
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
