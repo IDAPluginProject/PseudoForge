@@ -357,6 +357,74 @@ __int64 __fastcall LayoutPreviewBlocked(__int64 argument2)
             self.assertEqual("blocked_by_validation", preview_metadata["canonical_rewrite_status"])
             self.assertIn("v4 advertised 3 access(es) but rewrote 2", preview_metadata["canonical_rewrite_errors"])
 
+    def test_validated_layout_rewrite_normalizes_post_render_advertised_counts(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for context: 13 typed dereference(s) across 10 offset(s), no rewrite blockers found. Source provenance generic_parameter_trust from context. Audit only; body rewrite was not applied. confidence=0.80
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for context: 13 dereference(s) can map to 10 field alias(es) field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48, .... Source provenance generic_parameter_trust from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall LayoutPreviewNormalize(__int64 context)
+{
+  return *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 80)
+       + *(_QWORD *)(context + 88)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPreviewNormalize(__int64 context)
+{
+  return context;
+}
+""",
+                name="LayoutPreviewNormalize",
+                ea=0x140002400,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual("passed", preview_metadata["validation"]["status"])
+            self.assertEqual("applied", preview_metadata["canonical_rewrite_status"])
+            self.assertEqual(1, len(preview_metadata["advertisement_normalizations"]))
+            self.assertEqual(
+                {
+                    "base": "context",
+                    "original_accesses": 13,
+                    "original_fields": 10,
+                    "normalized_accesses": 12,
+                    "normalized_fields": 9,
+                },
+                preview_metadata["advertisement_normalizations"][0],
+            )
+            self.assertEqual(12, preview_metadata["preview_plans"][0]["advertised_access_count"])
+            self.assertEqual(9, preview_metadata["preview_plans"][0]["advertised_field_count"])
+            self.assertIn("context->field_58 /* _QWORD +0x58 */", cleaned_output)
+            self.assertIn("12 typed dereference(s) across 9 offset(s)", cleaned_output)
+            self.assertIn("12 dereference(s) can map to 9 field alias(es)", cleaned_output)
+            self.assertNotIn("field_30,", cleaned_output)
+
     def test_legacy_render_export_import_remains_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")

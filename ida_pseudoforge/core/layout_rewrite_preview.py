@@ -29,6 +29,24 @@ _REWRITE_PREVIEW_RE = re.compile(
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 
+_REWRITE_READY_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_ready:\s+Offset field rewrite candidate for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\),\s+no rewrite blockers found\.\s+"
+    r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
+    r"(?P<status_comment>"
+    + re.escape(_AUDIT_ONLY_NOT_APPLIED_COMMENT)
+    + r"|"
+    + re.escape(_CANONICAL_APPLIED_COMMENT)
+    + r")\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+
+_REWRITE_ACCESS_THRESHOLD = 12
+_REWRITE_FIELD_THRESHOLD = 8
+
 
 @dataclass(slots=True)
 class LayoutRewritePreviewBundle:
@@ -46,6 +64,13 @@ def build_layout_rewrite_preview_bundle(
     plans = _layout_rewrite_preview_plans(cleaned_text)
     if not plans:
         return None
+    normalized_cleaned_text, normalized_plans, normalization_items = _normalize_layout_rewrite_advertisements(
+        cleaned_text,
+        plans,
+    )
+    if normalization_items:
+        cleaned_text = normalized_cleaned_text
+        plans = normalized_plans
     rewritten, rewrite_stats = _rewrite_layout_offset_dereferences(cleaned_text, plans)
     if rewrite_stats["rewritten_accesses"] <= 0:
         return None
@@ -86,6 +111,7 @@ def build_layout_rewrite_preview_bundle(
         "rewritten_fields": rewrite_stats["rewritten_fields"],
         "rewritten_bases": rewrite_stats["rewritten_bases"],
         "rewrite_results": rewrite_stats["rewrite_results"],
+        "advertisement_normalizations": normalization_items,
         "validation": validation,
     }
     return LayoutRewritePreviewBundle(
@@ -151,11 +177,135 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
             base: {
                 "rewritten_accesses": int(result["rewritten_accesses"]),
                 "rewritten_fields": len(result["rewritten_fields"]),
-                "field_aliases": sorted(result["rewritten_fields"]),
+                "field_aliases": sorted(result["rewritten_fields"], key=_field_alias_sort_key),
             }
             for base, result in sorted(rewrite_results.items())
         },
     }
+
+
+def _normalize_layout_rewrite_advertisements(
+    text: str,
+    plans: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    if not plans:
+        return str(text or ""), plans, []
+    _, rewrite_stats = _rewrite_layout_offset_dereferences(text, plans)
+    rewrite_results = {
+        str(base): result
+        for base, result in (rewrite_stats.get("rewrite_results", {}) or {}).items()
+        if isinstance(result, dict)
+    }
+    normalized_text = str(text or "")
+    normalizations = []
+    for plan in plans:
+        base = str(plan.get("base", "") or "")
+        result = rewrite_results.get(base, {})
+        actual_accesses = int(result.get("rewritten_accesses", 0) or 0)
+        actual_fields = int(result.get("rewritten_fields", 0) or 0)
+        expected_accesses = int(plan.get("advertised_access_count", 0) or 0)
+        expected_fields = int(plan.get("advertised_field_count", 0) or 0)
+        if actual_accesses == expected_accesses and actual_fields == expected_fields:
+            continue
+        if actual_accesses < _REWRITE_ACCESS_THRESHOLD or actual_fields < _REWRITE_FIELD_THRESHOLD:
+            continue
+        field_aliases = [
+            str(alias)
+            for alias in result.get("field_aliases", []) or []
+            if str(alias)
+        ]
+        normalized_text = _rewrite_preview_advertisement_comment(
+            normalized_text,
+            base,
+            actual_accesses,
+            actual_fields,
+            field_aliases,
+        )
+        normalized_text = _rewrite_ready_advertisement_comment(
+            normalized_text,
+            base,
+            actual_accesses,
+            actual_fields,
+        )
+        normalizations.append(
+            {
+                "base": base,
+                "original_accesses": expected_accesses,
+                "original_fields": expected_fields,
+                "normalized_accesses": actual_accesses,
+                "normalized_fields": actual_fields,
+            }
+        )
+    if not normalizations:
+        return str(text or ""), plans, []
+    return normalized_text, _layout_rewrite_preview_plans(normalized_text), normalizations
+
+
+def _rewrite_preview_advertisement_comment(
+    text: str,
+    base: str,
+    access_count: int,
+    field_count: int,
+    field_aliases: list[str],
+) -> str:
+    field_text = ", ".join(field_aliases[:8])
+    if len(field_aliases) > 8:
+        field_text += ", ..."
+
+    def replace(match: re.Match[str]) -> str:
+        if match.group("base") != base:
+            return match.group(0)
+        source_text = _source_provenance_text(match)
+        return (
+            "- inferred_offset_rewrite_preview: Offset field rewrite preview for %s: "
+            "%d dereference(s) can map to %d field alias(es) %s.%s %s confidence=%s"
+            % (
+                base,
+                access_count,
+                field_count,
+                field_text,
+                source_text,
+                _PREVIEW_ONLY_COMMENT,
+                match.group("confidence"),
+            )
+        )
+
+    return _REWRITE_PREVIEW_RE.sub(replace, text or "")
+
+
+def _rewrite_ready_advertisement_comment(
+    text: str,
+    base: str,
+    access_count: int,
+    field_count: int,
+) -> str:
+    def replace(match: re.Match[str]) -> str:
+        if match.group("base") != base:
+            return match.group(0)
+        source_text = _source_provenance_text(match)
+        return (
+            "- inferred_offset_rewrite_ready: Offset field rewrite candidate for %s: "
+            "%d typed dereference(s) across %d offset(s), no rewrite blockers found.%s "
+            "%s confidence=%s"
+            % (
+                base,
+                access_count,
+                field_count,
+                source_text,
+                match.group("status_comment"),
+                match.group("confidence"),
+            )
+        )
+
+    return _REWRITE_READY_RE.sub(replace, text or "")
+
+
+def _source_provenance_text(match: re.Match[str]) -> str:
+    source_provenance = str(match.groupdict().get("source_provenance") or "")
+    source = str(match.groupdict().get("source") or "")
+    if not source_provenance or not source:
+        return ""
+    return " Source provenance %s from %s." % (source_provenance, source)
 
 
 def _validate_layout_rewrite_preview(
@@ -285,3 +435,11 @@ def _float_value(value: str) -> float:
         return float(str(value))
     except ValueError:
         return 0.0
+
+
+def _field_alias_sort_key(value: str) -> tuple[int, str]:
+    text = str(value or "")
+    match = re.fullmatch(r"field_([0-9A-Fa-f]+)", text)
+    if not match:
+        return (0, text)
+    return (int(match.group(1), 16), text)

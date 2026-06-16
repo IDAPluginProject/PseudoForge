@@ -1653,6 +1653,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "- Artifact rewritten accesses: `%s`" % rewrite_preview_artifact_totals.get("rewritten_accesses", 0),
             "- Artifact rewritten fields: `%s`" % rewrite_preview_artifact_totals.get("rewritten_fields", 0),
             "- Artifact validation errors: `%s`" % rewrite_preview_artifact_totals.get("validation_errors", 0),
+            "- Advertisement normalizations: `%s`"
+            % rewrite_preview_artifact_totals.get("advertisement_normalizations", 0),
+            "- Normalized access delta: `%s`"
+            % rewrite_preview_artifact_totals.get("normalized_access_delta", 0),
+            "- Normalized field delta: `%s`"
+            % rewrite_preview_artifact_totals.get("normalized_field_delta", 0),
             "- Canonical rewrite requested: `%s`"
             % rewrite_preview_artifact_totals.get("canonical_rewrite_requested", 0),
             "- Canonical rewrite applied: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_applied", 0),
@@ -3818,6 +3824,19 @@ def _update_layout_rewrite_preview_artifact_metrics(
     statuses[status] += 1
     errors = [str(error) for error in validation.get("errors", []) or [] if str(error)]
     totals["validation_errors"] += len(errors)
+    normalizations = [
+        item
+        for item in metadata.get("advertisement_normalizations", []) or []
+        if isinstance(item, dict)
+    ]
+    totals["advertisement_normalizations"] += len(normalizations)
+    for item in normalizations:
+        original_accesses = _int_value(item.get("original_accesses"), 0)
+        normalized_accesses = _int_value(item.get("normalized_accesses"), 0)
+        original_fields = _int_value(item.get("original_fields"), 0)
+        normalized_fields = _int_value(item.get("normalized_fields"), 0)
+        totals["normalized_access_delta"] += max(0, original_accesses - normalized_accesses)
+        totals["normalized_field_delta"] += max(0, original_fields - normalized_fields)
     canonical_status = str(metadata.get("canonical_rewrite_status", "") or "unknown")
     canonical_statuses[canonical_status] += 1
     if bool(metadata.get("canonical_rewrite_requested", False)):
@@ -4484,6 +4503,11 @@ def _rewrite_preview_artifact_function_summary(
         ],
         "canonical_rewrite_status": str(metadata.get("canonical_rewrite_status", "") or "unknown"),
         "canonical_cleaned_output_modified": bool(metadata.get("canonical_cleaned_output_modified", False)),
+        "advertisement_normalizations": [
+            dict(item)
+            for item in metadata.get("advertisement_normalizations", []) or []
+            if isinstance(item, dict)
+        ],
         "rewritten_accesses": _int_value(metadata.get("rewritten_accesses"), 0),
         "rewritten_fields": _int_value(metadata.get("rewritten_fields"), 0),
         "rewritten_bases": [

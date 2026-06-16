@@ -425,6 +425,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(8, report["layout_rewrite_preview_artifact_stats"]["totals"]["rewritten_fields"])
             self.assertEqual(0, report["layout_rewrite_preview_artifact_stats"]["totals"]["validation_errors"])
             self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["totals"]["advertisement_normalizations"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["totals"]["normalized_access_delta"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["totals"]["normalized_field_delta"],
+            )
+            self.assertEqual(
                 0,
                 report["layout_rewrite_preview_artifact_stats"]["totals"].get("canonical_rewrite_requested", 0),
             )
@@ -452,6 +464,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 "not_requested",
                 report["layout_rewrite_preview_artifact_stats"]["top_functions"][0]["canonical_rewrite_status"],
+            )
+            self.assertEqual(
+                1,
+                len(
+                    report["layout_rewrite_preview_artifact_stats"]["top_functions"][0][
+                        "advertisement_normalizations"
+                    ]
+                ),
             )
             self.assertEqual(1, report["layout_rewrite_near_ready_stats"]["totals"]["near_ready_candidates"])
             self.assertEqual(
@@ -1233,6 +1253,15 @@ def _write_quality_fixture(root: Path) -> None:
                 "rewritten_accesses": 12,
                 "rewritten_fields": 8,
                 "rewritten_bases": ["readySession"],
+                "advertisement_normalizations": [
+                    {
+                        "base": "readySession",
+                        "original_accesses": 13,
+                        "original_fields": 9,
+                        "normalized_accesses": 12,
+                        "normalized_fields": 8,
+                    }
+                ],
                 "rewrite_results": {
                     "readySession": {
                         "rewritten_accesses": 12,
