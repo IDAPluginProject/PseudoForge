@@ -498,6 +498,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ]["identity_evidence"],
             )
             self.assertEqual(
+                {"missing_identity_evidence": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["promotion_review_classes"],
+            )
+            self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
@@ -508,6 +514,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
                 ]["identity_evidence"],
+            )
+            self.assertEqual(
+                {"stable_source_promotion_review": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["promotion_review_classes"],
             )
             self.assertEqual(
                 "v14",
@@ -532,6 +544,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
                 ]["items"][0]["identity_source_kind"],
+            )
+            self.assertEqual(
+                "stable_source_promotion_review",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["promotion_review_class"],
+            )
+            self.assertEqual(
+                ["identity_only"],
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["promotion_risk_factors"],
             )
             self.assertEqual(
                 1,
@@ -566,6 +590,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 {"stable_argument_source": 1, "none": 1},
                 report["layout_rewrite_blocker_stats"]["top_functions"][0]["identity_evidence"],
+            )
+            self.assertEqual(
+                {"stable_source_promotion_review": 1, "missing_identity_evidence": 1},
+                report["layout_rewrite_blocker_stats"]["top_functions"][0][
+                    "promotion_review_classes"
+                ],
             )
             self.assertEqual(8, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_offsets"])
             self.assertEqual(13, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_access_count"])
@@ -932,19 +962,19 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 |",
+                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 | stable_source_promotion_review=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 |",
+                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | missing_identity_evidence=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 |",
+                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | missing_identity_evidence=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 |",
+                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | missing_identity_evidence=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

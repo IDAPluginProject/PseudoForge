@@ -1532,8 +1532,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Rewrite Blocker Review Queues",
             "",
-            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence |",
-            "| --- | ---: | ---: | ---: | ---: | --- | --- |",
+            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence | Promotion classes |",
+            "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
         ]
     )
     for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
@@ -1546,8 +1546,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("identity_evidence", {})).items()
         )
+        promotion_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("promotion_review_classes", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 queue_name,
                 int(queue.get("blockers", 0) or 0),
@@ -1556,6 +1560,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(queue.get("max_access_count", 0) or 0),
                 _markdown_table_cell(top_bases),
                 _markdown_table_cell(identity_evidence),
+                _markdown_table_cell(promotion_classes),
             )
         )
     lines.extend(
@@ -1571,8 +1576,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Blocker Functions",
             "",
-            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Bases | Top reasons |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Promotion classes | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
         ]
     )
     for item in rewrite_blocker_stats.get("top_functions", []) or []:
@@ -1591,8 +1596,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("identity_evidence", {})).items()
         )
+        promotion_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("promotion_review_classes", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -1602,6 +1611,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(profiles),
                 _markdown_table_cell(identity_evidence),
+                _markdown_table_cell(promotion_classes),
                 bases,
                 reasons,
             )
@@ -3388,6 +3398,8 @@ def _update_layout_rewrite_blocker_metrics(
         identity = identity_evidence.get(base, {"identity_evidence": "none"})
         bases[base] += 1
         reason_items = [str(item) for item in blocker.get("reasons", []) or []]
+        promotion_review_class = _layout_promotion_review_class(identity, reason_items)
+        promotion_risk_factors = _layout_promotion_risk_factors(identity, reason_items)
         totals["reason_observations"] += len(reason_items)
         for reason in reason_items:
             reasons[reason] += 1
@@ -3408,6 +3420,8 @@ def _update_layout_rewrite_blocker_metrics(
                     "identity_source_kind": str(identity.get("source_kind", "") or ""),
                     "identity_blocker_profile": str(identity.get("blocker_profile", "") or ""),
                     "identity_confidence": _float_value(identity.get("confidence"), 0.0),
+                    "promotion_review_class": promotion_review_class,
+                    "promotion_risk_factors": promotion_risk_factors,
                     "reasons": reason_items,
                     "summary_path": str(summary_path),
                 }
@@ -3532,6 +3546,71 @@ def _layout_identity_evidence_score(item: dict[str, Any]) -> tuple[int, int, int
     )
 
 
+def _layout_promotion_review_class(identity: dict[str, Any], reasons: list[str]) -> str:
+    identity_evidence = str(identity.get("identity_evidence", "") or "none")
+    if identity_evidence == "none":
+        return "missing_identity_evidence"
+    if _has_layout_source_stability_risk(reasons):
+        return "source_stability_blocked"
+    if _has_layout_type_evidence_risk(reasons):
+        return "type_evidence_blocked"
+    if _has_layout_threshold_gap(reasons):
+        return "threshold_blocked"
+    if identity_evidence == "generic_parameter_trust":
+        return "generic_parameter_promotion_review"
+    if identity_evidence in {"stable_argument_source", "stable_named_source"}:
+        return "stable_source_promotion_review"
+    if identity_evidence == "generic_with_other_blockers":
+        return "generic_other_blocker_review"
+    if identity_evidence == "generic_base_evidence":
+        return "generic_base_evidence_review"
+    return "manual_review"
+
+
+def _layout_promotion_risk_factors(identity: dict[str, Any], reasons: list[str]) -> list[str]:
+    identity_evidence = str(identity.get("identity_evidence", "") or "none")
+    factors = []
+    if identity_evidence == "none":
+        factors.append("missing_identity_evidence")
+    if _has_layout_source_stability_risk(reasons):
+        factors.append("source_stability_risk")
+    if _has_layout_type_evidence_risk(reasons):
+        factors.append("type_evidence_risk")
+    if _has_layout_threshold_gap(reasons):
+        factors.append("threshold_gap")
+    if not factors:
+        factors.append("identity_only")
+    return factors
+
+
+def _has_layout_source_stability_risk(reasons: list[str]) -> bool:
+    return any(
+        any(token in str(reason or "").lower() for token in ("multiple initializers", "reassigned", "address is taken", "indexed like an array"))
+        for reason in reasons
+    )
+
+
+def _has_layout_type_evidence_risk(reasons: list[str]) -> bool:
+    return any(
+        any(
+            token in str(reason or "").lower()
+            for token in (
+                "mix narrow",
+                "mix wide",
+                "irregular field",
+                "not naturally aligned",
+                "volatile-looking",
+                "mmio/register",
+            )
+        )
+        for reason in reasons
+    )
+
+
+def _has_layout_threshold_gap(reasons: list[str]) -> bool:
+    return any("rewrite offset threshold" in str(reason or "").lower() or "rewrite access threshold" in str(reason or "").lower() for reason in reasons)
+
+
 def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
     profiles: set[str] = set()
     for reason in reasons:
@@ -3586,6 +3665,15 @@ def _layout_rewrite_blocker_review_queues(
         function_names = {str(item.get("name", "") or "") for item in items}
         bases = Counter(str(item.get("base", "") or "unknown") for item in items)
         identity_evidence = Counter(str(item.get("identity_evidence", "") or "none") for item in items)
+        promotion_review_classes = Counter(
+            str(item.get("promotion_review_class", "") or "manual_review")
+            for item in items
+        )
+        promotion_risk_factors = Counter(
+            str(factor)
+            for item in items
+            for factor in item.get("promotion_risk_factors", []) or []
+        )
         result[queue_name] = {
             "blockers": len(items),
             "functions": len(function_names),
@@ -3601,6 +3689,10 @@ def _layout_rewrite_blocker_review_queues(
             ),
             "top_bases": _counter_to_dict(Counter(dict(bases.most_common(top)))),
             "identity_evidence": _counter_to_dict(Counter(dict(identity_evidence.most_common(top)))),
+            "promotion_review_classes": _counter_to_dict(
+                Counter(dict(promotion_review_classes.most_common(top)))
+            ),
+            "promotion_risk_factors": _counter_to_dict(Counter(dict(promotion_risk_factors.most_common(top)))),
             "items": items[:top],
         }
     return result
@@ -3861,6 +3953,7 @@ def _rewrite_blocker_function_summary(
     reasons = Counter()
     review_profiles = Counter()
     identity_evidence = Counter()
+    promotion_review_classes = Counter()
     bases = []
     layout_evidence = _layout_evidence_by_base(layout_hints)
     identity_by_base = _layout_identity_evidence_by_base(
@@ -3881,8 +3974,9 @@ def _rewrite_blocker_function_summary(
         max_layout_confidence = max(max_layout_confidence, _float_value(evidence.get("confidence"), 0.0))
         max_blocker_confidence = max(max_blocker_confidence, _float_value(blocker.get("confidence"), 0.0))
         identity = identity_by_base.get(base, {"identity_evidence": "none"})
-        identity_evidence[str(identity.get("identity_evidence", "") or "none")] += 1
         reason_items = [str(reason) for reason in blocker.get("reasons", []) or []]
+        identity_evidence[str(identity.get("identity_evidence", "") or "none")] += 1
+        promotion_review_classes[_layout_promotion_review_class(identity, reason_items)] += 1
         for reason in reason_items:
             reasons[str(reason)] += 1
         for profile in _layout_rewrite_blocker_review_profiles(reason_items):
@@ -3899,6 +3993,7 @@ def _rewrite_blocker_function_summary(
         "max_blocker_confidence": max_blocker_confidence,
         "review_profiles": _counter_to_dict(Counter(dict(review_profiles.most_common(5)))),
         "identity_evidence": _counter_to_dict(Counter(dict(identity_evidence.most_common(5)))),
+        "promotion_review_classes": _counter_to_dict(Counter(dict(promotion_review_classes.most_common(5)))),
         "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),
     }
