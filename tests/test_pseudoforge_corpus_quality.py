@@ -539,6 +539,52 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 {"complex_or_memory_target": 4},
                 decimal_stats["target_evidence"],
             )
+            self.assertEqual(
+                3,
+                decimal_stats["review_queues"]["strong_profiled_status_literals"]["literals"],
+            )
+            self.assertEqual(
+                1,
+                decimal_stats["review_queues"]["strong_profiled_status_literals"]["functions"],
+            )
+            self.assertEqual(
+                {"profiled_status_literal_candidate": 3},
+                decimal_stats["review_queues"]["strong_profiled_status_literals"][
+                    "review_classes"
+                ],
+            )
+            self.assertEqual(
+                {"complex_or_memory_target": 3},
+                decimal_stats["review_queues"]["strong_profiled_status_literals"][
+                    "target_evidence"
+                ],
+            )
+            self.assertEqual(
+                "Sample",
+                decimal_stats["review_queues"]["strong_profiled_status_literals"]["items"][0][
+                    "name"
+                ],
+            )
+            self.assertEqual(
+                0,
+                decimal_stats["review_queues"]["weak_target_profiled_status_literals"][
+                    "literals"
+                ],
+            )
+            self.assertEqual(
+                1,
+                decimal_stats["review_queues"]["unprofiled_ntstatus_error_literals"][
+                    "literals"
+                ],
+            )
+            self.assertEqual(
+                0,
+                decimal_stats["review_queues"]["nonstatus_ascii_magic_literals"]["literals"],
+            )
+            self.assertEqual(
+                0,
+                decimal_stats["review_queues"]["nonstatus_bitmask_comparisons"]["literals"],
+            )
             self.assertEqual("Sample", decimal_stats["top_functions"][0]["name"])
             self.assertEqual(4, decimal_stats["top_functions"][0]["literal_count"])
             self.assertEqual(3, decimal_stats["top_functions"][0]["profiled_count"])
@@ -815,6 +861,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Decimal Status-Like Residue",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Decimal Status-Like Review Queues",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `strong_profiled_status_literals` | 3 | 1 | profiled_status_literal_candidate=3 | complex_or_memory_target=3 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

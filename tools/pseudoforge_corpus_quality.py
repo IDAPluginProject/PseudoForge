@@ -48,6 +48,14 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "access_threshold_gap_candidates",
     "manual_review",
 )
+_DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
+    "strong_profiled_status_literals",
+    "weak_target_profiled_status_literals",
+    "unprofiled_ntstatus_error_literals",
+    "nonstatus_ascii_magic_literals",
+    "nonstatus_bitmask_comparisons",
+    "manual_review",
+)
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
@@ -766,6 +774,7 @@ def analyze_corpus(
             "context_kinds": _counter_to_dict(Counter(dict(decimal_status_residue_context_kinds.most_common(top)))),
             "review_classes": _counter_to_dict(Counter(dict(decimal_status_residue_review_classes.most_common(top)))),
             "target_evidence": _counter_to_dict(Counter(dict(decimal_status_residue_target_evidence.most_common(top)))),
+            "review_queues": _decimal_status_review_queues(top_decimal_status_residue_functions, top),
             "top_functions": top_decimal_status_residue_functions[:top],
         },
         "text_stats": _counter_to_dict(text_totals),
@@ -1643,6 +1652,36 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "#### Decimal Status-Like Review Queues",
+            "",
+            "| Queue | Literals | Functions | Top Classes | Top Targets |",
+            "| --- | ---: | ---: | --- | --- |",
+        ]
+    )
+    decimal_review_queues = _coerce_dict(decimal_status_residue_stats.get("review_queues", {}))
+    for queue_name in _DECIMAL_STATUS_REVIEW_QUEUE_ORDER:
+        queue = _coerce_dict(decimal_review_queues.get(queue_name, {}))
+        classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("review_classes", {})).items()
+        )
+        targets = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("target_evidence", {})).items()
+        )
+        lines.append(
+            "| `%s` | %s | %s | %s | %s |"
+            % (
+                queue_name,
+                int(queue.get("literals", 0) or 0),
+                int(queue.get("functions", 0) or 0),
+                _markdown_table_cell(classes),
+                _markdown_table_cell(targets),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "#### Functions With Decimal Status-Like Residue",
             "",
             "| Function | EA | Literals | Profiled | Unprofiled | Classes | Targets | Kinds | Values | Context |",
@@ -2375,6 +2414,91 @@ def _decimal_status_residue_function_summary(
         "target_evidence": dict(target_evidence.most_common()),
         "contexts": contexts,
         "summary_path": str(summary_path),
+    }
+
+
+def _decimal_status_review_queues(
+    functions: list[dict[str, Any]],
+    top: int,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for queue_name in _DECIMAL_STATUS_REVIEW_QUEUE_ORDER:
+        queue_classes = _decimal_status_review_queue_classes(queue_name)
+        items: list[dict[str, Any]] = []
+        class_counts: Counter[str] = Counter()
+        target_counts: Counter[str] = Counter()
+        literal_total = 0
+        function_names: set[str] = set()
+        for function in functions:
+            review_classes = _coerce_dict(function.get("review_classes", {}))
+            matching_literal_count = sum(int(review_classes.get(name, 0) or 0) for name in queue_classes)
+            if matching_literal_count <= 0:
+                continue
+            function_names.add(str(function.get("name", "") or ""))
+            literal_total += matching_literal_count
+            class_counts.update(
+                {
+                    name: int(review_classes.get(name, 0) or 0)
+                    for name in queue_classes
+                    if int(review_classes.get(name, 0) or 0) > 0
+                }
+            )
+            item = _decimal_status_review_queue_item(function, queue_classes, matching_literal_count)
+            matching_targets = Counter(
+                str(context.get("target_evidence", "") or "none")
+                for context in item.get("contexts", []) or []
+                if isinstance(context, dict)
+            )
+            if matching_targets:
+                target_counts.update(matching_targets)
+            else:
+                target_counts.update(_coerce_dict(function.get("target_evidence", {})))
+            items.append(item)
+        items.sort(key=lambda item: (-int(item.get("literals", 0) or 0), str(item.get("name", ""))))
+        result[queue_name] = {
+            "literals": literal_total,
+            "functions": len(function_names),
+            "review_classes": _counter_to_dict(Counter(dict(class_counts.most_common(top)))),
+            "target_evidence": _counter_to_dict(Counter(dict(target_counts.most_common(top)))),
+            "items": items[:top],
+        }
+    return result
+
+
+def _decimal_status_review_queue_classes(queue_name: str) -> set[str]:
+    mapping = {
+        "strong_profiled_status_literals": {"profiled_status_literal_candidate"},
+        "weak_target_profiled_status_literals": {"profiled_status_literal_weak_target"},
+        "unprofiled_ntstatus_error_literals": {"unprofiled_ntstatus_error_candidate"},
+        "nonstatus_ascii_magic_literals": {"ascii_magic_candidate"},
+        "nonstatus_bitmask_comparisons": {"bitmask_comparison_candidate"},
+        "manual_review": {"manual_review"},
+    }
+    return set(mapping.get(queue_name, {"manual_review"}))
+
+
+def _decimal_status_review_queue_item(
+    function: dict[str, Any],
+    queue_classes: set[str],
+    literal_count: int,
+) -> dict[str, Any]:
+    contexts = [
+        context
+        for context in function.get("contexts", []) or []
+        if isinstance(context, dict) and str(context.get("review_class", "")) in queue_classes
+    ]
+    return {
+        "name": str(function.get("name", "") or ""),
+        "ea": str(function.get("ea", "") or ""),
+        "literals": int(literal_count),
+        "review_classes": {
+            key: value
+            for key, value in _coerce_dict(function.get("review_classes", {})).items()
+            if key in queue_classes
+        },
+        "target_evidence": _coerce_dict(function.get("target_evidence", {})),
+        "contexts": contexts[:3],
+        "summary_path": str(function.get("summary_path", "") or ""),
     }
 
 
