@@ -318,6 +318,7 @@ def analyze_corpus(
     stable_base_source_totals = Counter()
     base_stability_bases: Counter[str] = Counter()
     base_stability_rhs: Counter[str] = Counter()
+    base_stability_profiles: Counter[str] = Counter()
     base_stability_totals = Counter()
     generic_base_evidence_bases: Counter[str] = Counter()
     generic_base_evidence_profiles: Counter[str] = Counter()
@@ -499,6 +500,7 @@ def analyze_corpus(
                     base_stability_totals,
                     base_stability_bases,
                     base_stability_rhs,
+                    base_stability_profiles,
                 )
                 _update_layout_generic_base_evidence_metrics(
                     generic_base_evidence,
@@ -891,6 +893,7 @@ def analyze_corpus(
             "totals": _counter_to_dict(base_stability_totals),
             "top_bases": _counter_to_dict(Counter(dict(base_stability_bases.most_common(top)))),
             "rhs_samples": _counter_to_dict(Counter(dict(base_stability_rhs.most_common(top)))),
+            "profiles": _counter_to_dict(Counter(dict(base_stability_profiles.most_common(top)))),
             "top_functions": top_base_stability_functions[:top],
         },
         "layout_generic_base_evidence_stats": {
@@ -1251,10 +1254,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Base Stability Review Profiles",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(base_stability_stats.get("profiles", {})), "Profile"))
+    lines.extend(
+        [
+            "",
             "### Highest Base Stability Functions",
             "",
-            "| Function | EA | Comments | Max distinct RHS | Max risky post-access | Bases | RHS samples |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+            "| Function | EA | Comments | Max distinct RHS | Max risky post-access | Profiles | Bases | RHS samples |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in base_stability_stats.get("top_functions", []) or []:
@@ -1265,14 +1276,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("rhs_samples", {})).items()
         )
+        profiles = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("profiles", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("stability_comment_count", 0) or 0),
                 int(item.get("max_distinct_pre_access_rhs", 0) or 0),
                 int(item.get("max_risky_post_access_assignments", 0) or 0),
+                _markdown_table_cell(profiles),
                 bases,
                 _markdown_table_cell(rhs_samples),
             )
@@ -4155,6 +4171,7 @@ def _update_layout_base_stability_metrics(
     totals: Counter[str],
     bases: Counter[str],
     rhs_samples: Counter[str],
+    profiles: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -4172,8 +4189,24 @@ def _update_layout_base_stability_metrics(
             0,
         )
         bases[str(candidate.get("base", "") or "unknown")] += 1
+        profile = _base_stability_review_profile(candidate)
+        profiles[profile] += 1
         for rhs in candidate.get("distinct_pre_access_rhs", []) or []:
             rhs_samples[str(rhs)] += 1
+
+
+def _base_stability_review_profile(candidate: dict[str, Any]) -> str:
+    distinct_rhs = _int_value(candidate.get("distinct_pre_access_rhs_count"), 0)
+    risky_post_access = _int_value(candidate.get("risky_post_access_assignment_count"), 0)
+    if distinct_rhs > 1:
+        if risky_post_access > 0:
+            return "initializer_and_reassignment_risk"
+        return "initializer_dominance_review"
+    if risky_post_access > 0:
+        return "post_access_reassignment_risk"
+    if distinct_rhs == 1:
+        return "single_initializer_trace"
+    return "missing_initializer_trace"
 
 
 def _update_layout_generic_base_evidence_metrics(
@@ -4878,12 +4911,14 @@ def _base_stability_function_summary(
         for rhs in candidate.get("distinct_pre_access_rhs", []) or []
         if str(rhs)
     )
+    profiles = Counter(_base_stability_review_profile(candidate) for candidate in candidates)
     return {
         "ea": ea,
         "name": name,
         "stability_comment_count": len(candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "rhs_samples": _counter_to_dict(Counter(dict(rhs_samples.most_common(5)))),
+        "profiles": _counter_to_dict(Counter(dict(profiles.most_common(5)))),
         "max_distinct_pre_access_rhs": max(
             (_int_value(item.get("distinct_pre_access_rhs_count"), 0) for item in candidates),
             default=0,

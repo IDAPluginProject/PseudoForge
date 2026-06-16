@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
+    _base_stability_review_profile,
     _decimal_status_like_literals,
     _layout_rewrite_blocker_review_profiles,
     analyze_corpus,
@@ -143,6 +144,35 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             ["type_evidence_blockers", "alignment_type_blockers"],
             _layout_rewrite_blocker_review_profiles(
                 ["one or more typed offsets are not naturally aligned"]
+            ),
+        )
+
+    def test_base_stability_profiles_split_initializer_and_reassignment_risk(self) -> None:
+        self.assertEqual(
+            "initializer_dominance_review",
+            _base_stability_review_profile(
+                {
+                    "distinct_pre_access_rhs_count": 2,
+                    "risky_post_access_assignment_count": 0,
+                }
+            ),
+        )
+        self.assertEqual(
+            "initializer_and_reassignment_risk",
+            _base_stability_review_profile(
+                {
+                    "distinct_pre_access_rhs_count": 2,
+                    "risky_post_access_assignment_count": 1,
+                }
+            ),
+        )
+        self.assertEqual(
+            "post_access_reassignment_risk",
+            _base_stability_review_profile(
+                {
+                    "distinct_pre_access_rhs_count": 1,
+                    "risky_post_access_assignment_count": 1,
+                }
             ),
         )
 
@@ -369,6 +399,10 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             self.assertEqual(1, report["layout_base_stability_stats"]["top_bases"]["v14"])
             self.assertEqual(1, report["layout_base_stability_stats"]["rhs_samples"]["argument2"])
             self.assertEqual(1, report["layout_base_stability_stats"]["rhs_samples"]["argument3"])
+            self.assertEqual(
+                1,
+                report["layout_base_stability_stats"]["profiles"]["initializer_and_reassignment_risk"],
+            )
             self.assertEqual("Sample", report["layout_base_stability_stats"]["top_functions"][0]["name"])
             self.assertEqual(
                 2,
@@ -378,6 +412,12 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 1,
                 report["layout_base_stability_stats"]["top_functions"][0][
                     "max_risky_post_access_assignments"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_base_stability_stats"]["top_functions"][0]["profiles"][
+                    "initializer_and_reassignment_risk"
                 ],
             )
             self.assertEqual(1, report["layout_generic_base_evidence_stats"]["totals"]["evidence_comments"])
@@ -1179,7 +1219,11 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `Sample` | `0x140001000` | 1 | 2 | 1 | `v14` | argument2=1, argument3=1 |",
+                "Base Stability Review Profiles",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `Sample` | `0x140001000` | 1 | 2 | 1 | initializer_and_reassignment_risk=1 | `v14` | argument2=1, argument3=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
