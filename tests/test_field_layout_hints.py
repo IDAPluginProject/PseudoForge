@@ -794,6 +794,40 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_cast_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall CastEquivalentInitializerLayout(__int64 a1)
+{
+  __int64 sessionSpace;
+
+  sessionSpace = a1;
+  sessionSpace = (__int64)a1;
+  sessionSpace = (unsigned __int64)(a1);
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("sessionSpace", ready[0]["base"])
+        self.assertEqual(8, ready[0]["offset_count"])
+        self.assertEqual(12, ready[0]["access_count"])
+
 
 if __name__ == "__main__":
     unittest.main()

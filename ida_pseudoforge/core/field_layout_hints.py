@@ -1083,7 +1083,96 @@ def _stable_aliases_for_base_before_access(text: str, base: str, first_access: i
 
 
 def _normalize_assignment_rhs(value: str) -> str:
-    return " ".join(str(value or "").strip().split())
+    text = " ".join(str(value or "").strip().split())
+    while True:
+        previous = text
+        text = _strip_assignment_cast_prefix(text)
+        text = _strip_redundant_outer_parentheses(text)
+        if text == previous:
+            return text
+
+
+def _strip_assignment_cast_prefix(value: str) -> str:
+    text = str(value or "").strip()
+    while True:
+        match = re.match(r"^\((?P<type>[^()]+)\)\s*(?P<rest>.+)$", text)
+        if match is None:
+            return text
+        type_text = " ".join(match.group("type").strip().split())
+        if not _looks_like_cast_type(type_text):
+            return text
+        text = match.group("rest").strip()
+
+
+def _looks_like_cast_type(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if any(token in text for token in "+-/=%[]{}.,"):
+        return False
+    stripped = text.replace("*", " ").replace("&", " ")
+    words = [word for word in stripped.split() if word]
+    if not words:
+        return True
+    lowered = {word.lower() for word in words}
+    type_words = {
+        "__int64",
+        "_byte",
+        "_dword",
+        "_qword",
+        "_word",
+        "char",
+        "const",
+        "dword",
+        "int",
+        "long",
+        "short",
+        "signed",
+        "size_t",
+        "uint64",
+        "ulong",
+        "unsigned",
+        "void",
+        "word",
+    }
+    if lowered.intersection(type_words):
+        return True
+    return bool(re.fullmatch(r"P[A-Z0-9_]+", words[-1]))
+
+
+def _strip_redundant_outer_parentheses(value: str) -> str:
+    text = str(value or "").strip()
+    while text.startswith("(") and text.endswith(")") and _outer_parentheses_wrap_all(text):
+        text = text[1:-1].strip()
+    return text
+
+
+def _outer_parentheses_wrap_all(value: str) -> bool:
+    text = str(value or "")
+    depth = 0
+    quote = ""
+    escaped = False
+    for index, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and index != len(text) - 1:
+                return False
+            if depth < 0:
+                return False
+    return depth == 0
 
 
 def _first_layout_access_start(text: str, base: str) -> int:
