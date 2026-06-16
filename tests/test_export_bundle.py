@@ -357,6 +357,76 @@ __int64 __fastcall LayoutPreviewBlocked(__int64 argument2)
             self.assertEqual("blocked_by_validation", preview_metadata["canonical_rewrite_status"])
             self.assertIn("v4 advertised 3 access(es) but rewrote 2", preview_metadata["canonical_rewrite_errors"])
 
+    def test_partial_layout_rewrite_preview_rewrites_only_allowed_offsets(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for currentThread: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_20, field_40, field_48, field_74, field_78, field_C3, field_233, field_24C. Safe offsets +0x20, +0x40, +0x48, +0x74, +0x78, +0xC3, +0x233, +0x24C; excluded offsets +0x206. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.77
+*/
+__int64 __fastcall LayoutPartialPreview(__int64 currentThread)
+{
+  return *(_QWORD *)(currentThread + 0x20)
+       + *(_QWORD *)(currentThread + 0x40)
+       + *(_QWORD *)(currentThread + 0x48)
+       + *(_DWORD *)(currentThread + 0x74)
+       + *(_DWORD *)(currentThread + 0x78)
+       + *(char *)(currentThread + 0xC3)
+       + *(char *)(currentThread + 0x233)
+       + *(_DWORD *)(currentThread + 0x24C)
+       + *(_QWORD *)(currentThread + 0x20)
+       + *(_QWORD *)(currentThread + 0x40)
+       + *(_QWORD *)(currentThread + 0x48)
+       + *(_DWORD *)(currentThread + 0x74)
+       + *(_BYTE *)(currentThread + 0x206)
+       + *(_WORD *)(currentThread + 0x206);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPartialPreview(__int64 currentThread)
+{
+  return currentThread;
+}
+""",
+                name="LayoutPartialPreview",
+                ea=0x140002350,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_text = Path(artifacts["layout_rewrite_preview"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual(cleaned_text, cleaned_output)
+            self.assertIn("currentThread->field_20 /* _QWORD +0x20 */", preview_text)
+            self.assertIn("currentThread->field_24C /* _DWORD +0x24C */", preview_text)
+            self.assertIn("*(_BYTE *)(currentThread + 0x206)", preview_text)
+            self.assertIn("*(_WORD *)(currentThread + 0x206)", preview_text)
+            self.assertTrue(preview_metadata["canonical_rewrite_requested"])
+            self.assertFalse(preview_metadata["canonical_cleaned_output_modified"])
+            self.assertEqual("partial_preview_only", preview_metadata["canonical_rewrite_status"])
+            self.assertEqual("passed", preview_metadata["validation"]["status"])
+            self.assertEqual([], preview_metadata["validation"]["errors"])
+            self.assertEqual(12, preview_metadata["rewritten_accesses"])
+            self.assertEqual(8, preview_metadata["rewritten_fields"])
+            self.assertEqual("partial", preview_metadata["preview_plans"][0]["plan_kind"])
+            self.assertEqual([0x20, 0x40, 0x48, 0x74, 0x78, 0xC3, 0x233, 0x24C], preview_metadata["preview_plans"][0]["allowed_offsets"])
+            self.assertEqual([0x206], preview_metadata["preview_plans"][0]["excluded_offsets"])
+            self.assertEqual(2, preview_metadata["preview_plans"][0]["excluded_access_count"])
+            self.assertTrue(
+                preview_metadata["validation"]["checks"]["preview_has_no_raw_offset_derefs_for_rewrite_scope"]
+            )
+
     def test_validated_layout_rewrite_normalizes_post_render_advertised_counts(self) -> None:
         cleaned_text = """
 /*

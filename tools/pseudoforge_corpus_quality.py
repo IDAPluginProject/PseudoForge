@@ -171,6 +171,8 @@ FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE = re.compile(
     r"(?P<excluded_access_count>\d+)\s+excluded dereference\(s\)\s+across\s+"
     r"(?P<excluded_offset_count>\d+)\s+excluded offset\(s\),\s+"
     r"safe fields\s+(?P<safe_fields>.*?)\.\s+"
+    r"(?:Safe offsets\s+(?P<safe_offsets>.*?)\;\s+excluded offsets\s+"
+    r"(?P<excluded_offsets>.*?)\.\s+)?"
     r"Excluded reasons\s+(?P<reasons>.*?)\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
     r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
@@ -3620,6 +3622,8 @@ def _extract_layout_rewrite_partial_opportunities(text: str) -> list[dict[str, A
             for item in match.group("reasons").split(";")
             if item.strip()
         ]
+        safe_offsets = _parse_layout_offset_list(match.groupdict().get("safe_offsets") or "")
+        excluded_offsets = _parse_layout_offset_list(match.groupdict().get("excluded_offsets") or "")
         candidates.append(
             {
                 "base": match.group("base"),
@@ -3630,11 +3634,29 @@ def _extract_layout_rewrite_partial_opportunities(text: str) -> list[dict[str, A
                 "excluded_access_count": _int_value(match.group("excluded_access_count"), 0),
                 "excluded_offset_count": _int_value(match.group("excluded_offset_count"), 0),
                 "safe_fields": safe_fields,
+                "safe_offsets": safe_offsets,
+                "excluded_offsets": excluded_offsets,
                 "reasons": reasons,
                 "confidence": _float_value(match.group("confidence"), 0.0),
             }
         )
     return candidates
+
+
+def _parse_layout_offset_list(value: str) -> list[int]:
+    offsets = []
+    for item in str(value or "").split(","):
+        text = item.strip()
+        if not text:
+            continue
+        if text.startswith("+"):
+            text = text[1:].strip()
+        try:
+            offset = int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+        except ValueError:
+            continue
+        offsets.append(offset)
+    return offsets
 
 
 def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:

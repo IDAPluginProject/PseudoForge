@@ -29,6 +29,24 @@ _REWRITE_PREVIEW_RE = re.compile(
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 
+_REWRITE_PARTIAL_OPPORTUNITY_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_partial_opportunity:\s+"
+    r"Offset field partial rewrite opportunity for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<safe_access_count>\d+)\s+safe dereference\(s\)\s+across\s+"
+    r"(?P<safe_offset_count>\d+)\s+safe offset\(s\),\s+"
+    r"(?P<excluded_access_count>\d+)\s+excluded dereference\(s\)\s+across\s+"
+    r"(?P<excluded_offset_count>\d+)\s+excluded offset\(s\),\s+"
+    r"safe fields\s+(?P<safe_fields>.*?)\.\s+"
+    r"Safe offsets\s+(?P<safe_offsets>.*?)\;\s+excluded offsets\s+"
+    r"(?P<excluded_offsets>.*?)\.\s+"
+    r"Excluded reasons\s+(?P<reasons>.*?)\.\s+"
+    r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
+    r"Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+
 _REWRITE_READY_RE = re.compile(
     r"-\s+inferred_offset_rewrite_ready:\s+Offset field rewrite candidate for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
@@ -81,8 +99,11 @@ def build_layout_rewrite_preview_bundle(
     canonical_rewrite_errors: list[str] = []
     if apply_validated_body_rewrite:
         if validation.get("status") == "passed":
-            canonical_text = _canonical_layout_rewrite_text(rewritten)
-            canonical_rewrite_status = "applied"
+            if _has_partial_layout_rewrite_plan(plans):
+                canonical_rewrite_status = "partial_preview_only"
+            else:
+                canonical_text = _canonical_layout_rewrite_text(rewritten)
+                canonical_rewrite_status = "applied"
         else:
             canonical_rewrite_status = "blocked_by_validation"
             canonical_rewrite_errors = [
@@ -127,6 +148,7 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
     for match in _REWRITE_PREVIEW_RE.finditer(text or ""):
         plans.append(
             {
+                "plan_kind": "full",
                 "base": match.group("base"),
                 "source": match.groupdict().get("source") or "",
                 "source_provenance": match.groupdict().get("source_provenance") or "none",
@@ -135,11 +157,33 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
                 "confidence": _float_value(match.group("confidence")),
             }
         )
+    for match in _REWRITE_PARTIAL_OPPORTUNITY_RE.finditer(text or ""):
+        allowed_offsets = _parse_offset_list(match.group("safe_offsets"))
+        excluded_offsets = _parse_offset_list(match.group("excluded_offsets"))
+        if not allowed_offsets or not excluded_offsets:
+            continue
+        plans.append(
+            {
+                "plan_kind": "partial",
+                "base": match.group("base"),
+                "source": match.groupdict().get("source") or "",
+                "source_provenance": match.groupdict().get("source_provenance") or "none",
+                "advertised_access_count": _int_value(match.group("safe_access_count")),
+                "advertised_field_count": _int_value(match.group("safe_offset_count")),
+                "excluded_access_count": _int_value(match.group("excluded_access_count")),
+                "excluded_field_count": _int_value(match.group("excluded_offset_count")),
+                "allowed_offsets": allowed_offsets,
+                "excluded_offsets": excluded_offsets,
+                "excluded_reasons": _split_semicolon_list(match.group("reasons")),
+                "confidence": _float_value(match.group("confidence")),
+            }
+        )
     return plans
 
 
 def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
-    bases = {str(item.get("base", "")) for item in plans if str(item.get("base", ""))}
+    rewrite_rules = _layout_rewrite_rules_by_base(plans)
+    bases = set(rewrite_rules)
     rewritten_accesses = 0
     rewritten_fields: set[str] = set()
     rewritten_bases: set[str] = set()
@@ -147,6 +191,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         base: {
             "rewritten_accesses": 0,
             "rewritten_fields": set(),
+            "offset_accesses": {},
         }
         for base in sorted(bases)
     }
@@ -154,10 +199,14 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
     def replace(match: re.Match[str]) -> str:
         nonlocal rewritten_accesses
         base = match.group("base")
-        if base not in bases:
+        rule = rewrite_rules.get(base)
+        if not rule:
             return match.group(0)
         offset = _parse_offset(match.group("offset"))
         if offset is None or offset <= 0:
+            return match.group(0)
+        allowed_offsets = rule.get("allowed_offsets")
+        if allowed_offsets is not None and offset not in allowed_offsets:
             return match.group(0)
         type_name = " ".join(match.group("type").split())
         field_name = "field_%X" % offset
@@ -166,6 +215,9 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         rewritten_bases.add(base)
         rewrite_results[base]["rewritten_accesses"] += 1
         rewrite_results[base]["rewritten_fields"].add(field_name)
+        offset_accesses = rewrite_results[base]["offset_accesses"]
+        offset_key = "0x%X" % offset
+        offset_accesses[offset_key] = int(offset_accesses.get(offset_key, 0) or 0) + 1
         return "%s->%s /* %s +0x%X */" % (base, field_name, type_name, offset)
 
     rewritten = _OFFSET_DEREF_RE.sub(replace, text or "")
@@ -178,10 +230,39 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
                 "rewritten_accesses": int(result["rewritten_accesses"]),
                 "rewritten_fields": len(result["rewritten_fields"]),
                 "field_aliases": sorted(result["rewritten_fields"], key=_field_alias_sort_key),
+                "offset_accesses": dict(sorted(result["offset_accesses"].items())),
             }
             for base, result in sorted(rewrite_results.items())
         },
     }
+
+
+def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    rules: dict[str, dict[str, Any]] = {}
+    for plan in plans:
+        base = str(plan.get("base", "") or "")
+        if not base:
+            continue
+        current = rules.setdefault(base, {"allowed_offsets": set(), "has_full_plan": False})
+        if _plan_kind(plan) == "full":
+            current["has_full_plan"] = True
+            current["allowed_offsets"] = None
+            continue
+        if current.get("has_full_plan"):
+            continue
+        allowed_offsets = current.get("allowed_offsets")
+        if allowed_offsets is None:
+            continue
+        allowed_offsets.update(_plan_allowed_offsets(plan))
+    result: dict[str, dict[str, Any]] = {}
+    for base, rule in rules.items():
+        if rule.get("has_full_plan"):
+            result[base] = {"allowed_offsets": None}
+            continue
+        allowed_offsets = set(rule.get("allowed_offsets") or set())
+        if allowed_offsets:
+            result[base] = {"allowed_offsets": allowed_offsets}
+    return result
 
 
 def _normalize_layout_rewrite_advertisements(
@@ -199,6 +280,8 @@ def _normalize_layout_rewrite_advertisements(
     normalized_text = str(text or "")
     normalizations = []
     for plan in plans:
+        if _plan_kind(plan) != "full":
+            continue
         base = str(plan.get("base", "") or "")
         result = rewrite_results.get(base, {})
         actual_accesses = int(result.get("rewritten_accesses", 0) or 0)
@@ -321,6 +404,7 @@ def _validate_layout_rewrite_preview(
         "advertised_field_counts_match": True,
         "preview_contains_field_rewrites": "->field_" in str(preview_text or ""),
         "preview_has_no_raw_offset_derefs_for_rewritten_bases": True,
+        "preview_has_no_raw_offset_derefs_for_rewrite_scope": True,
     }
     rewrite_results = {
         str(base): result
@@ -330,8 +414,7 @@ def _validate_layout_rewrite_preview(
     for plan in plans:
         base = str(plan.get("base", "") or "")
         result = rewrite_results.get(base, {})
-        actual_accesses = int(result.get("rewritten_accesses", 0) or 0)
-        actual_fields = int(result.get("rewritten_fields", 0) or 0)
+        actual_accesses, actual_fields = _plan_actual_rewrite_counts(plan, result)
         expected_accesses = int(plan.get("advertised_access_count", 0) or 0)
         expected_fields = int(plan.get("advertised_field_count", 0) or 0)
         if actual_accesses <= 0:
@@ -349,9 +432,10 @@ def _validate_layout_rewrite_preview(
                 "%s advertised %d field alias(es) but rewrote %d"
                 % (base, expected_fields, actual_fields)
             )
-        if _raw_offset_deref_for_base_exists(preview_text, base):
+        if _raw_offset_deref_for_plan_exists(preview_text, plan):
             checks["preview_has_no_raw_offset_derefs_for_rewritten_bases"] = False
-            errors.append("%s still has raw offset dereference(s) in preview output" % base)
+            checks["preview_has_no_raw_offset_derefs_for_rewrite_scope"] = False
+            errors.append("%s still has raw offset dereference(s) in preview rewrite scope" % base)
     if not checks["preview_contains_field_rewrites"]:
         errors.append("preview output contains no field rewrite syntax")
     status = "passed" if all(checks.values()) else "failed"
@@ -362,13 +446,68 @@ def _validate_layout_rewrite_preview(
     }
 
 
-def _raw_offset_deref_for_base_exists(text: str, base: str) -> bool:
+def _plan_actual_rewrite_counts(plan: dict[str, Any], result: dict[str, Any]) -> tuple[int, int]:
+    if _plan_kind(plan) == "full":
+        return (
+            int(result.get("rewritten_accesses", 0) or 0),
+            int(result.get("rewritten_fields", 0) or 0),
+        )
+    allowed_offsets = _plan_allowed_offsets(plan)
+    offset_accesses = {}
+    for offset_key, count in (result.get("offset_accesses", {}) or {}).items():
+        offset = _parse_offset(str(offset_key))
+        if offset is None:
+            continue
+        offset_accesses[offset] = int(count or 0)
+    actual_accesses = 0
+    actual_fields = 0
+    for offset in allowed_offsets:
+        count = int(offset_accesses.get(offset, 0) or 0)
+        actual_accesses += count
+        if count > 0:
+            actual_fields += 1
+    return actual_accesses, actual_fields
+
+
+def _raw_offset_deref_for_plan_exists(text: str, plan: dict[str, Any]) -> bool:
+    base = str(plan.get("base", "") or "")
     if not base:
         return False
+    allowed_offsets = None
+    if _plan_kind(plan) != "full":
+        allowed_offsets = _plan_allowed_offsets(plan)
     for match in _OFFSET_DEREF_RE.finditer(text or ""):
-        if match.group("base") == base:
+        if match.group("base") != base:
+            continue
+        offset = _parse_offset(match.group("offset"))
+        if allowed_offsets is not None and offset not in allowed_offsets:
+            continue
+        if offset is not None:
             return True
     return False
+
+
+def _has_partial_layout_rewrite_plan(plans: list[dict[str, Any]]) -> bool:
+    return any(_plan_kind(plan) == "partial" for plan in plans)
+
+
+def _plan_kind(plan: dict[str, Any]) -> str:
+    value = str(plan.get("plan_kind", "") or "full")
+    if value == "partial":
+        return "partial"
+    return "full"
+
+
+def _plan_allowed_offsets(plan: dict[str, Any]) -> set[int]:
+    offsets = set()
+    for offset in plan.get("allowed_offsets", []) or []:
+        try:
+            parsed = int(offset)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            offsets.add(parsed)
+    return offsets
 
 
 def _canonical_layout_rewrite_text(rewritten_text: str) -> str:
@@ -421,6 +560,30 @@ def _parse_offset(value: str) -> int | None:
         return int(value, 16) if str(value).lower().startswith("0x") else int(value, 10)
     except ValueError:
         return None
+
+
+def _parse_offset_list(value: str) -> list[int]:
+    offsets = []
+    for item in str(value or "").split(","):
+        text = item.strip()
+        if not text:
+            continue
+        if text.startswith("+"):
+            text = text[1:].strip()
+        offset = _parse_offset(text)
+        if offset is None or offset <= 0:
+            continue
+        if offset not in offsets:
+            offsets.append(offset)
+    return offsets
+
+
+def _split_semicolon_list(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in str(value or "").split(";")
+        if item.strip()
+    ]
 
 
 def _int_value(value: str) -> int:

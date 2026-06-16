@@ -602,6 +602,8 @@ def _field_rewrite_partial_opportunity_comment(
     field_text = ", ".join(field_names[:8])
     if len(field_names) > 8:
         field_text += ", ..."
+    safe_offset_text = _offset_list_text(safe_offsets)
+    excluded_offset_text = _offset_list_text(excluded_offsets)
     reason_text = "; ".join(partition["excluded_reasons"][:6])
     source_provenance = str(identity.get("source_provenance", "") or "none")
     source = str(identity.get("source", "") or "")
@@ -616,7 +618,8 @@ def _field_rewrite_partial_opportunity_comment(
         "kind": "inferred_offset_rewrite_partial_opportunity",
         "text": (
             "Offset field partial rewrite opportunity for %s: %d safe dereference(s) across %d safe offset(s), "
-            "%d excluded dereference(s) across %d excluded offset(s), safe fields %s. Excluded reasons %s.%s "
+            "%d excluded dereference(s) across %d excluded offset(s), safe fields %s. "
+            "Safe offsets %s; excluded offsets %s. Excluded reasons %s.%s "
             "Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented."
             % (
                 layout.base,
@@ -625,6 +628,8 @@ def _field_rewrite_partial_opportunity_comment(
                 excluded_access_count,
                 len(excluded_offsets),
                 field_text,
+                safe_offset_text,
+                excluded_offset_text,
                 reason_text,
                 source_text,
             )
@@ -639,11 +644,17 @@ def _field_rewrite_partial_opportunity_comment(
         "safe_access_count": safe_access_count,
         "excluded_offset_count": len(excluded_offsets),
         "excluded_access_count": excluded_access_count,
+        "safe_offsets": sorted(safe_offsets),
+        "excluded_offsets": sorted(excluded_offsets),
         "source_provenance": source_provenance,
     }
     if source:
         comment["source"] = source
     return comment
+
+
+def _offset_list_text(offsets: set[int]) -> str:
+    return ", ".join("+0x%X" % offset for offset in sorted(offsets))
 
 
 def _field_rewrite_blockers(

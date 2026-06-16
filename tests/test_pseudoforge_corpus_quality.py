@@ -156,7 +156,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 r"""
 /*
     Kernel insights:
-      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for sessionSpace: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.75
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for sessionSpace: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Safe offsets +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40, +0x48; excluded offsets +0x206. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.75
 */
 __int64 __fastcall Partial(__int64 sessionSpace)
 {
