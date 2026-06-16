@@ -206,6 +206,81 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 report["text_stats"]["inferred_offset_rewrite_partial_opportunities"],
             )
 
+    def test_analyze_corpus_splits_canonical_rewrite_plan_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            functions_root = root / "functions"
+            full_dir = functions_root / "0000000140003000_Full"
+            partial_dir = functions_root / "0000000140004000_Partial"
+            full_dir.mkdir(parents=True)
+            partial_dir.mkdir(parents=True)
+            _write_preview_artifact_function(
+                full_dir,
+                "Full",
+                "0x140003000",
+                {
+                    "schema": "layout_rewrite_preview_v2",
+                    "artifact": "layout_rewrite_preview",
+                    "canonical_rewrite_requested": True,
+                    "canonical_cleaned_output_modified": True,
+                    "canonical_rewrite_status": "applied",
+                    "canonical_rewrite_errors": [],
+                    "preview_plans": [
+                        {
+                            "base": "fullBase",
+                            "plan_kind": "full",
+                            "advertised_access_count": 12,
+                            "advertised_field_count": 8,
+                        }
+                    ],
+                    "rewritten_accesses": 12,
+                    "rewritten_fields": 8,
+                    "rewritten_bases": ["fullBase"],
+                    "validation": {"status": "passed", "checks": {}, "errors": []},
+                },
+            )
+            _write_preview_artifact_function(
+                partial_dir,
+                "Partial",
+                "0x140004000",
+                {
+                    "schema": "layout_rewrite_preview_v2",
+                    "artifact": "layout_rewrite_preview",
+                    "canonical_rewrite_requested": True,
+                    "canonical_cleaned_output_modified": True,
+                    "canonical_rewrite_status": "applied_partial",
+                    "canonical_rewrite_errors": [],
+                    "preview_plans": [
+                        {
+                            "base": "partialBase",
+                            "plan_kind": "partial",
+                            "advertised_access_count": 23,
+                            "advertised_field_count": 10,
+                            "allowed_offsets": [0x20, 0x40],
+                            "excluded_offsets": [0x206],
+                        }
+                    ],
+                    "rewritten_accesses": 23,
+                    "rewritten_fields": 10,
+                    "rewritten_bases": ["partialBase"],
+                    "validation": {"status": "passed", "checks": {}, "errors": []},
+                },
+            )
+
+            report = analyze_corpus(root)
+
+            stats = report["layout_rewrite_preview_artifact_stats"]
+            self.assertEqual(2, stats["totals"]["preview_artifacts"])
+            self.assertEqual(2, stats["totals"]["canonical_rewrite_requested"])
+            self.assertEqual(2, stats["totals"]["canonical_rewrite_applied"])
+            self.assertEqual(1, stats["totals"]["canonical_rewrite_applied_full"])
+            self.assertEqual(1, stats["totals"]["canonical_rewrite_applied_partial"])
+            self.assertEqual(1, stats["totals"]["full_preview_plans"])
+            self.assertEqual(1, stats["totals"]["partial_preview_plans"])
+            self.assertEqual(1, stats["canonical_rewrite_statuses"]["applied"])
+            self.assertEqual(1, stats["canonical_rewrite_statuses"]["applied_partial"])
+            self.assertEqual({"full": 1, "partial": 1}, stats["preview_plan_kinds"])
+
     def test_analyze_corpus_counts_warning_rename_rule_and_text_residue_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -506,12 +581,28 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 report["layout_rewrite_preview_artifact_stats"]["totals"].get("canonical_rewrite_applied", 0),
             )
             self.assertEqual(
+                0,
+                report["layout_rewrite_preview_artifact_stats"]["totals"].get("canonical_rewrite_applied_full", 0),
+            )
+            self.assertEqual(
+                0,
+                report["layout_rewrite_preview_artifact_stats"]["totals"].get("canonical_rewrite_applied_partial", 0),
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["totals"].get("full_preview_plans", 0),
+            )
+            self.assertEqual(
                 1,
                 report["layout_rewrite_preview_artifact_stats"]["validation_statuses"]["passed"],
             )
             self.assertEqual(
                 1,
                 report["layout_rewrite_preview_artifact_stats"]["canonical_rewrite_statuses"]["not_requested"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["preview_plan_kinds"]["full"],
             )
             self.assertEqual({}, report["layout_rewrite_preview_artifact_stats"]["failed_checks"])
             self.assertEqual(
@@ -533,6 +624,12 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                         "advertisement_normalizations"
                     ]
                 ),
+            )
+            self.assertEqual(
+                {"full": 1},
+                report["layout_rewrite_preview_artifact_stats"]["top_functions"][0][
+                    "preview_plan_kinds"
+                ],
             )
             self.assertEqual(1, report["layout_rewrite_near_ready_stats"]["totals"]["near_ready_candidates"])
             self.assertEqual(
@@ -1304,6 +1401,7 @@ def _write_quality_fixture(root: Path) -> None:
                 "preview_plans": [
                     {
                         "base": "readySession",
+                        "plan_kind": "full",
                         "source": "",
                         "source_provenance": "none",
                         "advertised_access_count": 12,
@@ -1367,6 +1465,32 @@ def _write_quality_fixture(root: Path) -> None:
                     "rule_report": "old/Sample.rule-report.json",
                     "layout_rewrite_preview_metadata": "old/Sample.layout-rewrite-preview.json",
                     "summary": "old/Sample.ida-batch-summary.json",
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_preview_artifact_function(
+    function_dir: Path,
+    name: str,
+    ea: str,
+    metadata: dict[str, object],
+) -> None:
+    metadata_path = function_dir / f"{name}.layout-rewrite-preview.json"
+    summary_path = function_dir / f"{name}.ida-batch-summary.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(
+            {
+                "mode": "ida_batch_export",
+                "function": name,
+                "function_ea": ea,
+                "artifacts": {
+                    "layout_rewrite_preview_metadata": metadata_path.name,
+                    "summary": summary_path.name,
                 },
             },
             indent=2,

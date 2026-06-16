@@ -319,6 +319,7 @@ def analyze_corpus(
     rewrite_preview_totals = Counter()
     rewrite_preview_artifact_statuses: Counter[str] = Counter()
     rewrite_preview_artifact_canonical_statuses: Counter[str] = Counter()
+    rewrite_preview_artifact_plan_kinds: Counter[str] = Counter()
     rewrite_preview_artifact_failed_checks: Counter[str] = Counter()
     rewrite_preview_artifact_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -394,6 +395,7 @@ def analyze_corpus(
                 rewrite_preview_artifact_totals,
                 rewrite_preview_artifact_statuses,
                 rewrite_preview_artifact_canonical_statuses,
+                rewrite_preview_artifact_plan_kinds,
                 rewrite_preview_artifact_failed_checks,
             )
             top_rewrite_preview_artifact_functions.append(
@@ -882,6 +884,9 @@ def analyze_corpus(
             ),
             "canonical_rewrite_statuses": _counter_to_dict(
                 Counter(dict(rewrite_preview_artifact_canonical_statuses.most_common(top)))
+            ),
+            "preview_plan_kinds": _counter_to_dict(
+                Counter(dict(rewrite_preview_artifact_plan_kinds.most_common(top)))
             ),
             "failed_checks": _counter_to_dict(
                 Counter(dict(rewrite_preview_artifact_failed_checks.most_common(top)))
@@ -1721,6 +1726,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "- Canonical rewrite requested: `%s`"
             % rewrite_preview_artifact_totals.get("canonical_rewrite_requested", 0),
             "- Canonical rewrite applied: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_applied", 0),
+            "- Canonical rewrite applied full: `%s`"
+            % rewrite_preview_artifact_totals.get("canonical_rewrite_applied_full", 0),
+            "- Canonical rewrite applied partial: `%s`"
+            % rewrite_preview_artifact_totals.get("canonical_rewrite_applied_partial", 0),
             "- Canonical rewrite blocked: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_blocked", 0),
             "- Canonical rewrite errors: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_errors", 0),
             "",
@@ -1745,6 +1754,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         _markdown_counter_table(
             _coerce_dict(rewrite_preview_artifact_stats.get("canonical_rewrite_statuses", {})),
             "Status",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Preview Artifact Plan Kinds",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_preview_artifact_stats.get("preview_plan_kinds", {})),
+            "Plan kind",
         )
     )
     lines.extend(
@@ -3996,6 +4018,7 @@ def _update_layout_rewrite_preview_artifact_metrics(
     totals: Counter[str],
     statuses: Counter[str],
     canonical_statuses: Counter[str],
+    plan_kinds: Counter[str],
     failed_checks: Counter[str],
 ) -> None:
     if not metadata:
@@ -4024,10 +4047,25 @@ def _update_layout_rewrite_preview_artifact_metrics(
         totals["normalized_field_delta"] += max(0, original_fields - normalized_fields)
     canonical_status = str(metadata.get("canonical_rewrite_status", "") or "unknown")
     canonical_statuses[canonical_status] += 1
+    preview_plans = [
+        item
+        for item in metadata.get("preview_plans", []) or []
+        if isinstance(item, dict)
+    ]
+    for plan in preview_plans:
+        plan_kind = str(plan.get("plan_kind", "") or "full")
+        plan_kinds[plan_kind] += 1
+        totals[f"{plan_kind}_preview_plans"] += 1
     if bool(metadata.get("canonical_rewrite_requested", False)):
         totals["canonical_rewrite_requested"] += 1
     if bool(metadata.get("canonical_cleaned_output_modified", False)):
         totals["canonical_rewrite_applied"] += 1
+        if canonical_status == "applied":
+            totals["canonical_rewrite_applied_full"] += 1
+        elif canonical_status == "applied_partial":
+            totals["canonical_rewrite_applied_partial"] += 1
+        else:
+            totals["canonical_rewrite_applied_other"] += 1
     if canonical_status == "blocked_by_validation":
         totals["canonical_rewrite_blocked"] += 1
     canonical_errors = [
@@ -4710,6 +4748,13 @@ def _rewrite_preview_artifact_function_summary(
         ],
         "canonical_rewrite_status": str(metadata.get("canonical_rewrite_status", "") or "unknown"),
         "canonical_cleaned_output_modified": bool(metadata.get("canonical_cleaned_output_modified", False)),
+        "preview_plan_kinds": dict(
+            Counter(
+                str(plan.get("plan_kind", "") or "full")
+                for plan in metadata.get("preview_plans", []) or []
+                if isinstance(plan, dict)
+            )
+        ),
         "advertisement_normalizations": [
             dict(item)
             for item in metadata.get("advertisement_normalizations", []) or []
