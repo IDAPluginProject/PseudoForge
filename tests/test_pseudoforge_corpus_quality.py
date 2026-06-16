@@ -30,6 +30,7 @@ CLEANED = r"""
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
+      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v14: base is a decompiler temporary. Review-only aliases remain available. confidence=0.73
       - inferred_offset_generic_base_evidence: Generic base evidence for context: 20 typed dereference(s) across 10 offset(s), blocker profile generic_only. Review-only; rewrite remains blocked until the base identity is trusted. confidence=0.74
       - inferred_offset_generic_base_trust_candidate: Generic base trust candidate for context: parameter source, generic-only blockers, 20 typed dereference(s) across 10 offset(s). Promotion review only; rewrite remains disabled until external type identity is confirmed. confidence=0.76
 */
@@ -394,10 +395,11 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual("Sample", report["layout_rewrite_near_ready_stats"]["top_functions"][0]["name"])
             self.assertEqual(6, report["layout_rewrite_near_ready_stats"]["top_functions"][0]["max_offsets"])
             self.assertEqual(12, report["layout_rewrite_near_ready_stats"]["top_functions"][0]["max_access_count"])
-            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["blockers"])
+            self.assertEqual(2, report["layout_rewrite_blocker_stats"]["totals"]["blockers"])
             self.assertEqual(1, report["layout_rewrite_blocker_stats"]["totals"]["functions_with_blockers"])
-            self.assertEqual(2, report["layout_rewrite_blocker_stats"]["totals"]["reason_observations"])
+            self.assertEqual(3, report["layout_rewrite_blocker_stats"]["totals"]["reason_observations"])
             self.assertEqual(1, report["layout_rewrite_blocker_stats"]["top_bases"]["sessionSpace"])
+            self.assertEqual(1, report["layout_rewrite_blocker_stats"]["top_bases"]["v14"])
             self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["reasons"][
@@ -410,7 +412,25 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                     "rewrite access threshold requires at least 12 accesses"
                 ],
             )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["reasons"][
+                    "base is a decompiler temporary"
+                ],
+            )
             self.assertEqual("Sample", report["layout_rewrite_blocker_stats"]["top_functions"][0]["name"])
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_profiles"][
+                    "base_identity_candidates"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_profiles"][
+                    "temp_base_identity_candidates"
+                ],
+            )
             self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["review_profiles"][
@@ -472,6 +492,48 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ]["items"][0]["access_count"],
             )
             self.assertEqual(
+                {"none": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["identity_evidence"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["blockers"],
+            )
+            self.assertEqual(
+                {"stable_argument_source": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["identity_evidence"],
+            )
+            self.assertEqual(
+                "v14",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["base"],
+            )
+            self.assertEqual(
+                "stable_argument_source",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["identity_evidence"],
+            )
+            self.assertEqual(
+                "argument2",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["identity_source"],
+            )
+            self.assertEqual(
+                "argument",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["identity_source_kind"],
+            )
+            self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "offset_threshold_gap_candidates"
@@ -501,8 +563,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                     "access_threshold_gap_candidates"
                 ],
             )
-            self.assertEqual(3, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_offsets"])
-            self.assertEqual(6, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_access_count"])
+            self.assertEqual(
+                {"stable_argument_source": 1, "none": 1},
+                report["layout_rewrite_blocker_stats"]["top_functions"][0]["identity_evidence"],
+            )
+            self.assertEqual(8, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_offsets"])
+            self.assertEqual(13, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_access_count"])
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["text_stats"]["label_tokens"])
             self.assertEqual(4, report["text_stats"]["decimal_status_like_literals"])
@@ -527,7 +593,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_near_ready"])
-            self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_blockers"])
+            self.assertEqual(2, report["text_stats"]["inferred_offset_rewrite_blockers"])
             self.assertEqual(1, report["body_text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["body_text_stats"]["label_tokens"])
             self.assertEqual(4, report["body_text_stats"]["decimal_status_like_literals"])
@@ -866,15 +932,19 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 |",
+                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 |",
+                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 |",
+                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

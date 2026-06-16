@@ -436,6 +436,9 @@ def analyze_corpus(
                 _update_layout_rewrite_blocker_metrics(
                     rewrite_blockers,
                     layout_hints,
+                    stable_base_sources,
+                    generic_base_evidence,
+                    generic_base_trust_candidates,
                     rewrite_blocker_totals,
                     rewrite_blocker_bases,
                     rewrite_blocker_reasons,
@@ -488,7 +491,16 @@ def analyze_corpus(
                     )
                 if rewrite_blockers:
                     top_rewrite_blocker_functions.append(
-                        _rewrite_blocker_function_summary(name, ea, summary_path, rewrite_blockers, layout_hints)
+                        _rewrite_blocker_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            rewrite_blockers,
+                            layout_hints,
+                            stable_base_sources,
+                            generic_base_evidence,
+                            generic_base_trust_candidates,
+                        )
                     )
                 if decimal_status_body_literals:
                     _update_decimal_status_residue_metrics(
@@ -1520,8 +1532,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Rewrite Blocker Review Queues",
             "",
-            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases |",
-            "| --- | ---: | ---: | ---: | ---: | --- |",
+            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence |",
+            "| --- | ---: | ---: | ---: | ---: | --- | --- |",
         ]
     )
     for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
@@ -1530,8 +1542,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("top_bases", {})).items()
         )
+        identity_evidence = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("identity_evidence", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s |"
             % (
                 queue_name,
                 int(queue.get("blockers", 0) or 0),
@@ -1539,6 +1555,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(queue.get("max_offsets", 0) or 0),
                 int(queue.get("max_access_count", 0) or 0),
                 _markdown_table_cell(top_bases),
+                _markdown_table_cell(identity_evidence),
             )
         )
     lines.extend(
@@ -1554,8 +1571,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Blocker Functions",
             "",
-            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Bases | Top reasons |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in rewrite_blocker_stats.get("top_functions", []) or []:
@@ -1570,8 +1587,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("review_profiles", {})).items()
         )
+        identity_evidence = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("identity_evidence", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -1580,6 +1601,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(profiles),
+                _markdown_table_cell(identity_evidence),
                 bases,
                 reasons,
             )
@@ -3338,6 +3360,9 @@ def _update_layout_rewrite_near_ready_metrics(
 def _update_layout_rewrite_blocker_metrics(
     blockers: list[dict[str, Any]],
     layout_hints: list[dict[str, Any]],
+    stable_base_sources: list[dict[str, Any]],
+    generic_base_evidence: list[dict[str, Any]],
+    generic_base_trust_candidates: list[dict[str, Any]],
     totals: Counter[str],
     bases: Counter[str],
     reasons: Counter[str],
@@ -3350,11 +3375,17 @@ def _update_layout_rewrite_blocker_metrics(
     if not blockers:
         return
     layout_evidence = _layout_evidence_by_base(layout_hints)
+    identity_evidence = _layout_identity_evidence_by_base(
+        stable_base_sources,
+        generic_base_evidence,
+        generic_base_trust_candidates,
+    )
     totals["functions_with_blockers"] += 1
     for blocker in blockers:
         totals["blockers"] += 1
         base = str(blocker.get("base", "") or "unknown")
         evidence = layout_evidence.get(base, {})
+        identity = identity_evidence.get(base, {"identity_evidence": "none"})
         bases[base] += 1
         reason_items = [str(item) for item in blocker.get("reasons", []) or []]
         totals["reason_observations"] += len(reason_items)
@@ -3372,6 +3403,11 @@ def _update_layout_rewrite_blocker_metrics(
                     "access_count": _int_value(evidence.get("access_count"), 0),
                     "layout_confidence": _float_value(evidence.get("confidence"), 0.0),
                     "blocker_confidence": _float_value(blocker.get("confidence"), 0.0),
+                    "identity_evidence": str(identity.get("identity_evidence", "") or "none"),
+                    "identity_source": str(identity.get("source", "") or ""),
+                    "identity_source_kind": str(identity.get("source_kind", "") or ""),
+                    "identity_blocker_profile": str(identity.get("blocker_profile", "") or ""),
+                    "identity_confidence": _float_value(identity.get("confidence"), 0.0),
                     "reasons": reason_items,
                     "summary_path": str(summary_path),
                 }
@@ -3404,6 +3440,96 @@ def _layout_evidence_by_base(hints: list[dict[str, Any]]) -> dict[str, dict[str,
         if candidate_score > current_score:
             result[base] = candidate
     return result
+
+
+def _layout_identity_evidence_by_base(
+    stable_base_sources: list[dict[str, Any]],
+    generic_base_evidence: list[dict[str, Any]],
+    generic_base_trust_candidates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in stable_base_sources:
+        source_kind = str(item.get("source_kind", "") or "unknown")
+        evidence_class = "stable_%s_source" % source_kind
+        _set_layout_identity_evidence(
+            result,
+            str(item.get("base", "") or "unknown"),
+            {
+                "identity_evidence": evidence_class,
+                "source": str(item.get("source", "") or ""),
+                "source_kind": source_kind,
+                "blocker_profile": "",
+                "confidence": _float_value(item.get("confidence"), 0.0),
+                "offset_count": _int_value(item.get("offset_count"), 0),
+                "access_count": _int_value(item.get("access_count"), 0),
+            },
+        )
+    for item in generic_base_evidence:
+        blocker_profile = str(item.get("blocker_profile", "") or "unknown")
+        evidence_class = "generic_base_evidence"
+        if blocker_profile != "generic_only":
+            evidence_class = blocker_profile
+        _set_layout_identity_evidence(
+            result,
+            str(item.get("base", "") or "unknown"),
+            {
+                "identity_evidence": evidence_class,
+                "source": "",
+                "source_kind": "",
+                "blocker_profile": blocker_profile,
+                "confidence": _float_value(item.get("confidence"), 0.0),
+                "offset_count": _int_value(item.get("offset_count"), 0),
+                "access_count": _int_value(item.get("access_count"), 0),
+            },
+        )
+    for item in generic_base_trust_candidates:
+        blocker_profile = str(item.get("blocker_profile", "") or "unknown")
+        source_kind = str(item.get("source_kind", "") or "unknown")
+        _set_layout_identity_evidence(
+            result,
+            str(item.get("base", "") or "unknown"),
+            {
+                "identity_evidence": "generic_%s_trust" % source_kind,
+                "source": "",
+                "source_kind": source_kind,
+                "blocker_profile": blocker_profile,
+                "confidence": _float_value(item.get("confidence"), 0.0),
+                "offset_count": _int_value(item.get("offset_count"), 0),
+                "access_count": _int_value(item.get("access_count"), 0),
+            },
+        )
+    return result
+
+
+def _set_layout_identity_evidence(
+    result: dict[str, dict[str, Any]],
+    base: str,
+    candidate: dict[str, Any],
+) -> None:
+    current = result.get(base)
+    if current is None:
+        result[base] = candidate
+        return
+    current_score = _layout_identity_evidence_score(current)
+    candidate_score = _layout_identity_evidence_score(candidate)
+    if candidate_score > current_score:
+        result[base] = candidate
+
+
+def _layout_identity_evidence_score(item: dict[str, Any]) -> tuple[int, int, int, float]:
+    priority = {
+        "generic_parameter_trust": 40,
+        "stable_argument_source": 35,
+        "stable_named_source": 30,
+        "generic_base_evidence": 20,
+        "generic_with_other_blockers": 15,
+    }.get(str(item.get("identity_evidence", "") or ""), 10)
+    return (
+        priority,
+        _int_value(item.get("access_count"), 0),
+        _int_value(item.get("offset_count"), 0),
+        _float_value(item.get("confidence"), 0.0),
+    )
 
 
 def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
@@ -3459,6 +3585,7 @@ def _layout_rewrite_blocker_review_queues(
         )
         function_names = {str(item.get("name", "") or "") for item in items}
         bases = Counter(str(item.get("base", "") or "unknown") for item in items)
+        identity_evidence = Counter(str(item.get("identity_evidence", "") or "none") for item in items)
         result[queue_name] = {
             "blockers": len(items),
             "functions": len(function_names),
@@ -3473,6 +3600,7 @@ def _layout_rewrite_blocker_review_queues(
                 default=0.0,
             ),
             "top_bases": _counter_to_dict(Counter(dict(bases.most_common(top)))),
+            "identity_evidence": _counter_to_dict(Counter(dict(identity_evidence.most_common(top)))),
             "items": items[:top],
         }
     return result
@@ -3726,11 +3854,20 @@ def _rewrite_blocker_function_summary(
     summary_path: Path,
     blockers: list[dict[str, Any]],
     layout_hints: list[dict[str, Any]],
+    stable_base_sources: list[dict[str, Any]],
+    generic_base_evidence: list[dict[str, Any]],
+    generic_base_trust_candidates: list[dict[str, Any]],
 ) -> dict[str, Any]:
     reasons = Counter()
     review_profiles = Counter()
+    identity_evidence = Counter()
     bases = []
     layout_evidence = _layout_evidence_by_base(layout_hints)
+    identity_by_base = _layout_identity_evidence_by_base(
+        stable_base_sources,
+        generic_base_evidence,
+        generic_base_trust_candidates,
+    )
     max_offsets = 0
     max_access_count = 0
     max_layout_confidence = 0.0
@@ -3743,6 +3880,8 @@ def _rewrite_blocker_function_summary(
         max_access_count = max(max_access_count, _int_value(evidence.get("access_count"), 0))
         max_layout_confidence = max(max_layout_confidence, _float_value(evidence.get("confidence"), 0.0))
         max_blocker_confidence = max(max_blocker_confidence, _float_value(blocker.get("confidence"), 0.0))
+        identity = identity_by_base.get(base, {"identity_evidence": "none"})
+        identity_evidence[str(identity.get("identity_evidence", "") or "none")] += 1
         reason_items = [str(reason) for reason in blocker.get("reasons", []) or []]
         for reason in reason_items:
             reasons[str(reason)] += 1
@@ -3759,6 +3898,7 @@ def _rewrite_blocker_function_summary(
         "max_layout_confidence": max_layout_confidence,
         "max_blocker_confidence": max_blocker_confidence,
         "review_profiles": _counter_to_dict(Counter(dict(review_profiles.most_common(5)))),
+        "identity_evidence": _counter_to_dict(Counter(dict(identity_evidence.most_common(5)))),
         "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),
     }
