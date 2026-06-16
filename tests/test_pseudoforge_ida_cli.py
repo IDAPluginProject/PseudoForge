@@ -47,6 +47,7 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
                     "--max-functions",
                     "1",
                     "--no-pdb",
+                    "--apply-validated-layout-rewrites",
                 ]
             )
 
@@ -60,6 +61,7 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertIn("--llm-renames-auto", run.batch_args)
             self.assertIn("--require-configured-llm", run.batch_args)
             self.assertIn("--overwrite-forge", run.batch_args)
+            self.assertIn("--apply-validated-layout-rewrites", run.batch_args)
             self.assertIn("-Opdb:off", run.ida_args)
             self.assertTrue(any(item.startswith("-S") for item in run.ida_args))
             self.assertEqual(resolved_output_dir / "pseudoforge-ida-cancel.txt", run.cancel_file)
@@ -380,6 +382,7 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertEqual("dry_run", manifest["status"])
             self.assertEqual("plugin_config", manifest["llm"]["mode"])
             self.assertTrue(manifest["llm"]["required"])
+            self.assertFalse(manifest["layout_rewrites"]["apply_validated"])
             self.assertTrue(manifest["pdb"]["enabled"])
             self.assertFalse(manifest["pdb"]["disabled"])
             self.assertEqual(

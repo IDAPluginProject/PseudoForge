@@ -69,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
         default=2,
         help="Maximum helper/subhandler depth for buffer contract recovery.",
     )
+    parser.add_argument(
+        "--apply-validated-layout-rewrites",
+        action="store_true",
+        help="Rewrite canonical cleaned output with validated layout field aliases.",
+    )
     args = parser.parse_args(argv)
     configure_profile_dir(args.profile_dir)
 
@@ -87,7 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         buffer_contract_case_values=args.buffer_contract_case or None,
         buffer_contract_helper_depth=max(0, args.buffer_contract_helper_depth),
     )
-    paths = write_export_bundle(args.out, capture, plan, entrypoint="offline_cli")
+    paths = write_export_bundle(
+        args.out,
+        capture,
+        plan,
+        entrypoint="offline_cli",
+        apply_validated_layout_rewrites=args.apply_validated_layout_rewrites,
+    )
     warnings = _combined_warnings(plan.warnings, profile_load_warnings())
     if args.rule_report:
         report_path = _write_rule_report(args.rule_report, capture, plan.rule_report)
@@ -100,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Flow rewrites: {len(plan.flow_rewrites)}")
     if args.buffer_contract_case:
         print("Buffer contract case filter: %s" % ", ".join("0x%X" % value for value in args.buffer_contract_case))
+    if args.apply_validated_layout_rewrites:
+        print("Validated layout rewrites: enabled")
     if warnings:
         print(f"Warnings: {len(warnings)}")
     for kind, path in paths.items():

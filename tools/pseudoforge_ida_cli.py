@@ -222,6 +222,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="",
         help="Directory containing recorded raw LLM rename candidate responses to replay instead of calling a provider.",
     )
+    parser.add_argument(
+        "--apply-validated-layout-rewrites",
+        action="store_true",
+        help="Rewrite exported canonical cleaned artifacts with validated layout field aliases.",
+    )
     parser.add_argument("--visible", action="store_true", help="Do not request a hidden IDA window.")
     parser.add_argument("--no-wait", action="store_true", help="Start IDA and return immediately.")
     parser.add_argument("--no-summary", action="store_true", help="Do not print a text summary after IDA exits.")
@@ -354,6 +359,8 @@ def _build_batch_args(
         result.extend(["--llm-candidate-cache-dir", str(Path(args.llm_candidate_cache_dir).expanduser().resolve())])
     if args.llm_candidate_replay_dir:
         result.extend(["--llm-candidate-replay-dir", str(Path(args.llm_candidate_replay_dir).expanduser().resolve())])
+    if args.apply_validated_layout_rewrites:
+        result.append("--apply-validated-layout-rewrites")
     result.extend(["--cancel-file", str(cancel_file)])
     _append_int_option(result, "--max-functions", args.max_functions)
     _append_int_option(result, "--max-seconds", args.max_seconds)
@@ -671,6 +678,9 @@ def _write_manifest(
             "required": _manifest_llm_required(run, args),
             "candidate_cache_dir": str(run.llm_candidate_cache_dir) if run.llm_candidate_cache_dir else "",
             "candidate_replay_dir": str(run.llm_candidate_replay_dir) if run.llm_candidate_replay_dir else "",
+        },
+        "layout_rewrites": {
+            "apply_validated": bool(args.apply_validated_layout_rewrites),
         },
         "ida_args": list(run.ida_args),
         "batch_args": list(run.batch_args),

@@ -37,6 +37,7 @@ def write_export_bundle(
     extra_summary: dict[str, object] | None = None,
     extra_artifacts: dict[str, str] | None = None,
     file_stem: str | None = None,
+    apply_validated_layout_rewrites: bool = False,
 ) -> dict[str, str]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -63,6 +64,13 @@ def write_export_bundle(
 
     if cleaned_text is None:
         cleaned_text = render_cleaned_pseudocode(capture, plan)
+    layout_rewrite_preview = build_layout_rewrite_preview_bundle(
+        cleaned_text,
+        safe_name,
+        apply_validated_body_rewrite=apply_validated_layout_rewrites,
+    )
+    if layout_rewrite_preview is not None and layout_rewrite_preview.canonical_text is not None:
+        cleaned_text = layout_rewrite_preview.canonical_text
     raw_text = capture.pseudocode.rstrip() + "\n"
     switch_outline_text = render_switch_outline(capture, plan)
     flow_report_text = render_flow_report(capture, plan)
@@ -90,7 +98,6 @@ def write_export_bundle(
     raw_path.write_text(raw_text, encoding="utf-8")
     warnings_path.write_text(json.dumps(warnings, indent=2, ensure_ascii=True), encoding="utf-8")
     diff_path.write_text(_raw_vs_cleaned_diff(safe_name, raw_text, cleaned_text), encoding="utf-8")
-    layout_rewrite_preview = build_layout_rewrite_preview_bundle(cleaned_text, safe_name)
     if layout_rewrite_preview is not None:
         layout_rewrite_preview_path.write_text(layout_rewrite_preview.text, encoding="utf-8")
         layout_rewrite_preview_diff_path.write_text(layout_rewrite_preview.diff, encoding="utf-8")

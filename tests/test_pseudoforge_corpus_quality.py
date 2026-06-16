@@ -425,8 +425,20 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(8, report["layout_rewrite_preview_artifact_stats"]["totals"]["rewritten_fields"])
             self.assertEqual(0, report["layout_rewrite_preview_artifact_stats"]["totals"]["validation_errors"])
             self.assertEqual(
+                0,
+                report["layout_rewrite_preview_artifact_stats"]["totals"].get("canonical_rewrite_requested", 0),
+            )
+            self.assertEqual(
+                0,
+                report["layout_rewrite_preview_artifact_stats"]["totals"].get("canonical_rewrite_applied", 0),
+            )
+            self.assertEqual(
                 1,
                 report["layout_rewrite_preview_artifact_stats"]["validation_statuses"]["passed"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["canonical_rewrite_statuses"]["not_requested"],
             )
             self.assertEqual({}, report["layout_rewrite_preview_artifact_stats"]["failed_checks"])
             self.assertEqual(
@@ -436,6 +448,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 "passed",
                 report["layout_rewrite_preview_artifact_stats"]["top_functions"][0]["validation_status"],
+            )
+            self.assertEqual(
+                "not_requested",
+                report["layout_rewrite_preview_artifact_stats"]["top_functions"][0]["canonical_rewrite_status"],
             )
             self.assertEqual(1, report["layout_rewrite_near_ready_stats"]["totals"]["near_ready_candidates"])
             self.assertEqual(
@@ -1038,6 +1054,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
+                "Preview Artifact Canonical Rewrite Statuses",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "Rewrite-Ready Source Provenance",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
@@ -1196,7 +1216,10 @@ def _write_quality_fixture(root: Path) -> None:
             {
                 "schema": "layout_rewrite_preview_v2",
                 "artifact": "layout_rewrite_preview",
+                "canonical_rewrite_requested": False,
                 "canonical_cleaned_output_modified": False,
+                "canonical_rewrite_status": "not_requested",
+                "canonical_rewrite_errors": [],
                 "preview_plans": [
                     {
                         "base": "readySession",

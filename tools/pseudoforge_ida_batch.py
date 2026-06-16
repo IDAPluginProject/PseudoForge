@@ -272,6 +272,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default="",
         help="Directory containing recorded raw LLM rename candidate responses to replay instead of calling a provider.",
     )
+    parser.add_argument(
+        "--apply-validated-layout-rewrites",
+        action="store_true",
+        help="Rewrite exported canonical cleaned artifacts with validated layout field aliases.",
+    )
     parser.add_argument("--report", default="", help="JSONL progress report path.")
     parser.add_argument("--cancel-file", default="", help="Stop before the next function when this file exists.")
     parser.add_argument("--max-functions", type=int, default=0, help="Maximum functions to process. 0 means all.")
@@ -418,6 +423,7 @@ def _analyze_function(
                 llm_error_summary,
                 llm_info,
                 llm_candidate_artifacts,
+                apply_validated_layout_rewrites=args.apply_validated_layout_rewrites,
             )
         return result
     except Exception as exc:
@@ -787,6 +793,7 @@ def _write_export_artifacts(
     llm_error_summary: str,
     llm_info: dict[str, Any],
     llm_candidate_artifacts: dict[str, str] | None = None,
+    apply_validated_layout_rewrites: bool = False,
 ) -> dict[str, Any]:
     function_dir = export_dir / _function_file_stem(capture.ea, capture.name)
     extra_summary: dict[str, object] = {
@@ -816,6 +823,7 @@ def _write_export_artifacts(
         extra_summary=extra_summary,
         extra_artifacts=llm_candidate_artifacts,
         file_stem="function",
+        apply_validated_layout_rewrites=apply_validated_layout_rewrites,
     )
     return {
         "mode": "ida_batch_export",

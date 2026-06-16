@@ -300,6 +300,7 @@ def analyze_corpus(
     rewrite_preview_source_provenance: Counter[str] = Counter()
     rewrite_preview_totals = Counter()
     rewrite_preview_artifact_statuses: Counter[str] = Counter()
+    rewrite_preview_artifact_canonical_statuses: Counter[str] = Counter()
     rewrite_preview_artifact_failed_checks: Counter[str] = Counter()
     rewrite_preview_artifact_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -369,6 +370,7 @@ def analyze_corpus(
                 rewrite_preview_metadata,
                 rewrite_preview_artifact_totals,
                 rewrite_preview_artifact_statuses,
+                rewrite_preview_artifact_canonical_statuses,
                 rewrite_preview_artifact_failed_checks,
             )
             top_rewrite_preview_artifact_functions.append(
@@ -829,6 +831,9 @@ def analyze_corpus(
             "totals": _counter_to_dict(rewrite_preview_artifact_totals),
             "validation_statuses": _counter_to_dict(
                 Counter(dict(rewrite_preview_artifact_statuses.most_common(top)))
+            ),
+            "canonical_rewrite_statuses": _counter_to_dict(
+                Counter(dict(rewrite_preview_artifact_canonical_statuses.most_common(top)))
             ),
             "failed_checks": _counter_to_dict(
                 Counter(dict(rewrite_preview_artifact_failed_checks.most_common(top)))
@@ -1648,6 +1653,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "- Artifact rewritten accesses: `%s`" % rewrite_preview_artifact_totals.get("rewritten_accesses", 0),
             "- Artifact rewritten fields: `%s`" % rewrite_preview_artifact_totals.get("rewritten_fields", 0),
             "- Artifact validation errors: `%s`" % rewrite_preview_artifact_totals.get("validation_errors", 0),
+            "- Canonical rewrite requested: `%s`"
+            % rewrite_preview_artifact_totals.get("canonical_rewrite_requested", 0),
+            "- Canonical rewrite applied: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_applied", 0),
+            "- Canonical rewrite blocked: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_blocked", 0),
+            "- Canonical rewrite errors: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_errors", 0),
             "",
             "### Preview Artifact Validation Statuses",
             "",
@@ -1656,6 +1666,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         _markdown_counter_table(
             _coerce_dict(rewrite_preview_artifact_stats.get("validation_statuses", {})),
+            "Status",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Preview Artifact Canonical Rewrite Statuses",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_preview_artifact_stats.get("canonical_rewrite_statuses", {})),
             "Status",
         )
     )
@@ -1677,8 +1700,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Preview Artifact Functions",
             "",
-            "| Function | EA | Status | Rewritten accesses | Rewritten fields | Bases | Errors |",
-            "| --- | --- | --- | ---: | ---: | --- | --- |",
+            "| Function | EA | Status | Canonical rewrite | Rewritten accesses | Rewritten fields | Bases | Errors |",
+            "| --- | --- | --- | --- | ---: | ---: | --- | --- |",
         ]
     )
     for item in rewrite_preview_artifact_stats.get("top_functions", []) or []:
@@ -1687,11 +1710,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         bases = ", ".join("`%s`" % base for base in item.get("rewritten_bases", []) or [])
         errors = "; ".join(str(error) for error in item.get("validation_errors", []) or [])
         lines.append(
-            "| `%s` | `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 str(item.get("validation_status", "")),
+                str(item.get("canonical_rewrite_status", "")),
                 int(item.get("rewritten_accesses", 0) or 0),
                 int(item.get("rewritten_fields", 0) or 0),
                 _markdown_table_cell(bases),
@@ -3780,6 +3804,7 @@ def _update_layout_rewrite_preview_artifact_metrics(
     metadata: dict[str, Any],
     totals: Counter[str],
     statuses: Counter[str],
+    canonical_statuses: Counter[str],
     failed_checks: Counter[str],
 ) -> None:
     if not metadata:
@@ -3793,6 +3818,20 @@ def _update_layout_rewrite_preview_artifact_metrics(
     statuses[status] += 1
     errors = [str(error) for error in validation.get("errors", []) or [] if str(error)]
     totals["validation_errors"] += len(errors)
+    canonical_status = str(metadata.get("canonical_rewrite_status", "") or "unknown")
+    canonical_statuses[canonical_status] += 1
+    if bool(metadata.get("canonical_rewrite_requested", False)):
+        totals["canonical_rewrite_requested"] += 1
+    if bool(metadata.get("canonical_cleaned_output_modified", False)):
+        totals["canonical_rewrite_applied"] += 1
+    if canonical_status == "blocked_by_validation":
+        totals["canonical_rewrite_blocked"] += 1
+    canonical_errors = [
+        str(error)
+        for error in metadata.get("canonical_rewrite_errors", []) or []
+        if str(error)
+    ]
+    totals["canonical_rewrite_errors"] += len(canonical_errors)
     checks = _coerce_dict(validation.get("checks", {}))
     for check, passed in checks.items():
         if bool(passed):
@@ -4443,6 +4482,8 @@ def _rewrite_preview_artifact_function_summary(
             for error in validation.get("errors", []) or []
             if str(error)
         ],
+        "canonical_rewrite_status": str(metadata.get("canonical_rewrite_status", "") or "unknown"),
+        "canonical_cleaned_output_modified": bool(metadata.get("canonical_cleaned_output_modified", False)),
         "rewritten_accesses": _int_value(metadata.get("rewritten_accesses"), 0),
         "rewritten_fields": _int_value(metadata.get("rewritten_fields"), 0),
         "rewritten_bases": [

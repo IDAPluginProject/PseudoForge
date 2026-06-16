@@ -12,6 +12,9 @@ _OFFSET_DEREF_RE = re.compile(
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
 
+_PREVIEW_ONLY_COMMENT = "Preview artifact only; body rewrite was not applied."
+_CANONICAL_APPLIED_COMMENT = "Validated layout rewrite applied to canonical cleaned output."
+
 _REWRITE_PREVIEW_RE = re.compile(
     r"-\s+inferred_offset_rewrite_preview:\s+Offset field rewrite preview for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
@@ -20,7 +23,8 @@ _REWRITE_PREVIEW_RE = re.compile(
     r"(?P<fields>.*?)\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
     r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
-    r"Preview artifact only; body rewrite was not applied\.\s+"
+    + re.escape(_PREVIEW_ONLY_COMMENT)
+    + r"\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 
@@ -30,21 +34,52 @@ class LayoutRewritePreviewBundle:
     text: str
     diff: str
     metadata: dict[str, Any]
+    canonical_text: str | None = None
 
 
-def build_layout_rewrite_preview_bundle(cleaned_text: str, artifact_name: str = "function") -> LayoutRewritePreviewBundle | None:
+def build_layout_rewrite_preview_bundle(
+    cleaned_text: str,
+    artifact_name: str = "function",
+    apply_validated_body_rewrite: bool = False,
+) -> LayoutRewritePreviewBundle | None:
     plans = _layout_rewrite_preview_plans(cleaned_text)
     if not plans:
         return None
     rewritten, rewrite_stats = _rewrite_layout_offset_dereferences(cleaned_text, plans)
     if rewrite_stats["rewritten_accesses"] <= 0:
         return None
-    preview_text = _preview_header(artifact_name, rewrite_stats) + rewritten.rstrip() + "\n"
-    validation = _validate_layout_rewrite_preview(plans, rewrite_stats, preview_text)
+    validation_text = _preview_header(artifact_name, rewrite_stats) + rewritten.rstrip() + "\n"
+    validation = _validate_layout_rewrite_preview(plans, rewrite_stats, validation_text)
+    canonical_text = None
+    canonical_rewrite_status = "not_requested"
+    canonical_rewrite_errors: list[str] = []
+    if apply_validated_body_rewrite:
+        if validation.get("status") == "passed":
+            canonical_text = _canonical_layout_rewrite_text(rewritten)
+            canonical_rewrite_status = "applied"
+        else:
+            canonical_rewrite_status = "blocked_by_validation"
+            canonical_rewrite_errors = [
+                str(error)
+                for error in validation.get("errors", []) or []
+                if str(error)
+            ]
+    preview_text = (
+        _preview_header(
+            artifact_name,
+            rewrite_stats,
+            canonical_cleaned_output_modified=canonical_text is not None,
+        )
+        + rewritten.rstrip()
+        + "\n"
+    )
     metadata = {
         "schema": "layout_rewrite_preview_v2",
         "artifact": "layout_rewrite_preview",
-        "canonical_cleaned_output_modified": False,
+        "canonical_rewrite_requested": bool(apply_validated_body_rewrite),
+        "canonical_cleaned_output_modified": canonical_text is not None,
+        "canonical_rewrite_status": canonical_rewrite_status,
+        "canonical_rewrite_errors": canonical_rewrite_errors,
         "preview_plans": plans,
         "rewritten_accesses": rewrite_stats["rewritten_accesses"],
         "rewritten_fields": rewrite_stats["rewritten_fields"],
@@ -56,6 +91,7 @@ def build_layout_rewrite_preview_bundle(cleaned_text: str, artifact_name: str = 
         text=preview_text,
         diff=_layout_rewrite_preview_diff(artifact_name, cleaned_text, preview_text),
         metadata=metadata,
+        canonical_text=canonical_text,
     )
 
 
@@ -184,16 +220,31 @@ def _raw_offset_deref_for_base_exists(text: str, base: str) -> bool:
     return False
 
 
-def _preview_header(artifact_name: str, rewrite_stats: dict[str, Any]) -> str:
+def _canonical_layout_rewrite_text(rewritten_text: str) -> str:
+    text = str(rewritten_text or "").replace(_PREVIEW_ONLY_COMMENT, _CANONICAL_APPLIED_COMMENT)
+    return text.rstrip() + "\n"
+
+
+def _preview_header(
+    artifact_name: str,
+    rewrite_stats: dict[str, Any],
+    canonical_cleaned_output_modified: bool = False,
+) -> str:
+    canonical_status = (
+        "Canonical cleaned output was modified by validated opt-in rewrite."
+        if canonical_cleaned_output_modified
+        else "Canonical cleaned output was not modified."
+    )
     return (
         "/*\n"
         "    PseudoForge layout rewrite preview artifact.\n"
         "    Source artifact: %s.cleaned.cpp\n"
-        "    Canonical cleaned output was not modified.\n"
+        "    %s\n"
         "    Preview rewrites: %d dereference(s), %d field alias(es), bases=[%s].\n"
         "*/\n\n"
         % (
             artifact_name,
+            canonical_status,
             int(rewrite_stats.get("rewritten_accesses", 0) or 0),
             int(rewrite_stats.get("rewritten_fields", 0) or 0),
             ", ".join(str(item) for item in rewrite_stats.get("rewritten_bases", []) or []),
