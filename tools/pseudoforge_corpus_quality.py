@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ida_pseudoforge.core.api_semantics import STATUS_ARGUMENT_INDEXES
+from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP, STATUS_ARGUMENT_INDEXES
 from ida_pseudoforge.version import VERSION, plugin_title
 
 
@@ -27,6 +27,10 @@ DECIMAL_STATUS_RE = re.compile(
     r"|\b-?(?:107374\d+|\d{8,}|322122\d+)\s*(?:==|!=)"
 )
 HEX_STATUS_RE = re.compile(r"\b0xC[0-9A-Fa-f]{7}\b")
+NUMERIC_LITERAL_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+    r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+)
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
@@ -1702,6 +1706,7 @@ def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
     )
     _count_pattern(text_totals, text, HEX_STATUS_RE, "hex_status_like_literals", "functions_with_hex_status_like_literals")
     _count_profiled_status_argument_literals(text_totals, text)
+    _count_ntstatus_family_literals(text_totals, text)
 
 
 def _strip_pseudoforge_header(text: str) -> str:
@@ -1719,6 +1724,126 @@ def _count_profiled_status_argument_literals(counter: Counter[str], text: str) -
     counter["profiled_status_argument_literals"] += count
     if count:
         counter["functions_with_profiled_status_argument_literals"] += 1
+
+
+def _count_ntstatus_family_literals(counter: Counter[str], text: str) -> None:
+    literals = _ntstatus_family_literals(text)
+    if not literals:
+        return
+    counter["ntstatus_family_literals"] += len(literals)
+    counter["functions_with_ntstatus_family_literals"] += 1
+    known_count = sum(1 for item in literals if item["profiled"])
+    unknown_count = len(literals) - known_count
+    counter["ntstatus_profiled_family_literals"] += known_count
+    counter["ntstatus_unprofiled_family_literals"] += unknown_count
+    if unknown_count:
+        counter["functions_with_ntstatus_unprofiled_family_literals"] += 1
+    for item in literals:
+        severity = str(item["severity"])
+        counter["ntstatus_%s_family_literals" % severity] += 1
+        if not item["profiled"]:
+            counter["ntstatus_unprofiled_%s_family_literals" % severity] += 1
+
+
+def _ntstatus_family_literals(text: str) -> list[dict[str, Any]]:
+    result = []
+    for match in NUMERIC_LITERAL_RE.finditer(text or ""):
+        if not _is_ntstatus_literal_context(text, match):
+            continue
+        parsed = _parse_numeric_literal(match.group("literal"))
+        if parsed is None:
+            continue
+        if parsed >= 0 and parsed > 0xFFFFFFFF:
+            continue
+        unsigned_value = parsed & 0xFFFFFFFF
+        severity = _ntstatus_severity_name(unsigned_value)
+        if not severity:
+            continue
+        profile_name = _ntstatus_profile_name(parsed, match.group("literal"))
+        if not profile_name and severity != "error":
+            continue
+        result.append(
+            {
+                "literal": match.group("literal"),
+                "unsigned_value": unsigned_value,
+                "severity": severity,
+                "profiled": profile_name != "",
+            }
+        )
+    return result
+
+
+def _is_ntstatus_literal_context(text: str, match: re.Match[str]) -> bool:
+    line = _line_for_match(text, match.start(), match.end())
+    token = re.escape(match.group(0))
+    if _line_has_bitwise_literal_context(line, token):
+        return False
+    return any(
+        re.search(pattern % token, line)
+        for pattern in (
+            r"\breturn\s+(?:\([^)]+\)\s*)?%s\s*;",
+            r"(?:==|!=)\s*%s\b",
+            r"(?<![A-Za-z0-9_])%s\s*(?:==|!=)",
+            r"\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:\([^)]+\)\s*)?%s\s*;",
+            r"\bSetFailureLocation\s*\([^;\n]*%s",
+            r"\bguard_dispatch_icall_no_overrides\s*\([^;\n]*[?:][^;\n]*%s",
+            r"\b%s[^;\n]*[?:][^;\n]*guard_dispatch_icall_no_overrides\s*\(",
+        )
+    )
+
+
+def _line_for_match(text: str, start: int, end: int) -> str:
+    line_start = str(text or "").rfind("\n", 0, max(0, start)) + 1
+    line_end = str(text or "").find("\n", max(0, end))
+    if line_end < 0:
+        line_end = len(str(text or ""))
+    return str(text or "")[line_start:line_end]
+
+
+def _line_has_bitwise_literal_context(line: str, token: str) -> bool:
+    bitwise_operator = r"(?:\||\^|<<|>>|(?<!&)&(?!&))"
+    return (
+        re.search(r"%s\s*%s" % (bitwise_operator, token), line or "") is not None
+        or re.search(r"%s\s*%s" % (token, bitwise_operator), line or "") is not None
+    )
+
+
+def _ntstatus_severity_name(unsigned_value: int) -> str:
+    severity = (int(unsigned_value) >> 30) & 0x3
+    if severity == 1:
+        return "informational"
+    if severity == 2:
+        return "warning"
+    if severity == 3 and ((int(unsigned_value) >> 28) & 0xF) == 0xC:
+        return "error"
+    return ""
+
+
+def _ntstatus_profile_name(value: int, literal: str) -> str:
+    candidates = [str(value), str(literal)]
+    unsigned_value = value & 0xFFFFFFFF
+    candidates.append(str(unsigned_value))
+    if unsigned_value & 0x80000000:
+        candidates.append(str(unsigned_value - 0x100000000))
+    candidates.append("0x%08X" % unsigned_value)
+    candidates.append("0x%X" % unsigned_value)
+    for candidate in candidates:
+        name = NTSTATUS_RETURN_MAP.get(candidate)
+        if name:
+            return name
+    return ""
+
+
+def _parse_numeric_literal(literal: str) -> int | None:
+    try:
+        text = str(literal or "")
+        if text.lower().startswith("-0x"):
+            return -int(text[3:], 16)
+        if text.lower().startswith("0x"):
+            return int(text, 16)
+        return int(text, 10)
+    except ValueError:
+        return None
 
 
 def _profiled_status_argument_literal_count(text: str) -> int:
