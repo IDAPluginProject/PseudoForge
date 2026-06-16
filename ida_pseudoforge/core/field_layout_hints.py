@@ -97,6 +97,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                     ready = _field_rewrite_ready_comment(text or "", item)
                     if ready:
                         comments.append(ready)
+                        rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready)
+                        if rewrite_preview:
+                            comments.append(rewrite_preview)
     return comments
 
 
@@ -457,6 +460,50 @@ def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str
     return comment
 
 
+def _field_rewrite_preview_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    ready: dict[str, Any],
+) -> dict[str, Any] | None:
+    fields = _preview_fields(layout)
+    if not fields:
+        return None
+    rewrite_count = _layout_rewrite_access_count(text, layout)
+    if rewrite_count <= 0:
+        return None
+    field_names = [str(item["name"]) for item in fields if str(item.get("name", ""))]
+    if not field_names:
+        return None
+    field_text = ", ".join(field_names[:8])
+    if len(field_names) > 8:
+        field_text += ", ..."
+    source_provenance = str(ready.get("source_provenance", "") or "none")
+    source = str(ready.get("source", "") or "")
+    source_text = ""
+    if source_provenance != "none" and source:
+        source_text = " Source provenance %s from %s." % (source_provenance, source)
+    confidence = min(
+        0.78,
+        0.64 + len(fields) * 0.015 + min(rewrite_count, 24) * 0.004,
+    )
+    comment = {
+        "kind": "inferred_offset_rewrite_preview",
+        "text": (
+            "Offset field rewrite preview for %s: %d dereference(s) can map to %d field alias(es) %s.%s Preview artifact only; body rewrite was not applied."
+            % (layout.base, rewrite_count, len(fields), field_text, source_text)
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "field_count": len(fields),
+        "access_count": rewrite_count,
+        "source_provenance": source_provenance,
+    }
+    if source:
+        comment["source"] = source
+    return comment
+
+
 def _field_rewrite_near_ready_comment(
     layout: _LayoutEvidence,
     blocker: dict[str, Any],
@@ -530,6 +577,18 @@ def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
             }
         )
     return fields
+
+
+def _layout_rewrite_access_count(text: str, layout: _LayoutEvidence) -> int:
+    count = 0
+    offsets = set(layout.offsets)
+    for match in _OFFSET_DEREF_RE.finditer(text or ""):
+        if match.group("base") != layout.base:
+            continue
+        offset = _parse_offset(match.group("offset"))
+        if offset in offsets:
+            count += 1
+    return count
 
 
 def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[dict[str, Any]]:

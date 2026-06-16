@@ -139,6 +139,18 @@ FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"Audit only; body rewrite was not applied\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_REWRITE_PREVIEW_RE = re.compile(r"-\s+inferred_offset_rewrite_preview:")
+FIELD_REWRITE_PREVIEW_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_rewrite_preview:\s+Offset field rewrite preview for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<access_count>\d+)\s+dereference\(s\)\s+can map to\s+"
+    r"(?P<field_count>\d+)\s+field alias\(es\)\s+"
+    r"(?P<fields>.*?)\.\s+"
+    r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
+    r"Preview artifact only; body rewrite was not applied\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_REWRITE_NEAR_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_near_ready:")
 FIELD_REWRITE_NEAR_READY_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_near_ready:\s+Offset field rewrite near-ready for\s+"
@@ -284,6 +296,9 @@ def analyze_corpus(
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_source_provenance: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
+    rewrite_preview_bases: Counter[str] = Counter()
+    rewrite_preview_source_provenance: Counter[str] = Counter()
+    rewrite_preview_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
     rewrite_near_ready_missing: Counter[str] = Counter()
     rewrite_near_ready_totals = Counter()
@@ -313,6 +328,7 @@ def analyze_corpus(
     top_generic_base_evidence_functions = []
     top_generic_base_trust_candidate_functions = []
     top_rewrite_ready_functions = []
+    top_rewrite_preview_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
     top_decimal_status_residue_functions = []
@@ -364,6 +380,7 @@ def analyze_corpus(
                     generic_base_evidence,
                     generic_base_trust_candidates,
                     rewrite_ready,
+                    rewrite_previews,
                     rewrite_near_ready,
                     rewrite_blockers,
                     decimal_status_body_literals,
@@ -434,6 +451,12 @@ def analyze_corpus(
                     rewrite_ready_bases,
                     rewrite_ready_source_provenance,
                 )
+                _update_layout_rewrite_preview_metrics(
+                    rewrite_previews,
+                    rewrite_preview_totals,
+                    rewrite_preview_bases,
+                    rewrite_preview_source_provenance,
+                )
                 _update_layout_rewrite_near_ready_metrics(
                     rewrite_near_ready,
                     rewrite_near_ready_totals,
@@ -491,6 +514,10 @@ def analyze_corpus(
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
                         _rewrite_ready_function_summary(name, ea, summary_path, rewrite_ready)
+                    )
+                if rewrite_previews:
+                    top_rewrite_preview_functions.append(
+                        _rewrite_preview_function_summary(name, ea, summary_path, rewrite_previews)
                     )
                 if rewrite_near_ready:
                     top_rewrite_near_ready_functions.append(
@@ -622,6 +649,14 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["ready_count"]),
             -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_rewrite_preview_functions.sort(
+        key=lambda item: (
+            -int(item["preview_count"]),
+            -int(item["max_fields"]),
             -int(item["max_access_count"]),
             str(item["name"]),
         )
@@ -759,6 +794,12 @@ def analyze_corpus(
             "source_provenance": _counter_to_dict(Counter(dict(rewrite_ready_source_provenance.most_common(top)))),
             "top_functions": top_rewrite_ready_functions[:top],
         },
+        "layout_rewrite_preview_stats": {
+            "totals": _counter_to_dict(rewrite_preview_totals),
+            "top_bases": _counter_to_dict(Counter(dict(rewrite_preview_bases.most_common(top)))),
+            "source_provenance": _counter_to_dict(Counter(dict(rewrite_preview_source_provenance.most_common(top)))),
+            "top_functions": top_rewrite_preview_functions[:top],
+        },
         "layout_rewrite_near_ready_stats": {
             "totals": _counter_to_dict(rewrite_near_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_near_ready_bases.most_common(top)))),
@@ -820,6 +861,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
     generic_base_trust_candidate_stats = _coerce_dict(report.get("layout_generic_base_trust_candidate_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
+    rewrite_preview_stats = _coerce_dict(report.get("layout_rewrite_preview_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
@@ -833,6 +875,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
     generic_base_trust_candidate_totals = _coerce_dict(generic_base_trust_candidate_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
+    rewrite_preview_totals = _coerce_dict(rewrite_preview_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
@@ -1498,6 +1541,66 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Layout Rewrite Preview Plans",
+            "",
+            "- Preview plans: `%s` across `%s` functions"
+            % (
+                rewrite_preview_totals.get("preview_plans", 0),
+                rewrite_preview_totals.get("functions_with_preview_plans", 0),
+            ),
+            "- Preview access observations: `%s`" % rewrite_preview_totals.get("access_observations", 0),
+            "- Preview field observations: `%s`" % rewrite_preview_totals.get("field_observations", 0),
+            "",
+            "### Rewrite Preview Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_preview_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Rewrite Preview Source Provenance",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_preview_stats.get("source_provenance", {})),
+            "Provenance",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Rewrite Preview Functions",
+            "",
+            "| Function | EA | Plans | Max fields | Max accesses | Source provenance | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in rewrite_preview_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        source_provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("source_provenance", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("preview_count", 0) or 0),
+                int(item.get("max_fields", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                _markdown_table_cell(source_provenance),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Layout Rewrite Near-Ready",
             "",
             "- Near-ready candidates: `%s` across `%s` functions"
@@ -2114,10 +2217,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -2131,6 +2235,7 @@ def _update_text_metrics(
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
     generic_base_trust_candidates = _extract_layout_generic_base_trust_candidates(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
+    rewrite_previews = _extract_layout_rewrite_previews(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
@@ -2202,6 +2307,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_REWRITE_PREVIEW_RE,
+        "inferred_offset_rewrite_previews",
+        "functions_with_inferred_offset_rewrite_previews",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_NEAR_READY_RE,
         "inferred_offset_rewrite_near_ready",
         "functions_with_inferred_offset_rewrite_near_ready",
@@ -2222,6 +2334,7 @@ def _update_text_metrics(
         generic_base_evidence,
         generic_base_trust_candidates,
         rewrite_ready,
+        rewrite_previews,
         rewrite_near_ready,
         rewrite_blockers,
         decimal_status_body_literals,
@@ -3194,6 +3307,28 @@ def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_rewrite_previews(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_REWRITE_PREVIEW_DETAIL_RE.finditer(text or ""):
+        fields = [
+            item.strip()
+            for item in match.group("fields").split(",")
+            if item.strip() and item.strip() != "..."
+        ]
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "source": match.groupdict().get("source") or "",
+                "source_provenance": match.groupdict().get("source_provenance") or "none",
+                "access_count": _int_value(match.group("access_count"), 0),
+                "field_count": _int_value(match.group("field_count"), 0),
+                "fields": fields,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _extract_layout_rewrite_near_ready(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_REWRITE_NEAR_READY_DETAIL_RE.finditer(text or ""):
@@ -3520,6 +3655,23 @@ def _update_layout_rewrite_ready_metrics(
         totals["ready_candidates"] += 1
         totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
         totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
+
+
+def _update_layout_rewrite_preview_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    source_provenance: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_preview_plans"] += 1
+    for candidate in candidates:
+        totals["preview_plans"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["field_observations"] += _int_value(candidate.get("field_count"), 0)
         bases[str(candidate.get("base", "") or "unknown")] += 1
         source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
 
@@ -4122,6 +4274,29 @@ def _rewrite_ready_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _rewrite_preview_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_provenance = Counter(
+        str(item.get("source_provenance", "") or "none")
+        for item in candidates
+    )
+    return {
+        "ea": ea,
+        "name": name,
+        "preview_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
+        "max_fields": max((_int_value(item.get("field_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),

@@ -27,6 +27,7 @@ CLEANED = r"""
       - inferred_offset_bitfield_aliases: Bitfield aliases for sessionSpace: field_20=+0x20 bitfield_low_nibble/bitfield_preserve_outer_nibbles/bitfield_clear_low_nibble masks=0xF,0xF00F,0xFFF0. Review-only names; body rewrite remains disabled until the parent structure is trusted. confidence=0.73
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for sessionSpace: rewrite offset threshold requires at least 8 offsets; rewrite access threshold requires at least 12 accesses. Review-only aliases remain available. confidence=0.73
       - inferred_offset_rewrite_ready: Offset field rewrite candidate for readySession: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for readySession: 12 dereference(s) can map to 8 field alias(es) field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Preview artifact only; body rewrite was not applied. confidence=0.78
       - inferred_offset_rewrite_near_ready: Offset field rewrite near-ready for nearlySession: 12 typed dereference(s) across 6 offset(s), missing offset threshold only. Audit only; body rewrite was not applied. confidence=0.75
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
@@ -402,6 +403,19 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertEqual(8, report["layout_rewrite_ready_stats"]["top_functions"][0]["max_offsets"])
             self.assertEqual(12, report["layout_rewrite_ready_stats"]["top_functions"][0]["max_access_count"])
+            self.assertEqual(1, report["layout_rewrite_preview_stats"]["totals"]["preview_plans"])
+            self.assertEqual(1, report["layout_rewrite_preview_stats"]["totals"]["functions_with_preview_plans"])
+            self.assertEqual(8, report["layout_rewrite_preview_stats"]["totals"]["field_observations"])
+            self.assertEqual(12, report["layout_rewrite_preview_stats"]["totals"]["access_observations"])
+            self.assertEqual(1, report["layout_rewrite_preview_stats"]["top_bases"]["readySession"])
+            self.assertEqual(1, report["layout_rewrite_preview_stats"]["source_provenance"]["none"])
+            self.assertEqual("Sample", report["layout_rewrite_preview_stats"]["top_functions"][0]["name"])
+            self.assertEqual(
+                {"none": 1},
+                report["layout_rewrite_preview_stats"]["top_functions"][0]["source_provenance"],
+            )
+            self.assertEqual(8, report["layout_rewrite_preview_stats"]["top_functions"][0]["max_fields"])
+            self.assertEqual(12, report["layout_rewrite_preview_stats"]["top_functions"][0]["max_access_count"])
             self.assertEqual(1, report["layout_rewrite_near_ready_stats"]["totals"]["near_ready_candidates"])
             self.assertEqual(
                 1,
@@ -665,6 +679,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_previews"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_near_ready"])
             self.assertEqual(2, report["text_stats"]["inferred_offset_rewrite_blockers"])
             self.assertEqual(1, report["body_text_stats"]["offset_deref_patterns"])
@@ -866,6 +881,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertNotIn("inferred_offset_generic_base_evidence", report["body_text_stats"])
             self.assertNotIn("inferred_offset_generic_base_trust_candidates", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_ready", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_rewrite_previews", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_near_ready", report["body_text_stats"])
             self.assertNotIn("inferred_offset_rewrite_blockers", report["body_text_stats"])
             self.assertLess(
@@ -986,6 +1002,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Layout Rewrite Readiness",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Layout Rewrite Preview Plans",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Rewrite Preview Source Provenance",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

@@ -261,6 +261,7 @@ __int64 __fastcall StableTempSourceLayout(__int64 argument2)
         sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
 
         self.assertEqual(1, len(sources))
         self.assertEqual("v4", sources[0]["base"])
@@ -285,6 +286,13 @@ __int64 __fastcall StableTempSourceLayout(__int64 argument2)
         self.assertEqual("direct_argument_alias", ready[0]["source_provenance"])
         self.assertEqual("none", ready[0]["source_rhs_kind"])
         self.assertIn("Source provenance direct_argument_alias from argument2", ready[0]["text"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("v4", previews[0]["base"])
+        self.assertEqual("direct_argument_alias", previews[0]["source_provenance"])
+        self.assertEqual(12, previews[0]["access_count"])
+        self.assertEqual(8, previews[0]["field_count"])
+        self.assertIn("field_10", previews[0]["text"])
+        self.assertIn("Preview artifact only", previews[0]["text"])
 
     def test_temp_base_with_named_call_result_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
@@ -314,6 +322,7 @@ __int64 __fastcall StableNamedCallSourceLayout(__int64 source)
         sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
 
         self.assertEqual(1, len(sources))
         self.assertEqual("v16", sources[0]["base"])
@@ -330,6 +339,12 @@ __int64 __fastcall StableNamedCallSourceLayout(__int64 source)
         self.assertEqual("named_call_result_alias", ready[0]["source_provenance"])
         self.assertEqual("call_result", ready[0]["source_rhs_kind"])
         self.assertIn("Source provenance named_call_result_alias from list", ready[0]["text"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("v16", previews[0]["base"])
+        self.assertEqual("named_call_result_alias", previews[0]["source_provenance"])
+        self.assertEqual(12, previews[0]["access_count"])
+        self.assertEqual(8, previews[0]["field_count"])
+        self.assertIn("Source provenance named_call_result_alias from list", previews[0]["text"])
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
@@ -544,6 +559,7 @@ __int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
         self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
         self.assertEqual(1, len(ready))
         self.assertEqual("sessionSpace", ready[0]["base"])
         self.assertEqual("named", ready[0]["base_kind"])
@@ -551,6 +567,12 @@ __int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
         self.assertEqual(12, ready[0]["access_count"])
         self.assertIn("no rewrite blockers found", ready[0]["text"])
         self.assertIn("Audit only; body rewrite was not applied", ready[0]["text"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("sessionSpace", previews[0]["base"])
+        self.assertEqual("none", previews[0]["source_provenance"])
+        self.assertEqual(12, previews[0]["access_count"])
+        self.assertEqual(8, previews[0]["field_count"])
+        self.assertIn("field_10", previews[0]["text"])
 
     def test_stable_one_time_base_alias_assignment_does_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
