@@ -31,6 +31,13 @@ NUMERIC_LITERAL_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
     r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
 )
+_LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
+    "base_identity_candidates",
+    "base_stability_blockers",
+    "type_evidence_blockers",
+    "threshold_gap_candidates",
+    "manual_review",
+)
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
@@ -259,6 +266,8 @@ def analyze_corpus(
     rewrite_near_ready_totals = Counter()
     rewrite_blocker_bases: Counter[str] = Counter()
     rewrite_blocker_reasons: Counter[str] = Counter()
+    rewrite_blocker_review_profiles: Counter[str] = Counter()
+    rewrite_blocker_review_queues: dict[str, list[dict[str, Any]]] = {}
     rewrite_blocker_totals = Counter()
     ntstatus_body_unprofiled_values: Counter[str] = Counter()
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
@@ -404,6 +413,11 @@ def analyze_corpus(
                     rewrite_blocker_totals,
                     rewrite_blocker_bases,
                     rewrite_blocker_reasons,
+                    rewrite_blocker_review_profiles,
+                    rewrite_blocker_review_queues,
+                    name,
+                    ea,
+                    summary_path,
                 )
                 if layout_hints:
                     top_layout_hint_functions.append(
@@ -684,6 +698,11 @@ def analyze_corpus(
             "totals": _counter_to_dict(rewrite_blocker_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_blocker_bases.most_common(top)))),
             "reasons": _counter_to_dict(Counter(dict(rewrite_blocker_reasons.most_common(top)))),
+            "review_profiles": _counter_to_dict(Counter(dict(rewrite_blocker_review_profiles.most_common(top)))),
+            "review_queues": _layout_rewrite_blocker_review_queues(
+                rewrite_blocker_review_queues,
+                top,
+            ),
             "top_functions": top_rewrite_blocker_functions[:top],
         },
         "ntstatus_body_residue_stats": {
@@ -1431,6 +1450,38 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Rewrite Blocker Review Profiles",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(rewrite_blocker_stats.get("review_profiles", {})), "Profile"))
+    lines.extend(
+        [
+            "",
+            "### Rewrite Blocker Review Queues",
+            "",
+            "| Queue | Blockers | Functions | Top bases |",
+            "| --- | ---: | ---: | --- |",
+        ]
+    )
+    for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
+        queue = _coerce_dict(_coerce_dict(rewrite_blocker_stats.get("review_queues", {})).get(queue_name, {}))
+        top_bases = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("top_bases", {})).items()
+        )
+        lines.append(
+            "| `%s` | %s | %s | %s |"
+            % (
+                queue_name,
+                int(queue.get("blockers", 0) or 0),
+                int(queue.get("functions", 0) or 0),
+                _markdown_table_cell(top_bases),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "### Rewrite Blocker Bases",
             "",
         ]
@@ -1441,8 +1492,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Blocker Functions",
             "",
-            "| Function | EA | Blockers | Reasons | Bases | Top reasons |",
-            "| --- | --- | ---: | ---: | --- | --- |",
+            "| Function | EA | Blockers | Reasons | Profiles | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in rewrite_blocker_stats.get("top_functions", []) or []:
@@ -1453,13 +1504,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_reasons", {})).items()
         )
+        profiles = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("review_profiles", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("blocker_count", 0) or 0),
                 int(item.get("reason_count", 0) or 0),
+                _markdown_table_cell(profiles),
                 bases,
                 reasons,
             )
@@ -2728,6 +2784,11 @@ def _update_layout_rewrite_blocker_metrics(
     totals: Counter[str],
     bases: Counter[str],
     reasons: Counter[str],
+    review_profiles: Counter[str],
+    review_queues: dict[str, list[dict[str, Any]]],
+    function_name: str,
+    ea: str,
+    summary_path: Path,
 ) -> None:
     if not blockers:
         return
@@ -2740,6 +2801,53 @@ def _update_layout_rewrite_blocker_metrics(
         totals["reason_observations"] += len(reason_items)
         for reason in reason_items:
             reasons[reason] += 1
+        profiles = _layout_rewrite_blocker_review_profiles(reason_items)
+        for profile in profiles:
+            review_profiles[profile] += 1
+            review_queues.setdefault(profile, []).append(
+                {
+                    "ea": ea,
+                    "name": function_name,
+                    "base": base,
+                    "reasons": reason_items,
+                    "summary_path": str(summary_path),
+                }
+            )
+
+
+def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
+    profiles: set[str] = set()
+    for reason in reasons:
+        lowered = str(reason or "").lower()
+        if "decompiler temporary" in lowered or "base name is generic" in lowered:
+            profiles.add("base_identity_candidates")
+        if "multiple initializers" in lowered or "reassigned" in lowered:
+            profiles.add("base_stability_blockers")
+        if "mix narrow" in lowered or "mix wide" in lowered or "not naturally aligned" in lowered:
+            profiles.add("type_evidence_blockers")
+        if "rewrite access threshold" in lowered or "rewrite offset threshold" in lowered:
+            profiles.add("threshold_gap_candidates")
+    if not profiles:
+        profiles.add("manual_review")
+    return [profile for profile in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER if profile in profiles]
+
+
+def _layout_rewrite_blocker_review_queues(
+    queue_items: dict[str, list[dict[str, Any]]],
+    top: int,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
+        items = list(queue_items.get(queue_name, []))
+        function_names = {str(item.get("name", "") or "") for item in items}
+        bases = Counter(str(item.get("base", "") or "unknown") for item in items)
+        result[queue_name] = {
+            "blockers": len(items),
+            "functions": len(function_names),
+            "top_bases": _counter_to_dict(Counter(dict(bases.most_common(top)))),
+            "items": items[:top],
+        }
+    return result
 
 
 def _layout_hint_function_summary(
@@ -2991,17 +3099,22 @@ def _rewrite_blocker_function_summary(
     blockers: list[dict[str, Any]],
 ) -> dict[str, Any]:
     reasons = Counter()
+    review_profiles = Counter()
     bases = []
     for blocker in blockers:
         bases.append(str(blocker.get("base", "") or "unknown"))
-        for reason in blocker.get("reasons", []) or []:
+        reason_items = [str(reason) for reason in blocker.get("reasons", []) or []]
+        for reason in reason_items:
             reasons[str(reason)] += 1
+        for profile in _layout_rewrite_blocker_review_profiles(reason_items):
+            review_profiles[profile] += 1
     return {
         "ea": ea,
         "name": name,
         "blocker_count": len(blockers),
         "reason_count": sum(reasons.values()),
         "bases": bases[:8],
+        "review_profiles": _counter_to_dict(Counter(dict(review_profiles.most_common(5)))),
         "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),
     }

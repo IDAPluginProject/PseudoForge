@@ -324,6 +324,36 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ],
             )
             self.assertEqual("Sample", report["layout_rewrite_blocker_stats"]["top_functions"][0]["name"])
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_profiles"][
+                    "threshold_gap_candidates"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["blockers"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["functions"],
+            )
+            self.assertEqual(
+                "Sample",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["items"][0]["name"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["top_functions"][0]["review_profiles"][
+                    "threshold_gap_candidates"
+                ],
+            )
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["text_stats"]["label_tokens"])
             self.assertEqual(4, report["text_stats"]["decimal_status_like_literals"])
@@ -578,6 +608,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Layout Rewrite Blockers",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Rewrite Blocker Review Profiles",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Rewrite Blocker Review Queues",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
