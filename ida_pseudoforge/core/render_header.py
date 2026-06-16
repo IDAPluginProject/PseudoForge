@@ -11,6 +11,9 @@ from ida_pseudoforge.core.render_status import _has_status_accumulator
 from ida_pseudoforge.core.render_warnings import format_warning
 
 
+MAX_KERNEL_INSIGHT_COMMENTS = 20
+
+
 def render_header_lines(
     capture: FunctionCapture,
     plan: CleanPlan,
@@ -47,7 +50,7 @@ def render_header_lines(
 
     if plan.comments:
         header.append("    Kernel insights:")
-        for comment in plan.comments[:16]:
+        for comment in plan.comments[:MAX_KERNEL_INSIGHT_COMMENTS]:
             kind = _ascii_comment_text(str(comment.get("kind", "kernel")))
             confidence = float(comment.get("confidence", 0.0))
             text_value = _ascii_comment_text(str(comment.get("text", "")))

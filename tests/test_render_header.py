@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, CleanupLabel, FlowRewrite, FunctionCapture, RenameSuggestion
-from ida_pseudoforge.core.render_header import kernel_semantic_rewrite_count, render_header_lines
+from ida_pseudoforge.core.render_header import (
+    MAX_KERNEL_INSIGHT_COMMENTS,
+    kernel_semantic_rewrite_count,
+    render_header_lines,
+)
 
 
 def _plan() -> CleanPlan:
@@ -54,6 +58,36 @@ class RenderHeaderTests(unittest.TestCase):
 
     def test_kernel_semantic_rewrite_count_counts_known_comments_and_labels(self) -> None:
         self.assertEqual(kernel_semantic_rewrite_count(_plan()), 2)
+
+    def test_render_header_keeps_twenty_kernel_insights(self) -> None:
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="Sample",
+            input_fingerprint="fp",
+        )
+        for index in range(MAX_KERNEL_INSIGHT_COMMENTS + 1):
+            plan.comments.append(
+                {
+                    "kind": "test_comment_%d" % index,
+                    "text": "comment %d" % index,
+                    "confidence": 0.5,
+                }
+            )
+        capture = FunctionCapture(ea=0x140001000, name="Sample", pseudocode="")
+
+        header = "\n".join(
+            render_header_lines(
+                capture,
+                plan,
+                {},
+                [],
+                set(),
+                "0.1.0",
+            )
+        )
+
+        self.assertIn("test_comment_19", header)
+        self.assertNotIn("test_comment_20", header)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 source_preview = _field_stable_base_source_comment_from_layout(text or "", item)
                 if source_preview:
                     comments.append(source_preview)
+                generic_base_evidence = _field_generic_base_evidence_comment_from_layout(text or "", item)
+                if generic_base_evidence:
+                    comments.append(generic_base_evidence)
                 overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item)
                 if overlay_preview:
                     comments.append(overlay_preview)
@@ -318,6 +321,35 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         "base_kind": base_kind,
         "source": source,
         "source_kind": source_kind,
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
+    }
+
+
+def _field_generic_base_evidence_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind != "generic":
+        return None
+    blockers = _field_rewrite_blockers(text, layout)
+    if "base name is generic" not in blockers:
+        return None
+    blocker_profile = _generic_base_blocker_profile(blockers)
+    confidence = min(
+        _field_generic_base_evidence_confidence_cap_for_profile(blocker_profile),
+        0.58 + len(layout.offsets) * 0.02 + min(layout.access_count, 16) * 0.005,
+    )
+    return {
+        "kind": "inferred_offset_generic_base_evidence",
+        "text": _field_generic_base_evidence_text(
+            layout.base,
+            layout.access_count,
+            len(layout.offsets),
+            blocker_profile,
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "blocker_profile": blocker_profile,
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
     }
@@ -822,6 +854,12 @@ def _field_stable_base_source_confidence_cap_for_base_kind(base_kind: str, sourc
     return 0.74
 
 
+def _field_generic_base_evidence_confidence_cap_for_profile(blocker_profile: str) -> float:
+    if blocker_profile == "generic_only":
+        return 0.74
+    return 0.7
+
+
 def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "temp":
         return 0.74
@@ -927,6 +965,26 @@ def _field_stable_base_source_text(
         "Review-only; temp/generic base keeps rewrite blocked until source identity is trusted."
         % (base, source, source_kind, access_count, offset_count)
     )
+
+
+def _field_generic_base_evidence_text(
+    base: str,
+    access_count: int,
+    offset_count: int,
+    blocker_profile: str,
+) -> str:
+    return (
+        "Generic base evidence for %s: %d typed dereference(s) across %d offset(s), blocker profile %s. "
+        "Review-only; rewrite remains blocked until the base identity is trusted."
+        % (base, access_count, offset_count, blocker_profile)
+    )
+
+
+def _generic_base_blocker_profile(blockers: list[str]) -> str:
+    blocker_set = {str(item) for item in blockers if str(item)}
+    if blocker_set == {"base name is generic"}:
+        return "generic_only"
+    return "generic_with_other_blockers"
 
 
 def _review_text_for_base_kind(base_kind: str) -> str:

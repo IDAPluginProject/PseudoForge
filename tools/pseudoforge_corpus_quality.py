@@ -67,6 +67,16 @@ FIELD_STABLE_BASE_SOURCE_DETAIL_RE = re.compile(
     r"Review-only; temp/generic base keeps rewrite blocked until source identity is trusted\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_GENERIC_BASE_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_generic_base_evidence:")
+FIELD_GENERIC_BASE_EVIDENCE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_generic_base_evidence:\s+Generic base evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\),\s+blocker profile\s+"
+    r"(?P<blocker_profile>[a-z_]+)\.\s+"
+    r"Review-only; rewrite remains blocked until the base identity is trusted\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 SUBFIELD_OVERLAY_FIELD_RE = re.compile(
     r"\+0x(?P<offset>[0-9A-Fa-f]+)\s+field_[0-9A-Fa-f]+\s+uses\s+"
     r"(?P<sizes>[0-9/]+)-byte accesses\s+\((?P<types>[^)]*)\)"
@@ -219,6 +229,9 @@ def analyze_corpus(
     stable_base_source_sources: Counter[str] = Counter()
     stable_base_source_kinds: Counter[str] = Counter()
     stable_base_source_totals = Counter()
+    generic_base_evidence_bases: Counter[str] = Counter()
+    generic_base_evidence_profiles: Counter[str] = Counter()
+    generic_base_evidence_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
@@ -236,6 +249,7 @@ def analyze_corpus(
     top_narrow_subfield_functions = []
     top_bitfield_alias_functions = []
     top_stable_base_source_functions = []
+    top_generic_base_evidence_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
@@ -283,6 +297,7 @@ def analyze_corpus(
                     narrow_subfields,
                     bitfield_aliases,
                     stable_base_sources,
+                    generic_base_evidence,
                     rewrite_ready,
                     rewrite_near_ready,
                     rewrite_blockers,
@@ -332,6 +347,12 @@ def analyze_corpus(
                     stable_base_source_sources,
                     stable_base_source_kinds,
                 )
+                _update_layout_generic_base_evidence_metrics(
+                    generic_base_evidence,
+                    generic_base_evidence_totals,
+                    generic_base_evidence_bases,
+                    generic_base_evidence_profiles,
+                )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
                     rewrite_ready_totals,
@@ -368,6 +389,10 @@ def analyze_corpus(
                 if stable_base_sources:
                     top_stable_base_source_functions.append(
                         _stable_base_source_function_summary(name, ea, summary_path, stable_base_sources)
+                    )
+                if generic_base_evidence:
+                    top_generic_base_evidence_functions.append(
+                        _generic_base_evidence_function_summary(name, ea, summary_path, generic_base_evidence)
                     )
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
@@ -430,6 +455,14 @@ def analyze_corpus(
     top_stable_base_source_functions.sort(
         key=lambda item: (
             -int(item["source_comment_count"]),
+            -int(item["max_offsets"]),
+            -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_generic_base_evidence_functions.sort(
+        key=lambda item: (
+            -int(item["evidence_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
             str(item["name"]),
@@ -535,6 +568,12 @@ def analyze_corpus(
             "source_kinds": _counter_to_dict(Counter(dict(stable_base_source_kinds.most_common(top)))),
             "top_functions": top_stable_base_source_functions[:top],
         },
+        "layout_generic_base_evidence_stats": {
+            "totals": _counter_to_dict(generic_base_evidence_totals),
+            "top_bases": _counter_to_dict(Counter(dict(generic_base_evidence_bases.most_common(top)))),
+            "blocker_profiles": _counter_to_dict(Counter(dict(generic_base_evidence_profiles.most_common(top)))),
+            "top_functions": top_generic_base_evidence_functions[:top],
+        },
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
@@ -570,6 +609,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
     stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
+    generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
@@ -578,6 +618,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
     stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
+    generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
@@ -751,6 +792,61 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 sources,
                 source_kinds,
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Generic Base Evidence",
+            "",
+            "- Generic base evidence comments: `%s` across `%s` functions"
+            % (
+                generic_base_evidence_totals.get("evidence_comments", 0),
+                generic_base_evidence_totals.get("functions_with_evidence_comments", 0),
+            ),
+            "- Generic base evidence offset observations: `%s`" % generic_base_evidence_totals.get("offset_observations", 0),
+            "- Generic base evidence access observations: `%s`" % generic_base_evidence_totals.get("access_observations", 0),
+            "",
+            "### Generic Base Evidence Profiles",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(generic_base_evidence_stats.get("blocker_profiles", {})), "Profile"))
+    lines.extend(
+        [
+            "",
+            "### Generic Base Evidence Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(generic_base_evidence_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Highest Generic Base Evidence Functions",
+            "",
+            "| Function | EA | Evidence | Max offsets | Max accesses | Profiles | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in generic_base_evidence_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        profiles = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("blocker_profiles", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("evidence_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                profiles,
                 bases,
             )
         )
@@ -1361,10 +1457,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -1373,6 +1470,7 @@ def _update_text_metrics(
     narrow_subfields = _extract_layout_narrow_subfields(text)
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
     stable_base_sources = _extract_layout_stable_base_sources(text)
+    generic_base_evidence = _extract_layout_generic_base_evidence(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
@@ -1424,6 +1522,13 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_GENERIC_BASE_EVIDENCE_RE,
+        "inferred_offset_generic_base_evidence",
+        "functions_with_inferred_offset_generic_base_evidence",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_REWRITE_READY_RE,
         "inferred_offset_rewrite_ready",
         "functions_with_inferred_offset_rewrite_ready",
@@ -1448,6 +1553,7 @@ def _update_text_metrics(
         narrow_subfields,
         bitfield_aliases,
         stable_base_sources,
+        generic_base_evidence,
         rewrite_ready,
         rewrite_near_ready,
         rewrite_blockers,
@@ -1627,6 +1733,21 @@ def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
                 "base": match.group("base"),
                 "source": match.group("source"),
                 "source_kind": match.group("source_kind"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offset_count": _int_value(match.group("offset_count"), 0),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
+def _extract_layout_generic_base_evidence(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_GENERIC_BASE_EVIDENCE_DETAIL_RE.finditer(text or ""):
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "blocker_profile": match.group("blocker_profile"),
                 "access_count": _int_value(match.group("access_count"), 0),
                 "offset_count": _int_value(match.group("offset_count"), 0),
                 "confidence": _float_value(match.group("confidence"), 0.0),
@@ -1924,6 +2045,23 @@ def _update_layout_stable_base_source_metrics(
         source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
 
 
+def _update_layout_generic_base_evidence_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    blocker_profiles: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_evidence_comments"] += 1
+    for candidate in candidates:
+        totals["evidence_comments"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        blocker_profiles[str(candidate.get("blocker_profile", "") or "unknown")] += 1
+
+
 def _update_layout_rewrite_ready_metrics(
     candidates: list[dict[str, Any]],
     totals: Counter[str],
@@ -2118,6 +2256,29 @@ def _stable_base_source_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "top_sources": _counter_to_dict(Counter(dict(sources.most_common(5)))),
         "top_source_kinds": _counter_to_dict(Counter(dict(source_kinds.most_common(5)))),
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _generic_base_evidence_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    blocker_profiles = Counter(
+        str(item.get("blocker_profile", "") or "unknown")
+        for item in candidates
+    )
+    return {
+        "ea": ea,
+        "name": name,
+        "evidence_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "blocker_profiles": _counter_to_dict(blocker_profiles),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),

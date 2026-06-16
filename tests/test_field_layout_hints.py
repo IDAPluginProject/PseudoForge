@@ -330,7 +330,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         )
 
         self.assertEqual([], weak_comments)
-        self.assertEqual(4, len(strong_comments))
+        self.assertEqual(5, len(strong_comments))
         self.assertEqual("generic", strong_comments[0]["base_kind"])
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
@@ -349,6 +349,21 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual(0.7, aliases[0]["confidence"])
         self.assertIn("Review aliases for context (generic base)", aliases[0]["text"])
         self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
+        generic_evidence = [
+            item
+            for item in strong_comments
+            if item.get("kind") == "inferred_offset_generic_base_evidence"
+        ]
+        self.assertEqual(1, len(generic_evidence))
+        self.assertEqual("context", generic_evidence[0]["base"])
+        self.assertEqual("generic", generic_evidence[0]["base_kind"])
+        self.assertEqual("generic_only", generic_evidence[0]["blocker_profile"])
+        self.assertEqual(12, generic_evidence[0]["offset_count"])
+        self.assertEqual(12, generic_evidence[0]["access_count"])
+        self.assertEqual(0.74, generic_evidence[0]["confidence"])
+        self.assertIn("Generic base evidence for context", generic_evidence[0]["text"])
+        self.assertIn("generic_only", generic_evidence[0]["text"])
+        self.assertIn("rewrite remains blocked", generic_evidence[0]["text"])
         blockers = [item for item in strong_comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         self.assertEqual(1, len(blockers))
         self.assertEqual("context", blockers[0]["base"])
@@ -357,6 +372,42 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in strong_comments))
+
+    def test_generic_base_evidence_profiles_other_blockers(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall MixedGenericContext(__int64 context)
+{
+  return *(_DWORD *)(context + 16)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 80)
+       + *(_QWORD *)(context + 88)
+       + *(_QWORD *)(context + 96);
+}
+"""
+        )
+
+        generic_evidence = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_generic_base_evidence"
+        ]
+        self.assertEqual(1, len(generic_evidence))
+        self.assertEqual("generic_with_other_blockers", generic_evidence[0]["blocker_profile"])
+        self.assertEqual(0.7, generic_evidence[0]["confidence"])
+        self.assertIn("generic_with_other_blockers", generic_evidence[0]["text"])
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base name is generic", blockers[0]["blockers"])
+        self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_named_layout_without_negative_evidence_has_no_rewrite_blocker(self) -> None:
         comments = field_layout_comments(
