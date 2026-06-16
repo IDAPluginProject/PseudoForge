@@ -370,6 +370,39 @@ void __fastcall LargeFreeDispatcher(__int64 a1)
             )
         )
 
+    def test_large_dispatcher_allocation_initializer_roles_are_propagated(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+void __fastcall LargeAclDispatcher(__int64 a1)
+{
+  ACL *v1;
+  unsigned int v2;
+
+%s
+  v2 = 0x30;
+  v1 = (ACL *)ExAllocatePool2(0x100uLL, v2, 0x41434C41u);
+  RtlCreateAcl(v1, v2, 2u);
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("acl", active["v1"])
+        self.assertEqual("aclLength", active["v2"])
+        self.assertIn(
+            "acl = (ACL *)ExAllocatePool2(POOL_FLAG_PAGED, aclLength, POOL_TAG('A', 'L', 'C', 'A'))",
+            rendered,
+        )
+        self.assertIn("RtlCreateAcl(acl, aclLength, 2u)", rendered)
+
     def test_large_dispatcher_conflicting_api_roles_are_not_propagated(self) -> None:
         branches = "\n".join(
             "  if ( a1 == %d )\n    return %d;" % (index, index)

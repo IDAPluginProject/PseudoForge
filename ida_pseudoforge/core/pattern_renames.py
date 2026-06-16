@@ -1098,6 +1098,14 @@ def _large_dispatcher_api_role_evidence(
         return ""
     role_names = {role.get("new", "") for role in roles if role.get("new")}
     if role_names != {new_name}:
+        allocation_initializer_evidence = _allocation_initializer_api_role_evidence(
+            roles,
+            local_name,
+            new_name,
+            text,
+        )
+        if allocation_initializer_evidence:
+            return allocation_initializer_evidence
         return ""
     same_role_count = sum(1 for role in roles if role.get("new") == new_name)
     if same_role_count >= 2:
@@ -1111,6 +1119,14 @@ def _large_dispatcher_api_role_evidence(
             "large dispatcher local has a strong single-use API role %s from %s profile parameter %s"
             % (new_name, roles[0].get("callee", ""), roles[0].get("parameter", ""))
         )
+    allocation_initializer_evidence = _allocation_initializer_api_role_evidence(
+        roles,
+        local_name,
+        new_name,
+        text,
+    )
+    if allocation_initializer_evidence:
+        return allocation_initializer_evidence
     if allow_single_use and same_role_count == 1 and _looks_like_single_use_wrapper_local(text, local_name):
         return "large dispatcher local is a single-use wrapper for API role %s" % new_name
     return ""
@@ -1143,6 +1159,73 @@ def _is_strong_single_use_large_dispatcher_api_role(
     if not role.get("parameter", "") or not role.get("parameter_type", ""):
         return False
     return True
+
+
+_GENERIC_ALLOCATION_ROLE_NAMES = {"numberOfBytes", "poolFlags", "poolTag"}
+
+
+def _allocation_initializer_api_role_evidence(
+    roles: list[dict[str, str]],
+    local_name: str,
+    new_name: str,
+    text: str,
+) -> str:
+    for role in roles:
+        if role.get("new", "") != new_name:
+            continue
+        callee = role.get("callee", "")
+        parameter = role.get("parameter", "")
+        if (
+            callee == "RtlCreateAcl"
+            and parameter == "Acl"
+            and _local_receives_exallocatepool2(text, local_name)
+        ):
+            return (
+                "large dispatcher local receives ExAllocatePool2 output and is passed "
+                "to RtlCreateAcl profile parameter Acl"
+            )
+        if (
+            callee == "RtlCreateAcl"
+            and parameter == "AclLength"
+            and _local_is_exallocatepool2_size_argument(text, local_name)
+            and _only_competes_with_generic_allocation_roles(roles, new_name)
+        ):
+            return (
+                "large dispatcher local is an ExAllocatePool2 size argument and is passed "
+                "to RtlCreateAcl profile parameter AclLength"
+            )
+    return ""
+
+
+def _only_competes_with_generic_allocation_roles(
+    roles: list[dict[str, str]],
+    new_name: str,
+) -> bool:
+    role_names = {role.get("new", "") for role in roles if role.get("new", "")}
+    role_names.discard(new_name)
+    return bool(role_names) and role_names <= _GENERIC_ALLOCATION_ROLE_NAMES
+
+
+def _local_receives_exallocatepool2(text: str, local_name: str) -> bool:
+    escaped = re.escape(local_name)
+    return bool(
+        re.search(
+            r"\b%s\s*=\s*(?:\([^)]+\)\s*)?ExAllocatePool2\s*\(" % escaped,
+            text or "",
+        )
+    )
+
+
+def _local_is_exallocatepool2_size_argument(text: str, local_name: str) -> bool:
+    for call in _iter_profiled_calls(text):
+        if call.get("name") != "ExAllocatePool2":
+            continue
+        arguments = call.get("arguments", [])
+        if not isinstance(arguments, list) or len(arguments) < 2:
+            continue
+        if _plain_local_argument_name(str(arguments[1])) == local_name:
+            return True
+    return False
 
 
 def _looks_like_single_use_wrapper_local(text: str, local_name: str) -> bool:
