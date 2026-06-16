@@ -571,6 +571,14 @@ def analyze_corpus(
             str(item["name"]),
         )
     )
+    ntstatus_unprofiled_value_summaries = _ntstatus_unprofiled_value_summaries(
+        ntstatus_body_unprofiled_values,
+        ntstatus_body_unprofiled_value_functions,
+        ntstatus_body_unprofiled_value_contexts,
+        top,
+    )
+    ntstatus_unprofiled_function_summaries = top_ntstatus_body_unprofiled_functions[:top]
+    ntstatus_review_hint_counts = _ntstatus_review_hint_counts(ntstatus_body_unprofiled_value_contexts)
     result = {
         "schema": "pseudoforge_corpus_quality_v1",
         "pseudoforge_version": VERSION,
@@ -679,25 +687,18 @@ def analyze_corpus(
             "top_functions": top_rewrite_blocker_functions[:top],
         },
         "ntstatus_body_residue_stats": {
-            "top_unprofiled_error_values": _ntstatus_unprofiled_value_summaries(
-                ntstatus_body_unprofiled_values,
-                ntstatus_body_unprofiled_value_functions,
-                ntstatus_body_unprofiled_value_contexts,
-                top,
-            ),
+            "top_unprofiled_error_values": ntstatus_unprofiled_value_summaries,
             "unprofiled_error_context_kinds": _counter_to_dict(
                 Counter(dict(ntstatus_body_unprofiled_context_kinds.most_common(top)))
             ),
             "unprofiled_error_review_hints": _counter_to_dict(
-                Counter(
-                    dict(
-                        _ntstatus_review_hint_counts(
-                            ntstatus_body_unprofiled_value_contexts
-                        ).most_common(top)
-                    )
-                )
+                Counter(dict(ntstatus_review_hint_counts.most_common(top)))
             ),
-            "top_unprofiled_error_functions": top_ntstatus_body_unprofiled_functions[:top],
+            "review_queues": _ntstatus_review_queues(
+                ntstatus_unprofiled_value_summaries,
+                ntstatus_unprofiled_function_summaries,
+            ),
+            "top_unprofiled_error_functions": ntstatus_unprofiled_function_summaries,
         },
         "text_stats": _counter_to_dict(text_totals),
         "body_text_stats": _counter_to_dict(body_text_totals),
@@ -723,6 +724,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
+    ntstatus_review_queues = _coerce_dict(ntstatus_body_residue_stats.get("review_queues", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
@@ -1536,6 +1538,31 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Unprofiled NTSTATUS Review Queues",
+            "",
+            "| Queue | Values | Functions |",
+            "| --- | ---: | ---: |",
+        ]
+    )
+    for queue_name in (
+        "status_profile_candidates",
+        "comparison_sentinel_candidates",
+        "manual_review",
+    ):
+        queue = _coerce_dict(ntstatus_review_queues.get(queue_name, {}))
+        values = queue.get("values", []) if isinstance(queue.get("values", []), list) else []
+        functions = queue.get("functions", []) if isinstance(queue.get("functions", []), list) else []
+        lines.append(
+            "| `%s` | %s | %s |"
+            % (
+                queue_name,
+                len(values),
+                len(functions),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "### Functions With Unprofiled NTSTATUS Errors",
             "",
             "| Function | EA | Literals | Hint | Kinds | Values | Lines | Context | Raw literals |",
@@ -2045,6 +2072,29 @@ def _ntstatus_review_hint_counts(value_contexts: dict[str, Counter[str]]) -> Cou
     result: Counter[str] = Counter()
     for context_kinds in value_contexts.values():
         result[_ntstatus_review_hint(context_kinds)] += 1
+    return result
+
+
+def _ntstatus_review_queues(
+    value_summaries: list[dict[str, Any]],
+    function_summaries: list[dict[str, Any]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    queue_by_hint = {
+        "comparison_sentinel_candidate": "comparison_sentinel_candidates",
+        "manual_review": "manual_review",
+        "status_profile_candidate": "status_profile_candidates",
+    }
+    result = {
+        "comparison_sentinel_candidates": {"values": [], "functions": []},
+        "manual_review": {"values": [], "functions": []},
+        "status_profile_candidates": {"values": [], "functions": []},
+    }
+    for item in value_summaries:
+        queue_name = queue_by_hint.get(str(item.get("review_hint", "")), "manual_review")
+        result[queue_name]["values"].append(item)
+    for item in function_summaries:
+        queue_name = queue_by_hint.get(str(item.get("review_hint", "")), "manual_review")
+        result[queue_name]["functions"].append(item)
     return result
 
 

@@ -394,6 +394,22 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ntstatus_stats["unprofiled_error_review_hints"],
             )
             self.assertEqual(
+                [],
+                ntstatus_stats["review_queues"]["status_profile_candidates"]["values"],
+            )
+            self.assertEqual(
+                "0xC0033333",
+                ntstatus_stats["review_queues"]["comparison_sentinel_candidates"]["values"][0][
+                    "hex_value"
+                ],
+            )
+            self.assertEqual(
+                "Sample",
+                ntstatus_stats["review_queues"]["comparison_sentinel_candidates"]["functions"][0][
+                    "name"
+                ],
+            )
+            self.assertEqual(
                 "Sample",
                 ntstatus_stats["top_unprofiled_error_functions"][0]["name"],
             )
@@ -582,6 +598,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Unprofiled NTSTATUS Error Review Hints",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Unprofiled NTSTATUS Review Queues",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `comparison_sentinel_candidates` | 1 | 1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
