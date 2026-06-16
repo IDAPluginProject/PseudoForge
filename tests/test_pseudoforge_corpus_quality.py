@@ -68,9 +68,15 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             _layout_rewrite_blocker_review_profiles(["base name is generic"]),
         )
         self.assertEqual(
-            ["threshold_gap_candidates"],
+            ["threshold_gap_candidates", "offset_threshold_gap_candidates"],
             _layout_rewrite_blocker_review_profiles(
                 ["rewrite offset threshold requires at least 8 offsets"]
+            ),
+        )
+        self.assertEqual(
+            ["threshold_gap_candidates", "access_threshold_gap_candidates"],
+            _layout_rewrite_blocker_review_profiles(
+                ["rewrite access threshold requires at least 12 accesses"]
             ),
         )
         self.assertEqual(
@@ -370,6 +376,18 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertEqual(
                 1,
+                report["layout_rewrite_blocker_stats"]["review_profiles"][
+                    "offset_threshold_gap_candidates"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_profiles"][
+                    "access_threshold_gap_candidates"
+                ],
+            )
+            self.assertEqual(
+                1,
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "threshold_gap_candidates"
                 ]["blockers"],
@@ -388,8 +406,32 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertEqual(
                 1,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "offset_threshold_gap_candidates"
+                ]["blockers"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "access_threshold_gap_candidates"
+                ]["blockers"],
+            )
+            self.assertEqual(
+                1,
                 report["layout_rewrite_blocker_stats"]["top_functions"][0]["review_profiles"][
                     "threshold_gap_candidates"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["top_functions"][0]["review_profiles"][
+                    "offset_threshold_gap_candidates"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_blocker_stats"]["top_functions"][0]["review_profiles"][
+                    "access_threshold_gap_candidates"
                 ],
             )
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
@@ -658,6 +700,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "| `threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `offset_threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `access_threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

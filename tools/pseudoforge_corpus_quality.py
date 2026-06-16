@@ -41,6 +41,8 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "wide_overlay_type_blockers",
     "alignment_type_blockers",
     "threshold_gap_candidates",
+    "offset_threshold_gap_candidates",
+    "access_threshold_gap_candidates",
     "manual_review",
 )
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
@@ -2841,8 +2843,12 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
         if "not naturally aligned" in lowered:
             profiles.add("type_evidence_blockers")
             profiles.add("alignment_type_blockers")
-        if "rewrite access threshold" in lowered or "rewrite offset threshold" in lowered:
+        if "rewrite offset threshold" in lowered:
             profiles.add("threshold_gap_candidates")
+            profiles.add("offset_threshold_gap_candidates")
+        if "rewrite access threshold" in lowered:
+            profiles.add("threshold_gap_candidates")
+            profiles.add("access_threshold_gap_candidates")
     if not profiles:
         profiles.add("manual_review")
     return [profile for profile in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER if profile in profiles]
