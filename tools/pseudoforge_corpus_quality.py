@@ -48,6 +48,7 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "access_threshold_gap_candidates",
     "manual_review",
 )
+_LAYOUT_REWRITE_BLOCKER_MARKDOWN_ITEM_LIMIT = 5
 _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "strong_profiled_status_literals",
     "weak_target_profiled_status_literals",
@@ -1993,6 +1994,67 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(promotion_classes),
             )
         )
+    lines.extend(
+        [
+            "",
+            "### Rewrite Blocker Queue Top Items",
+            "",
+        ]
+    )
+    rendered_queue_items = False
+    for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
+        queue = _coerce_dict(_coerce_dict(rewrite_blocker_stats.get("review_queues", {})).get(queue_name, {}))
+        items = [
+            item
+            for item in queue.get("items", []) or []
+            if isinstance(item, dict)
+        ][:_LAYOUT_REWRITE_BLOCKER_MARKDOWN_ITEM_LIMIT]
+        if not items:
+            continue
+        rendered_queue_items = True
+        lines.extend(
+            [
+                "",
+                "#### `%s`" % queue_name,
+                "",
+                "| Function | EA | Base | Offsets | Accesses | Identity | Source | Promotion | Risk factors | Reasons |",
+                "| --- | --- | --- | ---: | ---: | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for item in items:
+            source_parts = [
+                str(item.get("identity_source_provenance", "") or ""),
+                str(item.get("identity_source_kind", "") or ""),
+                str(item.get("identity_source", "") or ""),
+            ]
+            source_text = ", ".join(part for part in source_parts if part) or "none"
+            risk_factors = ", ".join(
+                str(factor)
+                for factor in item.get("promotion_risk_factors", []) or []
+                if str(factor)
+            )
+            reasons = "; ".join(
+                str(reason)
+                for reason in item.get("reasons", []) or []
+                if str(reason)
+            )
+            lines.append(
+                "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+                % (
+                    str(item.get("name", "")),
+                    str(item.get("ea", "")),
+                    str(item.get("base", "")),
+                    int(item.get("offset_count", 0) or 0),
+                    int(item.get("access_count", 0) or 0),
+                    _markdown_table_cell(item.get("identity_evidence", "")),
+                    _markdown_table_cell(source_text),
+                    _markdown_table_cell(item.get("promotion_review_class", "")),
+                    _markdown_table_cell(risk_factors),
+                    _markdown_table_cell(reasons),
+                )
+            )
+    if not rendered_queue_items:
+        lines.append("No data.")
     lines.extend(
         [
             "",

@@ -1256,7 +1256,19 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
+                "Rewrite Blocker Queue Top Items",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "#### `base_identity_candidates`",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 | direct_argument_alias=1 | stable_source_promotion_review=1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `Sample` | `0x140001000` | `v14` | 8 | 13 | stable_argument_source | direct_argument_alias, argument, argument2 | stable_source_promotion_review | identity_only | base is a decompiler temporary |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
