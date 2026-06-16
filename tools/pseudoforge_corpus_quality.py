@@ -299,6 +299,9 @@ def analyze_corpus(
     rewrite_preview_bases: Counter[str] = Counter()
     rewrite_preview_source_provenance: Counter[str] = Counter()
     rewrite_preview_totals = Counter()
+    rewrite_preview_artifact_statuses: Counter[str] = Counter()
+    rewrite_preview_artifact_failed_checks: Counter[str] = Counter()
+    rewrite_preview_artifact_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
     rewrite_near_ready_missing: Counter[str] = Counter()
     rewrite_near_ready_totals = Counter()
@@ -329,6 +332,7 @@ def analyze_corpus(
     top_generic_base_trust_candidate_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_preview_functions = []
+    top_rewrite_preview_artifact_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_blocker_functions = []
     top_decimal_status_residue_functions = []
@@ -344,6 +348,9 @@ def analyze_corpus(
         rule_report = _coerce_dict(_read_json(_artifact_path(summary_path, artifacts, "rule_report")))
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
         cleaned_path = _artifact_path(summary_path, artifacts, "cleaned_pseudocode")
+        rewrite_preview_metadata = _coerce_dict(
+            _read_json(_artifact_path(summary_path, artifacts, "layout_rewrite_preview_metadata"))
+        )
 
         rename_candidate_count = _int_value(summary.get("rename_candidates"), len(rename_items))
         applied_rename_count = _int_value(
@@ -357,6 +364,16 @@ def analyze_corpus(
         totals["flow_rewrites"] += _int_value(summary.get("flow_rewrites"), 0)
         totals["buffer_contracts"] += _int_value(summary.get("buffer_contracts"), len(buffer_contracts))
         totals["matched_rules"] += _int_value(_coerce_dict(summary.get("rule_diagnostics", {})).get("matched_rules"), 0)
+        if rewrite_preview_metadata:
+            _update_layout_rewrite_preview_artifact_metrics(
+                rewrite_preview_metadata,
+                rewrite_preview_artifact_totals,
+                rewrite_preview_artifact_statuses,
+                rewrite_preview_artifact_failed_checks,
+            )
+            top_rewrite_preview_artifact_functions.append(
+                _rewrite_preview_artifact_function_summary(name, ea, summary_path, rewrite_preview_metadata)
+            )
         if warnings:
             totals["functions_with_warnings"] += 1
             top_warning_functions.append(
@@ -661,6 +678,14 @@ def analyze_corpus(
             str(item["name"]),
         )
     )
+    top_rewrite_preview_artifact_functions.sort(
+        key=lambda item: (
+            str(item["validation_status"]) != "failed",
+            -int(item["rewritten_accesses"]),
+            -int(item["rewritten_fields"]),
+            str(item["name"]),
+        )
+    )
     top_rewrite_near_ready_functions.sort(
         key=lambda item: (
             -int(item["near_ready_count"]),
@@ -800,6 +825,16 @@ def analyze_corpus(
             "source_provenance": _counter_to_dict(Counter(dict(rewrite_preview_source_provenance.most_common(top)))),
             "top_functions": top_rewrite_preview_functions[:top],
         },
+        "layout_rewrite_preview_artifact_stats": {
+            "totals": _counter_to_dict(rewrite_preview_artifact_totals),
+            "validation_statuses": _counter_to_dict(
+                Counter(dict(rewrite_preview_artifact_statuses.most_common(top)))
+            ),
+            "failed_checks": _counter_to_dict(
+                Counter(dict(rewrite_preview_artifact_failed_checks.most_common(top)))
+            ),
+            "top_functions": top_rewrite_preview_artifact_functions[:top],
+        },
         "layout_rewrite_near_ready_stats": {
             "totals": _counter_to_dict(rewrite_near_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_near_ready_bases.most_common(top)))),
@@ -862,6 +897,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     generic_base_trust_candidate_stats = _coerce_dict(report.get("layout_generic_base_trust_candidate_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_preview_stats = _coerce_dict(report.get("layout_rewrite_preview_stats", {}))
+    rewrite_preview_artifact_stats = _coerce_dict(report.get("layout_rewrite_preview_artifact_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
@@ -876,6 +912,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     generic_base_trust_candidate_totals = _coerce_dict(generic_base_trust_candidate_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_preview_totals = _coerce_dict(rewrite_preview_stats.get("totals", {}))
+    rewrite_preview_artifact_totals = _coerce_dict(rewrite_preview_artifact_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
     text_stats = _coerce_dict(report.get("text_stats", {}))
@@ -1596,6 +1633,69 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(source_provenance),
                 bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Rewrite Preview Artifact Validation",
+            "",
+            "- Preview artifacts: `%s` across `%s` functions"
+            % (
+                rewrite_preview_artifact_totals.get("preview_artifacts", 0),
+                rewrite_preview_artifact_totals.get("functions_with_preview_artifacts", 0),
+            ),
+            "- Artifact rewritten accesses: `%s`" % rewrite_preview_artifact_totals.get("rewritten_accesses", 0),
+            "- Artifact rewritten fields: `%s`" % rewrite_preview_artifact_totals.get("rewritten_fields", 0),
+            "- Artifact validation errors: `%s`" % rewrite_preview_artifact_totals.get("validation_errors", 0),
+            "",
+            "### Preview Artifact Validation Statuses",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_preview_artifact_stats.get("validation_statuses", {})),
+            "Status",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Preview Artifact Failed Checks",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_preview_artifact_stats.get("failed_checks", {})),
+            "Check",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Rewrite Preview Artifact Functions",
+            "",
+            "| Function | EA | Status | Rewritten accesses | Rewritten fields | Bases | Errors |",
+            "| --- | --- | --- | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in rewrite_preview_artifact_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("rewritten_bases", []) or [])
+        errors = "; ".join(str(error) for error in item.get("validation_errors", []) or [])
+        lines.append(
+            "| `%s` | `%s` | `%s` | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                str(item.get("validation_status", "")),
+                int(item.get("rewritten_accesses", 0) or 0),
+                int(item.get("rewritten_fields", 0) or 0),
+                _markdown_table_cell(bases),
+                _markdown_table_cell(errors),
             )
         )
     lines.extend(
@@ -3676,6 +3776,30 @@ def _update_layout_rewrite_preview_metrics(
         source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
 
 
+def _update_layout_rewrite_preview_artifact_metrics(
+    metadata: dict[str, Any],
+    totals: Counter[str],
+    statuses: Counter[str],
+    failed_checks: Counter[str],
+) -> None:
+    if not metadata:
+        return
+    totals["preview_artifacts"] += 1
+    totals["functions_with_preview_artifacts"] += 1
+    totals["rewritten_accesses"] += _int_value(metadata.get("rewritten_accesses"), 0)
+    totals["rewritten_fields"] += _int_value(metadata.get("rewritten_fields"), 0)
+    validation = _coerce_dict(metadata.get("validation", {}))
+    status = str(validation.get("status", "") or "unknown")
+    statuses[status] += 1
+    errors = [str(error) for error in validation.get("errors", []) or [] if str(error)]
+    totals["validation_errors"] += len(errors)
+    checks = _coerce_dict(validation.get("checks", {}))
+    for check, passed in checks.items():
+        if bool(passed):
+            continue
+        failed_checks[str(check)] += 1
+
+
 def _update_layout_rewrite_near_ready_metrics(
     candidates: list[dict[str, Any]],
     totals: Counter[str],
@@ -4299,6 +4423,33 @@ def _rewrite_preview_function_summary(
         "max_fields": max((_int_value(item.get("field_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _rewrite_preview_artifact_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    validation = _coerce_dict(metadata.get("validation", {}))
+    return {
+        "ea": ea,
+        "name": name,
+        "validation_status": str(validation.get("status", "") or "unknown"),
+        "validation_errors": [
+            str(error)
+            for error in validation.get("errors", []) or []
+            if str(error)
+        ],
+        "rewritten_accesses": _int_value(metadata.get("rewritten_accesses"), 0),
+        "rewritten_fields": _int_value(metadata.get("rewritten_fields"), 0),
+        "rewritten_bases": [
+            str(base)
+            for base in metadata.get("rewritten_bases", []) or []
+            if str(base)
+        ],
         "summary_path": str(summary_path),
     }
 

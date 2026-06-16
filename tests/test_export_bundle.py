@@ -199,12 +199,61 @@ __int64 __fastcall LayoutPreview(__int64 argument2)
             self.assertIn("v4->field_10 /* _DWORD +0x10 */", preview_text)
             self.assertIn("v4->field_18 /* _QWORD +0x18 */", preview_text)
             preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual("layout_rewrite_preview_v2", preview_metadata["schema"])
             self.assertFalse(preview_metadata["canonical_cleaned_output_modified"])
             self.assertEqual(2, preview_metadata["rewritten_accesses"])
             self.assertEqual(2, preview_metadata["rewritten_fields"])
             self.assertEqual(["v4"], preview_metadata["rewritten_bases"])
+            self.assertEqual(2, preview_metadata["rewrite_results"]["v4"]["rewritten_accesses"])
+            self.assertEqual(2, preview_metadata["rewrite_results"]["v4"]["rewritten_fields"])
+            self.assertEqual("passed", preview_metadata["validation"]["status"])
+            self.assertEqual([], preview_metadata["validation"]["errors"])
+            self.assertTrue(preview_metadata["validation"]["checks"]["advertised_access_counts_match"])
+            self.assertTrue(preview_metadata["validation"]["checks"]["advertised_field_counts_match"])
             summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
             self.assertEqual(artifacts["layout_rewrite_preview"], summary["artifacts"]["layout_rewrite_preview"])
+
+    def test_layout_rewrite_preview_metadata_reports_validation_failure(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v4: 3 dereference(s) can map to 2 field alias(es) field_10, field_18. Source provenance direct_argument_alias from argument2. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall LayoutPreviewMismatch(__int64 argument2)
+{
+  __int64 v4;
+
+  v4 = argument2;
+  return *(_DWORD *)(v4 + 16) + *(_QWORD *)(v4 + 24);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPreviewMismatch(__int64 argument2)
+{
+  return argument2;
+}
+""",
+                name="LayoutPreviewMismatch",
+                ea=0x140002100,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+            )
+
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual("failed", preview_metadata["validation"]["status"])
+            self.assertFalse(preview_metadata["validation"]["checks"]["advertised_access_counts_match"])
+            self.assertTrue(preview_metadata["validation"]["checks"]["advertised_field_counts_match"])
+            self.assertIn("v4 advertised 3 access(es) but rewrote 2", preview_metadata["validation"]["errors"])
 
     def test_legacy_render_export_import_remains_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

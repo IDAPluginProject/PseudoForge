@@ -40,14 +40,17 @@ def build_layout_rewrite_preview_bundle(cleaned_text: str, artifact_name: str = 
     if rewrite_stats["rewritten_accesses"] <= 0:
         return None
     preview_text = _preview_header(artifact_name, rewrite_stats) + rewritten.rstrip() + "\n"
+    validation = _validate_layout_rewrite_preview(plans, rewrite_stats, preview_text)
     metadata = {
-        "schema": "layout_rewrite_preview_v1",
+        "schema": "layout_rewrite_preview_v2",
         "artifact": "layout_rewrite_preview",
         "canonical_cleaned_output_modified": False,
         "preview_plans": plans,
         "rewritten_accesses": rewrite_stats["rewritten_accesses"],
         "rewritten_fields": rewrite_stats["rewritten_fields"],
         "rewritten_bases": rewrite_stats["rewritten_bases"],
+        "rewrite_results": rewrite_stats["rewrite_results"],
+        "validation": validation,
     }
     return LayoutRewritePreviewBundle(
         text=preview_text,
@@ -77,6 +80,13 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
     rewritten_accesses = 0
     rewritten_fields: set[str] = set()
     rewritten_bases: set[str] = set()
+    rewrite_results: dict[str, dict[str, Any]] = {
+        base: {
+            "rewritten_accesses": 0,
+            "rewritten_fields": set(),
+        }
+        for base in sorted(bases)
+    }
 
     def replace(match: re.Match[str]) -> str:
         nonlocal rewritten_accesses
@@ -91,6 +101,8 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         rewritten_accesses += 1
         rewritten_fields.add("%s.%s" % (base, field_name))
         rewritten_bases.add(base)
+        rewrite_results[base]["rewritten_accesses"] += 1
+        rewrite_results[base]["rewritten_fields"].add(field_name)
         return "%s->%s /* %s +0x%X */" % (base, field_name, type_name, offset)
 
     rewritten = _OFFSET_DEREF_RE.sub(replace, text or "")
@@ -98,7 +110,78 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         "rewritten_accesses": rewritten_accesses,
         "rewritten_fields": len(rewritten_fields),
         "rewritten_bases": sorted(rewritten_bases),
+        "rewrite_results": {
+            base: {
+                "rewritten_accesses": int(result["rewritten_accesses"]),
+                "rewritten_fields": len(result["rewritten_fields"]),
+                "field_aliases": sorted(result["rewritten_fields"]),
+            }
+            for base, result in sorted(rewrite_results.items())
+        },
     }
+
+
+def _validate_layout_rewrite_preview(
+    plans: list[dict[str, Any]],
+    rewrite_stats: dict[str, Any],
+    preview_text: str,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    checks = {
+        "canonical_cleaned_output_preserved": True,
+        "all_plans_rewritten": True,
+        "advertised_access_counts_match": True,
+        "advertised_field_counts_match": True,
+        "preview_contains_field_rewrites": "->field_" in str(preview_text or ""),
+        "preview_has_no_raw_offset_derefs_for_rewritten_bases": True,
+    }
+    rewrite_results = {
+        str(base): result
+        for base, result in (rewrite_stats.get("rewrite_results", {}) or {}).items()
+        if isinstance(result, dict)
+    }
+    for plan in plans:
+        base = str(plan.get("base", "") or "")
+        result = rewrite_results.get(base, {})
+        actual_accesses = int(result.get("rewritten_accesses", 0) or 0)
+        actual_fields = int(result.get("rewritten_fields", 0) or 0)
+        expected_accesses = int(plan.get("advertised_access_count", 0) or 0)
+        expected_fields = int(plan.get("advertised_field_count", 0) or 0)
+        if actual_accesses <= 0:
+            checks["all_plans_rewritten"] = False
+            errors.append("%s had no rewritten accesses" % base)
+        if actual_accesses != expected_accesses:
+            checks["advertised_access_counts_match"] = False
+            errors.append(
+                "%s advertised %d access(es) but rewrote %d"
+                % (base, expected_accesses, actual_accesses)
+            )
+        if actual_fields != expected_fields:
+            checks["advertised_field_counts_match"] = False
+            errors.append(
+                "%s advertised %d field alias(es) but rewrote %d"
+                % (base, expected_fields, actual_fields)
+            )
+        if _raw_offset_deref_for_base_exists(preview_text, base):
+            checks["preview_has_no_raw_offset_derefs_for_rewritten_bases"] = False
+            errors.append("%s still has raw offset dereference(s) in preview output" % base)
+    if not checks["preview_contains_field_rewrites"]:
+        errors.append("preview output contains no field rewrite syntax")
+    status = "passed" if all(checks.values()) else "failed"
+    return {
+        "status": status,
+        "checks": checks,
+        "errors": errors,
+    }
+
+
+def _raw_offset_deref_for_base_exists(text: str, base: str) -> bool:
+    if not base:
+        return False
+    for match in _OFFSET_DEREF_RE.finditer(text or ""):
+        if match.group("base") == base:
+            return True
+    return False
 
 
 def _preview_header(artifact_name: str, rewrite_stats: dict[str, Any]) -> str:

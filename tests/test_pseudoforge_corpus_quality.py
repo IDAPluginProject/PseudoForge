@@ -416,6 +416,27 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertEqual(8, report["layout_rewrite_preview_stats"]["top_functions"][0]["max_fields"])
             self.assertEqual(12, report["layout_rewrite_preview_stats"]["top_functions"][0]["max_access_count"])
+            self.assertEqual(1, report["layout_rewrite_preview_artifact_stats"]["totals"]["preview_artifacts"])
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["totals"]["functions_with_preview_artifacts"],
+            )
+            self.assertEqual(12, report["layout_rewrite_preview_artifact_stats"]["totals"]["rewritten_accesses"])
+            self.assertEqual(8, report["layout_rewrite_preview_artifact_stats"]["totals"]["rewritten_fields"])
+            self.assertEqual(0, report["layout_rewrite_preview_artifact_stats"]["totals"]["validation_errors"])
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_artifact_stats"]["validation_statuses"]["passed"],
+            )
+            self.assertEqual({}, report["layout_rewrite_preview_artifact_stats"]["failed_checks"])
+            self.assertEqual(
+                "Sample",
+                report["layout_rewrite_preview_artifact_stats"]["top_functions"][0]["name"],
+            )
+            self.assertEqual(
+                "passed",
+                report["layout_rewrite_preview_artifact_stats"]["top_functions"][0]["validation_status"],
+            )
             self.assertEqual(1, report["layout_rewrite_near_ready_stats"]["totals"]["near_ready_candidates"])
             self.assertEqual(
                 1,
@@ -1013,6 +1034,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
+                "Layout Rewrite Preview Artifact Validation",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "Rewrite-Ready Source Provenance",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
@@ -1114,6 +1139,7 @@ def _write_quality_fixture(root: Path) -> None:
     rename_map_path = function_dir / "Sample.rename-map.json"
     buffer_contracts_path = function_dir / "Sample.buffer-contracts.json"
     rule_report_path = function_dir / "Sample.rule-report.json"
+    preview_metadata_path = function_dir / "Sample.layout-rewrite-preview.json"
     summary_path = function_dir / "Sample.ida-batch-summary.json"
     cleaned_path.write_text(CLEANED, encoding="utf-8")
     warnings_path.write_text(
@@ -1165,6 +1191,48 @@ def _write_quality_fixture(root: Path) -> None:
         ),
         encoding="utf-8",
     )
+    preview_metadata_path.write_text(
+        json.dumps(
+            {
+                "schema": "layout_rewrite_preview_v2",
+                "artifact": "layout_rewrite_preview",
+                "canonical_cleaned_output_modified": False,
+                "preview_plans": [
+                    {
+                        "base": "readySession",
+                        "source": "",
+                        "source_provenance": "none",
+                        "advertised_access_count": 12,
+                        "advertised_field_count": 8,
+                        "confidence": 0.78,
+                    }
+                ],
+                "rewritten_accesses": 12,
+                "rewritten_fields": 8,
+                "rewritten_bases": ["readySession"],
+                "rewrite_results": {
+                    "readySession": {
+                        "rewritten_accesses": 12,
+                        "rewritten_fields": 8,
+                        "field_aliases": ["field_10", "field_18"],
+                    }
+                },
+                "validation": {
+                    "status": "passed",
+                    "checks": {
+                        "canonical_cleaned_output_preserved": True,
+                        "all_plans_rewritten": True,
+                        "advertised_access_counts_match": True,
+                        "advertised_field_counts_match": True,
+                        "preview_contains_field_rewrites": True,
+                        "preview_has_no_raw_offset_derefs_for_rewritten_bases": True,
+                    },
+                    "errors": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     summary_path.write_text(
         json.dumps(
             {
@@ -1184,6 +1252,7 @@ def _write_quality_fixture(root: Path) -> None:
                     "rename_map": "old/Sample.rename-map.json",
                     "buffer_contracts": "old/Sample.buffer-contracts.json",
                     "rule_report": "old/Sample.rule-report.json",
+                    "layout_rewrite_preview_metadata": "old/Sample.layout-rewrite-preview.json",
                     "summary": "old/Sample.ida-batch-summary.json",
                 },
             },
