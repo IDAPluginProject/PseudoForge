@@ -282,6 +282,7 @@ def analyze_corpus(
     decimal_status_residue_values: Counter[str] = Counter()
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
+    decimal_status_residue_review_classes: Counter[str] = Counter()
     ntstatus_body_unprofiled_values: Counter[str] = Counter()
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
     ntstatus_body_unprofiled_value_contexts: dict[str, Counter[str]] = {}
@@ -485,6 +486,7 @@ def analyze_corpus(
                         decimal_status_residue_values,
                         decimal_status_residue_profiles,
                         decimal_status_residue_context_kinds,
+                        decimal_status_residue_review_classes,
                     )
                     top_decimal_status_residue_functions.append(
                         _decimal_status_residue_function_summary(
@@ -760,6 +762,7 @@ def analyze_corpus(
             "values": _counter_to_dict(Counter(dict(decimal_status_residue_values.most_common(top)))),
             "profile_names": _counter_to_dict(Counter(dict(decimal_status_residue_profiles.most_common(top)))),
             "context_kinds": _counter_to_dict(Counter(dict(decimal_status_residue_context_kinds.most_common(top)))),
+            "review_classes": _counter_to_dict(Counter(dict(decimal_status_residue_review_classes.most_common(top)))),
             "top_functions": top_decimal_status_residue_functions[:top],
         },
         "text_stats": _counter_to_dict(text_totals),
@@ -1611,10 +1614,23 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "#### Decimal Status-Like Review Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(decimal_status_residue_stats.get("review_classes", {})),
+            "Class",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "#### Functions With Decimal Status-Like Residue",
             "",
-            "| Function | EA | Literals | Profiled | Unprofiled | Kinds | Values | Context |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Literals | Profiled | Unprofiled | Classes | Kinds | Values | Context |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in decimal_status_residue_stats.get("top_functions", []) or []:
@@ -1628,19 +1644,24 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("values", {})).items()
         )
+        review_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("review_classes", {})).items()
+        )
         context_text = "; ".join(
             "L%s: %s" % (context.get("line", ""), context.get("source", ""))
             for context in item.get("contexts", []) or []
             if isinstance(context, dict)
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("literal_count", 0) or 0),
                 int(item.get("profiled_count", 0) or 0),
                 int(item.get("unprofiled_count", 0) or 0),
+                _markdown_table_cell(review_classes),
                 _markdown_table_cell(context_kinds),
                 _markdown_table_cell(values),
                 _markdown_table_cell(context_text),
@@ -2091,6 +2112,8 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
             continue
         unsigned_value = parsed & 0xFFFFFFFF
         profile_name = _ntstatus_profile_name(parsed, literal)
+        line_text = _line_for_match(text, match.start(), match.end()).strip()
+        severity = _ntstatus_severity_name(unsigned_value)
         result.append(
             {
                 "literal": literal,
@@ -2100,8 +2123,17 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
                 "profile_name": profile_name,
                 "profiled": profile_name != "",
                 "context_kind": context_kind,
+                "severity": severity,
+                "review_class": _decimal_status_review_class(
+                    unsigned_value,
+                    profile_name,
+                    severity,
+                    context_kind,
+                    line_text,
+                    literal,
+                ),
                 "line": _line_number_for_offset(text, match.start()),
-                "line_text": _line_for_match(text, match.start(), match.end()).strip(),
+                "line_text": line_text,
             }
         )
     return result
@@ -2130,17 +2162,47 @@ def _decimal_status_like_context_kind(text: str, match: re.Match[str]) -> str:
     return ""
 
 
+def _decimal_status_review_class(
+    unsigned_value: int,
+    profile_name: str,
+    severity: str,
+    context_kind: str,
+    line_text: str,
+    literal: str,
+) -> str:
+    if profile_name:
+        return "profiled_status_literal_candidate"
+    if severity == "error":
+        return "unprofiled_ntstatus_error_candidate"
+    if context_kind == "comparison" and _line_has_bitwise_comparison_context(line_text, re.escape(literal)):
+        return "bitmask_comparison_candidate"
+    if _is_ascii_magic_value(unsigned_value):
+        return "ascii_magic_candidate"
+    return "manual_review"
+
+
+def _is_ascii_magic_value(unsigned_value: int) -> bool:
+    value = int(unsigned_value) & 0xFFFFFFFF
+    for byte_order in ("little", "big"):
+        raw = value.to_bytes(4, byte_order)
+        if all(32 <= byte <= 126 for byte in raw) and any(chr(byte).isalnum() for byte in raw):
+            return True
+    return False
+
+
 def _update_decimal_status_residue_metrics(
     literals: list[dict[str, Any]],
     values: Counter[str],
     profile_names: Counter[str],
     context_kinds: Counter[str],
+    review_classes: Counter[str],
 ) -> None:
     for item in literals:
         values[str(item.get("hex_value", "") or "unknown")] += 1
         profile_name = str(item.get("profile_name", "") or "unprofiled")
         profile_names[profile_name] += 1
         context_kinds[str(item.get("context_kind", "") or "unknown")] += 1
+        review_classes[str(item.get("review_class", "") or "manual_review")] += 1
 
 
 def _decimal_status_residue_function_summary(
@@ -2152,6 +2214,7 @@ def _decimal_status_residue_function_summary(
     context_kinds = Counter(str(item.get("context_kind", "") or "unknown") for item in literals)
     values = Counter(str(item.get("hex_value", "") or "unknown") for item in literals)
     profile_names = Counter(str(item.get("profile_name", "") or "unprofiled") for item in literals)
+    review_classes = Counter(str(item.get("review_class", "") or "manual_review") for item in literals)
     contexts = []
     for item in literals[:5]:
         contexts.append(
@@ -2161,6 +2224,7 @@ def _decimal_status_residue_function_summary(
                 "literal": str(item.get("literal", "") or ""),
                 "hex_value": str(item.get("hex_value", "") or ""),
                 "profile_name": str(item.get("profile_name", "") or ""),
+                "review_class": str(item.get("review_class", "") or "manual_review"),
                 "source": str(item.get("line_text", "") or ""),
             }
         )
@@ -2174,6 +2238,7 @@ def _decimal_status_residue_function_summary(
         "context_kinds": dict(context_kinds.most_common()),
         "values": dict(values.most_common()),
         "profile_names": dict(profile_names.most_common()),
+        "review_classes": dict(review_classes.most_common()),
         "contexts": contexts,
         "summary_path": str(summary_path),
     }
@@ -2412,10 +2477,23 @@ def _line_number_for_offset(text: str, offset: int) -> int:
 
 
 def _line_has_bitwise_literal_context(line: str, token: str) -> bool:
-    bitwise_operator = r"(?:\||\^|<<|>>|(?<!&)&(?!&))"
+    bitwise_operator = r"(?:(?<!\|)\|(?!\|)|\^|<<|>>|(?<!&)&(?!&))"
     return (
         re.search(r"%s\s*%s" % (bitwise_operator, token), line or "") is not None
         or re.search(r"%s\s*%s" % (token, bitwise_operator), line or "") is not None
+    )
+
+
+def _line_has_bitwise_comparison_context(line: str, token: str) -> bool:
+    text = line or ""
+    bitwise_operator = r"(?:(?<!\|)\|(?!\|)|\^|<<|>>|(?<!&)&(?!&))"
+    if _line_has_bitwise_literal_context(text, token):
+        return True
+    if re.search(bitwise_operator, text) is None:
+        return False
+    return (
+        re.search(r"(?:==|!=)\s*%s\b" % token, text) is not None
+        or re.search(r"\b%s\s*(?:==|!=)" % token, text) is not None
     )
 
 

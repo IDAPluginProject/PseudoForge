@@ -9,6 +9,7 @@ from pathlib import Path
 
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
+    _decimal_status_like_literals,
     _layout_rewrite_blocker_review_profiles,
     analyze_corpus,
     main,
@@ -61,6 +62,26 @@ LABEL_1:
 class PseudoForgeCorpusQualityTests(unittest.TestCase):
     def test_decimal_status_pattern_counts_integer_suffixes(self) -> None:
         self.assertEqual(1, len(DECIMAL_STATUS_RE.findall("status = 3221226238LL;")))
+
+    def test_decimal_status_residue_review_classes_separate_magic_and_bitmasks(self) -> None:
+        literals = _decimal_status_like_literals(
+            "status = 3221226238LL;\n"
+            "if ( result == -1073532109 )\n"
+            "if ( (flags & 0x4200000) == 69206016 )\n"
+            "if ( ok || *BinAddress != 1852400232 )\n"
+            "*BinAddress = 1852400232;\n"
+        )
+
+        self.assertEqual(
+            [
+                "profiled_status_literal_candidate",
+                "unprofiled_ntstatus_error_candidate",
+                "bitmask_comparison_candidate",
+                "ascii_magic_candidate",
+                "ascii_magic_candidate",
+            ],
+            [item["review_class"] for item in literals],
+        )
 
     def test_layout_rewrite_blocker_profiles_split_base_identity(self) -> None:
         self.assertEqual(
@@ -501,13 +522,31 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 },
                 decimal_stats["profile_names"],
             )
+            self.assertEqual(
+                {
+                    "profiled_status_literal_candidate": 3,
+                    "unprofiled_ntstatus_error_candidate": 1,
+                },
+                decimal_stats["review_classes"],
+            )
             self.assertEqual("Sample", decimal_stats["top_functions"][0]["name"])
             self.assertEqual(4, decimal_stats["top_functions"][0]["literal_count"])
             self.assertEqual(3, decimal_stats["top_functions"][0]["profiled_count"])
             self.assertEqual(1, decimal_stats["top_functions"][0]["unprofiled_count"])
             self.assertEqual(
+                {
+                    "profiled_status_literal_candidate": 3,
+                    "unprofiled_ntstatus_error_candidate": 1,
+                },
+                decimal_stats["top_functions"][0]["review_classes"],
+            )
+            self.assertEqual(
                 "if ( v1 == -1073740748 )",
                 decimal_stats["top_functions"][0]["contexts"][0]["source"],
+            )
+            self.assertEqual(
+                "profiled_status_literal_candidate",
+                decimal_stats["top_functions"][0]["contexts"][0]["review_class"],
             )
             ntstatus_stats = report["ntstatus_body_residue_stats"]
             self.assertEqual(
@@ -761,7 +800,7 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `Sample` | `0x140001000` | 4 | 3 | 1 | comparison=3, return=1 |",
+                "| `Sample` | `0x140001000` | 4 | 3 | 1 | profiled_status_literal_candidate=3, unprofiled_ntstatus_error_candidate=1 | comparison=3, return=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
