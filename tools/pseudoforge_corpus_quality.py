@@ -435,6 +435,7 @@ def analyze_corpus(
                 )
                 _update_layout_rewrite_blocker_metrics(
                     rewrite_blockers,
+                    layout_hints,
                     rewrite_blocker_totals,
                     rewrite_blocker_bases,
                     rewrite_blocker_reasons,
@@ -487,7 +488,7 @@ def analyze_corpus(
                     )
                 if rewrite_blockers:
                     top_rewrite_blocker_functions.append(
-                        _rewrite_blocker_function_summary(name, ea, summary_path, rewrite_blockers)
+                        _rewrite_blocker_function_summary(name, ea, summary_path, rewrite_blockers, layout_hints)
                     )
                 if decimal_status_body_literals:
                     _update_decimal_status_residue_metrics(
@@ -1519,8 +1520,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Rewrite Blocker Review Queues",
             "",
-            "| Queue | Blockers | Functions | Top bases |",
-            "| --- | ---: | ---: | --- |",
+            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases |",
+            "| --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
@@ -1530,11 +1531,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("top_bases", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s |"
             % (
                 queue_name,
                 int(queue.get("blockers", 0) or 0),
                 int(queue.get("functions", 0) or 0),
+                int(queue.get("max_offsets", 0) or 0),
+                int(queue.get("max_access_count", 0) or 0),
                 _markdown_table_cell(top_bases),
             )
         )
@@ -1551,8 +1554,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Blocker Functions",
             "",
-            "| Function | EA | Blockers | Reasons | Profiles | Bases | Top reasons |",
-            "| --- | --- | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in rewrite_blocker_stats.get("top_functions", []) or []:
@@ -1568,12 +1571,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(item.get("review_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("blocker_count", 0) or 0),
                 int(item.get("reason_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(profiles),
                 bases,
                 reasons,
@@ -3332,6 +3337,7 @@ def _update_layout_rewrite_near_ready_metrics(
 
 def _update_layout_rewrite_blocker_metrics(
     blockers: list[dict[str, Any]],
+    layout_hints: list[dict[str, Any]],
     totals: Counter[str],
     bases: Counter[str],
     reasons: Counter[str],
@@ -3343,10 +3349,12 @@ def _update_layout_rewrite_blocker_metrics(
 ) -> None:
     if not blockers:
         return
+    layout_evidence = _layout_evidence_by_base(layout_hints)
     totals["functions_with_blockers"] += 1
     for blocker in blockers:
         totals["blockers"] += 1
         base = str(blocker.get("base", "") or "unknown")
+        evidence = layout_evidence.get(base, {})
         bases[base] += 1
         reason_items = [str(item) for item in blocker.get("reasons", []) or []]
         totals["reason_observations"] += len(reason_items)
@@ -3360,10 +3368,42 @@ def _update_layout_rewrite_blocker_metrics(
                     "ea": ea,
                     "name": function_name,
                     "base": base,
+                    "offset_count": _int_value(evidence.get("offset_count"), 0),
+                    "access_count": _int_value(evidence.get("access_count"), 0),
+                    "layout_confidence": _float_value(evidence.get("confidence"), 0.0),
+                    "blocker_confidence": _float_value(blocker.get("confidence"), 0.0),
                     "reasons": reason_items,
                     "summary_path": str(summary_path),
                 }
             )
+
+
+def _layout_evidence_by_base(hints: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for hint in hints:
+        base = str(hint.get("base", "") or "unknown")
+        current = result.get(base)
+        candidate = {
+            "offset_count": _int_value(hint.get("offset_count"), 0),
+            "access_count": _int_value(hint.get("access_count"), 0),
+            "confidence": _float_value(hint.get("confidence"), 0.0),
+        }
+        if current is None:
+            result[base] = candidate
+            continue
+        current_score = (
+            _int_value(current.get("access_count"), 0),
+            _int_value(current.get("offset_count"), 0),
+            _float_value(current.get("confidence"), 0.0),
+        )
+        candidate_score = (
+            _int_value(candidate.get("access_count"), 0),
+            _int_value(candidate.get("offset_count"), 0),
+            _float_value(candidate.get("confidence"), 0.0),
+        )
+        if candidate_score > current_score:
+            result[base] = candidate
+    return result
 
 
 def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
@@ -3409,11 +3449,29 @@ def _layout_rewrite_blocker_review_queues(
     result: dict[str, dict[str, Any]] = {}
     for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
         items = list(queue_items.get(queue_name, []))
+        items.sort(
+            key=lambda item: (
+                -_int_value(item.get("access_count"), 0),
+                -_int_value(item.get("offset_count"), 0),
+                str(item.get("name", "")),
+                str(item.get("base", "")),
+            )
+        )
         function_names = {str(item.get("name", "") or "") for item in items}
         bases = Counter(str(item.get("base", "") or "unknown") for item in items)
         result[queue_name] = {
             "blockers": len(items),
             "functions": len(function_names),
+            "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in items), default=0),
+            "max_access_count": max((_int_value(item.get("access_count"), 0) for item in items), default=0),
+            "max_layout_confidence": max(
+                (_float_value(item.get("layout_confidence"), 0.0) for item in items),
+                default=0.0,
+            ),
+            "max_blocker_confidence": max(
+                (_float_value(item.get("blocker_confidence"), 0.0) for item in items),
+                default=0.0,
+            ),
             "top_bases": _counter_to_dict(Counter(dict(bases.most_common(top)))),
             "items": items[:top],
         }
@@ -3667,12 +3725,24 @@ def _rewrite_blocker_function_summary(
     ea: str,
     summary_path: Path,
     blockers: list[dict[str, Any]],
+    layout_hints: list[dict[str, Any]],
 ) -> dict[str, Any]:
     reasons = Counter()
     review_profiles = Counter()
     bases = []
+    layout_evidence = _layout_evidence_by_base(layout_hints)
+    max_offsets = 0
+    max_access_count = 0
+    max_layout_confidence = 0.0
+    max_blocker_confidence = 0.0
     for blocker in blockers:
-        bases.append(str(blocker.get("base", "") or "unknown"))
+        base = str(blocker.get("base", "") or "unknown")
+        bases.append(base)
+        evidence = layout_evidence.get(base, {})
+        max_offsets = max(max_offsets, _int_value(evidence.get("offset_count"), 0))
+        max_access_count = max(max_access_count, _int_value(evidence.get("access_count"), 0))
+        max_layout_confidence = max(max_layout_confidence, _float_value(evidence.get("confidence"), 0.0))
+        max_blocker_confidence = max(max_blocker_confidence, _float_value(blocker.get("confidence"), 0.0))
         reason_items = [str(reason) for reason in blocker.get("reasons", []) or []]
         for reason in reason_items:
             reasons[str(reason)] += 1
@@ -3684,6 +3754,10 @@ def _rewrite_blocker_function_summary(
         "blocker_count": len(blockers),
         "reason_count": sum(reasons.values()),
         "bases": bases[:8],
+        "max_offsets": max_offsets,
+        "max_access_count": max_access_count,
+        "max_layout_confidence": max_layout_confidence,
+        "max_blocker_confidence": max_blocker_confidence,
         "review_profiles": _counter_to_dict(Counter(dict(review_profiles.most_common(5)))),
         "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),

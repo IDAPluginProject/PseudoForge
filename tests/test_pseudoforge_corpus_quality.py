@@ -442,12 +442,36 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ]["functions"],
             )
             self.assertEqual(
+                3,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["max_offsets"],
+            )
+            self.assertEqual(
+                6,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["max_access_count"],
+            )
+            self.assertEqual(
                 "Sample",
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "threshold_gap_candidates"
                 ]["items"][0]["name"],
             )
             self.assertEqual(
+                3,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["items"][0]["offset_count"],
+            )
+            self.assertEqual(
+                6,
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["items"][0]["access_count"],
+            )
+            self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "offset_threshold_gap_candidates"
@@ -477,6 +501,8 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                     "access_threshold_gap_candidates"
                 ],
             )
+            self.assertEqual(3, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_offsets"])
+            self.assertEqual(6, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_access_count"])
             self.assertEqual(1, report["text_stats"]["offset_deref_patterns"])
             self.assertEqual(2, report["text_stats"]["label_tokens"])
             self.assertEqual(4, report["text_stats"]["decimal_status_like_literals"])
@@ -840,15 +866,15 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
+                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `offset_threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
+                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `access_threshold_gap_candidates` | 1 | 1 | sessionSpace=1 |",
+                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
