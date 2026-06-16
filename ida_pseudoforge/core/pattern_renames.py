@@ -1060,6 +1060,8 @@ def _large_dispatcher_api_role_index(
                         "new": new_name,
                         "callee": str(call["name"]),
                         "argument_index": str(index),
+                        "parameter": param_name,
+                        "parameter_type": param_type,
                     }
                 )
 
@@ -1076,6 +1078,8 @@ def _large_dispatcher_api_role_index(
                         "new": new_name,
                         "callee": str(call["name"]),
                         "argument_index": str(index),
+                        "parameter": param_name,
+                        "parameter_type": param_type,
                     }
                 )
     return roles
@@ -1102,9 +1106,43 @@ def _large_dispatcher_api_role_evidence(
             "large dispatcher local has a stable repeated API role %s across %d profiled calls: %s"
             % (new_name, same_role_count, ", ".join(callees[:4]))
         )
+    if same_role_count == 1 and _is_strong_single_use_large_dispatcher_api_role(roles[0], new_name):
+        return (
+            "large dispatcher local has a strong single-use API role %s from %s profile parameter %s"
+            % (new_name, roles[0].get("callee", ""), roles[0].get("parameter", ""))
+        )
     if allow_single_use and same_role_count == 1 and _looks_like_single_use_wrapper_local(text, local_name):
         return "large dispatcher local is a single-use wrapper for API role %s" % new_name
     return ""
+
+
+_STRONG_SINGLE_USE_LARGE_DISPATCHER_API_ROLES = {
+    ("ExAllocatePool2", "numberOfBytes"),
+    ("ExAllocatePool2", "poolFlags"),
+    ("ExAllocatePool2", "poolTag"),
+    ("ExFreePool", "pool"),
+    ("ExFreePoolWithTag", "pool"),
+    ("IoFreeIrp", "irp"),
+    ("IoFreeMdl", "mdl"),
+    ("ObDereferenceObjectDeferDelete", "object"),
+    ("ObfDereferenceObject", "object"),
+    ("ObfDereferenceObjectWithTag", "object"),
+    ("RtlFreeAnsiString", "ansiString"),
+}
+
+
+def _is_strong_single_use_large_dispatcher_api_role(
+    role: dict[str, str],
+    new_name: str,
+) -> bool:
+    callee = role.get("callee", "")
+    if (callee, new_name) not in _STRONG_SINGLE_USE_LARGE_DISPATCHER_API_ROLES:
+        return False
+    if role.get("new", "") != new_name:
+        return False
+    if not role.get("parameter", "") or not role.get("parameter_type", ""):
+        return False
+    return True
 
 
 def _looks_like_single_use_wrapper_local(text: str, local_name: str) -> bool:
@@ -1196,6 +1234,9 @@ def _semantic_name_from_api_result(function_name: str, return_type: str, local_t
 def _semantic_name_from_api_parameter(param_name: str, param_type: str, function_name: str = "") -> str:
     if not param_name:
         return ""
+    exact_name = _exact_semantic_api_parameter_name(param_name, param_type, function_name)
+    if exact_name:
+        return exact_name
     name = _normalized_api_parameter_name(param_name, param_type)
     if not name:
         return ""
@@ -1205,7 +1246,7 @@ def _semantic_name_from_api_parameter(param_name: str, param_type: str, function
         return "lookasideList"
     if name in _HIGH_SIGNAL_API_PARAMETER_NAMES:
         return name
-    if _is_handle_profile_type(param_type) and name.endswith("Handle"):
+    if _is_handle_profile_type(param_type) and (name == "handle" or name.endswith("Handle")):
         return name
     if _is_pointer_like_profile_type(param_type) and _has_high_signal_pointer_parameter_suffix(name):
         return name
@@ -1222,19 +1263,29 @@ def _semantic_name_from_api_parameter(param_name: str, param_type: str, function
 
 _HIGH_SIGNAL_API_PARAMETER_NAMES = {
     "accessMode",
+    "accessState",
+    "accessStatus",
     "alertable",
+    "acl",
     "baseAddress",
     "byteCount",
     "currentTime",
+    "dacl",
     "desiredAccess",
     "deviceObject",
     "driverObject",
     "entry",
     "event",
+    "eventDescriptor",
     "eventHandle",
     "fileHandle",
     "fileObject",
     "filter",
+    "genericMapping",
+    "grantedAccess",
+    "handle",
+    "identifierAuthority",
+    "index",
     "inputBuffer",
     "inputBufferLength",
     "interval",
@@ -1246,7 +1297,10 @@ _HIGH_SIGNAL_API_PARAMETER_NAMES = {
     "mdl",
     "newProtect",
     "notifyRoutine",
+    "numberOfBytes",
     "numberOfBytesTransferred",
+    "numberToFind",
+    "numberToSet",
     "object",
     "objectAttributes",
     "objectType",
@@ -1255,18 +1309,53 @@ _HIGH_SIGNAL_API_PARAMETER_NAMES = {
     "process",
     "processHandle",
     "processId",
+    "queryTable",
     "registration",
+    "resource",
+    "resourceSacl",
     "returnLength",
+    "sacl",
+    "securityDescriptor",
+    "sid",
+    "sid1",
+    "sid2",
+    "silo",
+    "sourceCharacter",
     "spinLock",
+    "string1",
+    "string2",
     "thread",
     "threadHandle",
     "threadId",
     "timeout",
+    "token",
     "virtualAddress",
     "waitMode",
     "waitReason",
     "workItem",
 }
+
+
+_EXACT_API_PARAMETER_RENAMES: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {
+    ("ExAllocatePool2", "Flags"): ("poolFlags", ("POOL_FLAGS",)),
+    ("ExAllocatePool2", "Tag"): ("poolTag", ("ULONG",)),
+    ("ExFreePool", "P"): ("pool", ("PVOID",)),
+    ("ExFreePoolWithTag", "P"): ("pool", ("PVOID",)),
+    ("ExFreePoolWithTag", "Tag"): ("poolTag", ("ULONG",)),
+}
+
+
+def _exact_semantic_api_parameter_name(param_name: str, param_type: str, function_name: str) -> str:
+    entry = _EXACT_API_PARAMETER_RENAMES.get((function_name or "", param_name or ""))
+    if not entry:
+        return ""
+    new_name, type_tokens = entry
+    if not type_tokens:
+        return new_name
+    type_text = (param_type or "").upper()
+    if any(token.upper() in type_text for token in type_tokens):
+        return new_name
+    return ""
 
 
 def _normalized_api_parameter_name(param_name: str, param_type: str) -> str:
@@ -1293,20 +1382,28 @@ def _has_high_signal_pointer_parameter_suffix(name: str) -> bool:
     return name.endswith(
         (
             "Attributes",
+            "Acl",
             "Buffer",
             "Context",
+            "Descriptor",
             "Entry",
             "Event",
             "Filter",
             "Handle",
             "Information",
             "List",
+            "Mapping",
             "Object",
             "Process",
             "Registration",
+            "Resource",
+            "Sacl",
+            "Sid",
             "StatusBlock",
             "String",
+            "Table",
             "Thread",
+            "Token",
             "WorkItem",
         )
     )
@@ -1316,12 +1413,15 @@ def _has_high_signal_value_parameter_suffix(name: str) -> bool:
     return name.endswith(
         (
             "Access",
+            "Bytes",
             "ByteCount",
+            "Character",
             "Characteristics",
             "Code",
             "Count",
             "Disposition",
             "Flags",
+            "Index",
             "Length",
             "Mask",
             "Mode",
@@ -1347,7 +1447,12 @@ def _is_integer_profile_type(type_text: str) -> bool:
     text = (type_text or "").upper()
     if _is_pointer_type(text):
         return False
-    return bool(re.search(r"\b(?:ACCESS_MASK|BOOLEAN|CHAR|DWORD|INT|KIRQL|LONG|SIZE_T|ULONG|USHORT|WORD|__INT64)\b", text))
+    return bool(
+        re.search(
+            r"\b(?:ACCESS_MASK|BOOLEAN|CHAR|DWORD|INT|KIRQL|LONG|NTSTATUS|SIZE_T|ULONG|USHORT|WCHAR|WORD|__INT64)\b",
+            text,
+        )
+    )
 
 
 def _is_enum_like_profile_type(type_text: str) -> bool:
@@ -1414,6 +1519,7 @@ def _unique_semantic_suggestions(
                 new=suggestion.new,
                 evidence=suggestion.evidence,
                 candidates=sorted(target_old_names),
+                candidate_details=_semantic_suggestion_details(by_target.get(suggestion.new, [])),
             )
             continue
         if len(old_target_names) != 1:
@@ -1425,6 +1531,7 @@ def _unique_semantic_suggestions(
                 new=suggestion.new,
                 evidence=suggestion.evidence,
                 candidates=sorted(old_target_names),
+                candidate_details=_semantic_suggestion_details(by_old.get(suggestion.old, [])),
             )
             continue
         key = (suggestion.kind, suggestion.old, suggestion.new, suggestion.source)
@@ -1450,6 +1557,7 @@ def _append_api_semantic_diagnostic(
     candidate_kind: str = "",
     evidence: str = "",
     candidates: list[str] | None = None,
+    candidate_details: list[dict[str, Any]] | None = None,
 ) -> None:
     if diagnostics is None:
         return
@@ -1469,11 +1577,27 @@ def _append_api_semantic_diagnostic(
         "candidate_kind": candidate_kind,
         "evidence": evidence,
         "candidates": candidates or [],
+        "candidate_details": candidate_details or [],
     }
     for key, value in optional_values.items():
         if value not in ("", [], None):
             item[key] = value
     diagnostics.append(item)
+
+
+def _semantic_suggestion_details(suggestions: list[RenameSuggestion]) -> list[dict[str, Any]]:
+    details = []
+    for suggestion in suggestions:
+        details.append(
+            {
+                "old": suggestion.old,
+                "new": suggestion.new,
+                "source": suggestion.source,
+                "confidence": suggestion.confidence,
+                "evidence": suggestion.evidence,
+            }
+        )
+    return details
 
 
 def _would_shadow_case_variant(local_names: set[str], old_name: str, new_name: str) -> bool:

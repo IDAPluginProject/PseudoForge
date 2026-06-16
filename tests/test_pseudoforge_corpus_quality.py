@@ -338,6 +338,25 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             self.assertEqual(1, report["api_semantic_stats"]["rejections_by_reason"]["conflict_old"])
             self.assertEqual(1, report["api_semantic_stats"]["rejections_by_stage"]["api-argument"])
             self.assertEqual(1, report["api_semantic_stats"]["rejections_by_stage"]["api-out-param"])
+            self.assertEqual(
+                {
+                    "reason": "large_dispatcher",
+                    "stage": "api-argument",
+                    "new": "object",
+                    "callee": "ObfDereferenceObject",
+                    "parameter": "Object",
+                    "parameter_type": "PVOID",
+                    "argument_index": "0",
+                    "count": 1,
+                },
+                report["api_semantic_stats"]["top_rejection_profiles"][0],
+            )
+            self.assertEqual("Sample", report["api_semantic_stats"]["top_functions"][0]["name"])
+            self.assertEqual(2, report["api_semantic_stats"]["top_functions"][0]["rejection_count"])
+            self.assertEqual(
+                1,
+                report["api_semantic_stats"]["top_functions"][0]["rejections_by_target"]["object"],
+            )
             self.assertEqual(2, report["layout_hint_stats"]["totals"]["hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["functions_with_hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["named_base_hints"])
@@ -1452,6 +1471,60 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
 
+    def test_analyze_corpus_filters_by_ea_set(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_quality_fixture(root)
+            other_dir = root / "functions" / "0000000140002000_Other"
+            other_dir.mkdir(parents=True)
+            (other_dir / "Other.ida-batch-summary.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "Other",
+                        "function_ea": "0x140002000",
+                        "rename_candidates": 9,
+                        "renames": 1,
+                        "warnings": 7,
+                        "artifacts": {},
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root, ea_filter={0x140001000})
+
+            self.assertEqual(1, report["totals"]["summaries"])
+            self.assertEqual(2, report["totals"]["warnings"])
+            self.assertEqual(1, report["ea_filter_count"])
+
+    def test_cli_filters_by_ea_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            output_dir = Path(temp_dir) / "quality"
+            ea_file = Path(temp_dir) / "eas.txt"
+            _write_quality_fixture(root)
+            ea_file.write_text("0x140001000\n0x1400BAD0\n", encoding="utf-8")
+
+            exit_code = main(
+                [
+                    "--corpus-root",
+                    str(root),
+                    "--out",
+                    str(output_dir),
+                    "--format",
+                    "json",
+                    "--ea-file",
+                    str(ea_file),
+                ]
+            )
+
+            self.assertEqual(0, exit_code)
+            report = json.loads((output_dir / "corpus-quality.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, report["totals"]["summaries"])
+            self.assertEqual(2, report["ea_filter_count"])
+
 
 def _write_quality_fixture(root: Path) -> None:
     function_dir = root / "functions" / "0000000140001000_Sample"
@@ -1499,6 +1572,11 @@ def _write_quality_fixture(root: Path) -> None:
                         "reason": "large_dispatcher",
                         "old": "v7",
                         "new": "object",
+                        "callee": "ObfDereferenceObject",
+                        "argument_index": 0,
+                        "argument": "v7",
+                        "parameter": "Object",
+                        "parameter_type": "PVOID",
                     },
                     {
                         "stage": "api-out-param",

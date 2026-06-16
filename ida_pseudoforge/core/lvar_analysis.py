@@ -391,6 +391,8 @@ def _source_priority_for_suggestion(suggestion: RenameSuggestion) -> int:
         and re.fullmatch(r"argument\d+", suggestion.new or "")
     ):
         return _source_priority("prototype-generic")
+    if suggestion.source == "api-argument" and suggestion.new in {"handle", "object", "pool"}:
+        return _source_priority("llm") - 1
     return _source_priority(suggestion.source)
 
 

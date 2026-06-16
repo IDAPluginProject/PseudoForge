@@ -234,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         sample_limit=max(0, args.sample_limit),
         text_scan=not args.no_text_scan,
         top=max(1, args.top),
+        ea_filter=_load_ea_filter(args.ea, args.ea_file),
     )
     outputs = []
     if args.out:
@@ -271,6 +272,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output format. With --out, both writes JSON and Markdown.",
     )
     parser.add_argument("--sample-limit", type=int, default=0, help="Analyze only the first N function summaries.")
+    parser.add_argument("--ea", action="append", default=[], help="Only analyze this function EA. Can be repeated.")
+    parser.add_argument(
+        "--ea-file",
+        default="",
+        help="Only analyze function EAs listed in this text file. Whitespace, comma, and semicolon separators are accepted.",
+    )
     parser.add_argument("--no-text-scan", action="store_true", help="Skip cleaned pseudocode text pattern scan.")
     parser.add_argument("--top", type=int, default=20, help="Number of top warning functions/classes to include.")
     return parser
@@ -282,12 +289,15 @@ def analyze_corpus(
     sample_limit: int = 0,
     text_scan: bool = True,
     top: int = 20,
+    ea_filter: set[int] | None = None,
 ) -> dict[str, Any]:
     root = Path(corpus_root)
     functions_root = root / "functions" if (root / "functions").exists() else root
-    summary_paths = list(_iter_summary_paths(functions_root))
-    if sample_limit:
-        summary_paths = summary_paths[:sample_limit]
+    summary_paths = _selected_summary_paths(
+        functions_root,
+        ea_filter=ea_filter,
+        sample_limit=sample_limit,
+    )
 
     warning_classes: Counter[str] = Counter()
     llm_statuses: Counter[str] = Counter()
@@ -297,6 +307,7 @@ def analyze_corpus(
     api_semantic_reasons: Counter[str] = Counter()
     api_semantic_stages: Counter[str] = Counter()
     api_semantic_statuses: Counter[str] = Counter()
+    api_semantic_profiles: Counter[str] = Counter()
     layout_hint_bases: Counter[str] = Counter()
     layout_hint_types: Counter[str] = Counter()
     layout_totals = Counter()
@@ -372,6 +383,7 @@ def analyze_corpus(
     text_totals = Counter()
     body_text_totals = Counter()
     top_warning_functions = []
+    top_api_semantic_functions = []
     top_layout_hint_functions = []
     top_subfield_overlay_functions = []
     top_narrow_subfield_functions = []
@@ -689,12 +701,23 @@ def analyze_corpus(
             api_semantic_reasons,
             api_semantic_stages,
             api_semantic_statuses,
+            api_semantic_profiles,
             totals,
         )
         if api_diagnostic_count:
             totals["functions_with_api_semantic_diagnostics"] += 1
+            top_api_semantic_functions.append(
+                _api_semantic_function_summary(name, ea, summary_path, rule_report)
+            )
 
     top_warning_functions.sort(key=lambda item: (-int(item["warning_count"]), str(item["name"])))
+    top_api_semantic_functions.sort(
+        key=lambda item: (
+            -int(item["rejection_count"]),
+            -int(item["diagnostic_count"]),
+            str(item["name"]),
+        )
+    )
     top_layout_hint_functions.sort(
         key=lambda item: (
             -int(item["hint_count"]),
@@ -831,6 +854,7 @@ def analyze_corpus(
         "corpus_root": str(root),
         "functions_root": str(functions_root),
         "sample_limit": int(sample_limit),
+        "ea_filter_count": len(ea_filter or set()),
         "text_scan": bool(text_scan),
         "totals": _counter_to_dict(totals),
         "rename_stats": {
@@ -858,6 +882,8 @@ def analyze_corpus(
             "functions_with_diagnostics": totals["functions_with_api_semantic_diagnostics"],
             "rejections_by_reason": _counter_to_dict(api_semantic_reasons),
             "rejections_by_stage": _counter_to_dict(api_semantic_stages),
+            "top_rejection_profiles": _api_semantic_profile_summaries(api_semantic_profiles, top),
+            "top_functions": top_api_semantic_functions[:top],
             "statuses": _counter_to_dict(api_semantic_statuses),
         },
         "layout_hint_stats": {
@@ -1104,6 +1130,74 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         ]
     )
     lines.extend(_markdown_counter_table(_coerce_dict(api_semantic_stats.get("rejections_by_stage", {})), "Stage"))
+    lines.extend(
+        [
+            "",
+            "### Top API Rejection Profiles",
+            "",
+            "| Reason | Stage | New | Callee | Parameter | Type | Arg | Count |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: |",
+        ]
+    )
+    for item in api_semantic_stats.get("top_rejection_profiles", []) or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s |"
+            % (
+                str(item.get("reason", "")),
+                str(item.get("stage", "")),
+                str(item.get("new", "")),
+                str(item.get("callee", "")),
+                str(item.get("parameter", "")),
+                str(item.get("parameter_type", "")),
+                str(item.get("argument_index", "")),
+                int(item.get("count", 0) or 0),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "### Highest API Rejection Functions",
+            "",
+            "| Function | EA | Rejections | Reasons | Targets | Profiles |",
+            "| --- | --- | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in api_semantic_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        reasons = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("rejections_by_reason", {})).items()
+        )
+        targets = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("rejections_by_target", {})).items()
+        )
+        profile_text = "; ".join(
+            "%s:%s:%s:%s=%s"
+            % (
+                str(profile.get("reason", "")),
+                str(profile.get("new", "")),
+                str(profile.get("callee", "")),
+                str(profile.get("parameter", "")),
+                int(profile.get("count", 0) or 0),
+            )
+            for profile in item.get("top_rejection_profiles", []) or []
+            if isinstance(profile, dict)
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("rejection_count", 0) or 0),
+                _markdown_table_cell(reasons),
+                _markdown_table_cell(targets),
+                _markdown_table_cell(profile_text),
+            )
+        )
     lines.extend(
         [
             "",
@@ -2638,6 +2732,60 @@ def _iter_summary_paths(functions_root: Path):
     yield from sorted(functions_root.rglob("*.ida-batch-summary.json"))
 
 
+def _selected_summary_paths(
+    functions_root: Path,
+    *,
+    ea_filter: set[int] | None,
+    sample_limit: int,
+) -> list[Path]:
+    selected: list[Path] = []
+    for summary_path in _iter_summary_paths(functions_root):
+        if ea_filter is not None:
+            summary_ea = _summary_ea_value(summary_path)
+            if summary_ea not in ea_filter:
+                continue
+        selected.append(summary_path)
+        if sample_limit and len(selected) >= sample_limit:
+            break
+    return selected
+
+
+def _summary_ea_value(summary_path: Path) -> int | None:
+    summary = _coerce_dict(_read_json(summary_path))
+    ea = _parse_ea_value(summary.get("function_ea"))
+    if ea is not None:
+        return ea
+    prefix = str(summary_path.parent.name).split("_", 1)[0]
+    return _parse_ea_value(prefix)
+
+
+def _load_ea_filter(ea_values: list[str], ea_file: str) -> set[int] | None:
+    result: set[int] = set()
+    for value in ea_values or []:
+        parsed = _parse_ea_value(value)
+        if parsed is not None:
+            result.add(parsed)
+    if ea_file:
+        path = Path(ea_file)
+        if not path.exists():
+            raise FileNotFoundError(path)
+        for token in re.split(r"[\s,;]+", path.read_text(encoding="utf-8")):
+            parsed = _parse_ea_value(token)
+            if parsed is not None:
+                result.add(parsed)
+    return result if result else None
+
+
+def _parse_ea_value(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+    except ValueError:
+        return None
+
+
 def _artifact_path(summary_path: Path, artifacts: dict[str, Any], key: str) -> Path:
     raw_value = str(artifacts.get(key, "") or "").strip()
     if raw_value:
@@ -2732,6 +2880,7 @@ def _update_api_semantic_metrics(
     reasons: Counter[str],
     stages: Counter[str],
     statuses: Counter[str],
+    profiles: Counter[str],
     totals: Counter[str],
 ) -> int:
     diagnostics = [
@@ -2748,7 +2897,130 @@ def _update_api_semantic_metrics(
         totals["api_semantic_rejections"] += 1
         reasons[str(item.get("reason", "") or "unknown")] += 1
         stages[str(item.get("stage", "") or "unknown")] += 1
+        profiles[_api_semantic_profile_key(item)] += 1
     return len(diagnostics)
+
+
+def _api_semantic_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    rule_report: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostics = [
+        item
+        for item in rule_report.get("api_semantic_diagnostics", []) or []
+        if isinstance(item, dict)
+    ]
+    rejections = [
+        item
+        for item in diagnostics
+        if str(item.get("status", "") or "unknown") == "rejected"
+    ]
+    reasons: Counter[str] = Counter()
+    stages: Counter[str] = Counter()
+    targets: Counter[str] = Counter()
+    profiles: Counter[str] = Counter()
+    candidate_targets: Counter[str] = Counter()
+    for item in rejections:
+        reasons[str(item.get("reason", "") or "unknown")] += 1
+        stages[str(item.get("stage", "") or "unknown")] += 1
+        new_name = str(item.get("new", "") or "")
+        if new_name:
+            targets[new_name] += 1
+        candidate_details = item.get("candidate_details", [])
+        if isinstance(candidate_details, list):
+            for detail in candidate_details:
+                if isinstance(detail, dict):
+                    candidate_new = str(detail.get("new", "") or "")
+                    if candidate_new:
+                        candidate_targets[candidate_new] += 1
+        profiles[_api_semantic_profile_key(item)] += 1
+    return {
+        "name": name,
+        "ea": ea,
+        "summary_path": str(summary_path),
+        "diagnostic_count": len(diagnostics),
+        "rejection_count": len(rejections),
+        "rejections_by_reason": _counter_to_dict(reasons),
+        "rejections_by_stage": _counter_to_dict(stages),
+        "rejections_by_target": _counter_to_dict(Counter(dict(targets.most_common(8)))),
+        "candidate_targets": _counter_to_dict(Counter(dict(candidate_targets.most_common(8)))),
+        "top_rejection_profiles": _api_semantic_profile_summaries(profiles, 8),
+    }
+
+
+def _api_semantic_profile_key(item: dict[str, Any]) -> str:
+    profile = _api_semantic_profile(item)
+    return json.dumps(profile, sort_keys=True, separators=(",", ":"))
+
+
+def _api_semantic_profile_summaries(counter: Counter[str], limit: int) -> list[dict[str, Any]]:
+    result = []
+    for key, count in counter.most_common(max(0, limit)):
+        try:
+            profile = json.loads(key)
+        except json.JSONDecodeError:
+            profile = {"reason": key}
+        if not isinstance(profile, dict):
+            profile = {"reason": str(profile)}
+        profile["count"] = int(count)
+        result.append(profile)
+    return result
+
+
+def _api_semantic_profile(item: dict[str, Any]) -> dict[str, Any]:
+    evidence_profile = _api_semantic_profile_from_evidence(str(item.get("evidence", "") or ""))
+    callee = str(item.get("callee", "") or evidence_profile.get("callee", "") or "")
+    parameter = str(item.get("parameter", "") or evidence_profile.get("parameter", "") or "")
+    parameter_type = str(item.get("parameter_type", "") or "")
+    argument_index = item.get("argument_index", "")
+    if argument_index in (None, ""):
+        argument_index = evidence_profile.get("argument_index", "")
+    return {
+        "reason": str(item.get("reason", "") or "unknown"),
+        "stage": str(item.get("stage", "") or "unknown"),
+        "new": str(item.get("new", "") or evidence_profile.get("new", "") or ""),
+        "callee": callee,
+        "parameter": parameter,
+        "parameter_type": parameter_type,
+        "argument_index": str(argument_index if argument_index not in (None, "") else ""),
+    }
+
+
+def _api_semantic_profile_from_evidence(evidence: str) -> dict[str, str]:
+    if not evidence:
+        return {}
+    match = re.search(
+        r"\blocal is passed to (?P<callee>[A-Za-z_][A-Za-z0-9_]*) profile parameter (?P<parameter>[A-Za-z_][A-Za-z0-9_]*)",
+        evidence,
+    )
+    if match:
+        return {
+            "callee": match.group("callee"),
+            "parameter": match.group("parameter"),
+        }
+    match = re.search(
+        r"\b(?P<callee>[A-Za-z_][A-Za-z0-9_]*) argument (?P<argument_index>\d+) is an address-taken local for profile parameter (?P<parameter>[A-Za-z_][A-Za-z0-9_]*)",
+        evidence,
+    )
+    if match:
+        return {
+            "callee": match.group("callee"),
+            "argument_index": match.group("argument_index"),
+            "parameter": match.group("parameter"),
+        }
+    match = re.search(
+        r"\blarge dispatcher local has a strong single-use API role (?P<new>[A-Za-z_][A-Za-z0-9_]*) from (?P<callee>[A-Za-z_][A-Za-z0-9_]*)(?: profile parameter (?P<parameter>[A-Za-z_][A-Za-z0-9_]*))?",
+        evidence,
+    )
+    if match:
+        return {
+            "new": match.group("new"),
+            "callee": match.group("callee"),
+            "parameter": match.group("parameter") or "",
+        }
+    return {}
 
 
 def _update_text_metrics(

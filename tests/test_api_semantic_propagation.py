@@ -80,6 +80,102 @@ NTSTATUS __fastcall LookupProcess(__int64 a1)
         self.assertIn("PsLookupProcessByProcessId(processId, (PEPROCESS *)&process)", rendered)
         self.assertIn("ObDereferenceObject(process)", rendered)
 
+    def test_exact_profile_parameter_renames_pool_free_arguments(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+void __fastcall FreePoolWrapper(__int64 a1, unsigned int a2)
+{
+  ExFreePoolWithTag(a1, a2);
+}
+"""
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("pool", active["a1"])
+        self.assertEqual("poolTag", active["a2"])
+        self.assertIn("ExFreePoolWithTag(pool, poolTag)", rendered)
+
+    def test_handle_parameter_name_is_not_treated_as_weak(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+void __fastcall CloseHandleWrapper(__int64 a1)
+{
+  ZwClose(a1);
+}
+"""
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("handle", active["a1"])
+        self.assertIn("ZwClose(handle)", rendered)
+
+    def test_profile_type_suffixes_rename_resource_and_sid_arguments(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+void __fastcall UseResourceAndSids(__int64 a1, __int64 a2, __int64 a3)
+{
+  ExReleaseResourceLite(a1);
+  RtlEqualSid(a2, a3);
+}
+"""
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("resource", active["a1"])
+        self.assertEqual("sid1", active["a2"])
+        self.assertEqual("sid2", active["a3"])
+        self.assertIn("ExReleaseResourceLite(resource)", rendered)
+        self.assertIn("RtlEqualSid(sid1, sid2)", rendered)
+
+    def test_allocate_pool_profile_parameter_names_are_salvaged(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+void *__fastcall AllocatePoolWrapper(unsigned __int64 a1, unsigned __int64 a2, unsigned int a3)
+{
+  return ExAllocatePool2(a1, a2, a3);
+}
+"""
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("poolFlags", active["a1"])
+        self.assertEqual("numberOfBytes", active["a2"])
+        self.assertEqual("poolTag", active["a3"])
+        self.assertIn("ExAllocatePool2(poolFlags, numberOfBytes, poolTag)", rendered)
+
+    def test_string_and_character_profile_parameter_names_are_salvaged(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+void __fastcall StringWrapper(__int64 a1, wchar_t a2, __int64 a3)
+{
+  RtlCompareUnicodeStrings(a1, 4, a3, 4, 1);
+  RtlUpcaseUnicodeChar(a2);
+}
+"""
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("string1", active["a1"])
+        self.assertEqual("sourceCharacter", active["a2"])
+        self.assertEqual("string2", active["a3"])
+        self.assertIn("RtlCompareUnicodeStrings(string1, 4, string2, 4, TRUE)", rendered)
+        self.assertIn("RtlUpcaseUnicodeChar(sourceCharacter)", rendered)
+
     def test_conflicting_profiled_argument_roles_are_not_propagated(self) -> None:
         capture = capture_from_pseudocode(
             r"""
@@ -212,6 +308,67 @@ NTSTATUS __fastcall LargeObjectDispatcher(__int64 a1)
         active = {item.old: item.new for item in plan.active_renames()}
 
         self.assertEqual("object", active["v1"])
+
+    def test_large_dispatcher_strong_single_use_free_role_is_propagated(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+void __fastcall LargeFreeDispatcher(__int64 a1)
+{
+  __int64 v1;
+
+%s
+  ExFreePoolWithTag(v1, 0);
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        active = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("pool", active["v1"])
+        self.assertIn("ExFreePoolWithTag(pool, 0)", rendered)
+
+    def test_large_dispatcher_multiple_single_use_free_roles_stay_conflicting(self) -> None:
+        branches = "\n".join(
+            "  if ( a1 == %d )\n    return %d;" % (index, index)
+            for index in range(16)
+        )
+        capture = capture_from_pseudocode(
+            """
+void __fastcall LargeFreeDispatcher(__int64 a1)
+{
+  __int64 v1;
+  __int64 v2;
+
+%s
+  ExFreePoolWithTag(v1, 0);
+  ExFreePoolWithTag(v2, 0);
+}
+"""
+            % branches
+        )
+
+        plan = build_clean_plan(capture)
+        active = {item.old: item.new for item in plan.active_renames()}
+        diagnostics = plan.rule_report.get("api_semantic_diagnostics", [])
+
+        self.assertNotEqual("pool", active.get("v1"))
+        self.assertNotEqual("pool", active.get("v2"))
+        self.assertTrue(
+            any(
+                item.get("stage") == "api-argument"
+                and item.get("reason") == "conflict_target"
+                and item.get("new") == "pool"
+                and len(item.get("candidate_details", [])) == 2
+                for item in diagnostics
+            )
+        )
 
     def test_large_dispatcher_conflicting_api_roles_are_not_propagated(self) -> None:
         branches = "\n".join(

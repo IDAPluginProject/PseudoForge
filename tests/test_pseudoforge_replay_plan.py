@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from tools.pseudoforge_replay_plan import build_replay_plan, main, render_replay_plan_markdown
+
+
+class PseudoForgeReplayPlanTests(unittest.TestCase):
+    def test_replay_plan_ranks_cleanup_hotspots_and_writes_eas(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="Hotspot",
+                warnings=5,
+                rename_candidates=20,
+                renames=3,
+                cleaned_body="""
+__int64 __fastcall Hotspot(__int64 a1)
+{
+  v1 = *(_QWORD *)(a1 + 16);
+  v2 = *(_QWORD *)(a1 + 24);
+  v3 = *(_QWORD *)(a1 + 32);
+  v4 = *(_QWORD *)(a1 + 40);
+  v5 = *(_QWORD *)(a1 + 48);
+  v6 = *(_QWORD *)(a1 + 56);
+  v7 = *(_QWORD *)(a1 + 64);
+  v8 = *(_QWORD *)(a1 + 72);
+  v9 = *(_QWORD *)(a1 + 80);
+  v10 = *(_QWORD *)(a1 + 88);
+  if ( v1 )
+    goto LABEL_1;
+  return -1073741811;
+LABEL_1:
+  return v2;
+}
+""",
+            )
+            _write_function(
+                root,
+                ea="0x140002000",
+                name="Quiet",
+                warnings=0,
+                rename_candidates=2,
+                renames=2,
+                cleaned_body="""
+__int64 __fastcall Quiet(__int64 status)
+{
+  return status;
+}
+""",
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            self.assertEqual(1, plan["selected_count"])
+            self.assertEqual("Hotspot", plan["items"][0]["name"])
+            self.assertEqual("0x140001000", plan["items"][0]["ea"])
+            self.assertIn("warnings", plan["items"][0]["reasons"])
+            self.assertIn("offset_deref_residue", plan["items"][0]["reasons"])
+            self.assertIn("Hotspot", render_replay_plan_markdown(plan))
+
+    def test_replay_plan_cli_writes_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            out_dir = Path(temp_dir) / "plan"
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="Sample",
+                warnings=1,
+                rename_candidates=3,
+                renames=1,
+                cleaned_body="__int64 __fastcall Sample(__int64 a1) { return *(_QWORD *)(a1 + 16); }",
+            )
+
+            exit_code = main(["--corpus-root", str(root), "--out", str(out_dir), "--limit", "1"])
+
+            self.assertEqual(0, exit_code)
+            self.assertEqual("0x140001000\n", (out_dir / "replay-eas.txt").read_text(encoding="utf-8"))
+            self.assertTrue((out_dir / "replay-plan.json").exists())
+            self.assertTrue((out_dir / "replay-plan.md").exists())
+            payload = json.loads((out_dir / "replay-plan.json").read_text(encoding="utf-8"))
+            self.assertIn(str(out_dir / "replay-eas.txt"), payload["recommended_commands"][0])
+
+
+def _write_function(
+    root: Path,
+    *,
+    ea: str,
+    name: str,
+    warnings: int,
+    rename_candidates: int,
+    renames: int,
+    cleaned_body: str,
+) -> None:
+    folder = root / "functions" / ("%016X_%s" % (int(ea, 16), name))
+    folder.mkdir(parents=True)
+    cleaned_path = folder / f"{name}.cleaned.cpp"
+    warnings_path = folder / f"{name}.warnings.json"
+    summary_path = folder / f"{name}.ida-batch-summary.json"
+    cleaned_path.write_text(cleaned_body.strip() + "\n", encoding="utf-8")
+    warnings_path.write_text(
+        json.dumps(["Skipped PascalCase LLM rename a1->PageTableBase"] * warnings),
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "mode": "ida_batch_export",
+                "function": name,
+                "function_ea": ea,
+                "rename_candidates": rename_candidates,
+                "renames": renames,
+                "warnings": warnings,
+                "llm_status": "disabled",
+                "artifacts": {
+                    "cleaned_pseudocode": cleaned_path.name,
+                    "warnings": warnings_path.name,
+                    "summary": summary_path.name,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+if __name__ == "__main__":
+    unittest.main()

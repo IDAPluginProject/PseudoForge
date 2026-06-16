@@ -114,6 +114,39 @@ Hard failures:
   artifacts for successful functions
 - corpus quality analyzer cannot parse the output
 
+### Building A Large Replay Set
+
+For broader cleanup-quality validation, generate a ranked replay set from an
+existing corpus instead of hand-picking functions:
+
+```powershell
+python -B .\tools\pseudoforge_replay_plan.py `
+  --corpus-root "F:\kernullist\analysis-ouput\ntoskrnl" `
+  --out "F:\kernullist\PseudoForge\pseudoforge_out\top500-replay-plan" `
+  --limit 500 `
+  --top 50
+```
+
+The plan writes:
+
+- `replay-eas.txt`: fixed EA list for IDA replay and baseline subset quality.
+- `replay-plan.json`: machine-readable ranking, reasons, and metrics.
+- `replay-plan.md`: reviewable top-function table and command templates.
+
+Before comparing a top-N replay to the old corpus, generate an old baseline
+quality report with the same EA file:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_quality.py `
+  --corpus-root "F:\kernullist\analysis-ouput\ntoskrnl" `
+  --ea-file "F:\kernullist\PseudoForge\pseudoforge_out\top500-replay-plan\replay-eas.txt" `
+  --out "F:\kernullist\PseudoForge\pseudoforge_out\top500-baseline-quality" `
+  --format both `
+  --top 25
+```
+
+This avoids comparing a 500-function replay against a full 29k-function corpus.
+
 ## Tier 2: LLM Candidate Replay
 
 Use this tier when the change affects LLM candidate normalization, candidate
@@ -213,66 +246,21 @@ Record these release-note inputs:
 
 ## Compare Quality Reports
 
-Use this helper snippet when comparing two `corpus-quality.json` files. It keeps
-the comparison focused on release-relevant metrics and avoids hand-copy drift.
-Use `text_stats` to track full rendered output, including PseudoForge review
-comments. Use `body_text_stats` for release gates that should measure only the
-cleaned pseudocode body.
+Use the quality compare helper when comparing two `corpus-quality.json` files.
+It keeps the comparison focused on release-relevant metrics and avoids
+hand-copy drift. Use `text_stats` to track full rendered output, including
+PseudoForge review comments. Use `body_text_stats` for release gates that
+should measure only the cleaned pseudocode body.
 
 ```powershell
 $OldQuality = "F:\kernullist\PseudoForge\pseudoforge_out\old-quality\corpus-quality.json"
 $NewQuality = "F:\kernullist\PseudoForge\pseudoforge_out\new-quality\corpus-quality.json"
 
-@'
-import json
-import sys
-from pathlib import Path
-
-old = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-new = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-
-items = [
-    ("warnings", ("totals", "warnings")),
-    ("functions_with_warnings", ("totals", "functions_with_warnings")),
-    ("applied_renames", ("totals", "applied_renames")),
-    ("rename_apply_rate", ("rename_stats", "apply_rate")),
-    ("llm_apply_rate", ("rename_stats", "llm_apply_rate")),
-    ("generic_identifier_tokens", ("text_stats", "generic_identifier_tokens")),
-    ("body_generic_identifier_tokens", ("body_text_stats", "generic_identifier_tokens")),
-    ("decimal_status_like_literals", ("text_stats", "decimal_status_like_literals")),
-    ("body_decimal_status_like_literals", ("body_text_stats", "decimal_status_like_literals")),
-    ("hex_status_like_literals", ("text_stats", "hex_status_like_literals")),
-    ("body_hex_status_like_literals", ("body_text_stats", "hex_status_like_literals")),
-    ("profiled_status_argument_literals", ("text_stats", "profiled_status_argument_literals")),
-    ("body_profiled_status_argument_literals", ("body_text_stats", "profiled_status_argument_literals")),
-    ("offset_deref_patterns", ("text_stats", "offset_deref_patterns")),
-    ("body_offset_deref_patterns", ("body_text_stats", "offset_deref_patterns")),
-    ("label_tokens", ("text_stats", "label_tokens")),
-    ("body_label_tokens", ("body_text_stats", "label_tokens")),
-    ("inferred_offset_layout_hints", ("text_stats", "inferred_offset_layout_hints")),
-    ("inferred_offset_field_previews", ("text_stats", "inferred_offset_field_previews")),
-    ("inferred_offset_field_aliases", ("text_stats", "inferred_offset_field_aliases")),
-    ("inferred_offset_subfield_overlays", ("text_stats", "inferred_offset_subfield_overlays")),
-    ("inferred_offset_rewrite_ready", ("text_stats", "inferred_offset_rewrite_ready")),
-    ("inferred_offset_rewrite_near_ready", ("text_stats", "inferred_offset_rewrite_near_ready")),
-    ("inferred_offset_rewrite_blockers", ("text_stats", "inferred_offset_rewrite_blockers")),
-    ("api_semantic_rejections", ("totals", "api_semantic_rejections")),
-]
-
-def read_metric(data, path):
-    value = data
-    for key in path:
-        value = value.get(key, {}) if isinstance(value, dict) else {}
-    return value if value != {} else None
-
-for label, path in items:
-    old_value = read_metric(old, path)
-    new_value = read_metric(new, path)
-    delta = None
-    if isinstance(old_value, (int, float)) and isinstance(new_value, (int, float)):
-        delta = new_value - old_value
-    print(f"{label}: {old_value} -> {new_value}" + (f" ({delta:+})" if delta is not None else ""))
-'@ | python - $OldQuality $NewQuality
+python -B .\tools\pseudoforge_quality_compare.py `
+  --old $OldQuality `
+  --new $NewQuality `
+  --out "F:\kernullist\PseudoForge\pseudoforge_out\quality-compare" `
+  --format both
 ```
 
 ## Metric Decision Rules
