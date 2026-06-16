@@ -874,6 +874,66 @@ __int64 __fastcall ByteAliasLayout(__int64 sessionSpace)
         self.assertEqual(1, len(ready))
         self.assertEqual(1, len(previews))
 
+    def test_signed_fixed_width_aliases_do_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall SignedFixedWidthAliasLayout(__int64 sessionSpace)
+{
+  return *(signed __int16 *)(sessionSpace + 0x20)
+       + *(_WORD *)(sessionSpace + 0x20)
+       + *(signed __int32 *)(sessionSpace + 0x24)
+       + *(_DWORD *)(sessionSpace + 0x24)
+       + *(signed __int64 *)(sessionSpace + 0x28)
+       + *(_QWORD *)(sessionSpace + 0x28)
+       + *(_QWORD *)(sessionSpace + 0x30)
+       + *(_QWORD *)(sessionSpace + 0x38)
+       + *(_QWORD *)(sessionSpace + 0x40)
+       + *(_QWORD *)(sessionSpace + 0x48)
+       + *(_QWORD *)(sessionSpace + 0x50)
+       + *(_QWORD *)(sessionSpace + 0x58);
+}
+"""
+        )
+
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(aliases))
+        self.assertIn("field_20=+0x20 mixed(_WORD/signed __int16)", aliases[0]["text"])
+        self.assertIn("field_24=+0x24 mixed(_DWORD/signed __int32)", aliases[0]["text"])
+        self.assertIn("field_28=+0x28 mixed(_QWORD/signed __int64)", aliases[0]["text"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+
+    def test_signed_fixed_width_alignment_still_blocks_unsafe_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall SignedFixedWidthUnalignedLayout(__int64 sessionSpace)
+{
+  return *(signed __int32 *)(sessionSpace + 0x22)
+       + *(_QWORD *)(sessionSpace + 0x28)
+       + *(_QWORD *)(sessionSpace + 0x30)
+       + *(_QWORD *)(sessionSpace + 0x38)
+       + *(_QWORD *)(sessionSpace + 0x40)
+       + *(_QWORD *)(sessionSpace + 0x48)
+       + *(_QWORD *)(sessionSpace + 0x50)
+       + *(_QWORD *)(sessionSpace + 0x58)
+       + *(_QWORD *)(sessionSpace + 0x60)
+       + *(_QWORD *)(sessionSpace + 0x68)
+       + *(_QWORD *)(sessionSpace + 0x70)
+       + *(_QWORD *)(sessionSpace + 0x78);
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("one or more typed offsets are not naturally aligned", blockers[0]["blockers"])
+        self.assertEqual([], ready)
+
     def test_unknown_type_class_conflicts_are_reported_separately(self) -> None:
         comments = field_layout_comments(
             """

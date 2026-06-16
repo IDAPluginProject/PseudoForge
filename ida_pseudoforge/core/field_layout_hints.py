@@ -64,6 +64,59 @@ _BASE_STABILITY_BLOCKER_FRAGMENTS = (
     "indexed like an array",
 )
 _MAX_BASE_STABILITY_RHS_SAMPLES = 4
+_LAYOUT_TYPE_STORAGE_SIZES = {
+    "__int8": 1,
+    "signed __int8": 1,
+    "unsigned __int8": 1,
+    "char": 1,
+    "signed char": 1,
+    "unsigned char": 1,
+    "_byte": 1,
+    "byte": 1,
+    "uchar": 1,
+    "boolean": 1,
+    "bool": 1,
+    "__int16": 2,
+    "signed __int16": 2,
+    "unsigned __int16": 2,
+    "short": 2,
+    "signed short": 2,
+    "unsigned short": 2,
+    "_word": 2,
+    "word": 2,
+    "ushort": 2,
+    "wchar_t": 2,
+    "__int32": 4,
+    "signed __int32": 4,
+    "unsigned __int32": 4,
+    "int": 4,
+    "signed int": 4,
+    "unsigned int": 4,
+    "long": 4,
+    "signed long": 4,
+    "unsigned long": 4,
+    "_dword": 4,
+    "dword": 4,
+    "ulong": 4,
+    "ntstatus": 4,
+    "__int64": 8,
+    "signed __int64": 8,
+    "unsigned __int64": 8,
+    "long long": 8,
+    "signed long long": 8,
+    "unsigned long long": 8,
+    "_qword": 8,
+    "qword": 8,
+    "ulong64": 8,
+    "size_t": 8,
+    "ssize_t": 8,
+    "__int128": 16,
+    "signed __int128": 16,
+    "unsigned __int128": 16,
+    "_oword": 16,
+    "oword": 16,
+    "xmmword": 16,
+}
 
 
 @dataclass(slots=True)
@@ -1526,48 +1579,9 @@ def _has_unaligned_field_access(layout: _LayoutEvidence) -> bool:
 def _field_type_storage_class(type_name: str) -> str:
     normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
     lowered = normalized.lower()
-    if lowered in {
-        "__int8",
-        "signed __int8",
-        "unsigned __int8",
-        "char",
-        "signed char",
-        "unsigned char",
-        "_byte",
-        "byte",
-        "uchar",
-        "boolean",
-        "bool",
-    }:
-        return "size:1"
-    if lowered in {
-        "__int16",
-        "unsigned __int16",
-        "short",
-        "unsigned short",
-        "_word",
-        "word",
-        "ushort",
-        "wchar_t",
-    }:
-        return "size:2"
-    if lowered in {
-        "__int32",
-        "unsigned __int32",
-        "int",
-        "unsigned int",
-        "long",
-        "unsigned long",
-        "_dword",
-        "dword",
-        "ulong",
-        "ntstatus",
-    }:
-        return "size:4"
-    if lowered in {"__int64", "unsigned __int64", "_qword", "qword", "ulong64", "size_t", "ssize_t"}:
-        return "size:8"
-    if lowered in {"__int128", "unsigned __int128", "_oword", "oword", "xmmword"}:
-        return "size:16"
+    size = _LAYOUT_TYPE_STORAGE_SIZES.get(lowered)
+    if size:
+        return "size:%d" % size
     if re.fullmatch(r"P[A-Z0-9_]+", normalized):
         return "size:8"
     return "type:%s" % lowered
@@ -1586,26 +1600,9 @@ def _field_type_storage_size(type_name: str) -> int:
 def _natural_type_alignment(type_name: str) -> int:
     normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
     lowered = normalized.lower()
-    if lowered in {
-        "__int8",
-        "signed __int8",
-        "unsigned __int8",
-        "char",
-        "signed char",
-        "unsigned char",
-        "_byte",
-        "byte",
-        "uchar",
-        "boolean",
-        "bool",
-    }:
-        return 1
-    if lowered in {"short", "unsigned short", "_word", "word", "ushort", "wchar_t"}:
-        return 2
-    if lowered in {"int", "unsigned int", "long", "unsigned long", "_dword", "dword", "ulong", "ntstatus"}:
-        return 4
-    if lowered in {"__int64", "unsigned __int64", "_qword", "qword", "ulong64", "size_t"}:
-        return 8
+    size = _LAYOUT_TYPE_STORAGE_SIZES.get(lowered)
+    if size:
+        return size
     if re.fullmatch(r"P[A-Z0-9_]+", normalized):
         return 8
     return 0
