@@ -1466,18 +1466,20 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Unprofiled NTSTATUS Error Values",
             "",
-            "| Value | Signed | Count | Functions |",
-            "| --- | ---: | ---: | ---: |",
+            "| Value | Signed | Facility | Code | Count | Functions |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for item in ntstatus_body_residue_stats.get("top_unprofiled_error_values", []) or []:
         if not isinstance(item, dict):
             continue
         lines.append(
-            "| `%s` | %s | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | %s | %s |"
             % (
                 str(item.get("hex_value", "")),
                 int(item.get("signed_value", 0) or 0),
+                str(item.get("facility_hex", "")),
+                str(item.get("code_hex", "")),
                 int(item.get("count", 0) or 0),
                 int(item.get("function_count", 0) or 0),
             )
@@ -1487,8 +1489,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Functions With Unprofiled NTSTATUS Errors",
             "",
-            "| Function | EA | Literals | Values | Raw literals |",
-            "| --- | --- | ---: | --- | --- |",
+            "| Function | EA | Literals | Values | Lines | Raw literals |",
+            "| --- | --- | ---: | --- | --- | --- |",
         ]
     )
     for item in ntstatus_body_residue_stats.get("top_unprofiled_error_functions", []) or []:
@@ -1502,13 +1504,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("raw_literals", {})).items()
         )
+        lines_text = ", ".join(
+            str(context.get("line", ""))
+            for context in item.get("contexts", []) or []
+            if isinstance(context, dict)
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("literal_count", 0) or 0),
                 values,
+                lines_text,
                 raw_literals,
             )
         )
@@ -1861,6 +1869,13 @@ def _ntstatus_family_literals(text: str) -> list[dict[str, Any]]:
                 "unsigned_value": unsigned_value,
                 "signed_value": _signed_32bit_value(unsigned_value),
                 "hex_value": "0x%08X" % unsigned_value,
+                "facility": _ntstatus_facility_value(unsigned_value),
+                "facility_hex": "0x%03X" % _ntstatus_facility_value(unsigned_value),
+                "code": unsigned_value & 0xFFFF,
+                "code_hex": "0x%04X" % (unsigned_value & 0xFFFF),
+                "customer": bool((unsigned_value >> 29) & 1),
+                "line": _line_number_for_offset(text, match.start()),
+                "line_text": _line_for_match(text, match.start(), match.end()).strip(),
                 "severity": severity,
                 "profile_name": profile_name,
                 "profiled": profile_name != "",
@@ -1897,6 +1912,11 @@ def _ntstatus_unprofiled_value_summaries(
             {
                 "hex_value": hex_value,
                 "signed_value": _signed_32bit_value(unsigned_value & 0xFFFFFFFF),
+                "facility": _ntstatus_facility_value(unsigned_value),
+                "facility_hex": "0x%03X" % _ntstatus_facility_value(unsigned_value),
+                "code": unsigned_value & 0xFFFF,
+                "code_hex": "0x%04X" % (unsigned_value & 0xFFFF),
+                "customer": bool((unsigned_value >> 29) & 1),
                 "count": int(count),
                 "function_count": len(value_functions.get(hex_value, set())),
             }
@@ -1918,8 +1938,21 @@ def _ntstatus_body_unprofiled_function_summary(
         "literal_count": len(literals),
         "values": _counter_to_dict(values),
         "raw_literals": _counter_to_dict(raw_literals),
+        "contexts": [
+            {
+                "line": int(item.get("line", 0) or 0),
+                "literal": str(item.get("literal", "") or ""),
+                "hex_value": str(item.get("hex_value", "") or ""),
+                "source": str(item.get("line_text", "") or ""),
+            }
+            for item in literals
+        ],
         "summary_path": str(summary_path),
     }
+
+
+def _ntstatus_facility_value(unsigned_value: int) -> int:
+    return (int(unsigned_value) >> 16) & 0xFFF
 
 
 def _signed_32bit_value(unsigned_value: int) -> int:
@@ -1954,6 +1987,10 @@ def _line_for_match(text: str, start: int, end: int) -> str:
     if line_end < 0:
         line_end = len(str(text or ""))
     return str(text or "")[line_start:line_end]
+
+
+def _line_number_for_offset(text: str, offset: int) -> int:
+    return str(text or "").count("\n", 0, max(0, offset)) + 1
 
 
 def _line_has_bitwise_literal_context(line: str, token: str) -> bool:

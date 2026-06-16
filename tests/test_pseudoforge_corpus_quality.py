@@ -370,6 +370,11 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 -1073532109,
                 ntstatus_stats["top_unprofiled_error_values"][0]["signed_value"],
             )
+            self.assertEqual(0x003, ntstatus_stats["top_unprofiled_error_values"][0]["facility"])
+            self.assertEqual("0x003", ntstatus_stats["top_unprofiled_error_values"][0]["facility_hex"])
+            self.assertEqual(0x3333, ntstatus_stats["top_unprofiled_error_values"][0]["code"])
+            self.assertEqual("0x3333", ntstatus_stats["top_unprofiled_error_values"][0]["code_hex"])
+            self.assertFalse(ntstatus_stats["top_unprofiled_error_values"][0]["customer"])
             self.assertEqual(1, ntstatus_stats["top_unprofiled_error_values"][0]["count"])
             self.assertEqual(1, ntstatus_stats["top_unprofiled_error_values"][0]["function_count"])
             self.assertEqual(
@@ -383,6 +388,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(
                 {"-1073532109": 1},
                 ntstatus_stats["top_unprofiled_error_functions"][0]["raw_literals"],
+            )
+            self.assertEqual(
+                "if ( v1 == -1073532109 )",
+                ntstatus_stats["top_unprofiled_error_functions"][0]["contexts"][0]["source"],
+            )
+            self.assertGreater(
+                ntstatus_stats["top_unprofiled_error_functions"][0]["contexts"][0]["line"],
+                0,
             )
             self.assertNotIn("inferred_offset_layout_hints", report["body_text_stats"])
             self.assertNotIn("inferred_offset_field_aliases", report["body_text_stats"])
@@ -529,6 +542,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Unprofiled NTSTATUS Error Values",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| Value | Signed | Facility | Code | Count | Functions |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
 
