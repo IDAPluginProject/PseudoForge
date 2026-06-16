@@ -688,6 +688,15 @@ def analyze_corpus(
             "unprofiled_error_context_kinds": _counter_to_dict(
                 Counter(dict(ntstatus_body_unprofiled_context_kinds.most_common(top)))
             ),
+            "unprofiled_error_review_hints": _counter_to_dict(
+                Counter(
+                    dict(
+                        _ntstatus_review_hint_counts(
+                            ntstatus_body_unprofiled_value_contexts
+                        ).most_common(top)
+                    )
+                )
+            ),
             "top_unprofiled_error_functions": top_ntstatus_body_unprofiled_functions[:top],
         },
         "text_stats": _counter_to_dict(text_totals),
@@ -1514,6 +1523,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Unprofiled NTSTATUS Error Review Hints",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(ntstatus_body_residue_stats.get("unprofiled_error_review_hints", {})),
+            "Hint",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Functions With Unprofiled NTSTATUS Errors",
             "",
             "| Function | EA | Literals | Hint | Kinds | Values | Lines | Context | Raw literals |",
@@ -2017,6 +2039,13 @@ def _ntstatus_review_hint(context_kinds: Counter[str]) -> str:
     if kinds & {"return", "assignment", "status_argument", "guard_dispatch_fallback"}:
         return "status_profile_candidate"
     return "manual_review"
+
+
+def _ntstatus_review_hint_counts(value_contexts: dict[str, Counter[str]]) -> Counter[str]:
+    result: Counter[str] = Counter()
+    for context_kinds in value_contexts.values():
+        result[_ntstatus_review_hint(context_kinds)] += 1
+    return result
 
 
 def _signed_32bit_value(unsigned_value: int) -> int:

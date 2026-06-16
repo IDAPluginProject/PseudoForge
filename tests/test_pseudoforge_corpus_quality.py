@@ -390,6 +390,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 ntstatus_stats["unprofiled_error_context_kinds"],
             )
             self.assertEqual(
+                {"comparison_sentinel_candidate": 1},
+                ntstatus_stats["unprofiled_error_review_hints"],
+            )
+            self.assertEqual(
                 "Sample",
                 ntstatus_stats["top_unprofiled_error_functions"][0]["name"],
             )
@@ -574,6 +578,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Unprofiled NTSTATUS Error Context Kinds",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Unprofiled NTSTATUS Error Review Hints",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
