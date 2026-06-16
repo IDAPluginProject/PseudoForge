@@ -394,7 +394,12 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             self.assertEqual(8, report["layout_rewrite_ready_stats"]["totals"]["offset_observations"])
             self.assertEqual(12, report["layout_rewrite_ready_stats"]["totals"]["access_observations"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["top_bases"]["readySession"])
+            self.assertEqual(1, report["layout_rewrite_ready_stats"]["source_provenance"]["none"])
             self.assertEqual("Sample", report["layout_rewrite_ready_stats"]["top_functions"][0]["name"])
+            self.assertEqual(
+                {"none": 1},
+                report["layout_rewrite_ready_stats"]["top_functions"][0]["source_provenance"],
+            )
             self.assertEqual(8, report["layout_rewrite_ready_stats"]["top_functions"][0]["max_offsets"])
             self.assertEqual(12, report["layout_rewrite_ready_stats"]["top_functions"][0]["max_access_count"])
             self.assertEqual(1, report["layout_rewrite_near_ready_stats"]["totals"]["near_ready_candidates"])
@@ -981,6 +986,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             )
             self.assertIn(
                 "Layout Rewrite Readiness",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Rewrite-Ready Source Provenance",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

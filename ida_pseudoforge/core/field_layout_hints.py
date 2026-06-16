@@ -94,7 +94,7 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                     if near_ready:
                         comments.append(near_ready)
                 else:
-                    ready = _field_rewrite_ready_comment(item)
+                    ready = _field_rewrite_ready_comment(text or "", item)
                     if ready:
                         comments.append(ready)
     return comments
@@ -300,9 +300,10 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
     base_kind = _layout_base_kind(layout.base)
     if base_kind == "named":
         return None
-    source = _stable_base_source_before_layout_access(text, layout.base)
-    if not source:
+    identity = _stable_base_source_identity(text, layout.base)
+    if not identity:
         return None
+    source = identity["source"]
     source_kind = _layout_source_kind(source)
     if source_kind not in {"argument", "named"}:
         return None
@@ -316,6 +317,7 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
             layout.base,
             source,
             source_kind,
+            identity["source_provenance"],
             layout.access_count,
             len(layout.offsets),
         ),
@@ -324,6 +326,8 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         "base_kind": base_kind,
         "source": source,
         "source_kind": source_kind,
+        "source_provenance": identity["source_provenance"],
+        "source_rhs_kind": identity["source_rhs_kind"],
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
     }
@@ -412,9 +416,10 @@ def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[s
     }
 
 
-def _field_rewrite_ready_comment(layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
-    if base_kind != "named":
+    identity = _trusted_stable_base_source_identity(text, layout.base)
+    if base_kind != "named" and not identity:
         return None
     if len(layout.offsets) < 8 or layout.access_count < 12:
         return None
@@ -422,11 +427,17 @@ def _field_rewrite_ready_comment(layout: _LayoutEvidence) -> dict[str, Any] | No
         0.8,
         0.66 + len(layout.offsets) * 0.02 + min(layout.access_count, 16) * 0.005,
     )
-    return {
+    source_text = ""
+    if identity:
+        source_text = " Source provenance %s from %s." % (
+            identity["source_provenance"],
+            identity["source"],
+        )
+    comment = {
         "kind": "inferred_offset_rewrite_ready",
         "text": (
-            "Offset field rewrite candidate for %s: %d typed dereference(s) across %d offset(s), no rewrite blockers found. Audit only; body rewrite was not applied."
-            % (layout.base, layout.access_count, len(layout.offsets))
+            "Offset field rewrite candidate for %s: %d typed dereference(s) across %d offset(s), no rewrite blockers found.%s Audit only; body rewrite was not applied."
+            % (layout.base, layout.access_count, len(layout.offsets), source_text)
         ),
         "confidence": round(confidence, 2),
         "base": layout.base,
@@ -434,6 +445,16 @@ def _field_rewrite_ready_comment(layout: _LayoutEvidence) -> dict[str, Any] | No
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
     }
+    if identity:
+        comment.update(
+            {
+                "source": identity["source"],
+                "source_kind": identity["source_kind"],
+                "source_provenance": identity["source_provenance"],
+                "source_rhs_kind": identity["source_rhs_kind"],
+            }
+        )
+    return comment
 
 
 def _field_rewrite_near_ready_comment(
@@ -478,7 +499,8 @@ def _field_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
     blockers: list[str] = []
     base_kind = _layout_base_kind(layout.base)
     if base_kind == "temp":
-        blockers.append("base is a decompiler temporary")
+        if not _trusted_stable_base_source_identity(text, layout.base):
+            blockers.append("base is a decompiler temporary")
     elif base_kind == "generic":
         blockers.append("base name is generic")
     blockers.extend(_field_rewrite_threshold_blockers(layout))
@@ -992,13 +1014,14 @@ def _field_stable_base_source_text(
     base: str,
     source: str,
     source_kind: str,
+    source_provenance: str,
     access_count: int,
     offset_count: int,
 ) -> str:
     return (
-        "Stable base source for %s: %s (%s source), %d typed dereference(s) across %d offset(s). "
-        "Review-only; temp/generic base keeps rewrite blocked until source identity is trusted."
-        % (base, source, source_kind, access_count, offset_count)
+        "Stable base source for %s: %s (%s source, %s), %d typed dereference(s) across %d offset(s). "
+        "Review-only source identity evidence for temp/generic base promotion."
+        % (base, source, source_kind, source_provenance, access_count, offset_count)
     )
 
 
@@ -1331,6 +1354,102 @@ def _stable_base_source_before_layout_access(text: str, base: str) -> str:
     if len(distinct_pre_access_rhs) != 1:
         return ""
     return pre_access_rhs[-1] if pre_access_rhs else ""
+
+
+def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    source = _stable_base_source_before_layout_access(text, base)
+    if not source:
+        return {}
+    source_kind = _layout_source_kind(source)
+    base_assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < first_access
+        and item.group("op") == "="
+        and _normalize_assignment_rhs(item.group("rhs")) == source
+    ]
+    source_assignments = [
+        item
+        for item in _base_direct_assignments(text, source)
+        if item.start() < first_access and item.group("op") == "="
+    ]
+    source_rhs_kinds = {
+        _layout_rhs_kind(_normalize_assignment_rhs(item.group("rhs")))
+        for item in source_assignments
+    }
+    source_rhs_kind = next(iter(source_rhs_kinds), "none")
+    if len(source_rhs_kinds) > 1:
+        source_rhs_kind = "mixed"
+    source_provenance = _stable_source_provenance_class(
+        source_kind,
+        len(base_assignments),
+        len(source_assignments),
+        source_rhs_kind,
+    )
+    return {
+        "source": source,
+        "source_kind": source_kind,
+        "source_provenance": source_provenance,
+        "source_rhs_kind": source_rhs_kind,
+        "base_alias_assignments": len(base_assignments),
+        "source_assignments": len(source_assignments),
+    }
+
+
+def _trusted_stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
+    identity = _stable_base_source_identity(text, base)
+    if not identity:
+        return {}
+    if identity.get("source_provenance") in {"direct_argument_alias", "named_call_result_alias"}:
+        return identity
+    return {}
+
+
+def _stable_source_provenance_class(
+    source_kind: str,
+    base_alias_assignment_count: int,
+    source_assignment_count: int,
+    source_rhs_kind: str,
+) -> str:
+    if base_alias_assignment_count <= 0:
+        return "missing_alias_assignment"
+    if source_kind == "argument":
+        return "direct_argument_alias"
+    if source_kind == "named":
+        if source_assignment_count == 1 and source_rhs_kind == "call_result":
+            return "named_call_result_alias"
+        if source_assignment_count == 1 and source_rhs_kind == "direct_identifier":
+            return "named_direct_alias"
+        if source_assignment_count == 1 and source_rhs_kind in {"address", "deref", "pointer_arithmetic"}:
+            return "named_derived_pointer_alias"
+        if source_assignment_count > 1:
+            return "named_multi_assignment_alias"
+        return "named_existing_alias"
+    if source_kind == "generic":
+        return "generic_source_alias"
+    if source_kind == "temporary":
+        return "temporary_source_alias"
+    return "unknown_source_alias"
+
+
+def _layout_rhs_kind(rhs: str) -> str:
+    value = _normalize_assignment_rhs(rhs)
+    if not value:
+        return "empty"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        return "direct_identifier"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\s*\([^;\n]*\)", value):
+        return "call_result"
+    if value.startswith("&"):
+        return "address"
+    if value.startswith("*"):
+        return "deref"
+    if re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\b\s*(?:\+|-)", value):
+        return "pointer_arithmetic"
+    return "expression"
 
 
 def _layout_source_kind(source: str) -> str:

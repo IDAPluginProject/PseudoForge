@@ -90,10 +90,11 @@ FIELD_STABLE_BASE_SOURCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_stable_base_source:\s+Stable base source for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
     r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s+"
-    r"\((?P<source_kind>[a-z_]+)\s+source\),\s+"
+    r"\((?P<source_kind>[a-z_]+)\s+source(?:,\s+(?P<source_provenance>[a-z_]+))?\),\s+"
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\)\.\s+"
-    r"Review-only; temp/generic base keeps rewrite blocked until source identity is trusted\.\s+"
+    r"(?:Review-only; temp/generic base keeps rewrite blocked until source identity is trusted|"
+    r"Review-only source identity evidence for temp/generic base promotion)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 FIELD_GENERIC_BASE_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_generic_base_evidence:")
@@ -133,6 +134,8 @@ FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\),\s+no rewrite blockers found\.\s+"
+    r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
+    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
     r"Audit only; body rewrite was not applied\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
@@ -279,6 +282,7 @@ def analyze_corpus(
     generic_base_trust_candidate_profiles: Counter[str] = Counter()
     generic_base_trust_candidate_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
+    rewrite_ready_source_provenance: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
     rewrite_near_ready_missing: Counter[str] = Counter()
@@ -428,6 +432,7 @@ def analyze_corpus(
                     rewrite_ready,
                     rewrite_ready_totals,
                     rewrite_ready_bases,
+                    rewrite_ready_source_provenance,
                 )
                 _update_layout_rewrite_near_ready_metrics(
                     rewrite_near_ready,
@@ -751,6 +756,7 @@ def analyze_corpus(
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
+            "source_provenance": _counter_to_dict(Counter(dict(rewrite_ready_source_provenance.most_common(top)))),
             "top_functions": top_rewrite_ready_functions[:top],
         },
         "layout_rewrite_near_ready_stats": {
@@ -1450,24 +1456,42 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Rewrite-Ready Source Provenance",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_ready_stats.get("source_provenance", {})),
+            "Provenance",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Highest Rewrite-Ready Functions",
             "",
-            "| Function | EA | Ready | Max offsets | Max accesses | Bases |",
-            "| --- | --- | ---: | ---: | ---: | --- |",
+            "| Function | EA | Ready | Max offsets | Max accesses | Source provenance | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- |",
         ]
     )
     for item in rewrite_ready_stats.get("top_functions", []) or []:
         if not isinstance(item, dict):
             continue
         bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        source_provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("source_provenance", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("ready_count", 0) or 0),
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
+                _markdown_table_cell(source_provenance),
                 bases,
             )
         )
@@ -3003,12 +3027,13 @@ def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
             match.group("source"),
             match.group("source_kind"),
         )
+        source_provenance = match.groupdict().get("source_provenance") or provenance["source_provenance"]
         candidates.append(
             {
                 "base": match.group("base"),
                 "source": match.group("source"),
                 "source_kind": match.group("source_kind"),
-                "source_provenance": provenance["source_provenance"],
+                "source_provenance": source_provenance,
                 "source_rhs_kind": provenance["source_rhs_kind"],
                 "base_alias_assignments": provenance["base_alias_assignments"],
                 "source_assignments": provenance["source_assignments"],
@@ -3159,6 +3184,8 @@ def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
         candidates.append(
             {
                 "base": match.group("base"),
+                "source": match.groupdict().get("source") or "",
+                "source_provenance": match.groupdict().get("source_provenance") or "none",
                 "access_count": _int_value(match.group("access_count"), 0),
                 "offset_count": _int_value(match.group("offset_count"), 0),
                 "confidence": _float_value(match.group("confidence"), 0.0),
@@ -3484,6 +3511,7 @@ def _update_layout_rewrite_ready_metrics(
     candidates: list[dict[str, Any]],
     totals: Counter[str],
     bases: Counter[str],
+    source_provenance: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -3493,6 +3521,7 @@ def _update_layout_rewrite_ready_metrics(
         totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
         totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
         bases[str(candidate.get("base", "") or "unknown")] += 1
+        source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
 
 
 def _update_layout_rewrite_near_ready_metrics(
@@ -4082,11 +4111,16 @@ def _rewrite_ready_function_summary(
     summary_path: Path,
     candidates: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    source_provenance = Counter(
+        str(item.get("source_provenance", "") or "none")
+        for item in candidates
+    )
     return {
         "ea": ea,
         "name": name,
         "ready_count": len(candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),

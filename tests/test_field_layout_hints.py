@@ -260,19 +260,76 @@ __int64 __fastcall StableTempSourceLayout(__int64 argument2)
         )
         sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
 
         self.assertEqual(1, len(sources))
         self.assertEqual("v4", sources[0]["base"])
         self.assertEqual("temp", sources[0]["base_kind"])
         self.assertEqual("argument2", sources[0]["source"])
         self.assertEqual("argument", sources[0]["source_kind"])
+        self.assertEqual("direct_argument_alias", sources[0]["source_provenance"])
+        self.assertEqual("none", sources[0]["source_rhs_kind"])
         self.assertEqual(8, sources[0]["offset_count"])
         self.assertEqual(12, sources[0]["access_count"])
-        self.assertIn("Stable base source for v4: argument2 (argument source)", sources[0]["text"])
-        self.assertIn("keeps rewrite blocked", sources[0]["text"])
-        self.assertEqual(1, len(blockers))
-        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
-        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+        self.assertIn(
+            "Stable base source for v4: argument2 (argument source, direct_argument_alias)",
+            sources[0]["text"],
+        )
+        self.assertIn("source identity evidence", sources[0]["text"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("v4", ready[0]["base"])
+        self.assertEqual("temp", ready[0]["base_kind"])
+        self.assertEqual("argument2", ready[0]["source"])
+        self.assertEqual("argument", ready[0]["source_kind"])
+        self.assertEqual("direct_argument_alias", ready[0]["source_provenance"])
+        self.assertEqual("none", ready[0]["source_rhs_kind"])
+        self.assertIn("Source provenance direct_argument_alias from argument2", ready[0]["text"])
+
+    def test_temp_base_with_named_call_result_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableNamedCallSourceLayout(__int64 source)
+{
+  __int64 list;
+  __int64 v16;
+
+  list = AllocateLayoutSource(source);
+  v16 = list;
+  return *(_QWORD *)(v16 + 16)
+       + *(_QWORD *)(v16 + 24)
+       + *(_QWORD *)(v16 + 32)
+       + *(_QWORD *)(v16 + 40)
+       + *(_QWORD *)(v16 + 48)
+       + *(_QWORD *)(v16 + 56)
+       + *(_QWORD *)(v16 + 64)
+       + *(_QWORD *)(v16 + 72)
+       + *(_QWORD *)(v16 + 16)
+       + *(_QWORD *)(v16 + 24)
+       + *(_QWORD *)(v16 + 32)
+       + *(_QWORD *)(v16 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v16", sources[0]["base"])
+        self.assertEqual("list", sources[0]["source"])
+        self.assertEqual("named", sources[0]["source_kind"])
+        self.assertEqual("named_call_result_alias", sources[0]["source_provenance"])
+        self.assertEqual("call_result", sources[0]["source_rhs_kind"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("v16", ready[0]["base"])
+        self.assertEqual("temp", ready[0]["base_kind"])
+        self.assertEqual("list", ready[0]["source"])
+        self.assertEqual("named", ready[0]["source_kind"])
+        self.assertEqual("named_call_result_alias", ready[0]["source_provenance"])
+        self.assertEqual("call_result", ready[0]["source_rhs_kind"])
+        self.assertIn("Source provenance named_call_result_alias from list", ready[0]["text"])
 
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
