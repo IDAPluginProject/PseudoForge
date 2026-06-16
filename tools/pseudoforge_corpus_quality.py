@@ -1489,8 +1489,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Functions With Unprofiled NTSTATUS Errors",
             "",
-            "| Function | EA | Literals | Values | Lines | Raw literals |",
-            "| --- | --- | ---: | --- | --- | --- |",
+            "| Function | EA | Literals | Values | Lines | Context | Raw literals |",
+            "| --- | --- | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in ntstatus_body_residue_stats.get("top_unprofiled_error_functions", []) or []:
@@ -1509,15 +1509,21 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for context in item.get("contexts", []) or []
             if isinstance(context, dict)
         )
+        context_text = "; ".join(
+            "L%s: %s" % (context.get("line", ""), context.get("source", ""))
+            for context in item.get("contexts", []) or []
+            if isinstance(context, dict)
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 int(item.get("literal_count", 0) or 0),
-                values,
-                lines_text,
-                raw_literals,
+                _markdown_table_cell(values),
+                _markdown_table_cell(lines_text),
+                _markdown_table_cell(context_text),
+                _markdown_table_cell(raw_literals),
             )
         )
     lines.extend(
@@ -2912,6 +2918,11 @@ def _markdown_counter_table(counter: dict[str, Any], label: str) -> list[str]:
     for key, value in counter.items():
         lines.append("| `%s` | %s |" % (key, value))
     return lines
+
+
+def _markdown_table_cell(value: Any) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    return text.replace("|", "\\|")
 
 
 def _coerce_dict(value: Any) -> dict[str, Any]:

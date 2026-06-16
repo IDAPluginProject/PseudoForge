@@ -548,6 +548,14 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 "| Value | Signed | Facility | Code | Count | Functions |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
+            self.assertIn(
+                "| Function | EA | Literals | Values | Lines | Context | Raw literals |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "if ( v1 == -1073532109 )",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
 
 
 def _write_quality_fixture(root: Path) -> None:
