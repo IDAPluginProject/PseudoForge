@@ -403,6 +403,15 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 1,
                 report["layout_base_stability_stats"]["profiles"]["initializer_and_reassignment_risk"],
             )
+            base_stability_queue = report["layout_base_stability_stats"]["review_queues"][
+                "initializer_and_reassignment_risk"
+            ]
+            self.assertEqual(1, base_stability_queue["comments"])
+            self.assertEqual(1, base_stability_queue["functions"])
+            self.assertEqual(2, base_stability_queue["max_distinct_pre_access_rhs"])
+            self.assertEqual(1, base_stability_queue["max_risky_post_access_assignments"])
+            self.assertEqual("Sample", base_stability_queue["items"][0]["name"])
+            self.assertEqual("v14", base_stability_queue["items"][0]["base"])
             self.assertEqual("Sample", report["layout_base_stability_stats"]["top_functions"][0]["name"])
             self.assertEqual(
                 2,
@@ -1220,6 +1229,26 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             )
             self.assertIn(
                 "Base Stability Review Profiles",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Base Stability Review Queues",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `initializer_and_reassignment_risk` | 1 | 1 | 2 | 1 | v14=1 | argument2=1, argument3=1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Base Stability Queue Top Items",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "#### `initializer_and_reassignment_risk`",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `Sample` | `0x140001000` | `v14` | 2 | 1 | argument2; argument3 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

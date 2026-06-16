@@ -49,6 +49,14 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "manual_review",
 )
 _LAYOUT_REWRITE_BLOCKER_MARKDOWN_ITEM_LIMIT = 5
+_BASE_STABILITY_REVIEW_PROFILE_ORDER = (
+    "initializer_dominance_review",
+    "initializer_and_reassignment_risk",
+    "post_access_reassignment_risk",
+    "single_initializer_trace",
+    "missing_initializer_trace",
+)
+_BASE_STABILITY_MARKDOWN_ITEM_LIMIT = 5
 _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "strong_profiled_status_literals",
     "weak_target_profiled_status_literals",
@@ -319,6 +327,7 @@ def analyze_corpus(
     base_stability_bases: Counter[str] = Counter()
     base_stability_rhs: Counter[str] = Counter()
     base_stability_profiles: Counter[str] = Counter()
+    base_stability_review_queues: dict[str, list[dict[str, Any]]] = {}
     base_stability_totals = Counter()
     generic_base_evidence_bases: Counter[str] = Counter()
     generic_base_evidence_profiles: Counter[str] = Counter()
@@ -501,6 +510,10 @@ def analyze_corpus(
                     base_stability_bases,
                     base_stability_rhs,
                     base_stability_profiles,
+                    base_stability_review_queues,
+                    name,
+                    ea,
+                    summary_path,
                 )
                 _update_layout_generic_base_evidence_metrics(
                     generic_base_evidence,
@@ -894,6 +907,10 @@ def analyze_corpus(
             "top_bases": _counter_to_dict(Counter(dict(base_stability_bases.most_common(top)))),
             "rhs_samples": _counter_to_dict(Counter(dict(base_stability_rhs.most_common(top)))),
             "profiles": _counter_to_dict(Counter(dict(base_stability_profiles.most_common(top)))),
+            "review_queues": _layout_base_stability_review_queues(
+                base_stability_review_queues,
+                top,
+            ),
             "top_functions": top_base_stability_functions[:top],
         },
         "layout_generic_base_evidence_stats": {
@@ -1259,6 +1276,84 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         ]
     )
     lines.extend(_markdown_counter_table(_coerce_dict(base_stability_stats.get("profiles", {})), "Profile"))
+    lines.extend(
+        [
+            "",
+            "### Base Stability Review Queues",
+            "",
+            "| Queue | Comments | Functions | Max distinct RHS | Max risky post-access | Top bases | RHS samples |",
+            "| --- | ---: | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    base_stability_review_queues = _coerce_dict(base_stability_stats.get("review_queues", {}))
+    for queue_name in _BASE_STABILITY_REVIEW_PROFILE_ORDER:
+        queue = _coerce_dict(base_stability_review_queues.get(queue_name, {}))
+        top_bases = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("top_bases", {})).items()
+        )
+        rhs_samples = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("rhs_samples", {})).items()
+        )
+        lines.append(
+            "| `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                queue_name,
+                int(queue.get("comments", 0) or 0),
+                int(queue.get("functions", 0) or 0),
+                int(queue.get("max_distinct_pre_access_rhs", 0) or 0),
+                int(queue.get("max_risky_post_access_assignments", 0) or 0),
+                _markdown_table_cell(top_bases),
+                _markdown_table_cell(rhs_samples),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "### Base Stability Queue Top Items",
+            "",
+        ]
+    )
+    rendered_stability_queue_items = False
+    for queue_name in _BASE_STABILITY_REVIEW_PROFILE_ORDER:
+        queue = _coerce_dict(base_stability_review_queues.get(queue_name, {}))
+        items = [
+            item
+            for item in queue.get("items", []) or []
+            if isinstance(item, dict)
+        ][:_BASE_STABILITY_MARKDOWN_ITEM_LIMIT]
+        if not items:
+            continue
+        rendered_stability_queue_items = True
+        lines.extend(
+            [
+                "",
+                "#### `%s`" % queue_name,
+                "",
+                "| Function | EA | Base | Distinct RHS | Risky post-access | RHS samples |",
+                "| --- | --- | --- | ---: | ---: | --- |",
+            ]
+        )
+        for item in items:
+            rhs_samples = "; ".join(
+                str(rhs)
+                for rhs in item.get("distinct_pre_access_rhs", []) or []
+                if str(rhs)
+            )
+            lines.append(
+                "| `%s` | `%s` | `%s` | %s | %s | %s |"
+                % (
+                    str(item.get("name", "")),
+                    str(item.get("ea", "")),
+                    str(item.get("base", "")),
+                    int(item.get("distinct_pre_access_rhs_count", 0) or 0),
+                    int(item.get("risky_post_access_assignment_count", 0) or 0),
+                    _markdown_table_cell(rhs_samples),
+                )
+            )
+    if not rendered_stability_queue_items:
+        lines.append("No data.")
     lines.extend(
         [
             "",
@@ -4172,6 +4267,10 @@ def _update_layout_base_stability_metrics(
     bases: Counter[str],
     rhs_samples: Counter[str],
     profiles: Counter[str],
+    review_queues: dict[str, list[dict[str, Any]]],
+    function_name: str,
+    ea: str,
+    summary_path: Path,
 ) -> None:
     if not candidates:
         return
@@ -4191,6 +4290,37 @@ def _update_layout_base_stability_metrics(
         bases[str(candidate.get("base", "") or "unknown")] += 1
         profile = _base_stability_review_profile(candidate)
         profiles[profile] += 1
+        review_queues.setdefault(profile, []).append(
+            {
+                "ea": ea,
+                "name": function_name,
+                "base": str(candidate.get("base", "") or "unknown"),
+                "profile": profile,
+                "pre_access_assignment_count": _int_value(
+                    candidate.get("pre_access_assignment_count"),
+                    0,
+                ),
+                "distinct_pre_access_rhs_count": _int_value(
+                    candidate.get("distinct_pre_access_rhs_count"),
+                    0,
+                ),
+                "distinct_pre_access_rhs": [
+                    str(rhs)
+                    for rhs in candidate.get("distinct_pre_access_rhs", []) or []
+                    if str(rhs)
+                ],
+                "post_access_assignment_count": _int_value(
+                    candidate.get("post_access_assignment_count"),
+                    0,
+                ),
+                "risky_post_access_assignment_count": _int_value(
+                    candidate.get("risky_post_access_assignment_count"),
+                    0,
+                ),
+                "confidence": _float_value(candidate.get("confidence"), 0.0),
+                "summary_path": str(summary_path),
+            }
+        )
         for rhs in candidate.get("distinct_pre_access_rhs", []) or []:
             rhs_samples[str(rhs)] += 1
 
@@ -4207,6 +4337,48 @@ def _base_stability_review_profile(candidate: dict[str, Any]) -> str:
     if distinct_rhs == 1:
         return "single_initializer_trace"
     return "missing_initializer_trace"
+
+
+def _layout_base_stability_review_queues(
+    queue_items: dict[str, list[dict[str, Any]]],
+    top: int,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for profile in _BASE_STABILITY_REVIEW_PROFILE_ORDER:
+        items = list(queue_items.get(profile, []))
+        items.sort(
+            key=lambda item: (
+                -_int_value(item.get("distinct_pre_access_rhs_count"), 0),
+                -_int_value(item.get("risky_post_access_assignment_count"), 0),
+                -_float_value(item.get("confidence"), 0.0),
+                str(item.get("name", "")),
+                str(item.get("base", "")),
+            )
+        )
+        bases = Counter(str(item.get("base", "") or "unknown") for item in items)
+        rhs_samples = Counter(
+            str(rhs)
+            for item in items
+            for rhs in item.get("distinct_pre_access_rhs", []) or []
+            if str(rhs)
+        )
+        function_names = {str(item.get("name", "") or "") for item in items}
+        result[profile] = {
+            "items": items[:top],
+            "comments": len(items),
+            "functions": len(function_names),
+            "max_distinct_pre_access_rhs": max(
+                (_int_value(item.get("distinct_pre_access_rhs_count"), 0) for item in items),
+                default=0,
+            ),
+            "max_risky_post_access_assignments": max(
+                (_int_value(item.get("risky_post_access_assignment_count"), 0) for item in items),
+                default=0,
+            ),
+            "top_bases": _counter_to_dict(Counter(dict(bases.most_common(top)))),
+            "rhs_samples": _counter_to_dict(Counter(dict(rhs_samples.most_common(top)))),
+        }
+    return result
 
 
 def _update_layout_generic_base_evidence_metrics(
