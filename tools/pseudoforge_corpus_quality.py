@@ -33,6 +33,8 @@ NUMERIC_LITERAL_RE = re.compile(
 )
 _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "base_identity_candidates",
+    "temp_base_identity_candidates",
+    "generic_base_identity_candidates",
     "base_stability_blockers",
     "type_evidence_blockers",
     "threshold_gap_candidates",
@@ -2819,8 +2821,12 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
     profiles: set[str] = set()
     for reason in reasons:
         lowered = str(reason or "").lower()
-        if "decompiler temporary" in lowered or "base name is generic" in lowered:
+        if "decompiler temporary" in lowered:
             profiles.add("base_identity_candidates")
+            profiles.add("temp_base_identity_candidates")
+        if "base name is generic" in lowered:
+            profiles.add("base_identity_candidates")
+            profiles.add("generic_base_identity_candidates")
         if "multiple initializers" in lowered or "reassigned" in lowered:
             profiles.add("base_stability_blockers")
         if "mix narrow" in lowered or "mix wide" in lowered or "not naturally aligned" in lowered:

@@ -7,7 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.pseudoforge_corpus_quality import analyze_corpus, main
+from tools.pseudoforge_corpus_quality import (
+    _layout_rewrite_blocker_review_profiles,
+    analyze_corpus,
+    main,
+)
 
 
 CLEANED = r"""
@@ -54,6 +58,22 @@ LABEL_1:
 
 
 class PseudoForgeCorpusQualityTests(unittest.TestCase):
+    def test_layout_rewrite_blocker_profiles_split_base_identity(self) -> None:
+        self.assertEqual(
+            ["base_identity_candidates", "temp_base_identity_candidates"],
+            _layout_rewrite_blocker_review_profiles(["base is a decompiler temporary"]),
+        )
+        self.assertEqual(
+            ["base_identity_candidates", "generic_base_identity_candidates"],
+            _layout_rewrite_blocker_review_profiles(["base name is generic"]),
+        )
+        self.assertEqual(
+            ["threshold_gap_candidates"],
+            _layout_rewrite_blocker_review_profiles(
+                ["rewrite offset threshold requires at least 8 offsets"]
+            ),
+        )
+
     def test_analyze_corpus_counts_warning_rename_rule_and_text_residue_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
