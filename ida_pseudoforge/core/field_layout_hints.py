@@ -387,14 +387,17 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
     if not identity:
         return None
     source = identity["source"]
-    source_kind = _layout_source_kind(source)
-    if source_kind not in {"argument", "named"}:
+    source_kind = str(identity.get("source_kind", "") or _layout_source_kind(source))
+    if (
+        source_kind not in {"argument", "named"}
+        and identity.get("source_provenance") != "parameter_field_pointer_alias"
+    ):
         return None
     confidence = min(
         _field_stable_base_source_confidence_cap_for_base_kind(base_kind, source_kind),
         0.58 + len(layout.offsets) * 0.02 + min(layout.access_count, 12) * 0.005,
     )
-    return {
+    comment = {
         "kind": "inferred_offset_stable_base_source",
         "text": _field_stable_base_source_text(
             layout.base,
@@ -414,6 +417,11 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
     }
+    if identity.get("source_offset"):
+        comment["source_offset"] = identity["source_offset"]
+    if identity.get("source_type"):
+        comment["source_type"] = identity["source_type"]
+    return comment
 
 
 def _field_generic_base_evidence_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
@@ -1803,7 +1811,6 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     source = _stable_base_source_before_layout_access(text, base)
     if not source:
         return {}
-    source_kind = _layout_source_kind(source)
     base_assignments = [
         item
         for item in _base_direct_assignments(text, base)
@@ -1811,6 +1818,15 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
         and item.group("op") == "="
         and _normalize_assignment_rhs(item.group("rhs")) == source
     ]
+    field_pointer_identity = _field_pointer_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if field_pointer_identity:
+        return field_pointer_identity
+    source_kind = _layout_source_kind(source)
     source_assignments = [
         item
         for item in _base_direct_assignments(text, source)
@@ -1839,11 +1855,74 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     }
 
 
+def _field_pointer_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count <= 0:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    match = _parse_field_pointer_source(source)
+    if not match:
+        return {}
+    parent = str(match["parent"])
+    if not _base_is_function_parameter(text, parent):
+        return {}
+    type_name = str(match["type"])
+    if _field_type_storage_size(type_name) != 8:
+        return {}
+    source_kind = _layout_source_kind(parent)
+    if source_kind == "temporary":
+        source_kind = "argument"
+    return {
+        "source": parent,
+        "source_kind": source_kind,
+        "source_provenance": "parameter_field_pointer_alias",
+        "source_rhs_kind": "field_pointer",
+        "source_offset": "0x%X" % int(match["offset"]),
+        "source_type": type_name,
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": 0,
+    }
+
+
+def _parse_field_pointer_source(source: str) -> dict[str, Any]:
+    match = re.fullmatch(
+        r"\*\s*\(\s*(?P<type>[^()]+?)\s*\*\s*\)\s*"
+        r"\(\s*(?P<parent>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+        r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)",
+        str(source or ""),
+    )
+    if not match:
+        return {}
+    try:
+        offset = int(
+            match.group("offset"),
+            16 if match.group("offset").lower().startswith("0x") else 10,
+        )
+    except ValueError:
+        return {}
+    if offset <= 0:
+        return {}
+    return {
+        "parent": match.group("parent"),
+        "offset": offset,
+        "type": _normalize_type_name(match.group("type")),
+    }
+
+
 def _trusted_stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     identity = _stable_base_source_identity(text, base)
     if not identity:
         return {}
-    if identity.get("source_provenance") in {"direct_argument_alias", "named_call_result_alias"}:
+    if identity.get("source_provenance") in {
+        "direct_argument_alias",
+        "named_call_result_alias",
+        "parameter_field_pointer_alias",
+    }:
         return identity
     return {}
 
