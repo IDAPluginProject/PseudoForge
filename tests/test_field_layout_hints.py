@@ -541,6 +541,87 @@ __int64 __fastcall MixedGenericContext(__int64 context)
         self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_generic_parameter_type_blocker_reports_partial_rewrite_opportunity(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PartialGenericContext(__int64 context)
+{
+  return *(_DWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x20)
+       + *(_QWORD *)(context + 0x28)
+       + *(_QWORD *)(context + 0x30)
+       + *(_QWORD *)(context + 0x38)
+       + *(_QWORD *)(context + 0x40)
+       + *(_QWORD *)(context + 0x48)
+       + *(_QWORD *)(context + 0x50)
+       + *(_QWORD *)(context + 0x58)
+       + *(_QWORD *)(context + 0x60)
+       + *(_QWORD *)(context + 0x20)
+       + *(_QWORD *)(context + 0x28)
+       + *(_QWORD *)(context + 0x30)
+       + *(_QWORD *)(context + 0x38)
+       + *(_QWORD *)(context + 0x40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        partial = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_partial_opportunity"
+        ]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base name is generic", blockers[0]["blockers"])
+        self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_preview" for item in comments))
+        self.assertEqual(1, len(partial))
+        self.assertEqual("context", partial[0]["base"])
+        self.assertEqual("generic", partial[0]["base_kind"])
+        self.assertEqual("generic_parameter_trust", partial[0]["source_provenance"])
+        self.assertEqual("context", partial[0]["source"])
+        self.assertEqual(9, partial[0]["safe_offset_count"])
+        self.assertEqual(14, partial[0]["safe_access_count"])
+        self.assertEqual(1, partial[0]["excluded_offset_count"])
+        self.assertEqual(2, partial[0]["excluded_access_count"])
+        self.assertEqual([0x10], partial[0]["excluded_offsets"])
+        self.assertIn("Source provenance generic_parameter_trust from context", partial[0]["text"])
+
+    def test_untrusted_generic_expression_source_does_not_report_partial_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall UntrustedGenericContext(__int64 a1)
+{
+  __int64 context;
+
+  context = *(_QWORD *)(a1 + 8);
+  return *(_DWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x20)
+       + *(_QWORD *)(context + 0x28)
+       + *(_QWORD *)(context + 0x30)
+       + *(_QWORD *)(context + 0x38)
+       + *(_QWORD *)(context + 0x40)
+       + *(_QWORD *)(context + 0x48)
+       + *(_QWORD *)(context + 0x50)
+       + *(_QWORD *)(context + 0x58)
+       + *(_QWORD *)(context + 0x60)
+       + *(_QWORD *)(context + 0x20)
+       + *(_QWORD *)(context + 0x28)
+       + *(_QWORD *)(context + 0x30)
+       + *(_QWORD *)(context + 0x38)
+       + *(_QWORD *)(context + 0x40);
+}
+"""
+        )
+
+        self.assertTrue(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_rewrite_partial_opportunity" for item in comments)
+        )
+
     def test_named_layout_without_negative_evidence_has_no_rewrite_blocker(self) -> None:
         comments = field_layout_comments(
             """

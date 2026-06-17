@@ -689,11 +689,20 @@ def _field_rewrite_partial_opportunity_comment(
         for item in blocker.get("blockers", []) or []
         if str(item)
     ]
-    if not blockers or not any(item in _OFFSET_LOCAL_TYPE_BLOCKERS for item in blockers):
+    identity_blockers = {
+        "base is a decompiler temporary",
+        "base name is generic",
+    }
+    non_identity_blockers = [
+        item
+        for item in blockers
+        if item not in identity_blockers
+    ]
+    if not non_identity_blockers or not any(item in _OFFSET_LOCAL_TYPE_BLOCKERS for item in non_identity_blockers):
         return None
-    if any(item not in _OFFSET_LOCAL_TYPE_BLOCKERS for item in blockers):
+    if any(item not in _OFFSET_LOCAL_TYPE_BLOCKERS for item in non_identity_blockers):
         return None
-    identity = _trusted_layout_rewrite_identity(text, layout)
+    identity = _trusted_partial_layout_rewrite_identity(text, layout)
     if _layout_base_kind(layout.base) != "named" and not identity:
         return None
     partition = _partial_rewrite_offset_partition(layout)
@@ -813,14 +822,30 @@ def _non_identity_layout_rewrite_blockers(text: str, layout: _LayoutEvidence) ->
 
 
 def _trusted_generic_parameter_layout_identity(text: str, layout: _LayoutEvidence) -> dict[str, str] | None:
+    return _trusted_generic_parameter_identity(
+        text,
+        layout,
+        allow_offset_local_type_blockers=False,
+    )
+
+
+def _trusted_generic_parameter_identity(
+    text: str,
+    layout: _LayoutEvidence,
+    allow_offset_local_type_blockers: bool = False,
+) -> dict[str, str] | None:
     if _layout_base_kind(layout.base) != "generic":
         return None
     if len(layout.offsets) < 10 or layout.access_count < 16:
         return None
     if not _base_is_function_parameter(text, layout.base):
         return None
-    if _non_identity_layout_rewrite_blockers(text, layout):
-        return None
+    blockers = _non_identity_layout_rewrite_blockers(text, layout)
+    if blockers:
+        if not allow_offset_local_type_blockers:
+            return None
+        if any(item not in _OFFSET_LOCAL_TYPE_BLOCKERS for item in blockers):
+            return None
     return {
         "source": layout.base,
         "source_kind": "generic",
@@ -834,6 +859,20 @@ def _trusted_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict
     if identity:
         return identity
     identity = _trusted_generic_parameter_layout_identity(text, layout)
+    if identity:
+        return identity
+    return {}
+
+
+def _trusted_partial_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict[str, str]:
+    identity = _trusted_stable_base_source_identity(text, layout.base)
+    if identity:
+        return identity
+    identity = _trusted_generic_parameter_identity(
+        text,
+        layout,
+        allow_offset_local_type_blockers=True,
+    )
     if identity:
         return identity
     return {}
