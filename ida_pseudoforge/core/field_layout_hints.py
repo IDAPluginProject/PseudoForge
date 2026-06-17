@@ -45,6 +45,7 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "direct_call_result_alias",
     "named_call_result_alias",
     "parameter_field_pointer_alias",
+    "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
     "parameter_subobject_pointer_alias",
 }
@@ -1314,11 +1315,11 @@ def _is_generic_named_base(name: str) -> bool:
 
 
 def _is_generic_argument_base(name: str) -> bool:
-    return re.fullmatch(r"argument\d+", str(name or "")) is not None
+    return re.fullmatch(r"argument\d+", str(name or "").lower()) is not None
 
 
 def _is_bugcheck_parameter_base(name: str) -> bool:
-    return re.fullmatch(r"bugcheckparameter\d+", str(name or "")) is not None
+    return re.fullmatch(r"bugcheckparameter\d+", str(name or "").lower()) is not None
 
 
 def _layout_base_kind(name: str) -> str:
@@ -1861,6 +1862,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if field_pointer_identity:
         return field_pointer_identity
+    parameter_direct_identity = _parameter_direct_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if parameter_direct_identity:
+        return parameter_direct_identity
     parameter_derived_identity = _parameter_derived_source_identity(
         text,
         base,
@@ -1961,6 +1970,44 @@ def _parse_field_pointer_source(source: str) -> dict[str, Any]:
         "parent": match.group("parent"),
         "offset": offset,
         "type": _normalize_type_name(match.group("type")),
+    }
+
+
+def _parameter_direct_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count <= 0:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(source or "")):
+        return {}
+    if _is_generic_argument_base(source):
+        return {}
+    if not _base_is_function_parameter(text, source):
+        return {}
+    if _is_bugcheck_parameter_base(source):
+        return {}
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    source_assignments = [
+        item
+        for item in _base_direct_assignments(text, source)
+        if item.start() < first_access
+    ]
+    if source_assignments:
+        return {}
+    return {
+        "source": source,
+        "source_kind": "parameter",
+        "source_provenance": "parameter_direct_alias",
+        "source_rhs_kind": "direct_parameter",
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": 0,
     }
 
 
