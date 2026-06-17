@@ -283,43 +283,69 @@ def _normalize_layout_rewrite_advertisements(
     normalized_text = str(text or "")
     normalizations = []
     for plan in plans:
-        if _plan_kind(plan) != "full":
-            continue
+        plan_kind = _plan_kind(plan)
         base = str(plan.get("base", "") or "")
         result = rewrite_results.get(base, {})
-        actual_accesses = int(result.get("rewritten_accesses", 0) or 0)
-        actual_fields = int(result.get("rewritten_fields", 0) or 0)
+        if plan_kind == "full":
+            actual_accesses = int(result.get("rewritten_accesses", 0) or 0)
+            actual_fields = int(result.get("rewritten_fields", 0) or 0)
+        else:
+            actual_accesses, actual_fields = _plan_actual_rewrite_counts(plan, result)
         expected_accesses = int(plan.get("advertised_access_count", 0) or 0)
         expected_fields = int(plan.get("advertised_field_count", 0) or 0)
         if actual_accesses == expected_accesses and actual_fields == expected_fields:
             continue
         if actual_accesses < _REWRITE_ACCESS_THRESHOLD or actual_fields < _REWRITE_FIELD_THRESHOLD:
             continue
-        field_aliases = [
-            str(alias)
-            for alias in result.get("field_aliases", []) or []
-            if str(alias)
-        ]
-        normalized_text = _rewrite_preview_advertisement_comment(
+        if plan_kind == "full":
+            field_aliases = [
+                str(alias)
+                for alias in result.get("field_aliases", []) or []
+                if str(alias)
+            ]
+            normalized_text = _rewrite_preview_advertisement_comment(
+                normalized_text,
+                base,
+                actual_accesses,
+                actual_fields,
+                field_aliases,
+            )
+            normalized_text = _rewrite_ready_advertisement_comment(
+                normalized_text,
+                base,
+                actual_accesses,
+                actual_fields,
+            )
+            normalizations.append(
+                {
+                    "base": base,
+                    "original_accesses": expected_accesses,
+                    "original_fields": expected_fields,
+                    "normalized_accesses": actual_accesses,
+                    "normalized_fields": actual_fields,
+                }
+            )
+            continue
+        actual_offsets = _plan_actual_allowed_offsets(plan, result)
+        if len(actual_offsets) < _REWRITE_FIELD_THRESHOLD:
+            continue
+        normalized_text = _rewrite_partial_advertisement_comment(
             normalized_text,
             base,
             actual_accesses,
-            actual_fields,
-            field_aliases,
-        )
-        normalized_text = _rewrite_ready_advertisement_comment(
-            normalized_text,
-            base,
-            actual_accesses,
-            actual_fields,
+            len(actual_offsets),
+            actual_offsets,
         )
         normalizations.append(
             {
                 "base": base,
+                "plan_kind": "partial",
                 "original_accesses": expected_accesses,
                 "original_fields": expected_fields,
                 "normalized_accesses": actual_accesses,
-                "normalized_fields": actual_fields,
+                "normalized_fields": len(actual_offsets),
+                "original_allowed_offsets": sorted(_plan_allowed_offsets(plan)),
+                "normalized_allowed_offsets": actual_offsets,
             }
         )
     if not normalizations:
@@ -384,6 +410,49 @@ def _rewrite_ready_advertisement_comment(
         )
 
     return _REWRITE_READY_RE.sub(replace, text or "")
+
+
+def _rewrite_partial_advertisement_comment(
+    text: str,
+    base: str,
+    access_count: int,
+    field_count: int,
+    allowed_offsets: list[int],
+) -> str:
+    field_aliases = ["field_%X" % offset for offset in allowed_offsets]
+    field_text = ", ".join(field_aliases[:8])
+    if len(field_aliases) > 8:
+        field_text += ", ..."
+    offset_text = _format_offset_list(allowed_offsets)
+
+    def replace(match: re.Match[str]) -> str:
+        if match.group("base") != base:
+            return match.group(0)
+        source_text = _source_provenance_text(match)
+        return (
+            "- inferred_offset_rewrite_partial_opportunity: "
+            "Offset field partial rewrite opportunity for %s: "
+            "%d safe dereference(s) across %d safe offset(s), "
+            "%s excluded dereference(s) across %s excluded offset(s), safe fields %s. "
+            "Safe offsets %s; excluded offsets %s. Excluded reasons %s.%s "
+            "%s confidence=%s"
+            % (
+                base,
+                access_count,
+                field_count,
+                match.group("excluded_access_count"),
+                match.group("excluded_offset_count"),
+                field_text,
+                offset_text,
+                match.group("excluded_offsets"),
+                match.group("reasons"),
+                source_text,
+                _PARTIAL_REVIEW_ONLY_COMMENT,
+                match.group("confidence"),
+            )
+        )
+
+    return _REWRITE_PARTIAL_OPPORTUNITY_RE.sub(replace, text or "")
 
 
 def _source_provenance_text(match: re.Match[str]) -> str:
@@ -472,6 +541,19 @@ def _plan_actual_rewrite_counts(plan: dict[str, Any], result: dict[str, Any]) ->
     return actual_accesses, actual_fields
 
 
+def _plan_actual_allowed_offsets(plan: dict[str, Any], result: dict[str, Any]) -> list[int]:
+    allowed_offsets = _plan_allowed_offsets(plan)
+    actual_offsets = []
+    for offset_key, count in (result.get("offset_accesses", {}) or {}).items():
+        offset = _parse_offset(str(offset_key))
+        if offset is None or offset not in allowed_offsets:
+            continue
+        if int(count or 0) <= 0:
+            continue
+        actual_offsets.append(offset)
+    return sorted(set(actual_offsets))
+
+
 def _raw_offset_deref_for_plan_exists(text: str, plan: dict[str, Any]) -> bool:
     base = str(plan.get("base", "") or "")
     if not base:
@@ -511,6 +593,10 @@ def _plan_allowed_offsets(plan: dict[str, Any]) -> set[int]:
         if parsed > 0:
             offsets.add(parsed)
     return offsets
+
+
+def _format_offset_list(offsets: list[int]) -> str:
+    return ", ".join("+0x%X" % offset for offset in sorted(set(offsets)))
 
 
 def _canonical_layout_rewrite_text(rewritten_text: str) -> str:

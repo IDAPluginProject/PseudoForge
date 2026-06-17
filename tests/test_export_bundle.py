@@ -501,6 +501,82 @@ __int64 __fastcall LayoutPreviewNormalize(__int64 context)
             self.assertIn("12 dereference(s) can map to 9 field alias(es)", cleaned_output)
             self.assertNotIn("field_30,", cleaned_output)
 
+    def test_partial_layout_rewrite_normalizes_post_render_advertised_counts(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for context: 13 safe dereference(s) across 10 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48, .... Safe offsets +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40, +0x48, +0x50, +0x58; excluded offsets +0x206. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.77
+*/
+__int64 __fastcall LayoutPartialPreviewNormalize(__int64 context)
+{
+  return *(_QWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x18)
+       + *(_QWORD *)(context + 0x20)
+       + *(_QWORD *)(context + 0x28)
+       + *(_QWORD *)(context + 0x38)
+       + *(_QWORD *)(context + 0x40)
+       + *(_QWORD *)(context + 0x48)
+       + *(_QWORD *)(context + 0x50)
+       + *(_QWORD *)(context + 0x58)
+       + *(_QWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x18)
+       + *(_QWORD *)(context + 0x20)
+       + *(_BYTE *)(context + 0x206)
+       + *(_WORD *)(context + 0x206);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPartialPreviewNormalize(__int64 context)
+{
+  return context;
+}
+""",
+                name="LayoutPartialPreviewNormalize",
+                ea=0x140002450,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual("passed", preview_metadata["validation"]["status"])
+            self.assertEqual("applied_partial", preview_metadata["canonical_rewrite_status"])
+            self.assertEqual(1, len(preview_metadata["advertisement_normalizations"]))
+            self.assertEqual(
+                {
+                    "base": "context",
+                    "plan_kind": "partial",
+                    "original_accesses": 13,
+                    "original_fields": 10,
+                    "normalized_accesses": 12,
+                    "normalized_fields": 9,
+                    "original_allowed_offsets": [0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50, 0x58],
+                    "normalized_allowed_offsets": [0x10, 0x18, 0x20, 0x28, 0x38, 0x40, 0x48, 0x50, 0x58],
+                },
+                preview_metadata["advertisement_normalizations"][0],
+            )
+            self.assertEqual(12, preview_metadata["preview_plans"][0]["advertised_access_count"])
+            self.assertEqual(9, preview_metadata["preview_plans"][0]["advertised_field_count"])
+            self.assertEqual(
+                [0x10, 0x18, 0x20, 0x28, 0x38, 0x40, 0x48, 0x50, 0x58],
+                preview_metadata["preview_plans"][0]["allowed_offsets"],
+            )
+            self.assertIn("12 safe dereference(s) across 9 safe offset(s)", cleaned_output)
+            self.assertIn("Safe offsets +0x10, +0x18, +0x20, +0x28, +0x38", cleaned_output)
+            self.assertNotIn("context->field_30", cleaned_output)
+            self.assertIn("*(_BYTE *)(context + 0x206)", cleaned_output)
+
     def test_legacy_render_export_import_remains_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")
