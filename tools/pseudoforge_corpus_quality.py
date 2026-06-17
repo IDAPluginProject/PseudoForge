@@ -98,7 +98,7 @@ FIELD_STABLE_BASE_SOURCE_RE = re.compile(r"-\s+inferred_offset_stable_base_sourc
 FIELD_STABLE_BASE_SOURCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_stable_base_source:\s+Stable base source for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
-    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s+"
+    r"(?P<source>.*?)\s+"
     r"\((?P<source_kind>[a-z_]+)\s+source(?:,\s+(?P<source_provenance>[a-z_]+))?\),\s+"
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\)\.\s+"
@@ -155,7 +155,7 @@ FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\),\s+no rewrite blockers found\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
-    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
+    r"(?P<source>.*?)\.\s+)?"
     r"(?:Audit only; body rewrite was not applied|Validated layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
@@ -167,7 +167,7 @@ FIELD_REWRITE_PREVIEW_DETAIL_RE = re.compile(
     r"(?P<field_count>\d+)\s+field alias\(es\)\s+"
     r"(?P<fields>.*?)\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
-    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
+    r"(?P<source>.*?)\.\s+)?"
     r"(?:Preview artifact only; body rewrite was not applied|Validated layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
@@ -195,8 +195,9 @@ FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE = re.compile(
     r"(?P<excluded_offsets>.*?)\.\s+)?"
     r"Excluded reasons\s+(?P<reasons>.*?)\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
-    r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\.\s+)?"
-    r"Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented\.\s+"
+    r"(?P<source>.*?)\.\s+)?"
+    r"(?:Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented|"
+    r"Validated partial layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 FIELD_REWRITE_BLOCKER_RE = re.compile(r"-\s+inferred_offset_rewrite_blockers:")

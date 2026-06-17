@@ -237,6 +237,80 @@ __int64 __fastcall Partial(__int64 sessionSpace)
                 report["text_stats"]["inferred_offset_rewrite_partial_opportunities"],
             )
 
+    def test_analyze_corpus_counts_expression_source_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140002500_ExpressionSource"
+            function_dir.mkdir(parents=True)
+            cleaned_path = function_dir / "ExpressionSource.cleaned.cpp"
+            summary_path = function_dir / "ExpressionSource.ida-batch-summary.json"
+            cleaned_path.write_text(
+                r"""
+/*
+    Kernel insights:
+      - inferred_offset_stable_base_source: Stable base source for v8: MakeObject(v7) (call_result source, direct_call_result_alias), 14 typed dereference(s) across 9 offset(s). Review-only source identity evidence for temp/generic base promotion. confidence=0.68
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v8: 14 typed dereference(s) across 9 offset(s), no rewrite blockers found. Source provenance direct_call_result_alias from MakeObject(v7). Validated layout rewrite applied to canonical cleaned output. confidence=0.80
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v8: 14 dereference(s) can map to 9 field alias(es) field_8, field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Source provenance direct_call_result_alias from MakeObject(v7). Validated layout rewrite applied to canonical cleaned output. confidence=0.78
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for v8: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_8, field_10, field_18, field_20, field_28, field_30, field_38, field_40. Safe offsets +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; excluded offsets +0x48. Excluded reasons one or more typed offsets are not naturally aligned. Source provenance direct_call_result_alias from MakeObject(v7). Validated partial layout rewrite applied to canonical cleaned output. confidence=0.77
+*/
+__int64 __fastcall ExpressionSource(__int64 context)
+{
+  return *(_QWORD *)(context + 0x10);
+}
+""",
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "ExpressionSource",
+                        "function_ea": "0x140002500",
+                        "artifacts": {
+                            "cleaned_pseudocode": "ExpressionSource.cleaned.cpp",
+                            "summary": "ExpressionSource.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+
+            self.assertEqual(
+                1,
+                report["layout_stable_base_source_stats"]["source_provenance"][
+                    "direct_call_result_alias"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_ready_stats"]["source_provenance"][
+                    "direct_call_result_alias"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_preview_stats"]["source_provenance"][
+                    "direct_call_result_alias"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_partial_opportunity_stats"]["source_provenance"][
+                    "direct_call_result_alias"
+                ],
+            )
+            self.assertEqual(
+                {"direct_call_result_alias": 1},
+                report["layout_rewrite_ready_stats"]["top_functions"][0]["source_provenance"],
+            )
+            self.assertEqual(
+                {"direct_call_result_alias": 1},
+                report["layout_rewrite_preview_stats"]["top_functions"][0]["source_provenance"],
+            )
+
     def test_analyze_corpus_splits_canonical_rewrite_plan_kinds(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

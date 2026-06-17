@@ -423,6 +423,182 @@ __int64 __fastcall UntrustedFieldPointerSourceLayout(__int64 context)
         self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_temp_base_with_direct_call_result_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableDirectCallResultSourceLayout(__int64 context)
+{
+  __int64 v4;
+
+  v4 = GetStableContext(context);
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("GetStableContext(context)", sources[0]["source"])
+        self.assertEqual("call_result", sources[0]["source_kind"])
+        self.assertEqual("direct_call_result_alias", sources[0]["source_provenance"])
+        self.assertEqual("call_result", sources[0]["source_rhs_kind"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("direct_call_result_alias", ready[0]["source_provenance"])
+
+    def test_temp_base_with_indirect_dispatch_call_result_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall IndirectDispatchCallResultSourceLayout(__int64 context)
+{
+  __int64 v4;
+
+  v4 = guard_dispatch_icall_no_overrides(context);
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual([], sources)
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+
+    def test_temp_base_with_parameter_subobject_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableParameterSubobjectSourceLayout(__int64 context)
+{
+  __int64 v4;
+
+  v4 = context + 680;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("context", sources[0]["source"])
+        self.assertEqual("generic", sources[0]["source_kind"])
+        self.assertEqual("parameter_subobject_pointer_alias", sources[0]["source_provenance"])
+        self.assertEqual("parameter_pointer_arithmetic", sources[0]["source_rhs_kind"])
+        self.assertEqual("0x2A8", sources[0]["source_offset"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("parameter_subobject_pointer_alias", ready[0]["source_provenance"])
+
+    def test_temp_base_with_parameter_indexed_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableParameterIndexedSourceLayout(_QWORD *argument0)
+{
+  __int64 v4;
+
+  v4 = argument0[2200];
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("argument0", sources[0]["source"])
+        self.assertEqual("argument", sources[0]["source_kind"])
+        self.assertEqual("parameter_indexed_pointer_alias", sources[0]["source_provenance"])
+        self.assertEqual("parameter_indexed_pointer", sources[0]["source_rhs_kind"])
+        self.assertEqual(2200, sources[0]["source_index"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("parameter_indexed_pointer_alias", ready[0]["source_provenance"])
+
+    def test_temp_base_with_local_subobject_source_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall UntrustedSubobjectSourceLayout(__int64 context)
+{
+  __int64 holder;
+  __int64 v4;
+
+  holder = context + 680;
+  v4 = holder + 24;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual([], sources)
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_generic_argument_and_bugcheck_parameter_bases_are_skipped(self) -> None:
         comments = field_layout_comments(
             """

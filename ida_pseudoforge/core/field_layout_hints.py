@@ -40,6 +40,14 @@ _REWRITE_THRESHOLD_BLOCKERS = {
     _REWRITE_OFFSET_THRESHOLD_BLOCKER,
     _REWRITE_ACCESS_THRESHOLD_BLOCKER,
 }
+_TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
+    "direct_argument_alias",
+    "direct_call_result_alias",
+    "named_call_result_alias",
+    "parameter_field_pointer_alias",
+    "parameter_indexed_pointer_alias",
+    "parameter_subobject_pointer_alias",
+}
 _NARROW_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix narrow subfield access widths"
 _WIDE_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix wide overlay access widths"
 _IRREGULAR_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix irregular field access widths"
@@ -390,7 +398,7 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
     source_kind = str(identity.get("source_kind", "") or _layout_source_kind(source))
     if (
         source_kind not in {"argument", "named"}
-        and identity.get("source_provenance") != "parameter_field_pointer_alias"
+        and identity.get("source_provenance") not in _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES
     ):
         return None
     confidence = min(
@@ -421,6 +429,8 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         comment["source_offset"] = identity["source_offset"]
     if identity.get("source_type"):
         comment["source_type"] = identity["source_type"]
+    if identity.get("source_index"):
+        comment["source_index"] = identity["source_index"]
     return comment
 
 
@@ -1826,6 +1836,21 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if field_pointer_identity:
         return field_pointer_identity
+    parameter_derived_identity = _parameter_derived_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if parameter_derived_identity:
+        return parameter_derived_identity
+    direct_call_result_identity = _direct_call_result_source_identity(
+        base,
+        source,
+        len(base_assignments),
+    )
+    if direct_call_result_identity:
+        return direct_call_result_identity
     source_kind = _layout_source_kind(source)
     source_assignments = [
         item
@@ -1914,15 +1939,147 @@ def _parse_field_pointer_source(source: str) -> dict[str, Any]:
     }
 
 
+def _parameter_derived_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count <= 0:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    indexed = _parse_parameter_indexed_source(source)
+    if indexed and _base_is_function_parameter(text, str(indexed["parent"])):
+        return _parameter_source_identity(
+            indexed,
+            "parameter_indexed_pointer_alias",
+            "parameter_indexed_pointer",
+            base_alias_assignment_count,
+        )
+    subobject = _parse_parameter_subobject_source(source)
+    if subobject and _base_is_function_parameter(text, str(subobject["parent"])):
+        return _parameter_source_identity(
+            subobject,
+            "parameter_subobject_pointer_alias",
+            "parameter_pointer_arithmetic",
+            base_alias_assignment_count,
+        )
+    return {}
+
+
+def _parameter_source_identity(
+    match: dict[str, Any],
+    provenance: str,
+    rhs_kind: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    parent = str(match["parent"])
+    source_kind = _layout_source_kind(parent)
+    if source_kind == "temporary":
+        source_kind = "argument"
+    identity: dict[str, Any] = {
+        "source": parent,
+        "source_kind": source_kind,
+        "source_provenance": provenance,
+        "source_rhs_kind": rhs_kind,
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": 0,
+    }
+    if "offset" in match:
+        identity["source_offset"] = "0x%X" % int(match["offset"])
+    if "index" in match:
+        identity["source_index"] = int(match["index"])
+    return identity
+
+
+def _parse_parameter_subobject_source(source: str) -> dict[str, Any]:
+    match = re.fullmatch(
+        r"(?P<parent>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+        r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?",
+        str(source or ""),
+    )
+    if not match:
+        return {}
+    try:
+        offset = int(
+            match.group("offset"),
+            16 if match.group("offset").lower().startswith("0x") else 10,
+        )
+    except ValueError:
+        return {}
+    if offset <= 0:
+        return {}
+    return {
+        "parent": match.group("parent"),
+        "offset": offset,
+    }
+
+
+def _parse_parameter_indexed_source(source: str) -> dict[str, Any]:
+    match = re.fullmatch(
+        r"(?P<parent>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*"
+        r"(?P<index>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\]",
+        str(source or ""),
+    )
+    if not match:
+        return {}
+    try:
+        index = int(
+            match.group("index"),
+            16 if match.group("index").lower().startswith("0x") else 10,
+        )
+    except ValueError:
+        return {}
+    if index <= 0:
+        return {}
+    return {
+        "parent": match.group("parent"),
+        "index": index,
+    }
+
+
+def _direct_call_result_source_identity(
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count <= 0:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    if _layout_rhs_kind(source) != "call_result":
+        return {}
+    if not _parse_direct_call_result_name(source):
+        return {}
+    return {
+        "source": _normalize_assignment_rhs(source),
+        "source_kind": "call_result",
+        "source_provenance": "direct_call_result_alias",
+        "source_rhs_kind": "call_result",
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": 0,
+    }
+
+
+def _parse_direct_call_result_name(source: str) -> str:
+    match = re.fullmatch(
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_:~]*)\s*\([^;\n]*\)",
+        str(source or "").strip(),
+    )
+    if not match:
+        return ""
+    name = match.group("name")
+    if name.startswith("sub_") or name.startswith("guard_dispatch_"):
+        return ""
+    return name
+
+
 def _trusted_stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     identity = _stable_base_source_identity(text, base)
     if not identity:
         return {}
-    if identity.get("source_provenance") in {
-        "direct_argument_alias",
-        "named_call_result_alias",
-        "parameter_field_pointer_alias",
-    }:
+    if identity.get("source_provenance") in _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES:
         return identity
     return {}
 
