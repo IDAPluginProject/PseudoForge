@@ -747,7 +747,12 @@ def _field_rewrite_partial_opportunity_comment(
         return None
     safe_access_count = _layout_rewrite_access_count_for_offsets(text, layout, safe_offsets)
     excluded_access_count = _layout_rewrite_access_count_for_offsets(text, layout, excluded_offsets)
-    if len(safe_offsets) < 8 or safe_access_count < 12:
+    threshold_policy = _partial_rewrite_threshold_policy(
+        len(safe_offsets),
+        safe_access_count,
+        len(excluded_offsets),
+    )
+    if not threshold_policy:
         return None
     field_names = [
         str(item["name"])
@@ -804,10 +809,23 @@ def _field_rewrite_partial_opportunity_comment(
         "safe_offsets": sorted(safe_offsets),
         "excluded_offsets": sorted(excluded_offsets),
         "source_provenance": source_provenance,
+        "threshold_policy": threshold_policy,
     }
     if source:
         comment["source"] = source
     return comment
+
+
+def _partial_rewrite_threshold_policy(
+    safe_offset_count: int,
+    safe_access_count: int,
+    excluded_offset_count: int,
+) -> str:
+    if safe_offset_count >= 8 and safe_access_count >= 12:
+        return "standard"
+    if safe_offset_count >= 7 and safe_access_count >= 12 and excluded_offset_count <= 4:
+        return "partial_offset_grace"
+    return ""
 
 
 def _offset_list_text(offsets: set[int]) -> str:
