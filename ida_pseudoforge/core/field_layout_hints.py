@@ -49,6 +49,7 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
     "parameter_subobject_pointer_alias",
+    "temporary_call_result_alias",
 }
 _NARROW_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix narrow subfield access widths"
 _WIDE_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix wide overlay access widths"
@@ -1901,6 +1902,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if parameter_derived_identity:
         return parameter_derived_identity
+    temporary_call_result_identity = _temporary_call_result_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if temporary_call_result_identity:
+        return temporary_call_result_identity
     out_parameter_identity = _local_out_parameter_source_identity(
         text,
         base,
@@ -2276,6 +2285,59 @@ def _direct_call_result_source_identity(
         "source_rhs_kind": "call_result",
         "base_alias_assignments": base_alias_assignment_count,
         "source_assignments": 0,
+    }
+
+
+def _temporary_call_result_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count != 1:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    if not _is_decompiler_temp_base(source):
+        return {}
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    base_alias_assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < first_access
+        and item.group("op") == "="
+        and _normalize_assignment_rhs(item.group("rhs")) == source
+    ]
+    if len(base_alias_assignments) != 1:
+        return {}
+    source_assignments = [
+        item
+        for item in _base_direct_assignments(text, source)
+        if item.start() < first_access
+    ]
+    if len(source_assignments) != 1:
+        return {}
+    source_assignment = source_assignments[0]
+    if source_assignment.group("op") != "=":
+        return {}
+    if source_assignment.start() >= base_alias_assignments[0].start():
+        return {}
+    rhs = _normalize_assignment_rhs(source_assignment.group("rhs"))
+    if _layout_rhs_kind(rhs) != "call_result":
+        return {}
+    call_name = _parse_direct_call_result_name(rhs)
+    if not call_name:
+        return {}
+    return {
+        "source": source,
+        "source_kind": "temporary",
+        "source_provenance": "temporary_call_result_alias",
+        "source_rhs_kind": "call_result",
+        "source_call": rhs,
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": len(source_assignments),
     }
 
 
