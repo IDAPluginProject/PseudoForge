@@ -249,7 +249,7 @@ __int64 __fastcall Partial(__int64 sessionSpace)
 /*
     Kernel insights:
       - inferred_offset_stable_base_source: Stable base source for v8: MakeObject(v7) (call_result source, direct_call_result_alias), 14 typed dereference(s) across 9 offset(s). Review-only source identity evidence for temp/generic base promotion. confidence=0.68
-      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v8: 14 typed dereference(s) across 9 offset(s), no rewrite blockers found. Source provenance direct_call_result_alias from MakeObject(v7). Validated layout rewrite applied to canonical cleaned output. confidence=0.80
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v8: 14 typed dereference(s) across 9 offset(s), no rewrite blockers found. Source provenance direct_call_result_alias from MakeObject(v7). Threshold policy named_threshold_grace. Validated layout rewrite applied to canonical cleaned output. confidence=0.80
       - inferred_offset_rewrite_preview: Offset field rewrite preview for v8: 14 dereference(s) can map to 9 field alias(es) field_8, field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Source provenance direct_call_result_alias from MakeObject(v7). Validated layout rewrite applied to canonical cleaned output. confidence=0.78
       - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for v8: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_8, field_10, field_18, field_20, field_28, field_30, field_38, field_40. Safe offsets +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; excluded offsets +0x48. Excluded reasons one or more typed offsets are not naturally aligned. Source provenance direct_call_result_alias from MakeObject(v7). Validated partial layout rewrite applied to canonical cleaned output. confidence=0.77
 */
@@ -305,6 +305,16 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(
                 {"direct_call_result_alias": 1},
                 report["layout_rewrite_ready_stats"]["top_functions"][0]["source_provenance"],
+            )
+            self.assertEqual(
+                {"named_threshold_grace": 1},
+                report["layout_rewrite_ready_stats"]["top_functions"][0]["threshold_policies"],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_ready_stats"]["threshold_policies"][
+                    "named_threshold_grace"
+                ],
             )
             self.assertEqual(
                 {"direct_call_result_alias": 1},
@@ -1442,6 +1452,10 @@ __int64 __fastcall ExpressionSource(__int64 context)
             )
             self.assertIn(
                 "Rewrite-Ready Source Provenance",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Rewrite-Ready Threshold Policies",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

@@ -579,7 +579,8 @@ def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str
         identity = _trusted_generic_parameter_layout_identity(text, layout)
     if base_kind != "named" and not identity:
         return None
-    if len(layout.offsets) < 8 or layout.access_count < 12:
+    threshold_policy = _field_rewrite_threshold_policy(layout)
+    if not threshold_policy:
         return None
     confidence = min(
         0.8,
@@ -591,17 +592,21 @@ def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str
             identity["source_provenance"],
             identity["source"],
         )
+    threshold_text = ""
+    if threshold_policy != "standard":
+        threshold_text = " Threshold policy %s." % threshold_policy
     comment = {
         "kind": "inferred_offset_rewrite_ready",
         "text": (
-            "Offset field rewrite candidate for %s: %d typed dereference(s) across %d offset(s), no rewrite blockers found.%s Audit only; body rewrite was not applied."
-            % (layout.base, layout.access_count, len(layout.offsets), source_text)
+            "Offset field rewrite candidate for %s: %d typed dereference(s) across %d offset(s), no rewrite blockers found.%s%s Audit only; body rewrite was not applied."
+            % (layout.base, layout.access_count, len(layout.offsets), source_text, threshold_text)
         ),
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
+        "threshold_policy": threshold_policy,
     }
     if identity:
         comment.update(
@@ -1248,11 +1253,31 @@ def _preview_type_name(type_names: set[str]) -> str:
 
 def _field_rewrite_threshold_blockers(layout: _LayoutEvidence) -> list[str]:
     blockers: list[str] = []
+    if _field_rewrite_threshold_policy(layout):
+        return blockers
     if len(layout.offsets) < 8:
         blockers.append(_REWRITE_OFFSET_THRESHOLD_BLOCKER)
     if layout.access_count < 12:
         blockers.append(_REWRITE_ACCESS_THRESHOLD_BLOCKER)
     return blockers
+
+
+def _field_rewrite_threshold_policy(layout: _LayoutEvidence) -> str:
+    if len(layout.offsets) >= 8 and layout.access_count >= 12:
+        return "standard"
+    if _field_rewrite_named_threshold_grace(layout):
+        return "named_threshold_grace"
+    return ""
+
+
+def _field_rewrite_named_threshold_grace(layout: _LayoutEvidence) -> bool:
+    if _layout_base_kind(layout.base) != "named":
+        return False
+    if len(layout.offsets) >= 8 and layout.access_count >= 10:
+        return True
+    if len(layout.offsets) >= 6 and layout.access_count >= 12:
+        return True
+    return False
 
 
 def _parse_offset(value: str) -> int | None:

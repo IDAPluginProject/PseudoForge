@@ -156,6 +156,7 @@ FIELD_REWRITE_READY_DETAIL_RE = re.compile(
     r"(?P<offset_count>\d+)\s+offset\(s\),\s+no rewrite blockers found\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
     r"(?P<source>.*?)\.\s+)?"
+    r"(?:Threshold policy\s+(?P<threshold_policy>[a-z_]+)\.\s+)?"
     r"(?:Audit only; body rewrite was not applied|Validated layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
@@ -350,6 +351,7 @@ def analyze_corpus(
     generic_base_trust_candidate_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_source_provenance: Counter[str] = Counter()
+    rewrite_ready_threshold_policies: Counter[str] = Counter()
     rewrite_ready_totals = Counter()
     rewrite_preview_bases: Counter[str] = Counter()
     rewrite_preview_source_provenance: Counter[str] = Counter()
@@ -546,6 +548,7 @@ def analyze_corpus(
                     rewrite_ready_totals,
                     rewrite_ready_bases,
                     rewrite_ready_source_provenance,
+                    rewrite_ready_threshold_policies,
                 )
                 _update_layout_rewrite_preview_metrics(
                     rewrite_previews,
@@ -957,6 +960,7 @@ def analyze_corpus(
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
             "source_provenance": _counter_to_dict(Counter(dict(rewrite_ready_source_provenance.most_common(top)))),
+            "threshold_policies": _counter_to_dict(Counter(dict(rewrite_ready_threshold_policies.most_common(top)))),
             "top_functions": top_rewrite_ready_functions[:top],
         },
         "layout_rewrite_preview_stats": {
@@ -1926,10 +1930,23 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Rewrite-Ready Threshold Policies",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_ready_stats.get("threshold_policies", {})),
+            "Policy",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Highest Rewrite-Ready Functions",
             "",
-            "| Function | EA | Ready | Max offsets | Max accesses | Source provenance | Bases |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+            "| Function | EA | Ready | Max offsets | Max accesses | Source provenance | Threshold policies | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in rewrite_ready_stats.get("top_functions", []) or []:
@@ -1940,8 +1957,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("source_provenance", {})).items()
         )
+        threshold_policies = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("threshold_policies", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -1949,6 +1970,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_offsets", 0) or 0),
                 int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(source_provenance),
+                _markdown_table_cell(threshold_policies),
                 bases,
             )
         )
@@ -4177,6 +4199,7 @@ def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
                 "base": match.group("base"),
                 "source": match.groupdict().get("source") or "",
                 "source_provenance": match.groupdict().get("source_provenance") or "none",
+                "threshold_policy": match.groupdict().get("threshold_policy") or "standard",
                 "access_count": _int_value(match.group("access_count"), 0),
                 "offset_count": _int_value(match.group("offset_count"), 0),
                 "confidence": _float_value(match.group("confidence"), 0.0),
@@ -4695,6 +4718,7 @@ def _update_layout_rewrite_ready_metrics(
     totals: Counter[str],
     bases: Counter[str],
     source_provenance: Counter[str],
+    threshold_policies: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -4705,6 +4729,7 @@ def _update_layout_rewrite_ready_metrics(
         totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
         bases[str(candidate.get("base", "") or "unknown")] += 1
         source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
+        threshold_policies[str(candidate.get("threshold_policy", "") or "standard")] += 1
 
 
 def _update_layout_rewrite_preview_metrics(
@@ -5438,12 +5463,17 @@ def _rewrite_ready_function_summary(
         str(item.get("source_provenance", "") or "none")
         for item in candidates
     )
+    threshold_policies = Counter(
+        str(item.get("threshold_policy", "") or "standard")
+        for item in candidates
+    )
     return {
         "ea": ea,
         "name": name,
         "ready_count": len(candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
+        "threshold_policies": _counter_to_dict(Counter(dict(threshold_policies.most_common(5)))),
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),

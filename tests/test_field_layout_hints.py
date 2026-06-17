@@ -4,7 +4,12 @@ import json
 import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
-from ida_pseudoforge.core.field_layout_hints import field_layout_comments
+from ida_pseudoforge.core.field_layout_hints import (
+    _LayoutEvidence,
+    _field_rewrite_threshold_blockers,
+    _field_rewrite_threshold_policy,
+    field_layout_comments,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 
@@ -186,6 +191,70 @@ __int64 __fastcall AccessLimitedLayout(__int64 sessionSpace)
         self.assertEqual(8, access_near_ready[0]["offset_count"])
         self.assertEqual(8, access_near_ready[0]["access_count"])
         self.assertIn("missing access threshold only", access_near_ready[0]["text"])
+
+    def test_named_layout_threshold_grace_promotes_near_ready_candidates(self) -> None:
+        offset_grace = field_layout_comments(
+            """
+__int64 __fastcall OffsetGraceLayout(__int64 deviceObject)
+{
+  return *(_QWORD *)(deviceObject + 16)
+       + *(_QWORD *)(deviceObject + 24)
+       + *(_QWORD *)(deviceObject + 32)
+       + *(_QWORD *)(deviceObject + 40)
+       + *(_QWORD *)(deviceObject + 48)
+       + *(_QWORD *)(deviceObject + 56)
+       + *(_QWORD *)(deviceObject + 16)
+       + *(_QWORD *)(deviceObject + 24)
+       + *(_QWORD *)(deviceObject + 32)
+       + *(_QWORD *)(deviceObject + 40)
+       + *(_QWORD *)(deviceObject + 48)
+       + *(_QWORD *)(deviceObject + 56);
+}
+"""
+        )
+        access_grace = field_layout_comments(
+            """
+__int64 __fastcall AccessGraceLayout(__int64 Irp)
+{
+  return *(_QWORD *)(Irp + 16)
+       + *(_QWORD *)(Irp + 24)
+       + *(_QWORD *)(Irp + 32)
+       + *(_QWORD *)(Irp + 40)
+       + *(_QWORD *)(Irp + 48)
+       + *(_QWORD *)(Irp + 56)
+       + *(_QWORD *)(Irp + 64)
+       + *(_QWORD *)(Irp + 72)
+       + *(_QWORD *)(Irp + 16)
+       + *(_QWORD *)(Irp + 24);
+}
+"""
+        )
+
+        offset_ready = [
+            item for item in offset_grace if item.get("kind") == "inferred_offset_rewrite_ready"
+        ]
+        access_ready = [
+            item for item in access_grace if item.get("kind") == "inferred_offset_rewrite_ready"
+        ]
+
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in offset_grace))
+        self.assertEqual(1, len(offset_ready))
+        self.assertEqual("named_threshold_grace", offset_ready[0]["threshold_policy"])
+        self.assertIn("Threshold policy named_threshold_grace", offset_ready[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in access_grace))
+        self.assertEqual(1, len(access_ready))
+        self.assertEqual("named_threshold_grace", access_ready[0]["threshold_policy"])
+
+    def test_generic_layout_does_not_use_named_threshold_grace(self) -> None:
+        layout = _LayoutEvidence(base="context", access_count=12)
+        for offset in (16, 24, 32, 40, 48, 56):
+            layout.offsets[offset] = {"_QWORD"}
+
+        self.assertEqual("", _field_rewrite_threshold_policy(layout))
+        self.assertEqual(
+            ["rewrite offset threshold requires at least 8 offsets"],
+            _field_rewrite_threshold_blockers(layout),
+        )
 
     def test_strong_temp_base_is_marked_as_temporary_low_confidence_hint(self) -> None:
         comments = field_layout_comments(
