@@ -43,6 +43,7 @@ _REWRITE_THRESHOLD_BLOCKERS = {
 _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "direct_argument_alias",
     "direct_call_result_alias",
+    "local_out_parameter_alias",
     "named_call_result_alias",
     "parameter_field_pointer_alias",
     "parameter_direct_alias",
@@ -432,6 +433,8 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         comment["source_type"] = identity["source_type"]
     if identity.get("source_index"):
         comment["source_index"] = identity["source_index"]
+    if identity.get("source_call"):
+        comment["source_call"] = identity["source_call"]
     return comment
 
 
@@ -618,6 +621,8 @@ def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str
                 "source_rhs_kind": identity["source_rhs_kind"],
             }
         )
+        if identity.get("source_call"):
+            comment["source_call"] = identity["source_call"]
     return comment
 
 
@@ -1878,6 +1883,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if parameter_derived_identity:
         return parameter_derived_identity
+    out_parameter_identity = _local_out_parameter_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if out_parameter_identity:
+        return out_parameter_identity
     direct_call_result_identity = _direct_call_result_source_identity(
         base,
         source,
@@ -2109,6 +2122,120 @@ def _parse_parameter_indexed_source(source: str) -> dict[str, Any]:
         "parent": match.group("parent"),
         "index": index,
     }
+
+
+def _local_out_parameter_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count != 1:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(source or "")):
+        return {}
+    if _base_is_function_parameter(text, source):
+        return {}
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    base_alias_assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < first_access
+        and item.group("op") == "="
+        and _normalize_assignment_rhs(item.group("rhs")) == source
+    ]
+    if len(base_alias_assignments) != 1:
+        return {}
+    base_alias_start = base_alias_assignments[0].start()
+    source_assignments = [
+        item
+        for item in _base_direct_assignments(text, source)
+        if item.start() < first_access
+    ]
+    if len(source_assignments) != 1:
+        return {}
+    source_initializer = source_assignments[0]
+    if source_initializer.group("op") != "=":
+        return {}
+    if not _is_null_initializer(_normalize_assignment_rhs(source_initializer.group("rhs"))):
+        return {}
+    out_calls = _direct_out_parameter_calls_before(text, source, base_alias_start)
+    if len(out_calls) != 1:
+        return {}
+    out_call = out_calls[0]
+    if source_initializer.start() >= int(out_call["start"]):
+        return {}
+    source_reassignments_after_call = [
+        item
+        for item in source_assignments
+        if item.start() > int(out_call["end"])
+    ]
+    if source_reassignments_after_call:
+        return {}
+    address_uses = _address_taken_occurrences_before(text, source, first_access)
+    if len(address_uses) != 1:
+        return {}
+    return {
+        "source": source,
+        "source_kind": "out_parameter",
+        "source_provenance": "local_out_parameter_alias",
+        "source_rhs_kind": "out_parameter_call",
+        "source_call": out_call["name"],
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": len(source_assignments),
+    }
+
+
+def _is_null_initializer(value: str) -> bool:
+    normalized = _normalize_assignment_rhs(value).lower()
+    if normalized in {"0", "0ll", "0i64", "0ull", "null", "nullptr"}:
+        return True
+    return re.fullmatch(r"0+[ul]*", normalized) is not None
+
+
+def _direct_out_parameter_calls_before(text: str, source: str, before: int) -> list[dict[str, Any]]:
+    if before < 0:
+        return []
+    pattern = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_:~]*)\s*"
+        r"\((?P<args>[^();{}\n]*&\s*%s\b[^();{}\n]*)\)"
+        % re.escape(source)
+    )
+    calls = []
+    for match in pattern.finditer(text or ""):
+        if match.start() >= before:
+            continue
+        name = match.group("name")
+        if not _is_trusted_direct_out_parameter_call_name(name):
+            continue
+        calls.append({"name": name, "start": match.start(), "end": match.end()})
+    return calls
+
+
+def _is_trusted_direct_out_parameter_call_name(name: str) -> bool:
+    normalized = str(name or "").strip()
+    if not normalized:
+        return False
+    if normalized in {"if", "while", "for", "switch", "return", "sizeof"}:
+        return False
+    if normalized.startswith("sub_") or normalized.startswith("guard_dispatch_"):
+        return False
+    return True
+
+
+def _address_taken_occurrences_before(text: str, source: str, before: int) -> list[int]:
+    if before < 0:
+        return []
+    pattern = re.compile(r"&\s*%s\b" % re.escape(source))
+    return [
+        match.start()
+        for match in pattern.finditer(text or "")
+        if match.start() < before
+    ]
 
 
 def _direct_call_result_source_identity(
