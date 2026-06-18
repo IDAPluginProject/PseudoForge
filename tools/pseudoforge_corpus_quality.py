@@ -217,7 +217,7 @@ FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE = re.compile(
     r"Excluded reasons\s+(?P<reasons>.*?)\.\s+"
     r"(?:Source provenance\s+(?P<source_provenance>[a-z_]+)\s+from\s+"
     r"(?P<source>.*?)\.\s+)?"
-    r"(?:Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented|"
+    r"(?P<disposition>Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented|"
     r"Validated partial layout rewrite applied to canonical cleaned output)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
@@ -387,6 +387,8 @@ def analyze_corpus(
     rewrite_partial_opportunity_bases: Counter[str] = Counter()
     rewrite_partial_opportunity_source_provenance: Counter[str] = Counter()
     rewrite_partial_opportunity_reasons: Counter[str] = Counter()
+    rewrite_partial_opportunity_application_statuses: Counter[str] = Counter()
+    rewrite_partial_opportunity_review_classes: Counter[str] = Counter()
     rewrite_partial_opportunity_totals = Counter()
     rewrite_blocker_bases: Counter[str] = Counter()
     rewrite_blocker_reasons: Counter[str] = Counter()
@@ -594,6 +596,8 @@ def analyze_corpus(
                     rewrite_partial_opportunity_bases,
                     rewrite_partial_opportunity_source_provenance,
                     rewrite_partial_opportunity_reasons,
+                    rewrite_partial_opportunity_application_statuses,
+                    rewrite_partial_opportunity_review_classes,
                 )
                 _update_layout_rewrite_blocker_metrics(
                     rewrite_blockers,
@@ -1050,6 +1054,12 @@ def analyze_corpus(
                 Counter(dict(rewrite_partial_opportunity_source_provenance.most_common(top)))
             ),
             "reasons": _counter_to_dict(Counter(dict(rewrite_partial_opportunity_reasons.most_common(top)))),
+            "application_statuses": _counter_to_dict(
+                Counter(dict(rewrite_partial_opportunity_application_statuses.most_common(top)))
+            ),
+            "review_classes": _counter_to_dict(
+                Counter(dict(rewrite_partial_opportunity_review_classes.most_common(top)))
+            ),
             "top_functions": top_rewrite_partial_opportunity_functions[:top],
         },
         "layout_rewrite_blocker_stats": {
@@ -2286,6 +2296,32 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Partial Opportunity Application Statuses",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_partial_opportunity_stats.get("application_statuses", {})),
+            "Status",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Partial Opportunity Review Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(rewrite_partial_opportunity_stats.get("review_classes", {})),
+            "Class",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Partial Opportunity Bases",
             "",
         ]
@@ -2296,8 +2332,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Partial Opportunity Functions",
             "",
-            "| Function | EA | Opportunities | Safe offsets | Safe accesses | Excluded offsets | Excluded accesses | Source provenance | Bases | Reasons |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Opportunities | Safe offsets | Safe accesses | Excluded offsets | Excluded accesses | Source provenance | Statuses | Review classes | Bases | Reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
         ]
     )
     for item in rewrite_partial_opportunity_stats.get("top_functions", []) or []:
@@ -2308,12 +2344,20 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("source_provenance", {})).items()
         )
+        statuses = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("application_statuses", {})).items()
+        )
+        review_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("review_classes", {})).items()
+        )
         reasons = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_reasons", {})).items()
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -2323,6 +2367,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_excluded_offsets", 0) or 0),
                 int(item.get("max_excluded_access_count", 0) or 0),
                 _markdown_table_cell(provenance),
+                _markdown_table_cell(statuses),
+                _markdown_table_cell(review_classes),
                 bases,
                 _markdown_table_cell(reasons),
             )
@@ -5065,23 +5111,55 @@ def _extract_layout_rewrite_partial_opportunities(text: str) -> list[dict[str, A
         ]
         safe_offsets = _parse_layout_offset_list(match.groupdict().get("safe_offsets") or "")
         excluded_offsets = _parse_layout_offset_list(match.groupdict().get("excluded_offsets") or "")
+        application_status = _partial_opportunity_application_status(match.group("disposition"))
+        candidate = {
+            "base": match.group("base"),
+            "source": match.groupdict().get("source") or "",
+            "source_provenance": match.groupdict().get("source_provenance") or "none",
+            "safe_access_count": _int_value(match.group("safe_access_count"), 0),
+            "safe_offset_count": _int_value(match.group("safe_offset_count"), 0),
+            "excluded_access_count": _int_value(match.group("excluded_access_count"), 0),
+            "excluded_offset_count": _int_value(match.group("excluded_offset_count"), 0),
+            "safe_fields": safe_fields,
+            "safe_offsets": safe_offsets,
+            "excluded_offsets": excluded_offsets,
+            "reasons": reasons,
+            "application_status": application_status,
+            "confidence": _float_value(match.group("confidence"), 0.0),
+        }
+        candidate["review_class"] = _partial_opportunity_review_class(candidate)
         candidates.append(
-            {
-                "base": match.group("base"),
-                "source": match.groupdict().get("source") or "",
-                "source_provenance": match.groupdict().get("source_provenance") or "none",
-                "safe_access_count": _int_value(match.group("safe_access_count"), 0),
-                "safe_offset_count": _int_value(match.group("safe_offset_count"), 0),
-                "excluded_access_count": _int_value(match.group("excluded_access_count"), 0),
-                "excluded_offset_count": _int_value(match.group("excluded_offset_count"), 0),
-                "safe_fields": safe_fields,
-                "safe_offsets": safe_offsets,
-                "excluded_offsets": excluded_offsets,
-                "reasons": reasons,
-                "confidence": _float_value(match.group("confidence"), 0.0),
-            }
+            candidate
         )
     return candidates
+
+
+def _partial_opportunity_application_status(disposition: str) -> str:
+    if "Validated partial layout rewrite applied" in str(disposition or ""):
+        return "validated_partial_applied"
+    return "review_only"
+
+
+def _partial_opportunity_review_class(candidate: dict[str, Any]) -> str:
+    if str(candidate.get("application_status", "") or "") == "validated_partial_applied":
+        return "validated_partial_rewrite"
+    source_provenance = str(candidate.get("source_provenance", "") or "none")
+    if source_provenance in {
+        "direct_argument_alias",
+        "direct_call_result_alias",
+        "generic_parameter_trust",
+        "parameter_field_pointer_alias",
+        "stable_argument_source",
+    }:
+        if (
+            _int_value(candidate.get("safe_offset_count"), 0) >= 8
+            and _int_value(candidate.get("safe_access_count"), 0) >= 12
+            and _int_value(candidate.get("excluded_offset_count"), 0) <= 3
+        ):
+            return "partial_validation_candidate"
+    if source_provenance != "none":
+        return "partial_source_review"
+    return "partial_review_only"
 
 
 def _parse_layout_offset_list(value: str) -> list[int]:
@@ -5645,6 +5723,8 @@ def _update_layout_rewrite_partial_opportunity_metrics(
     bases: Counter[str],
     source_provenance: Counter[str],
     reasons: Counter[str],
+    application_statuses: Counter[str],
+    review_classes: Counter[str],
 ) -> None:
     if not candidates:
         return
@@ -5657,6 +5737,8 @@ def _update_layout_rewrite_partial_opportunity_metrics(
         totals["excluded_offset_observations"] += _int_value(candidate.get("excluded_offset_count"), 0)
         bases[str(candidate.get("base", "") or "unknown")] += 1
         source_provenance[str(candidate.get("source_provenance", "") or "none")] += 1
+        application_statuses[str(candidate.get("application_status", "") or "unknown")] += 1
+        review_classes[str(candidate.get("review_class", "") or "manual_review")] += 1
         for reason in candidate.get("reasons", []) or []:
             reasons[str(reason)] += 1
 
@@ -6386,6 +6468,14 @@ def _rewrite_partial_opportunity_function_summary(
     candidates: list[dict[str, Any]],
 ) -> dict[str, Any]:
     reasons = Counter()
+    application_statuses = Counter(
+        str(item.get("application_status", "") or "unknown")
+        for item in candidates
+    )
+    review_classes = Counter(
+        str(item.get("review_class", "") or "manual_review")
+        for item in candidates
+    )
     source_provenance = Counter(
         str(item.get("source_provenance", "") or "none")
         for item in candidates
@@ -6399,6 +6489,8 @@ def _rewrite_partial_opportunity_function_summary(
         "partial_opportunity_count": len(candidates),
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "source_provenance": _counter_to_dict(Counter(dict(source_provenance.most_common(5)))),
+        "application_statuses": _counter_to_dict(Counter(dict(application_statuses.most_common(5)))),
+        "review_classes": _counter_to_dict(Counter(dict(review_classes.most_common(5)))),
         "max_safe_offsets": max((_int_value(item.get("safe_offset_count"), 0) for item in candidates), default=0),
         "max_safe_access_count": max(
             (_int_value(item.get("safe_access_count"), 0) for item in candidates),

@@ -454,6 +454,8 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             self.assertEqual(2, stats["totals"]["excluded_access_observations"])
             self.assertEqual(1, stats["top_bases"]["sessionSpace"])
             self.assertEqual(1, stats["source_provenance"]["none"])
+            self.assertEqual(1, stats["application_statuses"]["review_only"])
+            self.assertEqual(1, stats["review_classes"]["partial_review_only"])
             self.assertEqual(
                 1,
                 stats["reasons"]["one or more offsets mix narrow subfield access widths"],
@@ -463,6 +465,14 @@ __int64 __fastcall Partial(__int64 sessionSpace)
             self.assertEqual(12, stats["top_functions"][0]["max_safe_access_count"])
             self.assertEqual(1, stats["top_functions"][0]["max_excluded_offsets"])
             self.assertEqual(2, stats["top_functions"][0]["max_excluded_access_count"])
+            self.assertEqual(
+                {"review_only": 1},
+                stats["top_functions"][0]["application_statuses"],
+            )
+            self.assertEqual(
+                {"partial_review_only": 1},
+                stats["top_functions"][0]["review_classes"],
+            )
             self.assertEqual(
                 1,
                 report["text_stats"]["inferred_offset_rewrite_partial_opportunities"],
@@ -534,6 +544,18 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 ],
             )
             self.assertEqual(
+                1,
+                report["layout_rewrite_partial_opportunity_stats"]["application_statuses"][
+                    "validated_partial_applied"
+                ],
+            )
+            self.assertEqual(
+                1,
+                report["layout_rewrite_partial_opportunity_stats"]["review_classes"][
+                    "validated_partial_rewrite"
+                ],
+            )
+            self.assertEqual(
                 {"direct_call_result_alias": 1},
                 report["layout_rewrite_ready_stats"]["top_functions"][0]["source_provenance"],
             )
@@ -550,6 +572,18 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(
                 {"direct_call_result_alias": 1},
                 report["layout_rewrite_preview_stats"]["top_functions"][0]["source_provenance"],
+            )
+            self.assertEqual(
+                {"validated_partial_applied": 1},
+                report["layout_rewrite_partial_opportunity_stats"]["top_functions"][0][
+                    "application_statuses"
+                ],
+            )
+            self.assertEqual(
+                {"validated_partial_rewrite": 1},
+                report["layout_rewrite_partial_opportunity_stats"]["top_functions"][0][
+                    "review_classes"
+                ],
             )
 
     def test_analyze_corpus_splits_canonical_rewrite_plan_kinds(self) -> None:
