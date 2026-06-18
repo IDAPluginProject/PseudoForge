@@ -128,6 +128,7 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   int aliasedStatus;
   int relatedStatus;
   int bitwiseResult;
+  int statusMaskResult;
   int castedResult;
   int plainValue;
 
@@ -158,6 +159,11 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   plainValue = bitwiseResult | 1;
   if ( bitwiseResult != -1073741789 )
     return status;
+  statusMaskResult = SomeStatusCall(a1);
+  if ( statusMaskResult >= 0 )
+    return STATUS_SUCCESS;
+  if ( (statusMaskResult & 0xC0000000) == 0x80000000 || statusMaskResult == -1073741191 )
+    return statusMaskResult;
   castedResult = SomeStatusCall(a1);
   status = castedResult;
   if ( (_DWORD)castedResult != -1073741664 )
@@ -166,6 +172,8 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   if ( (_DWORD)castedResult != -1073741664 )
     return STATUS_INVALID_PARAMETER;
   plainValue = a1;
+  if ( (plainValue & 0xC0000000) == 0x80000000 || plainValue == -1073741191 )
+    return STATUS_INVALID_PARAMETER;
   if ( plainValue >= 0 )
     return STATUS_SUCCESS;
   if ( plainValue == -1073741738 )
@@ -582,6 +590,9 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("aliasedStatus != STATUS_BUFFER_TOO_SMALL", rendered)
         self.assertIn("relatedStatus == STATUS_BUFFER_TOO_SMALL", rendered)
         self.assertIn("bitwiseResult != -1073741789", rendered)
+        self.assertIn("(statusMaskResult & 0xC0000000) == 0x80000000", rendered)
+        self.assertIn("statusMaskResult == STATUS_IO_REPARSE_TAG_NOT_HANDLED", rendered)
+        self.assertIn("plainValue == -1073741191", rendered)
         self.assertEqual(1, rendered.count("(_DWORD)castedResult != STATUS_MEMORY_NOT_ALLOCATED"))
         self.assertEqual(1, rendered.count("(_DWORD)castedResult != -1073741664"))
         self.assertIn("plainValue == -1073741738", rendered)

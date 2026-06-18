@@ -38,6 +38,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_ntstatus_declared_comparisons(result)
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
+    result = _replace_status_bitmask_guarded_comparisons(result)
     result = _replace_immediate_status_alias_casted_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
     result = _replace_status_call_result_comparisons(result)
@@ -159,6 +160,42 @@ def _replace_status_alias_comparisons(text: str) -> str:
 def _replace_status_flow_comparisons(text: str) -> str:
     candidates = _status_flow_candidate_names(text)
     return _replace_status_comparisons_for_names(text, candidates)
+
+
+def _replace_status_bitmask_guarded_comparisons(text: str) -> str:
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    range_checked_names: set[str] = set()
+    for line in lines:
+        eligible_names = _status_severity_mask_names_from_line(line).intersection(range_checked_names)
+        if eligible_names:
+            result.append(_replace_status_comparisons_for_names(line, eligible_names))
+        else:
+            result.append(line)
+        range_checked_names.update(_status_range_checked_names_from_line(line))
+    return "".join(result)
+
+
+def _status_severity_mask_names_from_line(line: str) -> set[str]:
+    names: set[str] = set()
+    pattern = re.compile(
+        r"\(\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*&\s*"
+        r"(?:0xC0000000|3221225472(?:u?LL|ULL|LL|u|U|L)?)\s*\)\s*"
+        r"(?:==|!=)\s*(?:0x80000000|0xC0000000|2147483648|3221225472)"
+        r"(?:u?LL|ULL|LL|u|U|L)?\b"
+    )
+    for match in pattern.finditer(line or ""):
+        names.add(match.group("name"))
+    return names
+
+
+def _status_range_checked_names_from_line(line: str) -> set[str]:
+    names: set[str] = set()
+    for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:<|>=)\s*0\b", line or ""):
+        names.add(match.group("name"))
+    for match in re.finditer(r"\b0\s*(?:>|<=)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b", line or ""):
+        names.add(match.group("name"))
+    return names
 
 
 def _replace_guard_dispatch_status_comparisons(text: str) -> str:
