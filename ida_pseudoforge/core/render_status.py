@@ -993,7 +993,34 @@ def _guard_dispatch_status_candidate_names(text: str) -> set[str]:
     )
     for match in assignment_pattern.finditer(text):
         candidates.add(match.group("name"))
-    return candidates
+    candidates.update(_simple_alias_candidate_names(text, candidates))
+    return {
+        name
+        for name in candidates
+        if not _target_has_bitwise_use(text, name) and not _target_has_arithmetic_reuse(text, name)
+    }
+
+
+def _simple_alias_candidate_names(text: str, sources: set[str]) -> set[str]:
+    if not sources:
+        return set()
+
+    candidates = set(sources)
+    alias_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?:\([^)]+\)\s*)?(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s*;"
+    )
+    changed = True
+    while changed:
+        changed = False
+        for match in alias_pattern.finditer(text):
+            source = match.group("source")
+            alias = match.group("alias")
+            if source not in candidates or alias in candidates or alias == source:
+                continue
+            candidates.add(alias)
+            changed = True
+    return candidates - sources
 
 
 def _status_carrier_candidate_names(text: str) -> set[str]:

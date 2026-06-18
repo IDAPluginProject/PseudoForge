@@ -211,6 +211,8 @@ GUARD_DISPATCH_STATUS_FLOW_SAMPLE = r"""
 NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
 {
   int callbackStatus;
+  int dispatchResult;
+  int aliasedDispatchStatus;
   int ternaryStatus;
   int fallbackStatus;
   int alternateFallbackStatus;
@@ -225,6 +227,10 @@ NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
     return callbackStatus;
   if ( -1073741536 == callbackStatus )
     return callbackStatus;
+  dispatchResult = guard_dispatch_icall_no_overrides(a1, a2);
+  aliasedDispatchStatus = dispatchResult;
+  if ( aliasedDispatchStatus != -1073741822 )
+    return aliasedDispatchStatus;
   ternaryStatus = a1 == KnownCallback
       ? KnownCallback(a1, a2)
       : guard_dispatch_icall_no_overrides(a1, a2);
@@ -570,6 +576,7 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
 
         self.assertIn("callbackStatus == STATUS_NOT_IMPLEMENTED", rendered)
         self.assertIn("STATUS_CANCELLED == callbackStatus", rendered)
+        self.assertIn("aliasedDispatchStatus != STATUS_NOT_IMPLEMENTED", rendered)
         self.assertIn("ternaryStatus != STATUS_MORE_PROCESSING_REQUIRED", rendered)
         self.assertIn(
             "fallbackStatus = qword_140FD8390 ? guard_dispatch_icall_no_overrides(argument0, argument1) : STATUS_NOT_SUPPORTED;",
