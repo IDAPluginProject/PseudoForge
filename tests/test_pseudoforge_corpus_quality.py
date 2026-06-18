@@ -11,6 +11,7 @@ from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     _base_stability_review_profile,
     _decimal_status_like_literals,
+    _decimal_status_target_review_queues,
     _layout_rewrite_blocker_review_profiles,
     _nested_status_pointer_store_literals,
     analyze_corpus,
@@ -96,6 +97,70 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
         self.assertEqual("status_identifier_target", literals[0]["target_evidence"])
         self.assertEqual("wide_or_nonstatus_target", literals[1]["target_evidence"])
         self.assertEqual("unsigned __int64", literals[1]["target_type"])
+
+    def test_decimal_status_target_review_queues_split_weak_evidence(self) -> None:
+        queues = _decimal_status_target_review_queues(
+            [
+                {
+                    "name": "Sample",
+                    "ea": "0x140001000",
+                    "summary_path": "Sample.ida-batch-summary.json",
+                    "target_evidence": {
+                        "complex_or_memory_target": 3,
+                        "four_byte_scalar_target": 1,
+                        "wide_or_nonstatus_target": 1,
+                        "unknown_target": 1,
+                    },
+                    "target_review_classes": {
+                        "complex_or_memory_target": {
+                            "profiled_status_literal_candidate": 1,
+                            "manual_review": 2,
+                        },
+                        "four_byte_scalar_target": {
+                            "unprofiled_ntstatus_error_candidate": 1,
+                        },
+                        "wide_or_nonstatus_target": {
+                            "profiled_status_literal_weak_target": 1,
+                        },
+                        "unknown_target": {
+                            "manual_review": 1,
+                        },
+                    },
+                    "contexts": [
+                        {
+                            "review_class": "profiled_status_literal_candidate",
+                            "target_evidence": "complex_or_memory_target",
+                        },
+                        {
+                            "review_class": "unprofiled_ntstatus_error_candidate",
+                            "target_evidence": "four_byte_scalar_target",
+                        },
+                        {
+                            "review_class": "profiled_status_literal_weak_target",
+                            "target_evidence": "wide_or_nonstatus_target",
+                        },
+                        {
+                            "review_class": "manual_review",
+                            "target_evidence": "unknown_target",
+                        },
+                    ],
+                }
+            ],
+            10,
+        )
+
+        self.assertEqual(3, queues["complex_or_memory_targets"]["literals"])
+        self.assertEqual(1, queues["four_byte_scalar_targets"]["literals"])
+        self.assertEqual(1, queues["wide_or_nonstatus_targets"]["literals"])
+        self.assertEqual(1, queues["unknown_targets"]["literals"])
+        self.assertEqual(
+            {"manual_review": 2, "profiled_status_literal_candidate": 1},
+            queues["complex_or_memory_targets"]["review_classes"],
+        )
+        self.assertEqual(
+            {"four_byte_scalar_target": 1},
+            queues["four_byte_scalar_targets"]["target_evidence"],
+        )
 
     def test_nested_status_pointer_store_literals_split_dword_and_wide_review(self) -> None:
         stores = _nested_status_pointer_store_literals(
@@ -1232,6 +1297,34 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 ],
             )
             self.assertEqual(
+                1,
+                decimal_stats["target_review_queues"]["complex_or_memory_targets"]["literals"],
+            )
+            self.assertEqual(
+                1,
+                decimal_stats["target_review_queues"]["complex_or_memory_targets"][
+                    "functions"
+                ],
+            )
+            self.assertEqual(
+                {"profiled_status_literal_candidate": 1},
+                decimal_stats["target_review_queues"]["complex_or_memory_targets"][
+                    "review_classes"
+                ],
+            )
+            self.assertEqual(
+                {"complex_or_memory_target": 1},
+                decimal_stats["target_review_queues"]["complex_or_memory_targets"][
+                    "target_evidence"
+                ],
+            )
+            self.assertEqual(
+                0,
+                decimal_stats["target_review_queues"]["four_byte_scalar_targets"][
+                    "literals"
+                ],
+            )
+            self.assertEqual(
                 "Sample",
                 decimal_stats["review_queues"]["strong_profiled_status_literals"]["items"][0][
                     "name"
@@ -1613,7 +1706,15 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
+                "Decimal Status-Like Target Evidence Review Queues",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "| `strong_profiled_status_literals` | 3 | 1 | profiled_status_literal_candidate=3 | call_result_status_carrier_target=2, complex_or_memory_target=1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `complex_or_memory_targets` | 1 | 1 | profiled_status_literal_candidate=1 | complex_or_memory_target=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

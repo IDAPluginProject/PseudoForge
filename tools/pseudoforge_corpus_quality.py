@@ -65,6 +65,12 @@ _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "nonstatus_bitmask_comparisons",
     "manual_review",
 )
+_DECIMAL_STATUS_TARGET_REVIEW_QUEUE_ORDER = (
+    "complex_or_memory_targets",
+    "four_byte_scalar_targets",
+    "wide_or_nonstatus_targets",
+    "unknown_targets",
+)
 _STATUS_STORE_REVIEW_QUEUE_ORDER = (
     "dword_nested_pointer_status_stores",
     "wide_nested_pointer_status_stores",
@@ -1067,6 +1073,7 @@ def analyze_corpus(
             "review_classes": _counter_to_dict(Counter(dict(decimal_status_residue_review_classes.most_common(top)))),
             "target_evidence": _counter_to_dict(Counter(dict(decimal_status_residue_target_evidence.most_common(top)))),
             "review_queues": _decimal_status_review_queues(top_decimal_status_residue_functions, top),
+            "target_review_queues": _decimal_status_target_review_queues(top_decimal_status_residue_functions, top),
             "top_functions": top_decimal_status_residue_functions[:top],
         },
         "status_store_residue_stats": {
@@ -2591,6 +2598,38 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "#### Decimal Status-Like Target Evidence Review Queues",
+            "",
+            "| Queue | Literals | Functions | Top Classes | Top Targets |",
+            "| --- | ---: | ---: | --- | --- |",
+        ]
+    )
+    decimal_target_review_queues = _coerce_dict(
+        decimal_status_residue_stats.get("target_review_queues", {})
+    )
+    for queue_name in _DECIMAL_STATUS_TARGET_REVIEW_QUEUE_ORDER:
+        queue = _coerce_dict(decimal_target_review_queues.get(queue_name, {}))
+        classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("review_classes", {})).items()
+        )
+        targets = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("target_evidence", {})).items()
+        )
+        lines.append(
+            "| `%s` | %s | %s | %s | %s |"
+            % (
+                queue_name,
+                int(queue.get("literals", 0) or 0),
+                int(queue.get("functions", 0) or 0),
+                _markdown_table_cell(classes),
+                _markdown_table_cell(targets),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "#### Functions With Decimal Status-Like Residue",
             "",
             "| Function | EA | Literals | Profiled | Unprofiled | Classes | Targets | Kinds | Values | Context |",
@@ -3679,6 +3718,13 @@ def _decimal_status_residue_function_summary(
     profile_names = Counter(str(item.get("profile_name", "") or "unprofiled") for item in literals)
     review_classes = Counter(str(item.get("review_class", "") or "manual_review") for item in literals)
     target_evidence = Counter(str(item.get("target_evidence", "") or "none") for item in literals)
+    target_review_classes: dict[str, Counter[str]] = {}
+    for item in literals:
+        target = str(item.get("target_evidence", "") or "none")
+        review_class = str(item.get("review_class", "") or "manual_review")
+        if target not in target_review_classes:
+            target_review_classes[target] = Counter()
+        target_review_classes[target][review_class] += 1
     contexts = []
     for item in literals[:5]:
         contexts.append(
@@ -3707,6 +3753,10 @@ def _decimal_status_residue_function_summary(
         "profile_names": dict(profile_names.most_common()),
         "review_classes": dict(review_classes.most_common()),
         "target_evidence": dict(target_evidence.most_common()),
+        "target_review_classes": {
+            key: dict(value.most_common())
+            for key, value in sorted(target_review_classes.items())
+        },
         "contexts": contexts,
         "summary_path": str(summary_path),
     }
@@ -3770,6 +3820,107 @@ def _decimal_status_review_queue_classes(queue_name: str) -> set[str]:
         "manual_review": {"manual_review"},
     }
     return set(mapping.get(queue_name, {"manual_review"}))
+
+
+def _decimal_status_target_review_queues(
+    functions: list[dict[str, Any]],
+    top: int,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for queue_name in _DECIMAL_STATUS_TARGET_REVIEW_QUEUE_ORDER:
+        target_evidence = _decimal_status_target_review_queue_evidence(queue_name)
+        items: list[dict[str, Any]] = []
+        class_counts: Counter[str] = Counter()
+        target_counts: Counter[str] = Counter()
+        literal_total = 0
+        function_names: set[str] = set()
+        for function in functions:
+            function_target_counts = _coerce_dict(function.get("target_evidence", {}))
+            matching_literal_count = sum(
+                int(function_target_counts.get(target, 0) or 0)
+                for target in target_evidence
+            )
+            if matching_literal_count <= 0:
+                continue
+            contexts = [
+                context
+                for context in function.get("contexts", []) or []
+                if isinstance(context, dict)
+                and str(context.get("target_evidence", "") or "none") in target_evidence
+            ]
+            function_names.add(str(function.get("name", "") or ""))
+            literal_total += matching_literal_count
+            function_target_review_classes = _coerce_dict(
+                function.get("target_review_classes", {})
+            )
+            for target in target_evidence:
+                class_counts.update(
+                    _coerce_dict(function_target_review_classes.get(target, {}))
+                )
+            target_counts.update(
+                {
+                    target: int(function_target_counts.get(target, 0) or 0)
+                    for target in target_evidence
+                    if int(function_target_counts.get(target, 0) or 0) > 0
+                }
+            )
+            items.append(
+                _decimal_status_target_review_queue_item(
+                    function,
+                    contexts,
+                    target_evidence,
+                    matching_literal_count,
+                )
+            )
+        items.sort(key=lambda item: (-int(item.get("literals", 0) or 0), str(item.get("name", ""))))
+        result[queue_name] = {
+            "literals": literal_total,
+            "functions": len(function_names),
+            "review_classes": _counter_to_dict(Counter(dict(class_counts.most_common(top)))),
+            "target_evidence": _counter_to_dict(Counter(dict(target_counts.most_common(top)))),
+            "items": items[:top],
+        }
+    return result
+
+
+def _decimal_status_target_review_queue_evidence(queue_name: str) -> set[str]:
+    mapping = {
+        "complex_or_memory_targets": {"complex_or_memory_target"},
+        "four_byte_scalar_targets": {"four_byte_scalar_target"},
+        "wide_or_nonstatus_targets": {"wide_or_nonstatus_target"},
+        "unknown_targets": {"unknown_target"},
+    }
+    return set(mapping.get(queue_name, {"unknown_target"}))
+
+
+def _decimal_status_target_review_queue_item(
+    function: dict[str, Any],
+    contexts: list[dict[str, Any]],
+    target_evidence: set[str],
+    literal_count: int,
+) -> dict[str, Any]:
+    function_target_counts = _coerce_dict(function.get("target_evidence", {}))
+    function_target_review_classes = _coerce_dict(function.get("target_review_classes", {}))
+    review_classes: Counter[str] = Counter()
+    for target in target_evidence:
+        review_classes.update(_coerce_dict(function_target_review_classes.get(target, {})))
+    return {
+        "name": str(function.get("name", "") or ""),
+        "ea": str(function.get("ea", "") or ""),
+        "literals": int(literal_count),
+        "review_classes": _counter_to_dict(review_classes),
+        "target_evidence": _counter_to_dict(
+            Counter(
+                {
+                    target: int(function_target_counts.get(target, 0) or 0)
+                    for target in target_evidence
+                    if int(function_target_counts.get(target, 0) or 0) > 0
+                }
+            )
+        ),
+        "contexts": contexts[:3],
+        "summary_path": str(function.get("summary_path", "") or ""),
+    }
 
 
 def _decimal_status_review_queue_item(
