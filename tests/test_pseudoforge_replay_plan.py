@@ -122,7 +122,17 @@ __int64 __fastcall ReviewOnlyPartial(__int64 context)
 */
 __int64 __fastcall ValidatedPartial(__int64 context)
 {
-  return context;
+  v0 = *(_QWORD *)(context + 16);
+  v1 = *(_QWORD *)(context + 24);
+  v2 = *(_QWORD *)(context + 32);
+  v3 = *(_QWORD *)(context + 40);
+  v4 = *(_QWORD *)(context + 48);
+  v5 = *(_QWORD *)(context + 56);
+  v6 = *(_QWORD *)(context + 64);
+  v7 = *(_QWORD *)(context + 72);
+  v8 = *(_QWORD *)(context + 80);
+  v9 = *(_QWORD *)(context + 88);
+  return v0 + v9;
 }
 """,
             )
@@ -139,6 +149,9 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual(0, review_only["metrics"]["layout_rewrite_partial_validated_applied"])
             self.assertEqual(0, validated["metrics"]["layout_rewrite_partial_review_only"])
             self.assertEqual(1, validated["metrics"]["layout_rewrite_partial_validated_applied"])
+            self.assertEqual(0, validated["metrics"]["layout_actionability_bases"])
+            self.assertEqual(0, validated["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertEqual(10, validated["metrics"]["body_offset_deref_bulk_noise_patterns"])
 
     def test_replay_plan_saturates_bulk_residue_score(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -267,6 +280,58 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 1.0,
                 plan["score_model"]["offset_actionability"]["no_layout_weight"],
             )
+
+    def test_replay_plan_matches_offset_residue_to_layout_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            mixed_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for context: base identity unresolved. Review-only aliases remain available. confidence=0.64",
+                    "*/",
+                    "__int64 __fastcall MixedOffset(__int64 context, __int64 other)",
+                    "{",
+                ]
+                + [
+                    "  v%d = *(_QWORD *)(context + %d);" % (index, 16 + (index * 8))
+                    for index in range(20)
+                ]
+                + [
+                    "  v%d = *(_QWORD *)(other + %d);" % (index + 20, 16 + (index * 8))
+                    for index in range(140)
+                ]
+                + ["  return v159;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="MixedOffset",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=mixed_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual("MixedOffset", item["name"])
+            self.assertIn("layout_actionable_offset_residue", item["reasons"])
+            self.assertIn("non_layout_offset_residue", item["reasons"])
+            self.assertIn("bulk_offset_residue", item["reasons"])
+            self.assertEqual(160, item["metrics"]["body_offset_deref_patterns"])
+            self.assertEqual(160, item["metrics"]["body_offset_deref_simple_base_patterns"])
+            self.assertEqual(20, item["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertEqual(140, item["metrics"]["body_offset_deref_non_layout_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_unmatched_base_patterns"])
+            self.assertEqual(140, item["metrics"]["body_offset_deref_bulk_noise_patterns"])
+            self.assertEqual(
+                item["metrics"]["body_offset_deref_patterns"],
+                item["metrics"]["body_offset_deref_layout_actionable_patterns"]
+                + item["metrics"]["body_offset_deref_bulk_noise_patterns"],
+            )
+            self.assertTrue(plan["score_model"]["offset_actionability"]["full_score_limit_is_shared"])
 
 
 def _write_function(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -15,11 +16,15 @@ if str(ROOT) not in sys.path:
 from ida_pseudoforge.version import VERSION, plugin_title
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
+    FIELD_BASE_STABILITY_DETAIL_RE,
     FIELD_BASE_STABILITY_RE,
+    FIELD_REWRITE_BLOCKER_DETAIL_RE,
     FIELD_REWRITE_BLOCKER_RE,
+    FIELD_REWRITE_NEAR_READY_DETAIL_RE,
     FIELD_REWRITE_NEAR_READY_RE,
     FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE,
     FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE,
+    FIELD_STABLE_BASE_SOURCE_DETAIL_RE,
     FIELD_STABLE_BASE_SOURCE_RE,
     GENERIC_IDENTIFIER_RE,
     HEX_STATUS_RE,
@@ -46,6 +51,11 @@ OFFSET_DEREF_NO_LAYOUT_WEIGHT = 1.0
 OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
 LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
+SIMPLE_OFFSET_DEREF_BASE_RE = re.compile(
+    r"\*\s*\([^)]*\*\s*\)\s*\(\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,8 +156,11 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             "",
             "## Top Functions",
             "",
-            "| Rank | Function | EA | Score | Warnings | Rename gap | Body generics | Body offsets | Body labels | Reasons |",
-            "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+            (
+                "| Rank | Function | EA | Score | Warnings | Rename gap | Body generics | "
+                "Body offsets | Layout offsets | Non-layout offsets | Body labels | Reasons |"
+            ),
+            "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for index, item in enumerate(plan.get("items", [])[: int(plan.get("top", 25) or 25)], start=1):
@@ -155,7 +168,7 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             continue
         metrics = _coerce_dict(item.get("metrics", {}))
         lines.append(
-            "| %d | `%s` | `%s` | %.2f | %d | %d | %d | %d | %d | %s |"
+            "| %d | `%s` | `%s` | %.2f | %d | %d | %d | %d | %d | %d | %d | %s |"
             % (
                 index,
                 item.get("name", ""),
@@ -165,6 +178,8 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
                 int(metrics.get("rename_gap", 0) or 0),
                 int(metrics.get("body_generic_identifier_tokens", 0) or 0),
                 int(metrics.get("body_offset_deref_patterns", 0) or 0),
+                int(metrics.get("body_offset_deref_layout_actionable_patterns", 0) or 0),
+                int(metrics.get("body_offset_deref_bulk_noise_patterns", 0) or 0),
                 int(metrics.get("body_label_tokens", 0) or 0),
                 ", ".join("`%s`" % reason for reason in item.get("reasons", []) or []),
             )
@@ -219,8 +234,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     applied_renames = _int_value(summary.get("renames"), 0)
     partial_opportunities = _layout_partial_opportunity_counts(cleaned_text)
     body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
-    body_offset_derefs = len(OFFSET_DEREF_RE.findall(body_text))
     body_label_tokens = len(LABEL_RE.findall(body_text))
+    layout_actionable_bases = _layout_actionable_bases(cleaned_text)
+    offset_base_counts = _simple_offset_deref_base_counts(body_text)
+    simple_base_offset_derefs = sum(offset_base_counts.values())
+    legacy_offset_derefs = len(OFFSET_DEREF_RE.findall(body_text))
+    body_offset_derefs = max(legacy_offset_derefs, simple_base_offset_derefs)
+    layout_actionable_base_offset_derefs = sum(
+        count for base, count in offset_base_counts.items() if base in layout_actionable_bases
+    )
+    non_layout_base_offset_derefs = simple_base_offset_derefs - layout_actionable_base_offset_derefs
+    unmatched_base_offset_derefs = max(0, body_offset_derefs - simple_base_offset_derefs)
+    bulk_noise_offset_derefs = non_layout_base_offset_derefs + unmatched_base_offset_derefs
     layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text))
     layout_rewrite_near_ready = len(FIELD_REWRITE_NEAR_READY_RE.findall(cleaned_text))
     layout_rewrite_partial_review_only = int(partial_opportunities.get("review_only", 0))
@@ -243,21 +268,30 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             0,
             body_generic_tokens - GENERIC_RESIDUE_FULL_SCORE_LIMIT,
         ),
+        "body_offset_deref_legacy_patterns": legacy_offset_derefs,
         "body_offset_deref_patterns": body_offset_derefs,
         "body_offset_deref_overflow_patterns": max(
             0,
             body_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
         ),
-        "body_offset_deref_layout_actionable_patterns": body_offset_derefs
-        if layout_actionability_signals
-        else 0,
-        "body_offset_deref_bulk_noise_patterns": body_offset_derefs
-        if not layout_actionability_signals
-        else 0,
+        "body_offset_deref_simple_base_patterns": simple_base_offset_derefs,
+        "body_offset_deref_layout_actionable_patterns": layout_actionable_base_offset_derefs,
+        "body_offset_deref_layout_actionable_overflow_patterns": max(
+            0,
+            layout_actionable_base_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+        ),
+        "body_offset_deref_non_layout_base_patterns": non_layout_base_offset_derefs,
+        "body_offset_deref_unmatched_base_patterns": unmatched_base_offset_derefs,
+        "body_offset_deref_bulk_noise_patterns": bulk_noise_offset_derefs,
+        "body_offset_deref_bulk_noise_overflow_patterns": max(
+            0,
+            bulk_noise_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+        ),
         "body_label_tokens": body_label_tokens,
         "body_label_overflow_tokens": max(0, body_label_tokens - LABEL_RESIDUE_FULL_SCORE_LIMIT),
         "body_decimal_status_like_literals": len(DECIMAL_STATUS_RE.findall(body_text)),
         "body_hex_status_like_literals": len(HEX_STATUS_RE.findall(body_text)),
+        "layout_actionability_bases": len(layout_actionable_bases),
         "layout_actionability_signals": layout_actionability_signals,
         "layout_rewrite_blockers": layout_rewrite_blockers,
         "layout_rewrite_near_ready": layout_rewrite_near_ready,
@@ -299,6 +333,37 @@ def _layout_partial_opportunity_counts(text: str) -> Counter[str]:
     return counts
 
 
+def _layout_actionable_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for pattern in (
+        FIELD_REWRITE_BLOCKER_DETAIL_RE,
+        FIELD_REWRITE_NEAR_READY_DETAIL_RE,
+        FIELD_BASE_STABILITY_DETAIL_RE,
+        FIELD_STABLE_BASE_SOURCE_DETAIL_RE,
+    ):
+        for match in pattern.finditer(text or ""):
+            base = str(match.groupdict().get("base") or "")
+            if base:
+                bases.add(base)
+    for match in FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE.finditer(text or ""):
+        disposition = str(match.groupdict().get("disposition") or "")
+        if "Validated partial layout rewrite applied" in disposition:
+            continue
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _simple_offset_deref_base_counts(text: str) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for match in SIMPLE_OFFSET_DEREF_BASE_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            counts[base] += 1
+    return counts
+
+
 def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
@@ -335,11 +400,11 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("generic_residue")
     if metrics["body_offset_deref_patterns"] >= 10:
         reasons.append("offset_deref_residue")
-        if metrics["layout_actionability_signals"]:
+        if metrics["body_offset_deref_layout_actionable_patterns"] >= 10:
             reasons.append("layout_actionable_offset_residue")
-        else:
+        if metrics["body_offset_deref_bulk_noise_patterns"] >= 10:
             reasons.append("non_layout_offset_residue")
-            if metrics["body_offset_deref_overflow_patterns"]:
+            if metrics["body_offset_deref_bulk_noise_overflow_patterns"]:
                 reasons.append("bulk_offset_residue")
     if metrics["body_label_tokens"] >= 8:
         reasons.append("label_residue")
@@ -370,18 +435,18 @@ def _residue_score(value: int, weight: float, full_score_limit: int, overflow_we
 
 
 def _offset_deref_residue_score(metrics: dict[str, int]) -> float:
-    if metrics["layout_actionability_signals"]:
-        return _residue_score(
-            metrics["body_offset_deref_patterns"],
-            OFFSET_DEREF_LAYOUT_WEIGHT,
-            OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
-            OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT,
-        )
-    return _residue_score(
-        metrics["body_offset_deref_patterns"],
-        OFFSET_DEREF_NO_LAYOUT_WEIGHT,
-        OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
-        OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
+    layout_count = int(metrics["body_offset_deref_layout_actionable_patterns"] or 0)
+    bulk_count = int(metrics["body_offset_deref_bulk_noise_patterns"] or 0)
+    layout_full_score_count = min(layout_count, OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT)
+    layout_overflow_count = max(0, layout_count - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT)
+    remaining_full_score_capacity = max(0, OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT - layout_count)
+    bulk_full_score_count = min(bulk_count, remaining_full_score_capacity)
+    bulk_overflow_count = max(0, bulk_count - bulk_full_score_count)
+    return (
+        (layout_full_score_count * OFFSET_DEREF_LAYOUT_WEIGHT)
+        + (layout_overflow_count * OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT)
+        + (bulk_full_score_count * OFFSET_DEREF_NO_LAYOUT_WEIGHT)
+        + (bulk_overflow_count * OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT)
     )
 
 
@@ -403,6 +468,9 @@ def _score_model() -> dict[str, Any]:
                 "layout_base_stability",
                 "layout_stable_base_sources",
             ],
+            "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
+            "non_layout_base_metric": "body_offset_deref_bulk_noise_patterns",
+            "full_score_limit_is_shared": True,
             "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
             "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,
             "no_layout_overflow_weight": OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
