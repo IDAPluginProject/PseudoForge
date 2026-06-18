@@ -1478,7 +1478,36 @@ def _status_carrier_candidate_names(text: str) -> set[str]:
             continue
         if _is_status_identifier(name) or _has_status_carrier_use(text, name):
             candidates.add(name)
+
+    for name in _simple_source_candidate_names(text, candidates).intersection(profiled_literal_assignment_counts):
+        if nonstatus_literal_assignment_counts.get(name):
+            continue
+        if _target_has_bitwise_use(text, name) or _target_has_direct_arithmetic_reuse(text, name):
+            continue
+        candidates.add(name)
     return candidates
+
+
+def _simple_source_candidate_names(text: str, destinations: set[str]) -> set[str]:
+    if not destinations:
+        return set()
+
+    candidates = set(destinations)
+    alias_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?:\([^)]+\)\s*)?(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s*;"
+    )
+    changed = True
+    while changed:
+        changed = False
+        for match in alias_pattern.finditer(text):
+            alias = match.group("alias")
+            source = match.group("source")
+            if alias not in candidates or source in candidates or alias == source:
+                continue
+            candidates.add(source)
+            changed = True
+    return candidates - destinations
 
 
 def _has_status_carrier_use(text: str, name: str) -> bool:

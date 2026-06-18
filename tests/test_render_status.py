@@ -331,6 +331,9 @@ NTSTATUS __fastcall StatusCarrierLiteralSample(int a1, int a2)
   int hresultLike;
   int mixedScalar;
   int arithCarrier;
+  int aliasStatusSource;
+  int mixedAliasSource;
+  int plainAliasSource;
   int plainValue;
 
   v73 = 0;
@@ -365,6 +368,13 @@ NTSTATUS __fastcall StatusCarrierLiteralSample(int a1, int a2)
   arithCarrier = arithCarrier + 1;
   if ( arithCarrier < 0 )
     return arithCarrier;
+  aliasStatusSource = 1073741838;
+  v73 = aliasStatusSource;
+  mixedAliasSource = 1073741838;
+  mixedAliasSource = 7;
+  v73 = mixedAliasSource;
+  plainAliasSource = 1073741838;
+  plainValue = plainAliasSource;
   plainValue = -2147483643;
   if ( plainValue == -1073741675 )
     return STATUS_INVALID_PARAMETER;
@@ -777,6 +787,9 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("hresultLike = -2147024891;", rendered)
         self.assertIn("mixedScalar = 1073741849;", rendered)
         self.assertIn("arithCarrier = 1073741849;", rendered)
+        self.assertIn("aliasStatusSource = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;", rendered)
+        self.assertIn("mixedAliasSource = 1073741838;", rendered)
+        self.assertIn("plainAliasSource = 1073741838;", rendered)
         self.assertIn("plainValue = -2147483643;", rendered)
         self.assertIn("plainValue == -1073741675", rendered)
 
