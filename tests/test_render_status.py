@@ -61,12 +61,18 @@ STATUS_COMPARISON_SAMPLE = r"""
 NTSTATUS __fastcall StatusComparisonSample(int a1)
 {
   NTSTATUS sectionCreateStatus;
+  NTSTATUS v194;
+  int v195;
   int buildNumber;
 
   sectionCreateStatus = -1073741811;
   if ( sectionCreateStatus == -1073740277 )
     RtlRaiseStatus(-1073741811);
   if ( -1073740277 == sectionCreateStatus )
+    return sectionCreateStatus;
+  if ( v194 != -1073741199 )
+    return v194;
+  if ( v195 != -1073741199 )
     return sectionCreateStatus;
   if ( buildNumber == -1073740277 )
     return sectionCreateStatus;
@@ -484,6 +490,8 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("status = STATUS_INVALID_PARAMETER;", rendered)
         self.assertIn("status == STATUS_CROSS_PARTITION_VIOLATION", rendered)
         self.assertIn("STATUS_CROSS_PARTITION_VIOLATION == status", rendered)
+        self.assertIn("v194 != STATUS_VALIDATE_CONTINUE", rendered)
+        self.assertIn("v195 != -1073741199", rendered)
         self.assertIn("RtlRaiseStatus(STATUS_INVALID_PARAMETER);", rendered)
         self.assertIn("buildNumber == -1073740277", rendered)
 

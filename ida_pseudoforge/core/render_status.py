@@ -35,6 +35,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
         allow_zero=status_function and status_zero_assignment,
     )
     result = _replace_status_comparisons(result)
+    result = _replace_ntstatus_declared_comparisons(result)
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
@@ -194,6 +195,20 @@ def _replace_status_comparisons_for_names(text: str, candidates: set[str]) -> st
         return match.group("prefix") + name + match.group("operator") + match.group("name")
 
     return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _replace_ntstatus_declared_comparisons(text: str) -> str:
+    return _replace_status_comparisons_for_names(text, _ntstatus_declared_names(text))
+
+
+def _ntstatus_declared_names(text: str) -> set[str]:
+    names: set[str] = set()
+    declaration_pattern = re.compile(
+        r"(?m)^[ \t]*(?:const\s+)?NTSTATUS\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:;|=|\[)"
+    )
+    for match in declaration_pattern.finditer(text):
+        names.add(match.group("name"))
+    return names
 
 
 def _replace_status_call_result_comparisons(text: str) -> str:
