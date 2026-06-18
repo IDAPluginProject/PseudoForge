@@ -52,7 +52,13 @@ OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
 LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
 OFFSET_BASE_BREAKDOWN_LIMIT = 15
-GENERIC_OFFSET_BASE_RE = re.compile(r"(?:[av]\d+|argument\d+)\Z")
+TEMP_OFFSET_BASE_PATTERN = r"[av]\d+"
+ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN = r"(?:argument\d+|context|BugCheckParameter\d+)"
+TEMP_OFFSET_BASE_RE = re.compile(r"%s\Z" % TEMP_OFFSET_BASE_PATTERN)
+ARGUMENT_IDENTITY_OFFSET_BASE_RE = re.compile(r"%s\Z" % ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN)
+GENERIC_OFFSET_BASE_RE = re.compile(
+    r"(?:%s|%s)\Z" % (TEMP_OFFSET_BASE_PATTERN, ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN)
+)
 SIMPLE_OFFSET_DEREF_BASE_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\(\s*"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
@@ -212,6 +218,9 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
     for title, key in (
         ("Top layout-actionable bases", "top_layout_actionable_bases"),
         ("Top unannotated bases", "top_unannotated_bases"),
+        ("Top unannotated argument-identity bases", "top_unannotated_argument_identity_bases"),
+        ("Top unannotated temp bases", "top_unannotated_temp_bases"),
+        ("Top unannotated named bases", "top_unannotated_named_bases"),
     ):
         entries = breakdown.get(key, []) or []
         lines.append("### %s" % title)
@@ -253,6 +262,9 @@ def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str
 def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     layout_actionable: Counter[str] = Counter()
     unannotated: Counter[str] = Counter()
+    unannotated_argument_identity: Counter[str] = Counter()
+    unannotated_temp: Counter[str] = Counter()
+    unannotated_named: Counter[str] = Counter()
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -260,6 +272,9 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         for key, counter in (
             ("layout_actionable", layout_actionable),
             ("unannotated", unannotated),
+            ("unannotated_argument_identity", unannotated_argument_identity),
+            ("unannotated_temp", unannotated_temp),
+            ("unannotated_named", unannotated_named),
         ):
             entries = offset_base_counts.get(key, []) or []
             if not isinstance(entries, list):
@@ -278,6 +293,18 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "top_unannotated_bases": _top_counter_items(
             unannotated,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_argument_identity_bases": _top_counter_items(
+            unannotated_argument_identity,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_temp_bases": _top_counter_items(
+            unannotated_temp,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_named_bases": _top_counter_items(
+            unannotated_named,
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
     }
@@ -317,8 +344,29 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         {base: count for base, count in offset_base_counts.items() if base not in layout_actionable_bases}
     )
     non_layout_base_offset_derefs = simple_base_offset_derefs - layout_actionable_base_offset_derefs
+    unannotated_temp_base_counts = Counter(
+        {base: count for base, count in unannotated_base_counts.items() if _is_temp_offset_base(base)}
+    )
+    unannotated_argument_identity_base_counts = Counter(
+        {
+            base: count
+            for base, count in unannotated_base_counts.items()
+            if _is_argument_identity_offset_base(base)
+        }
+    )
+    unannotated_named_base_counts = Counter(
+        {
+            base: count
+            for base, count in unannotated_base_counts.items()
+            if not _is_generic_offset_base(base)
+        }
+    )
     unannotated_generic_base_offset_derefs = sum(
         count for base, count in unannotated_base_counts.items() if _is_generic_offset_base(base)
+    )
+    unannotated_temp_base_offset_derefs = sum(unannotated_temp_base_counts.values())
+    unannotated_argument_identity_base_offset_derefs = sum(
+        unannotated_argument_identity_base_counts.values()
     )
     unannotated_named_base_offset_derefs = (
         non_layout_base_offset_derefs - unannotated_generic_base_offset_derefs
@@ -363,6 +411,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "body_offset_deref_non_layout_base_patterns": non_layout_base_offset_derefs,
         "body_offset_deref_non_layout_bases": len(unannotated_base_counts),
         "body_offset_deref_unannotated_generic_base_patterns": unannotated_generic_base_offset_derefs,
+        "body_offset_deref_unannotated_temp_base_patterns": unannotated_temp_base_offset_derefs,
+        "body_offset_deref_unannotated_argument_identity_base_patterns": (
+            unannotated_argument_identity_base_offset_derefs
+        ),
         "body_offset_deref_unannotated_named_base_patterns": unannotated_named_base_offset_derefs,
         "body_offset_deref_unmatched_base_patterns": unmatched_base_offset_derefs,
         "body_offset_deref_bulk_noise_patterns": bulk_noise_offset_derefs,
@@ -403,6 +455,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "unannotated": _top_counter_items(
                 unannotated_base_counts,
                 len(unannotated_base_counts),
+            ),
+            "unannotated_argument_identity": _top_counter_items(
+                unannotated_argument_identity_base_counts,
+                len(unannotated_argument_identity_base_counts),
+            ),
+            "unannotated_temp": _top_counter_items(
+                unannotated_temp_base_counts,
+                len(unannotated_temp_base_counts),
+            ),
+            "unannotated_named": _top_counter_items(
+                unannotated_named_base_counts,
+                len(unannotated_named_base_counts),
             ),
         },
         "summary_path": str(summary_path),
@@ -468,6 +532,14 @@ def _is_generic_offset_base(base: str) -> bool:
     return bool(GENERIC_OFFSET_BASE_RE.fullmatch(base or ""))
 
 
+def _is_temp_offset_base(base: str) -> bool:
+    return bool(TEMP_OFFSET_BASE_RE.fullmatch(base or ""))
+
+
+def _is_argument_identity_offset_base(base: str) -> bool:
+    return bool(ARGUMENT_IDENTITY_OFFSET_BASE_RE.fullmatch(base or ""))
+
+
 def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
@@ -512,6 +584,10 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
                 reasons.append("unannotated_base_offset_residue")
                 if metrics["body_offset_deref_unannotated_generic_base_patterns"] >= 10:
                     reasons.append("generic_unannotated_base_offset_residue")
+                    if metrics["body_offset_deref_unannotated_temp_base_patterns"] >= 10:
+                        reasons.append("temp_unannotated_base_offset_residue")
+                    if metrics["body_offset_deref_unannotated_argument_identity_base_patterns"] >= 10:
+                        reasons.append("argument_identity_unannotated_base_offset_residue")
                 if metrics["body_offset_deref_unannotated_named_base_patterns"] >= 10:
                     reasons.append("named_unannotated_base_offset_residue")
             if metrics["body_offset_deref_unmatched_base_patterns"] >= 10:
@@ -586,6 +662,12 @@ def _score_model() -> dict[str, Any]:
                 "body_offset_deref_unannotated_generic_base_patterns"
             ),
             "unannotated_generic_base_pattern": GENERIC_OFFSET_BASE_RE.pattern,
+            "unannotated_temp_base_metric": "body_offset_deref_unannotated_temp_base_patterns",
+            "unannotated_temp_base_pattern": TEMP_OFFSET_BASE_RE.pattern,
+            "unannotated_argument_identity_base_metric": (
+                "body_offset_deref_unannotated_argument_identity_base_patterns"
+            ),
+            "unannotated_argument_identity_base_pattern": ARGUMENT_IDENTITY_OFFSET_BASE_RE.pattern,
             "unannotated_named_base_metric": "body_offset_deref_unannotated_named_base_patterns",
             "unmatched_base_metric": "body_offset_deref_unmatched_base_patterns",
             "bulk_noise_metric": "body_offset_deref_bulk_noise_patterns",

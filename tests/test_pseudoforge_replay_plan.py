@@ -63,9 +63,14 @@ __int64 __fastcall Quiet(__int64 status)
             self.assertIn("warnings", plan["items"][0]["reasons"])
             self.assertIn("offset_deref_residue", plan["items"][0]["reasons"])
             self.assertIn("generic_unannotated_base_offset_residue", plan["items"][0]["reasons"])
+            self.assertIn("temp_unannotated_base_offset_residue", plan["items"][0]["reasons"])
             self.assertEqual(
                 10,
                 plan["items"][0]["metrics"]["body_offset_deref_unannotated_generic_base_patterns"],
+            )
+            self.assertEqual(
+                10,
+                plan["items"][0]["metrics"]["body_offset_deref_unannotated_temp_base_patterns"],
             )
             self.assertIn("Hotspot", render_replay_plan_markdown(plan))
 
@@ -277,6 +282,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("non_layout_offset_residue", bulk_item["reasons"])
             self.assertIn("unannotated_base_offset_residue", bulk_item["reasons"])
             self.assertIn("named_unannotated_base_offset_residue", bulk_item["reasons"])
+            self.assertNotIn("argument_identity_unannotated_base_offset_residue", bulk_item["reasons"])
             self.assertIn("bulk_offset_residue", bulk_item["reasons"])
             self.assertNotIn("layout_actionable_offset_residue", bulk_item["reasons"])
             self.assertEqual(80, layout_item["metrics"]["body_offset_deref_layout_actionable_patterns"])
@@ -287,6 +293,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 160,
                 bulk_item["metrics"]["body_offset_deref_unannotated_named_base_patterns"],
             )
+            self.assertEqual("buffer", bulk_item["offset_base_counts"]["unannotated_named"][0]["base"])
             self.assertEqual(
                 1.0,
                 plan["score_model"]["offset_actionability"]["no_layout_weight"],
@@ -332,6 +339,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("non_layout_offset_residue", item["reasons"])
             self.assertIn("unannotated_base_offset_residue", item["reasons"])
             self.assertIn("named_unannotated_base_offset_residue", item["reasons"])
+            self.assertNotIn("argument_identity_unannotated_base_offset_residue", item["reasons"])
             self.assertIn("bulk_offset_residue", item["reasons"])
             self.assertEqual(160, item["metrics"]["body_offset_deref_patterns"])
             self.assertEqual(160, item["metrics"]["body_offset_deref_simple_base_patterns"])
@@ -342,8 +350,10 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual(140, item["metrics"]["body_offset_deref_bulk_noise_patterns"])
             self.assertEqual("other", item["offset_base_counts"]["unannotated"][0]["base"])
             self.assertEqual(140, item["offset_base_counts"]["unannotated"][0]["count"])
+            self.assertEqual("other", item["offset_base_counts"]["unannotated_named"][0]["base"])
             self.assertEqual("context", item["offset_base_counts"]["layout_actionable"][0]["base"])
             self.assertEqual("other", plan["offset_base_breakdown"]["top_unannotated_bases"][0]["base"])
+            self.assertEqual("other", plan["offset_base_breakdown"]["top_unannotated_named_bases"][0]["base"])
             self.assertEqual(
                 item["metrics"]["body_offset_deref_patterns"],
                 item["metrics"]["body_offset_deref_layout_actionable_patterns"]
@@ -417,10 +427,22 @@ __int64 __fastcall ValidatedPartial(__int64 context)
 
             item = plan["items"][0]
             self.assertIn("generic_unannotated_base_offset_residue", item["reasons"])
+            self.assertIn("argument_identity_unannotated_base_offset_residue", item["reasons"])
             self.assertNotIn("named_unannotated_base_offset_residue", item["reasons"])
             self.assertEqual(12, item["metrics"]["body_offset_deref_unannotated_generic_base_patterns"])
+            self.assertEqual(
+                12,
+                item["metrics"]["body_offset_deref_unannotated_argument_identity_base_patterns"],
+            )
             self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_named_base_patterns"])
+            self.assertEqual("argument0", item["offset_base_counts"]["unannotated_argument_identity"][0]["base"])
             self.assertIn("argument", plan["score_model"]["offset_actionability"]["unannotated_generic_base_pattern"])
+            self.assertIn(
+                "argument",
+                plan["score_model"]["offset_actionability"][
+                    "unannotated_argument_identity_base_pattern"
+                ],
+            )
 
 
 def _write_function(
