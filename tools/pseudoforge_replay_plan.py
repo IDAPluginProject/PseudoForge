@@ -37,6 +37,13 @@ from tools.pseudoforge_corpus_quality import (
     _strip_pseudoforge_header,
 )
 
+GENERIC_RESIDUE_FULL_SCORE_LIMIT = 1000
+GENERIC_RESIDUE_OVERFLOW_WEIGHT = 0.002
+OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT = 120
+OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT = 0.25
+LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
+LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
@@ -107,6 +114,7 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
         "selected_count": len(selected),
         "candidate_count": len(items),
         "reason_counts": dict(sorted(reason_counts.items())),
+        "score_model": _score_model(),
         "items": selected,
         "top": int(top),
         "recommended_commands": _recommended_commands(str(root), "replay-eas.txt"),
@@ -207,14 +215,26 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     rename_candidates = _int_value(summary.get("rename_candidates"), 0)
     applied_renames = _int_value(summary.get("renames"), 0)
     partial_opportunities = _layout_partial_opportunity_counts(cleaned_text)
+    body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
+    body_offset_derefs = len(OFFSET_DEREF_RE.findall(body_text))
+    body_label_tokens = len(LABEL_RE.findall(body_text))
     metrics = {
         "warnings": _int_value(summary.get("warnings"), len(warnings)),
         "rename_candidates": rename_candidates,
         "applied_renames": applied_renames,
         "rename_gap": max(0, rename_candidates - applied_renames),
-        "body_generic_identifier_tokens": len(GENERIC_IDENTIFIER_RE.findall(body_text)),
-        "body_offset_deref_patterns": len(OFFSET_DEREF_RE.findall(body_text)),
-        "body_label_tokens": len(LABEL_RE.findall(body_text)),
+        "body_generic_identifier_tokens": body_generic_tokens,
+        "body_generic_identifier_overflow_tokens": max(
+            0,
+            body_generic_tokens - GENERIC_RESIDUE_FULL_SCORE_LIMIT,
+        ),
+        "body_offset_deref_patterns": body_offset_derefs,
+        "body_offset_deref_overflow_patterns": max(
+            0,
+            body_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+        ),
+        "body_label_tokens": body_label_tokens,
+        "body_label_overflow_tokens": max(0, body_label_tokens - LABEL_RESIDUE_FULL_SCORE_LIMIT),
         "body_decimal_status_like_literals": len(DECIMAL_STATUS_RE.findall(body_text)),
         "body_hex_status_like_literals": len(HEX_STATUS_RE.findall(body_text)),
         "layout_rewrite_blockers": len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text)),
@@ -262,9 +282,24 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     reasons: list[str] = []
     score += metrics["warnings"] * 4.0
     score += metrics["rename_gap"] * 1.5
-    score += metrics["body_generic_identifier_tokens"] * 0.02
-    score += metrics["body_offset_deref_patterns"] * 2.0
-    score += metrics["body_label_tokens"] * 1.0
+    score += _residue_score(
+        metrics["body_generic_identifier_tokens"],
+        0.02,
+        GENERIC_RESIDUE_FULL_SCORE_LIMIT,
+        GENERIC_RESIDUE_OVERFLOW_WEIGHT,
+    )
+    score += _residue_score(
+        metrics["body_offset_deref_patterns"],
+        2.0,
+        OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+        OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT,
+    )
+    score += _residue_score(
+        metrics["body_label_tokens"],
+        1.0,
+        LABEL_RESIDUE_FULL_SCORE_LIMIT,
+        LABEL_RESIDUE_OVERFLOW_WEIGHT,
+    )
     score += metrics["body_decimal_status_like_literals"] * 6.0
     score += metrics["body_hex_status_like_literals"] * 3.0
     score += metrics["layout_rewrite_blockers"] * 10.0
@@ -285,6 +320,12 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("offset_deref_residue")
     if metrics["body_label_tokens"] >= 8:
         reasons.append("label_residue")
+    if (
+        metrics["body_generic_identifier_overflow_tokens"]
+        or metrics["body_offset_deref_overflow_patterns"]
+        or metrics["body_label_overflow_tokens"]
+    ):
+        reasons.append("bulk_residue_saturation")
     if metrics["body_decimal_status_like_literals"] or metrics["body_hex_status_like_literals"]:
         reasons.append("status_literal_residue")
     if metrics["layout_rewrite_blockers"]:
@@ -296,6 +337,26 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     if metrics["llm_fallback"]:
         reasons.append("llm_fallback")
     return score, reasons or ["baseline_sample"]
+
+
+def _residue_score(value: int, weight: float, full_score_limit: int, overflow_weight: float) -> float:
+    normalized = max(0, int(value or 0))
+    full_score_value = min(normalized, full_score_limit)
+    overflow_value = max(0, normalized - full_score_limit)
+    return (full_score_value * weight) + (overflow_value * overflow_weight)
+
+
+def _score_model() -> dict[str, Any]:
+    return {
+        "bulk_residue_saturation": {
+            "generic_identifier_full_score_limit": GENERIC_RESIDUE_FULL_SCORE_LIMIT,
+            "generic_identifier_overflow_weight": GENERIC_RESIDUE_OVERFLOW_WEIGHT,
+            "offset_deref_full_score_limit": OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+            "offset_deref_overflow_weight": OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT,
+            "label_full_score_limit": LABEL_RESIDUE_FULL_SCORE_LIMIT,
+            "label_overflow_weight": LABEL_RESIDUE_OVERFLOW_WEIGHT,
+        }
+    }
 
 
 def _recommended_commands(corpus_root: str, ea_file_name: str) -> list[str]:

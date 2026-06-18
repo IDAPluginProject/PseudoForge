@@ -140,6 +140,68 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual(0, validated["metrics"]["layout_rewrite_partial_review_only"])
             self.assertEqual(1, validated["metrics"]["layout_rewrite_partial_validated_applied"])
 
+    def test_replay_plan_saturates_bulk_residue_score(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            wide_label_body = "\n".join(
+                ["__int64 __fastcall WideResidue(__int64 a1)", "{"]
+                + [
+                    line
+                    for index in range(250)
+                    for line in (
+                        "  v%d = a1;" % index,
+                        "  if ( v%d )" % index,
+                        "    goto LABEL_%d;" % index,
+                        "LABEL_%d:" % index,
+                    )
+                ]
+                + ["  return v249;", "}"]
+            )
+            targeted_layout_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for context: base identity unresolved. Review-only aliases remain available. confidence=0.64",
+                    "*/",
+                    "__int64 __fastcall TargetedLayout(__int64 context)",
+                    "{",
+                ]
+                + [
+                    "  v%d = *(_QWORD *)(context + %d);" % (index, 16 + (index * 8))
+                    for index in range(90)
+                ]
+                + ["  return v89;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="WideResidue",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=wide_label_body,
+            )
+            _write_function(
+                root,
+                ea="0x140002000",
+                name="TargetedLayout",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=targeted_layout_body,
+            )
+
+            plan = build_replay_plan(root, limit=2)
+
+            self.assertEqual("TargetedLayout", plan["items"][0]["name"])
+            wide_item = next(item for item in plan["items"] if item["name"] == "WideResidue")
+            self.assertIn("bulk_residue_saturation", wide_item["reasons"])
+            self.assertGreater(wide_item["metrics"]["body_label_overflow_tokens"], 0)
+            self.assertEqual(
+                120,
+                plan["score_model"]["bulk_residue_saturation"]["label_full_score_limit"],
+            )
+
 
 def _write_function(
     root: Path,
