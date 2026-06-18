@@ -42,6 +42,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_guard_dispatch_status_ternary_fallbacks(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
+    result = _replace_status_pointer_store_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
     result = _replace_status_carrier_literals(result)
@@ -443,6 +444,91 @@ def _replace_error_status_argument(argument: str) -> str:
     if not name:
         return argument
     return match.group("prefix") + name + match.group("tail")
+
+
+def _replace_status_pointer_store_literals(text: str) -> str:
+    candidates = _status_pointer_store_candidate_names(text)
+    if not candidates:
+        return text
+
+    pattern = re.compile(
+        r"(?m)(?P<prefix>^[ \t]*\*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        if match.group("target") not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("end")
+
+    return pattern.sub(repl, text)
+
+
+def _status_pointer_store_candidate_names(text: str) -> set[str]:
+    pointer_types = _named_pointer_types(text)
+    if not pointer_types:
+        return set()
+
+    error_store_counts: dict[str, int] = {}
+    store_pattern = re.compile(
+        r"(?m)^[ \t]*\*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;"
+    )
+    for match in store_pattern.finditer(text):
+        target = match.group("target")
+        if target not in pointer_types:
+            continue
+        if not _error_status_name_for_literal(match.group("literal")):
+            continue
+        error_store_counts[target] = error_store_counts.get(target, 0) + 1
+
+    candidates: set[str] = set()
+    for name, count in error_store_counts.items():
+        pointer_type = pointer_types.get(name, "")
+        if _is_strong_status_pointer_type(pointer_type):
+            candidates.add(name)
+            continue
+        if _is_status_identifier(name):
+            candidates.add(name)
+            continue
+        if count >= 2:
+            candidates.add(name)
+    return candidates
+
+
+def _named_pointer_types(text: str) -> dict[str, str]:
+    names: dict[str, str] = {}
+    pntstatus_pattern = re.compile(r"\bPNTSTATUS\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b")
+    for match in pntstatus_pattern.finditer(text):
+        names[match.group("name")] = "PNTSTATUS"
+
+    pointer_pattern = re.compile(
+        r"\b(?P<type>unsigned\s+int|signed\s+int|int|unsigned\s+long|long|ULONG|LONG|DWORD|_DWORD|NTSTATUS)"
+        r"\s*\*\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b",
+        flags=re.IGNORECASE,
+    )
+    for match in pointer_pattern.finditer(text):
+        normalized = _normalize_scalar_type(match.group("type"))
+        if normalized in {
+            "INT",
+            "UNSIGNED INT",
+            "LONG",
+            "UNSIGNED LONG",
+            "ULONG",
+            "DWORD",
+            "_DWORD",
+            "NTSTATUS",
+        }:
+            names.setdefault(match.group("name"), normalized)
+    return names
+
+
+def _is_strong_status_pointer_type(type_text: str) -> bool:
+    normalized = _normalize_scalar_type(type_text)
+    return normalized in {"NTSTATUS", "PNTSTATUS"}
 
 
 def _replace_32bit_error_status_literals(text: str, capture: FunctionCapture | None) -> str:

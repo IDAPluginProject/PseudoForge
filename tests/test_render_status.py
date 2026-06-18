@@ -250,6 +250,28 @@ void __fastcall StatusArgumentSample(__int64 a1)
 """
 
 
+STATUS_POINTER_STORE_SAMPLE = r"""
+void __fastcall StatusPointerStoreSample(
+        int *accessStatus,
+        int *plainValue,
+        NTSTATUS *strongStatus,
+        int *singleStatus,
+        int *computedValue,
+        int a6)
+{
+  *accessStatus = -1073741790;
+  *accessStatus = 0;
+  *accessStatus = -1073741811;
+  *plainValue = -1073741790;
+  *plainValue = 5;
+  *strongStatus = -1073741275;
+  *singleStatus = -1073741790;
+  *computedValue = -1073741790;
+  *computedValue = a6;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -486,6 +508,19 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         )
         self.assertIn("SetFailureLocation(argument0, 1, 34, 1073741833, 32);", rendered)
         self.assertIn("TraceFailureLocation(argument0, 1, 34, -1073741492, 96);", rendered)
+
+    def test_status_pointer_store_literals_are_named_for_status_out_params(self) -> None:
+        capture = capture_from_pseudocode(STATUS_POINTER_STORE_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("*argument0 = STATUS_ACCESS_DENIED;", rendered)
+        self.assertIn("*argument0 = 0;", rendered)
+        self.assertIn("*argument0 = STATUS_INVALID_PARAMETER;", rendered)
+        self.assertIn("*strongStatus = STATUS_NOT_FOUND;", rendered)
+        self.assertIn("*singleStatus = STATUS_ACCESS_DENIED;", rendered)
+        self.assertIn("*plainValue = -1073741790;", rendered)
+        self.assertIn("*computedValue = -1073741790;", rendered)
 
 
 if __name__ == "__main__":
