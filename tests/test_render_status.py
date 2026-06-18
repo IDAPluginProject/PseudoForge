@@ -140,6 +140,9 @@ STATUS_CALL_RESULT_COMPARISON_SAMPLE = r"""
 NTSTATUS __fastcall StatusCallResultComparisonSample(HANDLE handle, int a1)
 {
   int scratch;
+  int internalStatus;
+  int zwStatus;
+  int plainResult;
 
   if ( ZwQuerySecurityObject(handle, 4u, 0LL, 0, &scratch) == -1073741789 )
     return STATUS_BUFFER_TOO_SMALL;
@@ -147,6 +150,15 @@ NTSTATUS __fastcall StatusCallResultComparisonSample(HANDLE handle, int a1)
     return STATUS_NOT_FOUND;
   if ( -1073741789 == (unsigned int)InternalStatusQuery(a1) )
     return STATUS_BUFFER_TOO_SMALL;
+  internalStatus = InternalStatusQuery(a1);
+  if ( internalStatus == -1073739509 )
+    return internalStatus;
+  zwStatus = ZwQuerySecurityObject(handle, 4u, 0LL, 0, &scratch);
+  if ( zwStatus != -1073741789 )
+    return zwStatus;
+  plainResult = PlainIntegerCall(a1);
+  if ( plainResult == -1073739509 )
+    scratch = 3;
   if ( PlainIntegerCall(a1) == -1073741789 )
     scratch = 1;
   if ( (unsigned int)sub_140001000(a1) == -1073741789 )
@@ -421,6 +433,9 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("ZwQuerySecurityObject(handle, 4u, 0LL, 0, &scratch) == STATUS_BUFFER_TOO_SMALL", rendered)
         self.assertIn("(unsigned int)InternalStatusQuery(argument1) != STATUS_NOT_FOUND", rendered)
         self.assertIn("STATUS_BUFFER_TOO_SMALL == (unsigned int)InternalStatusQuery(argument1)", rendered)
+        self.assertIn("internalStatus == STATUS_BAD_DATA", rendered)
+        self.assertIn("zwStatus != STATUS_BUFFER_TOO_SMALL", rendered)
+        self.assertIn("plainResult == -1073739509", rendered)
         self.assertIn("PlainIntegerCall(argument1) == -1073741789", rendered)
         self.assertIn("(unsigned int)sub_140001000(argument1) == -1073741789", rendered)
 

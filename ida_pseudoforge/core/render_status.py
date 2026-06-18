@@ -226,6 +226,31 @@ def _replace_status_call_result_literal_first(match: re.Match[str]) -> str:
     return match.group(0).replace(match.group("literal") + (match.group("suffix") or ""), name, 1)
 
 
+def _trusted_status_call_result_callee_names(text: str) -> set[str]:
+    result: set[str] = set()
+    patterns = (
+        re.compile(
+            r"(?P<cast>\(\s*(?:unsigned\s+int|int|NTSTATUS|ULONG|LONG)\s*\)\s*)?"
+            r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\([^;\n]*?\)\s*(?:==|!=)\s*"
+            r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+        ),
+        re.compile(
+            r"(?<![A-Za-z0-9_])(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+            r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*(?:==|!=)\s*"
+            r"(?P<cast>\(\s*(?:unsigned\s+int|int|NTSTATUS|ULONG|LONG)\s*\)\s*)?"
+            r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\([^;\n]*?\)"
+        ),
+    )
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            if not _error_status_name_for_literal(match.group("literal")):
+                continue
+            callee = match.group("callee")
+            if _is_trusted_status_call_result_comparison(callee, match.group("cast")):
+                result.add(callee)
+    return result
+
+
 def _is_trusted_status_call_result_comparison(callee: str, cast: str | None) -> bool:
     name = str(callee or "")
     if _is_untrusted_call_result_name(name):
@@ -496,13 +521,15 @@ def _is_status_identifier(name: str) -> bool:
 
 
 def _status_flow_candidate_names(text: str) -> set[str]:
-    call_result_names = {
-        match.group("name")
-        for match in re.finditer(
-            r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(",
+    call_assignments = list(
+        re.finditer(
+            r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+            r"(?P<cast>\(\s*(?:unsigned\s+int|int|NTSTATUS|ULONG|LONG)\s*\)\s*)?"
+            r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
             text,
         )
-    }
+    )
+    call_result_names = {match.group("name") for match in call_assignments}
     if not call_result_names:
         return set()
 
@@ -511,7 +538,18 @@ def _status_flow_candidate_names(text: str) -> set[str]:
         range_checked_names.add(match.group("name"))
     for match in re.finditer(r"\b0\s*(?:>|<=)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b", text):
         range_checked_names.add(match.group("name"))
-    return call_result_names.intersection(range_checked_names)
+
+    candidates = call_result_names.intersection(range_checked_names)
+    trusted_callees = _trusted_status_call_result_callee_names(text)
+    for match in call_assignments:
+        name = match.group("name")
+        callee = match.group("callee")
+        cast = match.group("cast")
+        if _target_has_bitwise_use(text, name):
+            continue
+        if callee in trusted_callees or _is_trusted_status_call_result_comparison(callee, cast):
+            candidates.add(name)
+    return candidates
 
 
 def _guard_dispatch_status_candidate_names(text: str) -> set[str]:
