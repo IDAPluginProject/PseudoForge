@@ -336,6 +336,12 @@ __int64 __fastcall NestedStatusStore(__int64 argument0, __int64 argument1)
             ),
         )
         self.assertEqual(
+            ["base_stability_blockers", "address_taken_base_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["base address is taken"]
+            ),
+        )
+        self.assertEqual(
             ["threshold_gap_candidates", "offset_threshold_gap_candidates"],
             _layout_rewrite_blocker_review_profiles(
                 ["rewrite offset threshold requires at least 8 offsets"]
@@ -357,6 +363,12 @@ __int64 __fastcall NestedStatusStore(__int64 argument0, __int64 argument1)
             ["type_evidence_blockers", "wide_overlay_type_blockers"],
             _layout_rewrite_blocker_review_profiles(
                 ["one or more offsets mix wide overlay access widths"]
+            ),
+        )
+        self.assertEqual(
+            ["type_evidence_blockers", "irregular_overlay_type_blockers"],
+            _layout_rewrite_blocker_review_profiles(
+                ["one or more offsets mix irregular field access widths"]
             ),
         )
         self.assertEqual(

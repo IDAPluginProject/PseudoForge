@@ -44,9 +44,11 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "base_stability_blockers",
     "multiple_initializer_base_blockers",
     "reassigned_base_blockers",
+    "address_taken_base_blockers",
     "type_evidence_blockers",
     "narrow_subfield_type_blockers",
     "wide_overlay_type_blockers",
+    "irregular_overlay_type_blockers",
     "alignment_type_blockers",
     "threshold_gap_candidates",
     "offset_threshold_gap_candidates",
@@ -5941,12 +5943,18 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
         if "reassigned" in lowered:
             profiles.add("base_stability_blockers")
             profiles.add("reassigned_base_blockers")
+        if "address is taken" in lowered:
+            profiles.add("base_stability_blockers")
+            profiles.add("address_taken_base_blockers")
         if "mix narrow" in lowered:
             profiles.add("type_evidence_blockers")
             profiles.add("narrow_subfield_type_blockers")
         if "mix wide" in lowered:
             profiles.add("type_evidence_blockers")
             profiles.add("wide_overlay_type_blockers")
+        if "irregular field" in lowered:
+            profiles.add("type_evidence_blockers")
+            profiles.add("irregular_overlay_type_blockers")
         if "not naturally aligned" in lowered:
             profiles.add("type_evidence_blockers")
             profiles.add("alignment_type_blockers")
