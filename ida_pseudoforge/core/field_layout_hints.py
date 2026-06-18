@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
 
 _OFFSET_DEREF_RE = re.compile(
-    r"\*\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*\*\s*\)\s*"
+    r"\*\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
@@ -76,6 +78,10 @@ _BASE_STABILITY_BLOCKER_FRAGMENTS = (
     "indexed like an array",
 )
 _MAX_BASE_STABILITY_RHS_SAMPLES = 4
+_HOT_FIELD_CLUSTER_MIN_OFFSETS = 2
+_HOT_FIELD_CLUSTER_MAX_OFFSETS = 7
+_HOT_FIELD_CLUSTER_MIN_ACCESSES = 16
+_HOT_FIELD_CLUSTER_MIN_TOP_OFFSET_ACCESSES = 6
 _LAYOUT_TYPE_STORAGE_SIZES = {
     "__int8": 1,
     "signed __int8": 1,
@@ -135,6 +141,7 @@ _LAYOUT_TYPE_STORAGE_SIZES = {
 class _LayoutEvidence:
     base: str
     offsets: dict[int, set[str]] = field(default_factory=dict)
+    offset_access_counts: Counter[int] = field(default_factory=Counter)
     access_count: int = 0
 
 
@@ -147,7 +154,9 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
     ]
     candidates.sort(key=lambda item: (-len(item.offsets), -item.access_count, item.base.lower()))
     comments = []
-    for item in candidates[:max(0, int(max_comments or 0))]:
+    selected_candidates = candidates[:max(0, int(max_comments or 0))]
+    selected_bases = {item.base for item in selected_candidates}
+    for item in selected_candidates:
         comments.append(_comment_from_layout(item))
         preview = _field_preview_comment_from_layout(item)
         if preview:
@@ -192,6 +201,21 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                         rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready)
                         if rewrite_preview:
                             comments.append(rewrite_preview)
+    hot_clusters = [
+        item
+        for item in layouts.values()
+        if item.base not in selected_bases and _has_hot_field_cluster_evidence(item)
+    ]
+    hot_clusters.sort(
+        key=lambda item: (
+            -item.access_count,
+            -_hot_field_cluster_top_offset_access_count(item),
+            -len(item.offsets),
+            item.base.lower(),
+        )
+    )
+    for item in hot_clusters[:max(0, int(max_comments or 0))]:
+        comments.append(_field_hot_cluster_comment_from_layout(item))
     return comments
 
 
@@ -204,11 +228,15 @@ def _collect_layouts(text: str) -> dict[str, _LayoutEvidence]:
         offset = _parse_offset(match.group("offset"))
         if offset is None or offset <= 0:
             continue
-        type_name = _normalize_type_name(match.group("type"))
+        type_name = _normalize_offset_access_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
         if not type_name:
             continue
         layout = layouts.setdefault(base, _LayoutEvidence(base=base))
         layout.access_count += 1
+        layout.offset_access_counts[offset] += 1
         layout.offsets.setdefault(offset, set()).add(type_name)
     return layouts
 
@@ -302,6 +330,47 @@ def _field_alias_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] 
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
+        "fields": fields,
+    }
+
+
+def _field_hot_cluster_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
+    base_kind = _layout_base_kind(layout.base)
+    fields = _hot_field_cluster_fields(layout)
+    field_text = "; ".join(
+        "%s=+0x%X %s x%d" % (
+            item["name"],
+            item["offset"],
+            item["type"],
+            item["access_count"],
+        )
+        for item in fields[:6]
+    )
+    if len(fields) > 6:
+        field_text += "; ..."
+    confidence = min(
+        _field_hot_cluster_confidence_cap_for_base_kind(base_kind),
+        (
+            0.58
+            + min(layout.access_count, 40) * 0.004
+            + min(_hot_field_cluster_top_offset_access_count(layout), 16) * 0.006
+            + len(layout.offsets) * 0.005
+        ),
+    )
+    return {
+        "kind": "inferred_offset_field_hot_cluster",
+        "text": _field_hot_cluster_text(
+            layout.base,
+            base_kind,
+            layout.access_count,
+            len(layout.offsets),
+            field_text,
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "access_count": layout.access_count,
+        "offset_count": len(layout.offsets),
         "fields": fields,
     }
 
@@ -948,6 +1017,42 @@ def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
     return fields
 
 
+def _hot_field_cluster_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
+    fields = []
+    for offset, access_count in sorted(
+        layout.offset_access_counts.items(),
+        key=lambda item: (-int(item[1]), int(item[0])),
+    ):
+        fields.append(
+            {
+                "offset": int(offset),
+                "name": "field_%X" % int(offset),
+                "type": _preview_type_name(layout.offsets.get(int(offset), set())),
+                "access_count": int(access_count),
+            }
+        )
+    return fields
+
+
+def _has_hot_field_cluster_evidence(layout: _LayoutEvidence) -> bool:
+    if _has_enough_layout_evidence(layout):
+        return False
+    offset_count = len(layout.offsets)
+    if offset_count < _HOT_FIELD_CLUSTER_MIN_OFFSETS:
+        return False
+    if offset_count > _HOT_FIELD_CLUSTER_MAX_OFFSETS:
+        return False
+    if layout.access_count < _HOT_FIELD_CLUSTER_MIN_ACCESSES:
+        return False
+    return _hot_field_cluster_top_offset_access_count(layout) >= _HOT_FIELD_CLUSTER_MIN_TOP_OFFSET_ACCESSES
+
+
+def _hot_field_cluster_top_offset_access_count(layout: _LayoutEvidence) -> int:
+    if not layout.offset_access_counts:
+        return 0
+    return max(int(value) for value in layout.offset_access_counts.values())
+
+
 def _layout_rewrite_access_count(text: str, layout: _LayoutEvidence) -> int:
     count = 0
     offsets = set(layout.offsets)
@@ -1330,6 +1435,19 @@ def _normalize_type_name(type_name: str) -> str:
     return text
 
 
+def _normalize_offset_access_type(type_name: str, pointer_stars: str) -> str:
+    text = _normalize_type_name(type_name)
+    if not text:
+        return ""
+    pointer_depth = len(str(pointer_stars or ""))
+    if pointer_depth <= 1:
+        return text
+    pointer_text = "%s %s" % (text, "*" * (pointer_depth - 1))
+    if len(pointer_text) > 48:
+        return ""
+    return pointer_text
+
+
 def _is_scalar_like_base(name: str) -> bool:
     lower = str(name or "").lower()
     if lower in _SCALAR_BASE_WORDS:
@@ -1399,6 +1517,18 @@ def _field_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
     if base_kind == "bugcheck":
         return 0.66
     return 0.78
+
+
+def _field_hot_cluster_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.70
+    if base_kind == "generic":
+        return 0.72
+    if base_kind == "argument":
+        return 0.70
+    if base_kind == "bugcheck":
+        return 0.68
+    return 0.74
 
 
 def _field_subfield_overlay_confidence_cap_for_base_kind(base_kind: str) -> float:
@@ -1515,6 +1645,32 @@ def _field_alias_text(base: str, base_kind: str, alias_text: str) -> str:
         "Alias map for %s: %s. Use as review-only shorthand for repeated offset dereferences."
         % (base, alias_text)
     )
+
+
+def _field_hot_cluster_text(
+    base: str,
+    base_kind: str,
+    access_count: int,
+    offset_count: int,
+    field_text: str,
+) -> str:
+    return (
+        "Hot field cluster for %s (%s base): %d typed dereference(s) concentrated in %d offset(s); top fields %s. "
+        "Review-only access-pressure evidence; no structure type or body rewrite was inferred."
+        % (base, _field_hot_cluster_base_kind_label(base_kind), access_count, offset_count, field_text)
+    )
+
+
+def _field_hot_cluster_base_kind_label(base_kind: str) -> str:
+    if base_kind == "temp":
+        return "temporary"
+    if base_kind == "generic":
+        return "generic"
+    if base_kind == "argument":
+        return "argument identity"
+    if base_kind == "bugcheck":
+        return "bugcheck parameter"
+    return "named"
 
 
 def _field_subfield_overlay_text(base: str, base_kind: str, overlay_text: str) -> str:
@@ -1779,6 +1935,8 @@ def _has_unaligned_field_access(layout: _LayoutEvidence) -> bool:
 def _field_type_storage_class(type_name: str) -> str:
     normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
     lowered = normalized.lower()
+    if normalized.endswith("*"):
+        return "size:8"
     size = _LAYOUT_TYPE_STORAGE_SIZES.get(lowered)
     if size:
         return "size:%d" % size
@@ -1800,6 +1958,8 @@ def _field_type_storage_size(type_name: str) -> int:
 def _natural_type_alignment(type_name: str) -> int:
     normalized = " ".join(str(type_name or "").replace("volatile ", "").replace("const ", "").split())
     lowered = normalized.lower()
+    if normalized.endswith("*"):
+        return 8
     size = _LAYOUT_TYPE_STORAGE_SIZES.get(lowered)
     if size:
         return size

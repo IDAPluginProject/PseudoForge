@@ -26,6 +26,7 @@ CLEANED = r"""
       - inferred_offset_layout: Offset layout hint: sessionSpace has 6 typed dereference(s) across 3 offset(s) +0x10, +0x18, +0x20; observed types: _DWORD, _QWORD. Review as an inferred structure base. confidence=0.83
       - inferred_offset_field_preview: Preview fields for sessionSpace: +0x10 _DWORD field_10; +0x18 _QWORD field_18; +0x20 _BYTE field_20; +0x28 _DWORD field_28; +0x30 _WORD field_30. Preview only; no IDB type or pseudocode rewrite was applied. confidence=0.81
       - inferred_offset_field_aliases: Alias map for sessionSpace: field_10=+0x10 _DWORD; field_18=+0x18 _QWORD; field_20=+0x20 _BYTE; field_28=+0x28 _DWORD; field_30=+0x30 _WORD. Use as review-only shorthand for repeated offset dereferences. confidence=0.73
+      - inferred_offset_field_hot_cluster: Hot field cluster for context (generic base): 27 typed dereference(s) concentrated in 6 offset(s); top fields field_20=+0x20 _DWORD x10; field_18=+0x18 _QWORD x8; field_28=+0x28 _QWORD * x4. Review-only access-pressure evidence; no structure type or body rewrite was inferred. confidence=0.72
       - inferred_offset_subfield_overlays: Subfield overlay evidence for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate masks=0xF,0xF00F,0xFFF0 ops=test_mask,clear_mask families=low_nibble,preserve_outer_nibbles,clear_low_nibble]. Review-only; field rewrite remains blocked for mixed-width offsets. confidence=0.72
       - inferred_offset_narrow_subfields: Narrow subfield candidates for sessionSpace: +0x20 field_20 uses 1/2-byte accesses (_BYTE/_WORD) [bitfield_candidate masks=0xF,0xF00F,0xFFF0 ops=test_mask,clear_mask families=low_nibble,preserve_outer_nibbles,clear_low_nibble]. Audit-only; body rewrite remains disabled until the parent structure is trusted. confidence=0.72
       - inferred_offset_bitfield_aliases: Bitfield aliases for sessionSpace: field_20=+0x20 bitfield_low_nibble/bitfield_preserve_outer_nibbles/bitfield_clear_low_nibble masks=0xF,0xF00F,0xFFF0. Review-only names; body rewrite remains disabled until the parent structure is trusted. confidence=0.73
@@ -973,6 +974,19 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 1,
                 report["layout_bitfield_alias_stats"]["top_functions"][0]["top_masks"]["0xF"],
             )
+            hot_cluster_stats = report["layout_hot_field_cluster_stats"]
+            self.assertEqual(1, hot_cluster_stats["totals"]["cluster_comments"])
+            self.assertEqual(1, hot_cluster_stats["totals"]["functions_with_cluster_comments"])
+            self.assertEqual(27, hot_cluster_stats["totals"]["access_observations"])
+            self.assertEqual(6, hot_cluster_stats["totals"]["offset_observations"])
+            self.assertEqual(3, hot_cluster_stats["totals"]["field_observations"])
+            self.assertEqual(1, hot_cluster_stats["top_bases"]["context"])
+            self.assertEqual(1, hot_cluster_stats["base_kinds"]["generic"])
+            self.assertEqual(1, hot_cluster_stats["field_types"]["_DWORD"])
+            self.assertEqual(1, hot_cluster_stats["field_types"]["_QWORD *"])
+            self.assertEqual("Sample", hot_cluster_stats["top_functions"][0]["name"])
+            self.assertEqual(27, hot_cluster_stats["top_functions"][0]["max_access_count"])
+            self.assertEqual(10, hot_cluster_stats["top_functions"][0]["max_top_field_access_count"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["ready_candidates"])
             self.assertEqual(1, report["layout_rewrite_ready_stats"]["totals"]["functions_with_ready_candidates"])
             self.assertEqual(8, report["layout_rewrite_ready_stats"]["totals"]["offset_observations"])
@@ -1334,6 +1348,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(2, report["text_stats"]["inferred_offset_layout_hints"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_previews"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_field_aliases"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_field_hot_clusters"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_subfield_overlays"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_narrow_subfields"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_bitfield_aliases"])
@@ -1575,6 +1590,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
             )
             self.assertNotIn("inferred_offset_layout_hints", report["body_text_stats"])
             self.assertNotIn("inferred_offset_field_aliases", report["body_text_stats"])
+            self.assertNotIn("inferred_offset_field_hot_clusters", report["body_text_stats"])
             self.assertNotIn("inferred_offset_subfield_overlays", report["body_text_stats"])
             self.assertNotIn("inferred_offset_narrow_subfields", report["body_text_stats"])
             self.assertNotIn("inferred_offset_bitfield_aliases", report["body_text_stats"])

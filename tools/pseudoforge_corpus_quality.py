@@ -87,6 +87,16 @@ _STATUS_STORE_REVIEW_QUEUE_ORDER = (
 )
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
+FIELD_HOT_CLUSTER_RE = re.compile(r"-\s+inferred_offset_field_hot_cluster:")
+FIELD_HOT_CLUSTER_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_field_hot_cluster:\s+Hot field cluster for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s+\((?P<base_kind>[a-z ]+)\s+base\):\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+concentrated in\s+"
+    r"(?P<offset_count>\d+)\s+offset\(s\);\s+top fields\s+"
+    r"(?P<fields>.*?)\.\s+Review-only access-pressure evidence;\s+"
+    r"no structure type or body rewrite was inferred\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
 FIELD_SUBFIELD_OVERLAY_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_subfield_overlays:\s+"
@@ -167,6 +177,10 @@ SUBFIELD_OVERLAY_FIELD_RE = re.compile(
 BITFIELD_ALIAS_FIELD_RE = re.compile(
     r"field_(?P<offset>[0-9A-Fa-f]+)=\+0x[0-9A-Fa-f]+\s+"
     r"(?P<aliases>[A-Za-z0-9_/,]+)\s+masks=(?P<masks>[0-9A-Fa-fx,]+|unknown)"
+)
+HOT_CLUSTER_FIELD_RE = re.compile(
+    r"(?P<name>field_[0-9A-Fa-f]+)=\+0x(?P<offset>[0-9A-Fa-f]+)\s+"
+    r"(?P<type>.*?)\s+x(?P<access_count>\d+)$"
 )
 FIELD_REWRITE_READY_RE = re.compile(r"-\s+inferred_offset_rewrite_ready:")
 FIELD_REWRITE_READY_DETAIL_RE = re.compile(
@@ -352,6 +366,10 @@ def analyze_corpus(
     bitfield_alias_names: Counter[str] = Counter()
     bitfield_alias_masks: Counter[str] = Counter()
     bitfield_alias_totals = Counter()
+    hot_field_cluster_bases: Counter[str] = Counter()
+    hot_field_cluster_base_kinds: Counter[str] = Counter()
+    hot_field_cluster_field_types: Counter[str] = Counter()
+    hot_field_cluster_totals = Counter()
     stable_base_source_bases: Counter[str] = Counter()
     stable_base_source_sources: Counter[str] = Counter()
     stable_base_source_kinds: Counter[str] = Counter()
@@ -418,6 +436,7 @@ def analyze_corpus(
     top_subfield_overlay_functions = []
     top_narrow_subfield_functions = []
     top_bitfield_alias_functions = []
+    top_hot_field_cluster_functions = []
     top_stable_base_source_functions = []
     top_base_stability_functions = []
     top_generic_base_evidence_functions = []
@@ -489,6 +508,7 @@ def analyze_corpus(
                     subfield_overlays,
                     narrow_subfields,
                     bitfield_aliases,
+                    hot_field_clusters,
                     stable_base_sources,
                     base_stability,
                     generic_base_evidence,
@@ -538,6 +558,13 @@ def analyze_corpus(
                     bitfield_alias_bases,
                     bitfield_alias_names,
                     bitfield_alias_masks,
+                )
+                _update_layout_hot_field_cluster_metrics(
+                    hot_field_clusters,
+                    hot_field_cluster_totals,
+                    hot_field_cluster_bases,
+                    hot_field_cluster_base_kinds,
+                    hot_field_cluster_field_types,
                 )
                 _update_layout_stable_base_source_metrics(
                     stable_base_sources,
@@ -629,6 +656,10 @@ def analyze_corpus(
                 if bitfield_aliases:
                     top_bitfield_alias_functions.append(
                         _bitfield_alias_function_summary(name, ea, summary_path, bitfield_aliases)
+                    )
+                if hot_field_clusters:
+                    top_hot_field_cluster_functions.append(
+                        _hot_field_cluster_function_summary(name, ea, summary_path, hot_field_clusters)
                     )
                 if stable_base_sources:
                     top_stable_base_source_functions.append(
@@ -797,6 +828,15 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["alias_comment_count"]),
             -int(item["field_count"]),
+            str(item["name"]),
+        )
+    )
+    top_hot_field_cluster_functions.sort(
+        key=lambda item: (
+            -int(item["cluster_count"]),
+            -int(item["max_access_count"]),
+            -int(item["max_top_field_access_count"]),
+            -int(item["max_offsets"]),
             str(item["name"]),
         )
     )
@@ -980,6 +1020,13 @@ def analyze_corpus(
             "masks": _counter_to_dict(Counter(dict(bitfield_alias_masks.most_common(top)))),
             "top_functions": top_bitfield_alias_functions[:top],
         },
+        "layout_hot_field_cluster_stats": {
+            "totals": _counter_to_dict(hot_field_cluster_totals),
+            "top_bases": _counter_to_dict(Counter(dict(hot_field_cluster_bases.most_common(top)))),
+            "base_kinds": _counter_to_dict(Counter(dict(hot_field_cluster_base_kinds.most_common(top)))),
+            "field_types": _counter_to_dict(Counter(dict(hot_field_cluster_field_types.most_common(top)))),
+            "top_functions": top_hot_field_cluster_functions[:top],
+        },
         "layout_stable_base_source_stats": {
             "totals": _counter_to_dict(stable_base_source_totals),
             "top_bases": _counter_to_dict(Counter(dict(stable_base_source_bases.most_common(top)))),
@@ -1127,6 +1174,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     subfield_overlay_stats = _coerce_dict(report.get("layout_subfield_overlay_stats", {}))
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
+    hot_field_cluster_stats = _coerce_dict(report.get("layout_hot_field_cluster_stats", {}))
     stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
     base_stability_stats = _coerce_dict(report.get("layout_base_stability_stats", {}))
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
@@ -1145,6 +1193,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
+    hot_field_cluster_totals = _coerce_dict(hot_field_cluster_stats.get("totals", {}))
     stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
     base_stability_totals = _coerce_dict(base_stability_stats.get("totals", {}))
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
@@ -1973,6 +2022,76 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("field_count", 0) or 0),
                 aliases,
                 masks,
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Hot Field Clusters",
+            "",
+            "- Hot cluster comments: `%s` across `%s` functions"
+            % (
+                hot_field_cluster_totals.get("cluster_comments", 0),
+                hot_field_cluster_totals.get("functions_with_cluster_comments", 0),
+            ),
+            "- Hot cluster offset observations: `%s`" % hot_field_cluster_totals.get("offset_observations", 0),
+            "- Hot cluster access observations: `%s`" % hot_field_cluster_totals.get("access_observations", 0),
+            "- Hot cluster field observations: `%s`" % hot_field_cluster_totals.get("field_observations", 0),
+            "",
+            "### Hot Cluster Base Kinds",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(hot_field_cluster_stats.get("base_kinds", {})), "Kind"))
+    lines.extend(
+        [
+            "",
+            "### Hot Cluster Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(hot_field_cluster_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Hot Cluster Field Types",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(hot_field_cluster_stats.get("field_types", {})), "Type"))
+    lines.extend(
+        [
+            "",
+            "### Highest Hot Cluster Functions",
+            "",
+            "| Function | EA | Clusters | Max offsets | Max accesses | Max top-field accesses | Base kinds | Field types | Bases |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in hot_field_cluster_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        base_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("base_kinds", {})).items()
+        )
+        field_types = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_field_types", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("cluster_count", 0) or 0),
+                int(item.get("max_offsets", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                int(item.get("max_top_field_access_count", 0) or 0),
+                _markdown_table_cell(base_kinds),
+                _markdown_table_cell(field_types),
                 bases,
             )
         )
@@ -3336,10 +3455,11 @@ def _update_text_metrics(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -3349,6 +3469,7 @@ def _update_text_metrics(
     subfield_overlays = _extract_layout_subfield_overlays(text)
     narrow_subfields = _extract_layout_narrow_subfields(text)
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
+    hot_field_clusters = _extract_layout_hot_field_clusters(text)
     stable_base_sources = _extract_layout_stable_base_sources(text)
     base_stability = _extract_layout_base_stability(text)
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
@@ -3395,6 +3516,13 @@ def _update_text_metrics(
         FIELD_BITFIELD_ALIAS_RE,
         "inferred_offset_bitfield_aliases",
         "functions_with_inferred_offset_bitfield_aliases",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_HOT_CLUSTER_RE,
+        "inferred_offset_field_hot_clusters",
+        "functions_with_inferred_offset_field_hot_clusters",
     )
     _count_pattern(
         text_totals,
@@ -3464,6 +3592,7 @@ def _update_text_metrics(
         subfield_overlays,
         narrow_subfields,
         bitfield_aliases,
+        hot_field_clusters,
         stable_base_sources,
         base_stability,
         generic_base_evidence,
@@ -4848,6 +4977,24 @@ def _extract_layout_bitfield_aliases(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_hot_field_clusters(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_HOT_CLUSTER_DETAIL_RE.finditer(text or ""):
+        fields = _parse_hot_cluster_fields(match.group("fields"))
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "base_kind": match.group("base_kind").replace(" ", "_"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offset_count": _int_value(match.group("offset_count"), 0),
+                "field_count": len(fields),
+                "fields": fields,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
 def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
@@ -5261,6 +5408,24 @@ def _parse_bitfield_alias_fields(value: str) -> list[dict[str, Any]]:
     return fields
 
 
+def _parse_hot_cluster_fields(value: str) -> list[dict[str, Any]]:
+    fields = []
+    for item in str(value or "").split(";"):
+        match = HOT_CLUSTER_FIELD_RE.fullmatch(item.strip())
+        if not match:
+            continue
+        offset = int(match.group("offset"), 16)
+        fields.append(
+            {
+                "offset": offset,
+                "name": match.group("name"),
+                "type": match.group("type").strip(),
+                "access_count": _int_value(match.group("access_count"), 0),
+            }
+        )
+    return fields
+
+
 def _parse_subfield_overlay_annotation(value: str | None) -> dict[str, Any]:
     parts = [item for item in str(value or "").split() if item]
     annotation = {
@@ -5417,6 +5582,28 @@ def _update_layout_bitfield_alias_metrics(
                 aliases[str(alias)] += 1
             for mask in field.get("masks", []) or []:
                 masks[str(mask)] += 1
+
+
+def _update_layout_hot_field_cluster_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    base_kinds: Counter[str],
+    field_types: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_cluster_comments"] += 1
+    for candidate in candidates:
+        totals["cluster_comments"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        fields = [item for item in candidate.get("fields", []) or [] if isinstance(item, dict)]
+        totals["field_observations"] += len(fields)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        base_kinds[str(candidate.get("base_kind", "") or "unknown")] += 1
+        for field in fields:
+            field_types[str(field.get("type", "") or "unknown")] += 1
 
 
 def _update_layout_stable_base_source_metrics(
@@ -6229,6 +6416,42 @@ def _bitfield_alias_function_summary(
         "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
         "top_aliases": _counter_to_dict(Counter(dict(aliases.most_common(5)))),
         "top_masks": _counter_to_dict(Counter(dict(masks.most_common(5)))),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _hot_field_cluster_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    base_kinds = Counter(
+        str(item.get("base_kind", "") or "unknown")
+        for item in candidates
+    )
+    field_types = Counter()
+    top_field_access_count = 0
+    for candidate in candidates:
+        for field in candidate.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            field_types[str(field.get("type", "") or "unknown")] += 1
+            top_field_access_count = max(
+                top_field_access_count,
+                _int_value(field.get("access_count"), 0),
+            )
+    return {
+        "ea": ea,
+        "name": name,
+        "cluster_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "base_kinds": _counter_to_dict(Counter(dict(base_kinds.most_common(5)))),
+        "top_field_types": _counter_to_dict(Counter(dict(field_types.most_common(5)))),
+        "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_top_field_access_count": top_field_access_count,
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }

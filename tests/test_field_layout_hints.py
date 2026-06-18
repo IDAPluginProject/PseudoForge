@@ -1196,6 +1196,100 @@ __int64 __fastcall GenericArgumentLayout(__int64 argument0, __int64 BugCheckPara
 
         self.assertEqual([], comments)
 
+    def test_hot_context_field_cluster_emits_review_only_pressure_evidence(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall HotContextLayout(__int64 context)
+{
+  return *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 32)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 40)
+       + *(_DWORD *)(context + 34)
+       + *(_DWORD *)(context + 34)
+       + *(_DWORD *)(context + 34)
+       + *(_QWORD *)(context + 8)
+       + *(_DWORD *)(context + 35);
+}
+"""
+        )
+        hot_clusters = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_field_hot_cluster"
+        ]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(hot_clusters))
+        self.assertEqual([], previews)
+        self.assertEqual([], blockers)
+        self.assertEqual("context", hot_clusters[0]["base"])
+        self.assertEqual("generic", hot_clusters[0]["base_kind"])
+        self.assertEqual(27, hot_clusters[0]["access_count"])
+        self.assertEqual(6, hot_clusters[0]["offset_count"])
+        self.assertEqual("field_20", hot_clusters[0]["fields"][0]["name"])
+        self.assertEqual(10, hot_clusters[0]["fields"][0]["access_count"])
+        self.assertIn("Hot field cluster for context (generic base)", hot_clusters[0]["text"])
+        self.assertIn("Review-only access-pressure evidence", hot_clusters[0]["text"])
+
+    def test_hot_argument_identity_field_cluster_stays_review_only(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall HotArgumentLayout(__int64 argument3)
+{
+  return *(_DWORD **)(argument3 + 16)
+       + *(_DWORD **)(argument3 + 16)
+       + *(_DWORD **)(argument3 + 16)
+       + *(_DWORD **)(argument3 + 16)
+       + *(_DWORD **)(argument3 + 16)
+       + *(_DWORD **)(argument3 + 16)
+       + *(_DWORD **)(argument3 + 8)
+       + *(_DWORD **)(argument3 + 8)
+       + *(_DWORD **)(argument3 + 8)
+       + *(_DWORD **)(argument3 + 8)
+       + *(_QWORD *)(argument3 + 24)
+       + *(_QWORD *)(argument3 + 24)
+       + *(_QWORD *)(argument3 + 24)
+       + *(_QWORD **)(argument3 + 32)
+       + *(_QWORD **)(argument3 + 32)
+       + *(_DWORD *)(argument3 + 4);
+}
+"""
+        )
+        hot_clusters = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_field_hot_cluster"
+        ]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(hot_clusters))
+        self.assertEqual([], ready)
+        self.assertEqual("argument3", hot_clusters[0]["base"])
+        self.assertEqual("argument", hot_clusters[0]["base_kind"])
+        self.assertEqual(5, hot_clusters[0]["offset_count"])
+        self.assertIn("argument identity base", hot_clusters[0]["text"])
+        self.assertIn("no structure type or body rewrite was inferred", hot_clusters[0]["text"])
+
     def test_strong_argument_identity_base_emits_review_only_layout(self) -> None:
         comments = field_layout_comments(
             """
@@ -1271,6 +1365,36 @@ __int64 __fastcall StrongBugcheckLayout(__int64 BugCheckParameter2)
         self.assertEqual("bugcheck", blockers[0]["base_kind"])
         self.assertIn("base name is unresolved bugcheck parameter identity", blockers[0]["blockers"])
         self.assertEqual([], ready)
+
+    def test_full_layout_evidence_does_not_emit_hot_cluster(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StrongContextLayout(__int64 context)
+{
+  return *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40);
+}
+"""
+        )
+        hot_clusters = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_field_hot_cluster"
+        ]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+
+        self.assertEqual([], hot_clusters)
+        self.assertEqual(1, len(previews))
 
     def test_generic_named_context_requires_stronger_layout_evidence(self) -> None:
         weak_comments = field_layout_comments(
