@@ -299,18 +299,29 @@ __int64 __fastcall LowDwordStatusCarrierSample(int a1)
 NESTED_DWORD_STATUS_POINTER_STORE_SAMPLE = r"""
 __int64 __fastcall NestedDwordStatusPointerStoreSample(__int64 a1, __int64 a2)
 {
+  int *v10;
+  int *v11;
+  int *v12;
+
   **(_DWORD **)(a1 + 16) = -1073741790;
   **(_DWORD **)(a1 + 16) = 0;
   if ( **(int **)(a1 + 16) < 0 )
     return 0;
   **(_DWORD **)(a1 + 16) = -1073741659;
+  v10 = *(_DWORD **)(a1 + 16);
+  *v10 = -1073741811;
   **(_DWORD **)(a2 + 16) = -1073741790;
+  v11 = *(_DWORD **)(a2 + 16);
+  *v11 = -1073741811;
   **(_QWORD **)(a1 + 24) = 3221225626LL;
   **(_DWORD **)(a1 + 8) = -1073741790;
   **(_DWORD **)(a1 + 8) = -1073741811;
   **(_DWORD **)(a1 + 8) = 5;
   if ( **(int **)(a1 + 8) < 0 )
     return 0;
+  v12 = *(_DWORD **)(a1 + 16);
+  *v12 = -1073741790;
+  *v12 = 5;
   return 1;
 }
 """
@@ -587,11 +598,15 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("**(_DWORD **)(context + 16) = STATUS_ACCESS_DENIED;", rendered)
         self.assertIn("**(_DWORD **)(context + 16) = 0;", rendered)
         self.assertIn("**(_DWORD **)(context + 16) = STATUS_BAD_IMPERSONATION_LEVEL;", rendered)
+        self.assertIn("*v10 = STATUS_INVALID_PARAMETER;", rendered)
         self.assertIn("**(_DWORD **)(argument1 + 16) = -1073741790;", rendered)
+        self.assertIn("*v11 = -1073741811;", rendered)
         self.assertIn("**(_QWORD **)(context + 24) = 3221225626LL;", rendered)
         self.assertIn("**(_DWORD **)(context + 8) = -1073741790;", rendered)
         self.assertIn("**(_DWORD **)(context + 8) = -1073741811;", rendered)
         self.assertIn("**(_DWORD **)(context + 8) = 5;", rendered)
+        self.assertIn("*v12 = -1073741790;", rendered)
+        self.assertIn("*v12 = 5;", rendered)
 
 
 if __name__ == "__main__":

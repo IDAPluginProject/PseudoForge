@@ -43,6 +43,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
     result = _replace_status_pointer_store_literals(result)
+    result = _replace_status_pointer_alias_store_literals(result)
     result = _replace_nested_dword_status_pointer_store_literals(result)
     result = _replace_low_dword_status_carrier_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
@@ -531,6 +532,75 @@ def _named_pointer_types(text: str) -> dict[str, str]:
 def _is_strong_status_pointer_type(type_text: str) -> bool:
     normalized = _normalize_scalar_type(type_text)
     return normalized in {"NTSTATUS", "PNTSTATUS"}
+
+
+def _replace_status_pointer_alias_store_literals(text: str) -> str:
+    candidates = _status_pointer_alias_store_candidate_names(text)
+    if not candidates:
+        return text
+
+    pattern = re.compile(
+        r"(?m)(?P<prefix>^[ \t]*\*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        if match.group("target") not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("end")
+
+    return pattern.sub(repl, text)
+
+
+def _status_pointer_alias_store_candidate_names(text: str) -> set[str]:
+    status_targets = _nested_dword_status_pointer_store_targets(text)
+    if not status_targets:
+        return set()
+
+    alias_sources: dict[str, set[str]] = {}
+    alias_pattern = re.compile(
+        r"\b(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"\*\s*\((?:_DWORD|int)\s*\*\*\)\s*(?P<address>[^;\n]+?)\s*;"
+    )
+    for match in alias_pattern.finditer(text):
+        alias = match.group("alias")
+        source = _normalize_nested_dword_store_target(match.group("address"))
+        alias_sources.setdefault(alias, set()).add(source)
+
+    if not alias_sources:
+        return set()
+
+    error_store_counts: dict[str, int] = {}
+    nonstatus_literal_counts: dict[str, int] = {}
+    store_pattern = re.compile(
+        r"(?m)^[ \t]*\*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;"
+    )
+    for match in store_pattern.finditer(text):
+        target = match.group("target")
+        if target not in alias_sources:
+            continue
+        literal = match.group("literal")
+        if _error_status_name_for_literal(literal):
+            error_store_counts[target] = error_store_counts.get(target, 0) + 1
+        elif not _is_zero_literal(literal):
+            nonstatus_literal_counts[target] = nonstatus_literal_counts.get(target, 0) + 1
+
+    candidates: set[str] = set()
+    for alias, sources in alias_sources.items():
+        if not sources or not sources.issubset(status_targets):
+            continue
+        if _target_has_bitwise_use(text, alias):
+            continue
+        if error_store_counts.get(alias, 0) <= 0:
+            continue
+        if nonstatus_literal_counts.get(alias, 0):
+            continue
+        candidates.add(alias)
+    return candidates
 
 
 def _replace_nested_dword_status_pointer_store_literals(text: str) -> str:
