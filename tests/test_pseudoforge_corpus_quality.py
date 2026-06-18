@@ -106,6 +106,8 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             "int literalValue;\n"
             "int enumValue;\n"
             "int directEnumValue;\n"
+            "int mixedDebugValue;\n"
+            "int plainDebugValue;\n"
             "callResult = SomeStatusCall();\n"
             "if ( callResult == -1073741789 )\n"
             "if ( plainValue == -1073741789 )\n"
@@ -113,6 +115,9 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             "literalValue = -2147483643;\n"
             "if ( enumValue == 4 || (unsigned int)(enumValue - 1) <= 1 || enumValue == -2147483647 )\n"
             "if ( directEnumValue != -1073741789 || 7u == directEnumValue )\n"
+            "mixedDebugValue = -1744830460;\n"
+            "mixedDebugValue = -2147483644;\n"
+            "plainDebugValue = -2147483645;\n"
         )
 
         self.assertEqual(
@@ -123,11 +128,17 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 "four_byte_scalar_status_literal_assignment_review",
                 "four_byte_scalar_small_enum_comparison_review",
                 "four_byte_scalar_small_enum_comparison_review",
+                "four_byte_scalar_debug_exception_assignment_review",
+                "four_byte_scalar_debug_exception_assignment_review",
+                "four_byte_scalar_status_literal_assignment_review",
             ],
             [item["target_review_hint"] for item in literals],
         )
         self.assertEqual("small_enum_comparison_candidate", literals[4]["review_class"])
         self.assertEqual("small_enum_comparison_candidate", literals[5]["review_class"])
+        self.assertEqual("manual_review", literals[6]["review_class"])
+        self.assertEqual("debug_exception_assignment_candidate", literals[7]["review_class"])
+        self.assertEqual("profiled_status_literal_weak_target", literals[8]["review_class"])
 
     def test_decimal_status_target_review_queues_split_weak_evidence(self) -> None:
         queues = _decimal_status_target_review_queues(

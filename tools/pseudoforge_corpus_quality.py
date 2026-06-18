@@ -17,6 +17,11 @@ from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP, STATUS_ARGUM
 from ida_pseudoforge.version import VERSION, plugin_title
 
 
+_DEBUG_EXCEPTION_STATUS_NAMES = {
+    "STATUS_BREAKPOINT",
+    "STATUS_GUARD_PAGE_VIOLATION",
+    "STATUS_SINGLE_STEP",
+}
 GENERIC_IDENTIFIER_RE = re.compile(r"\b[av]\d+\b")
 OFFSET_DEREF_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\([^;\n]*\+\s*(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
@@ -64,6 +69,7 @@ _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "nonstatus_ascii_magic_literals",
     "nonstatus_bitmask_comparisons",
     "nonstatus_small_enum_comparisons",
+    "nonstatus_debug_exception_assignments",
     "manual_review",
 )
 _DECIMAL_STATUS_TARGET_REVIEW_QUEUE_ORDER = (
@@ -3477,6 +3483,7 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
             context_kind,
             line_text,
             literal,
+            text,
             target_name,
             target_evidence,
         )
@@ -3602,8 +3609,12 @@ def _decimal_status_target_review_hint(
             return "four_byte_scalar_bitmask_review"
         if review_class == "small_enum_comparison_candidate":
             return "four_byte_scalar_small_enum_comparison_review"
+        if review_class == "debug_exception_assignment_candidate":
+            return "four_byte_scalar_debug_exception_assignment_review"
         if target_name and _has_call_result_assignment_use(text, target_name):
             return "four_byte_scalar_call_result_review"
+        if target_name and _has_mixed_debug_exception_assignment_use(text, target_name):
+            return "four_byte_scalar_debug_exception_assignment_review"
         if target_name and _has_profiled_status_literal_assignment_use(text, target_name):
             return "four_byte_scalar_status_literal_assignment_review"
         if context_kind == "assignment":
@@ -3629,9 +3640,17 @@ def _decimal_status_review_class(
     context_kind: str,
     line_text: str,
     literal: str,
+    text: str,
     target_name: str,
     target_evidence: str,
 ) -> str:
+    if (
+        context_kind == "assignment"
+        and target_evidence == "four_byte_scalar_target"
+        and _is_debug_exception_status_profile(profile_name)
+        and _has_nonstatus_literal_assignment_use(text, target_name)
+    ):
+        return "debug_exception_assignment_candidate"
     if (
         context_kind == "comparison"
         and target_evidence == "four_byte_scalar_target"
@@ -3699,6 +3718,53 @@ def _is_small_nonzero_enum_literal(value: str) -> bool:
     if parsed is None:
         return False
     return 0 < parsed <= 0xFF
+
+
+def _has_mixed_debug_exception_assignment_use(text: str, name: str) -> bool:
+    return (
+        _has_debug_exception_status_literal_assignment_use(text, name)
+        and _has_nonstatus_literal_assignment_use(text, name)
+    )
+
+
+def _has_debug_exception_status_literal_assignment_use(text: str, name: str) -> bool:
+    escaped = re.escape(name or "")
+    if not escaped:
+        return False
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*%s\s*=\s*(?:\([^)]+\)\s*)?"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;" % escaped
+    )
+    for match in assignment_pattern.finditer(text or ""):
+        literal = match.group("literal")
+        parsed = _parse_numeric_literal(literal)
+        if parsed is not None and _is_debug_exception_status_profile(_ntstatus_profile_name(parsed, literal)):
+            return True
+    return False
+
+
+def _has_nonstatus_literal_assignment_use(text: str, name: str) -> bool:
+    escaped = re.escape(name or "")
+    if not escaped:
+        return False
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*%s\s*=\s*(?:\([^)]+\)\s*)?"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;" % escaped
+    )
+    for match in assignment_pattern.finditer(text or ""):
+        literal = match.group("literal")
+        parsed = _parse_numeric_literal(literal)
+        if parsed is None or parsed == 0:
+            continue
+        if not _ntstatus_profile_name(parsed, literal):
+            return True
+    return False
+
+
+def _is_debug_exception_status_profile(profile_name: str) -> bool:
+    return str(profile_name or "") in _DEBUG_EXCEPTION_STATUS_NAMES
 
 
 def _is_ascii_magic_value(unsigned_value: int) -> bool:
@@ -3957,6 +4023,7 @@ def _decimal_status_review_queue_classes(queue_name: str) -> set[str]:
         "nonstatus_ascii_magic_literals": {"ascii_magic_candidate"},
         "nonstatus_bitmask_comparisons": {"bitmask_comparison_candidate"},
         "nonstatus_small_enum_comparisons": {"small_enum_comparison_candidate"},
+        "nonstatus_debug_exception_assignments": {"debug_exception_assignment_candidate"},
         "manual_review": {"manual_review"},
     }
     return set(mapping.get(queue_name, {"manual_review"}))
