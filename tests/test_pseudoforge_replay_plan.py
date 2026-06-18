@@ -62,6 +62,11 @@ __int64 __fastcall Quiet(__int64 status)
             self.assertEqual("0x140001000", plan["items"][0]["ea"])
             self.assertIn("warnings", plan["items"][0]["reasons"])
             self.assertIn("offset_deref_residue", plan["items"][0]["reasons"])
+            self.assertIn("generic_unannotated_base_offset_residue", plan["items"][0]["reasons"])
+            self.assertEqual(
+                10,
+                plan["items"][0]["metrics"]["body_offset_deref_unannotated_generic_base_patterns"],
+            )
             self.assertIn("Hotspot", render_replay_plan_markdown(plan))
 
     def test_replay_plan_cli_writes_outputs(self) -> None:
@@ -271,12 +276,17 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertNotIn("non_layout_offset_residue", layout_item["reasons"])
             self.assertIn("non_layout_offset_residue", bulk_item["reasons"])
             self.assertIn("unannotated_base_offset_residue", bulk_item["reasons"])
+            self.assertIn("named_unannotated_base_offset_residue", bulk_item["reasons"])
             self.assertIn("bulk_offset_residue", bulk_item["reasons"])
             self.assertNotIn("layout_actionable_offset_residue", bulk_item["reasons"])
             self.assertEqual(80, layout_item["metrics"]["body_offset_deref_layout_actionable_patterns"])
             self.assertEqual(0, layout_item["metrics"]["body_offset_deref_bulk_noise_patterns"])
             self.assertEqual(0, bulk_item["metrics"]["body_offset_deref_layout_actionable_patterns"])
             self.assertEqual(160, bulk_item["metrics"]["body_offset_deref_bulk_noise_patterns"])
+            self.assertEqual(
+                160,
+                bulk_item["metrics"]["body_offset_deref_unannotated_named_base_patterns"],
+            )
             self.assertEqual(
                 1.0,
                 plan["score_model"]["offset_actionability"]["no_layout_weight"],
@@ -321,19 +331,28 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("layout_actionable_offset_residue", item["reasons"])
             self.assertIn("non_layout_offset_residue", item["reasons"])
             self.assertIn("unannotated_base_offset_residue", item["reasons"])
+            self.assertIn("named_unannotated_base_offset_residue", item["reasons"])
             self.assertIn("bulk_offset_residue", item["reasons"])
             self.assertEqual(160, item["metrics"]["body_offset_deref_patterns"])
             self.assertEqual(160, item["metrics"]["body_offset_deref_simple_base_patterns"])
             self.assertEqual(20, item["metrics"]["body_offset_deref_layout_actionable_patterns"])
             self.assertEqual(140, item["metrics"]["body_offset_deref_non_layout_base_patterns"])
+            self.assertEqual(140, item["metrics"]["body_offset_deref_unannotated_named_base_patterns"])
             self.assertEqual(0, item["metrics"]["body_offset_deref_unmatched_base_patterns"])
             self.assertEqual(140, item["metrics"]["body_offset_deref_bulk_noise_patterns"])
+            self.assertEqual("other", item["offset_base_counts"]["unannotated"][0]["base"])
+            self.assertEqual(140, item["offset_base_counts"]["unannotated"][0]["count"])
+            self.assertEqual("context", item["offset_base_counts"]["layout_actionable"][0]["base"])
+            self.assertEqual("other", plan["offset_base_breakdown"]["top_unannotated_bases"][0]["base"])
             self.assertEqual(
                 item["metrics"]["body_offset_deref_patterns"],
                 item["metrics"]["body_offset_deref_layout_actionable_patterns"]
                 + item["metrics"]["body_offset_deref_bulk_noise_patterns"],
             )
             self.assertTrue(plan["score_model"]["offset_actionability"]["full_score_limit_is_shared"])
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Top unannotated bases", markdown)
+            self.assertIn("`other`", markdown)
 
     def test_replay_plan_reports_unmatched_offset_residue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -372,6 +391,36 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             markdown = render_replay_plan_markdown(plan)
             self.assertIn("Unannotated offsets", markdown)
             self.assertIn("Unmatched offsets", markdown)
+
+    def test_replay_plan_classifies_argument_alias_base_as_generic_unannotated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            argument_body = "\n".join(
+                ["__int64 __fastcall ArgumentBase(__int64 argument0)", "{"]
+                + [
+                    "  v%d = *(_QWORD *)(argument0 + %d);" % (item_index, 16 + (item_index * 8))
+                    for item_index in range(12)
+                ]
+                + ["  return v11;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="ArgumentBase",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=argument_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertIn("generic_unannotated_base_offset_residue", item["reasons"])
+            self.assertNotIn("named_unannotated_base_offset_residue", item["reasons"])
+            self.assertEqual(12, item["metrics"]["body_offset_deref_unannotated_generic_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_named_base_patterns"])
+            self.assertIn("argument", plan["score_model"]["offset_actionability"]["unannotated_generic_base_pattern"])
 
 
 def _write_function(

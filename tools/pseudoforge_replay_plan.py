@@ -51,6 +51,8 @@ OFFSET_DEREF_NO_LAYOUT_WEIGHT = 1.0
 OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
 LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
+OFFSET_BASE_BREAKDOWN_LIMIT = 15
+GENERIC_OFFSET_BASE_RE = re.compile(r"(?:[av]\d+|argument\d+)\Z")
 SIMPLE_OFFSET_DEREF_BASE_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\(\s*"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
@@ -127,6 +129,7 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
         "selected_count": len(selected),
         "candidate_count": len(items),
         "reason_counts": dict(sorted(reason_counts.items())),
+        "offset_base_breakdown": _offset_base_breakdown(selected),
         "score_model": _score_model(),
         "items": selected,
         "top": int(top),
@@ -151,6 +154,7 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             lines.append("- `%s`: `%s`" % (key, value))
     else:
         lines.append("No selected reasons.")
+    lines.extend(_render_offset_base_breakdown(plan))
     lines.extend(
         [
             "",
@@ -200,6 +204,32 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
+    breakdown = _coerce_dict(plan.get("offset_base_breakdown", {}))
+    if not breakdown:
+        return []
+    lines = ["", "## Offset Base Breakdown", ""]
+    for title, key in (
+        ("Top layout-actionable bases", "top_layout_actionable_bases"),
+        ("Top unannotated bases", "top_unannotated_bases"),
+    ):
+        entries = breakdown.get(key, []) or []
+        lines.append("### %s" % title)
+        lines.append("")
+        if not isinstance(entries, list) or not entries:
+            lines.append("No bases.")
+            lines.append("")
+            continue
+        lines.append("| Base | Offset derefs |")
+        lines.append("| --- | ---: |")
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            lines.append("| `%s` | %d |" % (entry.get("base", ""), int(entry.get("count", 0) or 0)))
+        lines.append("")
+    return lines
+
+
 def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str]:
     ea_path = output_dir / "replay-eas.txt"
     json_path = output_dir / "replay-plan.json"
@@ -218,6 +248,39 @@ def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str
     json_path.write_text(json.dumps(plan, indent=2, ensure_ascii=True, sort_keys=True), encoding="utf-8")
     markdown_path.write_text(render_replay_plan_markdown(plan), encoding="utf-8")
     return outputs
+
+
+def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
+    layout_actionable: Counter[str] = Counter()
+    unannotated: Counter[str] = Counter()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        offset_base_counts = _coerce_dict(item.get("offset_base_counts", {}))
+        for key, counter in (
+            ("layout_actionable", layout_actionable),
+            ("unannotated", unannotated),
+        ):
+            entries = offset_base_counts.get(key, []) or []
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                base = str(entry.get("base", "") or "")
+                if not base:
+                    continue
+                counter[base] += int(entry.get("count", 0) or 0)
+    return {
+        "top_layout_actionable_bases": _top_counter_items(
+            layout_actionable,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_bases": _top_counter_items(
+            unannotated,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+    }
 
 
 def _score_summary(summary_path: Path) -> dict[str, Any] | None:
@@ -247,7 +310,19 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_actionable_base_offset_derefs = sum(
         count for base, count in offset_base_counts.items() if base in layout_actionable_bases
     )
+    layout_actionable_base_counts = Counter(
+        {base: count for base, count in offset_base_counts.items() if base in layout_actionable_bases}
+    )
+    unannotated_base_counts = Counter(
+        {base: count for base, count in offset_base_counts.items() if base not in layout_actionable_bases}
+    )
     non_layout_base_offset_derefs = simple_base_offset_derefs - layout_actionable_base_offset_derefs
+    unannotated_generic_base_offset_derefs = sum(
+        count for base, count in unannotated_base_counts.items() if _is_generic_offset_base(base)
+    )
+    unannotated_named_base_offset_derefs = (
+        non_layout_base_offset_derefs - unannotated_generic_base_offset_derefs
+    )
     unmatched_base_offset_derefs = max(0, body_offset_derefs - simple_base_offset_derefs)
     bulk_noise_offset_derefs = non_layout_base_offset_derefs + unmatched_base_offset_derefs
     layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text))
@@ -284,7 +359,11 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             0,
             layout_actionable_base_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
         ),
+        "body_offset_deref_layout_actionable_bases": len(layout_actionable_base_counts),
         "body_offset_deref_non_layout_base_patterns": non_layout_base_offset_derefs,
+        "body_offset_deref_non_layout_bases": len(unannotated_base_counts),
+        "body_offset_deref_unannotated_generic_base_patterns": unannotated_generic_base_offset_derefs,
+        "body_offset_deref_unannotated_named_base_patterns": unannotated_named_base_offset_derefs,
         "body_offset_deref_unmatched_base_patterns": unmatched_base_offset_derefs,
         "body_offset_deref_bulk_noise_patterns": bulk_noise_offset_derefs,
         "body_offset_deref_bulk_noise_overflow_patterns": max(
@@ -316,6 +395,16 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "reasons": reasons,
         "warning_classes": dict(warning_classes.most_common(8)),
         "metrics": metrics,
+        "offset_base_counts": {
+            "layout_actionable": _top_counter_items(
+                layout_actionable_base_counts,
+                len(layout_actionable_base_counts),
+            ),
+            "unannotated": _top_counter_items(
+                unannotated_base_counts,
+                len(unannotated_base_counts),
+            ),
+        },
         "summary_path": str(summary_path),
     }
 
@@ -368,6 +457,17 @@ def _simple_offset_deref_base_counts(text: str) -> Counter[str]:
     return counts
 
 
+def _top_counter_items(counter: Counter[str], limit: int) -> list[dict[str, Any]]:
+    return [
+        {"base": base, "count": int(count)}
+        for base, count in counter.most_common(max(0, int(limit)))
+    ]
+
+
+def _is_generic_offset_base(base: str) -> bool:
+    return bool(GENERIC_OFFSET_BASE_RE.fullmatch(base or ""))
+
+
 def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
@@ -410,6 +510,10 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
             reasons.append("non_layout_offset_residue")
             if metrics["body_offset_deref_non_layout_base_patterns"] >= 10:
                 reasons.append("unannotated_base_offset_residue")
+                if metrics["body_offset_deref_unannotated_generic_base_patterns"] >= 10:
+                    reasons.append("generic_unannotated_base_offset_residue")
+                if metrics["body_offset_deref_unannotated_named_base_patterns"] >= 10:
+                    reasons.append("named_unannotated_base_offset_residue")
             if metrics["body_offset_deref_unmatched_base_patterns"] >= 10:
                 reasons.append("unmatched_base_offset_residue")
             if metrics["body_offset_deref_bulk_noise_overflow_patterns"]:
@@ -478,6 +582,11 @@ def _score_model() -> dict[str, Any]:
             ],
             "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
             "unannotated_base_metric": "body_offset_deref_non_layout_base_patterns",
+            "unannotated_generic_base_metric": (
+                "body_offset_deref_unannotated_generic_base_patterns"
+            ),
+            "unannotated_generic_base_pattern": GENERIC_OFFSET_BASE_RE.pattern,
+            "unannotated_named_base_metric": "body_offset_deref_unannotated_named_base_patterns",
             "unmatched_base_metric": "body_offset_deref_unmatched_base_patterns",
             "bulk_noise_metric": "body_offset_deref_bulk_noise_patterns",
             "full_score_limit_is_shared": True,
