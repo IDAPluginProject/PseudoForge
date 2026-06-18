@@ -183,6 +183,48 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
 """
 
 
+MM_INTERNAL_STATUS_SAMPLE = r"""
+NTSTATUS __fastcall MiResolveMappedFileFaultSample(int a1)
+{
+  int v46;
+  int plainValue;
+
+  v46 = MiCopyFileOnlyGlobalSubsectionPage(a1);
+  if ( v46 >= 0 )
+    return 3221435187LL;
+  if ( v46 == -1073532109 )
+    return STATUS_MORE_PROCESSING_REQUIRED;
+  plainValue = -1073532109;
+  return STATUS_SUCCESS;
+}
+
+__int64 __fastcall MiDispatchFaultSample(int a1)
+{
+  unsigned int v15;
+  unsigned int v24;
+  __int64 result;
+  int *outPage;
+
+  v24 = MiResolvePageFileFault(a1);
+  v15 = v24;
+  result = v15;
+  if ( v15 == -1073532109 )
+    *outPage = a1;
+  return result;
+}
+
+NTSTATUS __fastcall PlainInternalStatusSample(int a1)
+{
+  int plainValue;
+
+  plainValue = -1073532109;
+  if ( plainValue == -1073532109 )
+    return STATUS_INVALID_PARAMETER;
+  return STATUS_SUCCESS;
+}
+"""
+
+
 STATUS_CALL_RESULT_COMPARISON_SAMPLE = r"""
 NTSTATUS __fastcall StatusCallResultComparisonSample(HANDLE handle, int a1)
 {
@@ -317,6 +359,31 @@ NTSTATUS __fastcall StatusFieldComparisonSample(int *context, int *plainField)
   if ( *(_DWORD *)plainField == -1073741275 )
     return STATUS_INVALID_PARAMETER;
   return (unsigned int)context[22];
+}
+"""
+
+
+PNP_TELEMETRY_STATUS_SAMPLE = r"""
+void __fastcall PiDevCfgLogDeviceConfiguredSample(int argument4)
+{
+  int v187;
+  int plainValue;
+
+  if ( argument4 < 0 )
+  {
+    if ( argument4 == -1073740959 )
+      plainValue = 1;
+  }
+  if ( v187 < 0 )
+    plainValue = 0;
+  PnpTraceDeviceConfig(
+    v187 == -1073741789,
+    argument4);
+  plainValue = 0;
+  if ( plainValue < 0 )
+    plainValue = 1;
+  if ( plainValue == -1073740959 )
+    plainValue = 2;
 }
 """
 
@@ -597,6 +664,17 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertEqual(1, rendered.count("(_DWORD)castedResult != -1073741664"))
         self.assertIn("plainValue == -1073741738", rendered)
 
+    def test_mm_internal_status_sentinel_is_named_only_in_mm_fault_context(self) -> None:
+        capture = capture_from_pseudocode(MM_INTERNAL_STATUS_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("return MI_STATUS_PAGE_READ_REQUIRED;", rendered)
+        self.assertIn("v46 == MI_STATUS_PAGE_READ_REQUIRED", rendered)
+        self.assertIn("v15 == MI_STATUS_PAGE_READ_REQUIRED", rendered)
+        self.assertIn("plainValue = -1073532109;", rendered)
+        self.assertIn("plainValue == -1073532109", rendered)
+
     def test_status_call_result_comparison_literals_are_named_for_trusted_calls(self) -> None:
         capture = capture_from_pseudocode(STATUS_CALL_RESULT_COMPARISON_SAMPLE)
         plan = build_clean_plan(capture)
@@ -647,6 +725,15 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("v127 != STATUS_BUFFER_OVERFLOW", rendered)
         self.assertIn("plainValue = -2147483643;", rendered)
         self.assertIn("plainValue == -1073741675", rendered)
+
+    def test_pnp_telemetry_status_comparisons_are_named_after_range_checks(self) -> None:
+        capture = capture_from_pseudocode(PNP_TELEMETRY_STATUS_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("argument0 == STATUS_ACCESS_DISABLED_BY_POLICY_DEFAULT", rendered)
+        self.assertIn("v187 == STATUS_BUFFER_TOO_SMALL", rendered)
+        self.assertIn("plainValue == -1073740959", rendered)
 
     def test_status_field_comparisons_are_named_for_status_slots(self) -> None:
         capture = capture_from_pseudocode(STATUS_FIELD_COMPARISON_SAMPLE)

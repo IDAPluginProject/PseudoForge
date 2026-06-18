@@ -13,6 +13,10 @@ except Exception:
     load_kernel_api_family = None
 
 
+# 0xC0033333 is an internal Memory Manager page-fault sentinel, not a public ntstatus.h symbol.
+MM_INTERNAL_PAGE_READ_REQUIRED_STATUS = "MI_STATUS_PAGE_READ_REQUIRED"
+
+
 def _replace_status_returns(text: str) -> str:
     return _replace_status_literals(text, None)
 
@@ -39,6 +43,8 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
     result = _replace_status_bitmask_guarded_comparisons(result)
+    result = _replace_pnp_status_telemetry_comparisons(result)
+    result = _replace_mm_internal_status_literals(result)
     result = _replace_immediate_status_alias_casted_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
     result = _replace_status_call_result_comparisons(result)
@@ -176,6 +182,89 @@ def _replace_status_bitmask_guarded_comparisons(text: str) -> str:
     return "".join(result)
 
 
+def _replace_pnp_status_telemetry_comparisons(text: str) -> str:
+    if "PnpTraceDeviceConfig(" not in text and "PiDevCfgLogDeviceConfigured" not in text:
+        return text
+    candidates = {
+        name
+        for name in _status_range_checked_names(text)
+        if not _target_has_bitwise_use(text, name)
+        and not _target_has_arithmetic_reuse(text, name)
+        and not _target_has_nonstatus_scalar_literal_assignment(text, name)
+    }
+    return _replace_status_comparisons_for_names(text, candidates)
+
+
+def _replace_mm_internal_status_literals(text: str) -> str:
+    if not _looks_like_mm_internal_page_read_required_context(text):
+        return text
+
+    return_pattern = _internal_mm_page_read_required_return_pattern()
+    candidates = _status_flow_candidate_names(text).union(_status_assignment_alias_names(text))
+
+    def replace_line(line: str) -> str:
+        if re.search(r"\breturn\b", line or ""):
+            return return_pattern.sub(
+                lambda match: match.group("prefix") + MM_INTERNAL_PAGE_READ_REQUIRED_STATUS + match.group("end"),
+                line,
+            )
+        if not re.search(r"==|!=", line or ""):
+            return line
+        return _replace_internal_mm_status_comparisons_for_names(line, candidates)
+
+    return "".join(replace_line(line) for line in text.splitlines(keepends=True))
+
+
+def _replace_internal_mm_status_comparisons_for_names(text: str, candidates: set[str]) -> str:
+    if not candidates:
+        return text
+
+    literal = (
+        r"(?<![A-Za-z0-9_])(?P<literal>-1073532109|3221435187|0xC0033333|0xc0033333)"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+    )
+    identifier_first = re.compile(
+        r"(?P<prefix>\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=)\s*)" + literal
+    )
+    literal_first = re.compile(
+        literal
+        + r"(?P<operator>\s*(?:==|!=)\s*)"
+        + r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+
+    def replace_identifier_first(match: re.Match[str]) -> str:
+        if match.group("name") not in candidates:
+            return match.group(0)
+        return match.group("prefix") + MM_INTERNAL_PAGE_READ_REQUIRED_STATUS
+
+    def replace_literal_first(match: re.Match[str]) -> str:
+        if match.group("name") not in candidates:
+            return match.group(0)
+        return MM_INTERNAL_PAGE_READ_REQUIRED_STATUS + match.group("operator") + match.group("name")
+
+    return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _internal_mm_page_read_required_return_pattern() -> re.Pattern[str]:
+    return re.compile(
+        r"(?P<prefix>\breturn\s+)"
+        r"(?P<literal>-1073532109|3221435187|0xC0033333|0xc0033333)"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+
+def _looks_like_mm_internal_page_read_required_context(text: str) -> bool:
+    return any(
+        token in (text or "")
+        for token in (
+            "MiDispatchFault",
+            "MiResolveMappedFileFault",
+            "MiCopyFileOnlyGlobalSubsectionPage",
+            "MiResolvePageFileFault",
+        )
+    )
+
+
 def _status_severity_mask_names_from_line(line: str) -> set[str]:
     names: set[str] = set()
     pattern = re.compile(
@@ -196,6 +285,27 @@ def _status_range_checked_names_from_line(line: str) -> set[str]:
     for match in re.finditer(r"\b0\s*(?:>|<=)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b", line or ""):
         names.add(match.group("name"))
     return names
+
+
+def _status_range_checked_names(text: str) -> set[str]:
+    names: set[str] = set()
+    for line in (text or "").splitlines():
+        names.update(_status_range_checked_names_from_line(line))
+    return names
+
+
+def _target_has_nonstatus_scalar_literal_assignment(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*%s\s*=\s*(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;" % escaped
+    )
+    for match in assignment_pattern.finditer(text or ""):
+        literal = match.group("literal")
+        if _is_zero_literal(literal) or _error_status_name_for_literal(literal):
+            continue
+        return True
+    return False
 
 
 def _replace_guard_dispatch_status_comparisons(text: str) -> str:
