@@ -158,9 +158,12 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             "",
             (
                 "| Rank | Function | EA | Score | Warnings | Rename gap | Body generics | "
-                "Body offsets | Layout offsets | Non-layout offsets | Body labels | Reasons |"
+                "Body offsets | Layout offsets | Unannotated offsets | Unmatched offsets | Body labels | Reasons |"
             ),
-            "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+            (
+                "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+                "--- |"
+            ),
         ]
     )
     for index, item in enumerate(plan.get("items", [])[: int(plan.get("top", 25) or 25)], start=1):
@@ -168,7 +171,7 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             continue
         metrics = _coerce_dict(item.get("metrics", {}))
         lines.append(
-            "| %d | `%s` | `%s` | %.2f | %d | %d | %d | %d | %d | %d | %d | %s |"
+            "| %d | `%s` | `%s` | %.2f | %d | %d | %d | %d | %d | %d | %d | %d | %s |"
             % (
                 index,
                 item.get("name", ""),
@@ -179,7 +182,8 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
                 int(metrics.get("body_generic_identifier_tokens", 0) or 0),
                 int(metrics.get("body_offset_deref_patterns", 0) or 0),
                 int(metrics.get("body_offset_deref_layout_actionable_patterns", 0) or 0),
-                int(metrics.get("body_offset_deref_bulk_noise_patterns", 0) or 0),
+                int(metrics.get("body_offset_deref_non_layout_base_patterns", 0) or 0),
+                int(metrics.get("body_offset_deref_unmatched_base_patterns", 0) or 0),
                 int(metrics.get("body_label_tokens", 0) or 0),
                 ", ".join("`%s`" % reason for reason in item.get("reasons", []) or []),
             )
@@ -404,6 +408,10 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
             reasons.append("layout_actionable_offset_residue")
         if metrics["body_offset_deref_bulk_noise_patterns"] >= 10:
             reasons.append("non_layout_offset_residue")
+            if metrics["body_offset_deref_non_layout_base_patterns"] >= 10:
+                reasons.append("unannotated_base_offset_residue")
+            if metrics["body_offset_deref_unmatched_base_patterns"] >= 10:
+                reasons.append("unmatched_base_offset_residue")
             if metrics["body_offset_deref_bulk_noise_overflow_patterns"]:
                 reasons.append("bulk_offset_residue")
     if metrics["body_label_tokens"] >= 8:
@@ -469,7 +477,9 @@ def _score_model() -> dict[str, Any]:
                 "layout_stable_base_sources",
             ],
             "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
-            "non_layout_base_metric": "body_offset_deref_bulk_noise_patterns",
+            "unannotated_base_metric": "body_offset_deref_non_layout_base_patterns",
+            "unmatched_base_metric": "body_offset_deref_unmatched_base_patterns",
+            "bulk_noise_metric": "body_offset_deref_bulk_noise_patterns",
             "full_score_limit_is_shared": True,
             "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
             "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,

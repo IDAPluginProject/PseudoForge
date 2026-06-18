@@ -270,6 +270,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertNotIn("bulk_offset_residue", layout_item["reasons"])
             self.assertNotIn("non_layout_offset_residue", layout_item["reasons"])
             self.assertIn("non_layout_offset_residue", bulk_item["reasons"])
+            self.assertIn("unannotated_base_offset_residue", bulk_item["reasons"])
             self.assertIn("bulk_offset_residue", bulk_item["reasons"])
             self.assertNotIn("layout_actionable_offset_residue", bulk_item["reasons"])
             self.assertEqual(80, layout_item["metrics"]["body_offset_deref_layout_actionable_patterns"])
@@ -319,6 +320,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual("MixedOffset", item["name"])
             self.assertIn("layout_actionable_offset_residue", item["reasons"])
             self.assertIn("non_layout_offset_residue", item["reasons"])
+            self.assertIn("unannotated_base_offset_residue", item["reasons"])
             self.assertIn("bulk_offset_residue", item["reasons"])
             self.assertEqual(160, item["metrics"]["body_offset_deref_patterns"])
             self.assertEqual(160, item["metrics"]["body_offset_deref_simple_base_patterns"])
@@ -332,6 +334,44 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 + item["metrics"]["body_offset_deref_bulk_noise_patterns"],
             )
             self.assertTrue(plan["score_model"]["offset_actionability"]["full_score_limit_is_shared"])
+
+    def test_replay_plan_reports_unmatched_offset_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            unmatched_body = "\n".join(
+                ["__int64 __fastcall UnmatchedOffset(__int64 context, __int64 index)", "{"]
+                + [
+                    "  v%d = *(_QWORD *)(context + index + %d);" % (item_index, 16 + (item_index * 8))
+                    for item_index in range(20)
+                ]
+                + ["  return v19;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="UnmatchedOffset",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=unmatched_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual("UnmatchedOffset", item["name"])
+            self.assertIn("offset_deref_residue", item["reasons"])
+            self.assertIn("non_layout_offset_residue", item["reasons"])
+            self.assertIn("unmatched_base_offset_residue", item["reasons"])
+            self.assertNotIn("unannotated_base_offset_residue", item["reasons"])
+            self.assertEqual(20, item["metrics"]["body_offset_deref_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_simple_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_non_layout_base_patterns"])
+            self.assertEqual(20, item["metrics"]["body_offset_deref_unmatched_base_patterns"])
+            self.assertEqual(20, item["metrics"]["body_offset_deref_bulk_noise_patterns"])
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Unannotated offsets", markdown)
+            self.assertIn("Unmatched offsets", markdown)
 
 
 def _write_function(
