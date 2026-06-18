@@ -3417,9 +3417,9 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
         profile_name = _ntstatus_profile_name(parsed, literal)
         line_text = _line_for_match(text, match.start(), match.end()).strip()
         severity = _ntstatus_severity_name(unsigned_value)
-        target_name = _decimal_status_assignment_target(line_text, literal)
+        target_name = _decimal_status_target_name(line_text, literal, context_kind)
         target_type = declaration_types.get(target_name, "")
-        target_evidence = _decimal_status_target_evidence(text, target_name, target_type)
+        target_evidence = _decimal_status_target_evidence(text, target_name, target_type, context_kind)
         result.append(
             {
                 "literal": literal,
@@ -3472,24 +3472,51 @@ def _decimal_status_like_context_kind(text: str, match: re.Match[str]) -> str:
     return ""
 
 
-def _decimal_status_assignment_target(line_text: str, literal: str) -> str:
-    match = re.match(
-        r"\s*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
-        r"(?:\([^)]+\)\s*)?%s(?:u?LL|ULL|LL|u|U|L)?\b" % re.escape(literal),
-        line_text or "",
-    )
-    if match is None:
+def _decimal_status_target_name(line_text: str, literal: str, context_kind: str) -> str:
+    if context_kind == "assignment":
+        match = re.match(
+            r"\s*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+            r"(?:\([^)]+\)\s*)?%s(?:u?LL|ULL|LL|u|U|L)?\b" % re.escape(literal),
+            line_text or "",
+        )
+        if match is not None:
+            return match.group("target")
         return ""
-    return match.group("target")
+    if context_kind == "comparison":
+        suffix = r"(?:u?LL|ULL|LL|u|U|L)?"
+        identifier_first = re.search(
+            r"(?<![A-Za-z0-9_*>.\]])(?:\([^)]+\)\s*)?"
+            r"(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=)\s*"
+            r"%s%s\b" % (re.escape(literal), suffix),
+            line_text or "",
+        )
+        if identifier_first is not None:
+            return identifier_first.group("target")
+        literal_first = re.search(
+            r"(?<![A-Za-z0-9_])%s%s\s*(?:==|!=)\s*"
+            r"(?:\([^)]+\)\s*)?(?P<target>[A-Za-z_][A-Za-z0-9_]*)\b"
+            % (re.escape(literal), suffix),
+            line_text or "",
+        )
+        if literal_first is not None:
+            return literal_first.group("target")
+    return ""
 
 
-def _decimal_status_target_evidence(text: str, target_name: str, target_type: str) -> str:
+def _decimal_status_target_evidence(text: str, target_name: str, target_type: str, context_kind: str) -> str:
     if not target_name:
         return "complex_or_memory_target"
     if _is_status_identifier_name(target_name):
         return "status_identifier_target"
     if _is_ntstatus_type(target_type):
         return "ntstatus_declared_target"
+    if context_kind == "comparison":
+        if _has_status_assignment_alias_use(text, target_name):
+            return "status_assignment_alias_target"
+        if _has_call_result_assignment_use(text, target_name) and _has_status_carrier_use(text, target_name):
+            return "call_result_status_carrier_target"
+        if _has_status_carrier_use(text, target_name):
+            return "status_carrier_comparison_target"
     if _is_four_byte_status_candidate_type(target_type):
         if _has_status_carrier_use(text, target_name):
             return "four_byte_status_carrier_target"
@@ -3591,6 +3618,37 @@ def _has_status_carrier_use(text: str, name: str) -> bool:
             r"\breturn\s+(?:\(unsigned int\)\s*)?%s\s*;",
         )
     )
+
+
+def _has_status_assignment_alias_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<status>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?:\([^)]+\)\s*)?%s\s*;" % escaped,
+        flags=re.IGNORECASE,
+    )
+    return any(
+        _is_status_identifier_name(match.group("status"))
+        for match in assignment_pattern.finditer(text or "")
+    )
+
+
+def _has_call_result_assignment_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    if re.search(
+        r"(?m)^[ \t]*%s\s*=\s*(?:\([^)]+\)\s*)?[A-Za-z_][A-Za-z0-9_]*\s*\(" % escaped,
+        text or "",
+    ):
+        return True
+    if re.search(
+        r"(?m)^[ \t]*%s\s*=\s*[^;\n]*\([^;\n]*\)[^;\n]*\s*;" % escaped,
+        text or "",
+    ):
+        return True
+    return re.search(
+        r"(?m)^[ \t]*%s\s*=\s*\(\*.*\)\s*\(" % escaped,
+        text or "",
+    ) is not None
 
 
 def _update_decimal_status_residue_metrics(

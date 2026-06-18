@@ -1208,7 +1208,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 decimal_stats["review_classes"],
             )
             self.assertEqual(
-                {"complex_or_memory_target": 4},
+                {"call_result_status_carrier_target": 3, "complex_or_memory_target": 1},
                 decimal_stats["target_evidence"],
             )
             self.assertEqual(
@@ -1226,7 +1226,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 ],
             )
             self.assertEqual(
-                {"complex_or_memory_target": 3},
+                {"call_result_status_carrier_target": 2, "complex_or_memory_target": 1},
                 decimal_stats["review_queues"]["strong_profiled_status_literals"][
                     "target_evidence"
                 ],
@@ -1269,7 +1269,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 decimal_stats["top_functions"][0]["review_classes"],
             )
             self.assertEqual(
-                {"complex_or_memory_target": 4},
+                {"call_result_status_carrier_target": 3, "complex_or_memory_target": 1},
                 decimal_stats["top_functions"][0]["target_evidence"],
             )
             self.assertEqual(
@@ -1281,7 +1281,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 decimal_stats["top_functions"][0]["contexts"][0]["review_class"],
             )
             self.assertEqual(
-                "complex_or_memory_target",
+                "call_result_status_carrier_target",
                 decimal_stats["top_functions"][0]["contexts"][0]["target_evidence"],
             )
             ntstatus_stats = report["ntstatus_body_residue_stats"]
@@ -1613,11 +1613,11 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `strong_profiled_status_literals` | 3 | 1 | profiled_status_literal_candidate=3 | complex_or_memory_target=3 |",
+                "| `strong_profiled_status_literals` | 3 | 1 | profiled_status_literal_candidate=3 | call_result_status_carrier_target=2, complex_or_memory_target=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `Sample` | `0x140001000` | 4 | 3 | 1 | profiled_status_literal_candidate=3, unprofiled_ntstatus_error_candidate=1 | complex_or_memory_target=4 | comparison=3, return=1 |",
+                "| `Sample` | `0x140001000` | 4 | 3 | 1 | profiled_status_literal_candidate=3, unprofiled_ntstatus_error_candidate=1 | call_result_status_carrier_target=3, complex_or_memory_target=1 | comparison=3, return=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
