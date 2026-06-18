@@ -496,8 +496,10 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             item = plan["items"][0]
             self.assertIn("layout_actionable_offset_residue", item["reasons"])
             self.assertIn("layout_hot_field_cluster", item["reasons"])
+            self.assertNotIn("projected_layout_hot_field_cluster", item["reasons"])
             self.assertNotIn("context_unannotated_base_offset_residue", item["reasons"])
             self.assertEqual(1, item["metrics"]["layout_hot_field_clusters"])
+            self.assertEqual(0, item["metrics"]["projected_layout_hot_field_clusters"])
             self.assertEqual(1, item["metrics"]["layout_actionability_signals"])
             self.assertEqual(1, item["metrics"]["layout_actionability_bases"])
             self.assertEqual(12, item["metrics"]["body_offset_deref_layout_actionable_patterns"])
@@ -508,6 +510,56 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 "layout_hot_field_clusters",
                 plan["score_model"]["offset_actionability"]["layout_signal_metrics"],
             )
+
+    def test_replay_plan_projects_missing_hot_field_clusters(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            projected_body = "\n".join(
+                ["__int64 __fastcall ProjectedHotCluster(__int64 context)", "{"]
+                + ["  v%d = *(_DWORD *)(context + 32);" % item_index for item_index in range(10)]
+                + ["  q%d = *(_QWORD *)(context + 24);" % item_index for item_index in range(8)]
+                + ["  r%d = *(_QWORD *)(context + 40);" % item_index for item_index in range(4)]
+                + ["  s%d = *(_DWORD *)(context + 34);" % item_index for item_index in range(3)]
+                + [
+                    "  tail0 = *(_QWORD *)(context + 8);",
+                    "  tail1 = *(_DWORD *)(context + 35);",
+                    "  return v9 + q7 + r3 + s2 + tail0 + tail1;",
+                    "}",
+                ]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="ProjectedHotCluster",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=projected_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertIn("projected_layout_hot_field_cluster", item["reasons"])
+            self.assertIn("context_unannotated_base_offset_residue", item["reasons"])
+            self.assertEqual(1, item["metrics"]["projected_layout_hot_field_clusters"])
+            self.assertEqual(1, item["metrics"]["projected_layout_hot_field_cluster_bases"])
+            self.assertEqual(27, item["metrics"]["projected_layout_hot_field_cluster_accesses"])
+            self.assertEqual("context", item["offset_base_counts"]["projected_hot_cluster"][0]["base"])
+            self.assertEqual(27, item["offset_base_counts"]["projected_hot_cluster"][0]["count"])
+            self.assertEqual(
+                "context",
+                plan["offset_base_breakdown"]["top_projected_hot_cluster_bases"][0]["base"],
+            )
+            context_queue = plan["source_identity_review_queues"]["context"]
+            self.assertEqual(27, context_queue[0]["projected_hot_cluster_accesses"])
+            self.assertIn(
+                "projected_layout_hot_field_cluster_accesses",
+                plan["score_model"]["hot_cluster_projection"]["access_metric"],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Top projected hot cluster bases", markdown)
+            self.assertIn("Projected hot cluster accesses", markdown)
 
     def test_replay_plan_splits_context_and_bugcheck_argument_identity_bases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ida_pseudoforge.core.field_layout_hints import field_layout_comments
 from ida_pseudoforge.version import VERSION, plugin_title
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
@@ -243,6 +244,7 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
         ("Top unannotated bugcheck bases", "top_unannotated_bugcheck_bases"),
         ("Top unannotated temp bases", "top_unannotated_temp_bases"),
         ("Top unannotated named bases", "top_unannotated_named_bases"),
+        ("Top projected hot cluster bases", "top_projected_hot_cluster_bases"),
     ):
         entries = breakdown.get(key, []) or []
         lines.append("### %s" % title)
@@ -279,19 +281,23 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
             lines.append("")
             continue
         lines.append(
-            "| Function | EA | Base | Offset derefs | Function layout offsets | Function blockers | Disposition |"
+            (
+                "| Function | EA | Base | Offset derefs | Projected hot cluster accesses | "
+                "Function layout offsets | Function blockers | Disposition |"
+            )
         )
-        lines.append("| --- | --- | --- | ---: | ---: | ---: | --- |")
+        lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- |")
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             lines.append(
-                "| `%s` | `%s` | `%s` | %d | %d | %d | `%s` |"
+                "| `%s` | `%s` | `%s` | %d | %d | %d | %d | `%s` |"
                 % (
                     entry.get("function", ""),
                     entry.get("ea", ""),
                     entry.get("base", ""),
                     int(entry.get("offset_derefs", 0) or 0),
+                    int(entry.get("projected_hot_cluster_accesses", 0) or 0),
                     int(entry.get("layout_actionable_offset_derefs", 0) or 0),
                     int(entry.get("layout_blockers", 0) or 0),
                     entry.get("disposition", ""),
@@ -330,6 +336,7 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     unannotated_bugcheck: Counter[str] = Counter()
     unannotated_temp: Counter[str] = Counter()
     unannotated_named: Counter[str] = Counter()
+    projected_hot_cluster: Counter[str] = Counter()
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -343,6 +350,7 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
             ("unannotated_bugcheck", unannotated_bugcheck),
             ("unannotated_temp", unannotated_temp),
             ("unannotated_named", unannotated_named),
+            ("projected_hot_cluster", projected_hot_cluster),
         ):
             entries = offset_base_counts.get(key, []) or []
             if not isinstance(entries, list):
@@ -387,6 +395,10 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
             unannotated_named,
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
+        "top_projected_hot_cluster_bases": _top_counter_items(
+            projected_hot_cluster,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
     }
 
 
@@ -419,6 +431,11 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 continue
             metrics = _coerce_dict(item.get("metrics", {}))
             offset_base_counts = _coerce_dict(item.get("offset_base_counts", {}))
+            projected_hot_cluster_accesses = {
+                str(entry.get("base", "") or ""): int(entry.get("count", 0) or 0)
+                for entry in offset_base_counts.get("projected_hot_cluster", []) or []
+                if isinstance(entry, dict)
+            }
             entries = offset_base_counts.get(count_key, []) or []
             if not isinstance(entries, list):
                 continue
@@ -439,6 +456,9 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         "layout_actionable_offset_derefs": int(
                             metrics.get("body_offset_deref_layout_actionable_patterns", 0)
                             or 0
+                        ),
+                        "projected_hot_cluster_accesses": int(
+                            projected_hot_cluster_accesses.get(base, 0)
                         ),
                         "unmatched_offset_derefs": int(
                             metrics.get("body_offset_deref_unmatched_base_patterns", 0)
@@ -486,6 +506,13 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
     body_label_tokens = len(LABEL_RE.findall(body_text))
     layout_actionable_bases = _layout_actionable_bases(cleaned_text)
+    projected_hot_field_clusters = _projected_hot_field_clusters(body_text, layout_actionable_bases)
+    projected_hot_field_cluster_base_counts = Counter(
+        {
+            str(item.get("base", "") or "unknown"): _int_value(item.get("access_count"), 0)
+            for item in projected_hot_field_clusters
+        }
+    )
     offset_base_counts = _simple_offset_deref_base_counts(body_text)
     simple_base_offset_derefs = sum(offset_base_counts.values())
     legacy_offset_derefs = len(OFFSET_DEREF_RE.findall(body_text))
@@ -547,6 +574,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_base_stability = len(FIELD_BASE_STABILITY_RE.findall(cleaned_text))
     layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(cleaned_text))
     layout_hot_field_clusters = len(FIELD_HOT_CLUSTER_RE.findall(cleaned_text))
+    projected_hot_field_cluster_accesses = sum(projected_hot_field_cluster_base_counts.values())
     layout_actionability_signals = (
         layout_rewrite_blockers
         + layout_rewrite_near_ready
@@ -617,6 +645,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "layout_base_stability": layout_base_stability,
         "layout_stable_base_sources": layout_stable_base_sources,
         "layout_hot_field_clusters": layout_hot_field_clusters,
+        "projected_layout_hot_field_clusters": len(projected_hot_field_clusters),
+        "projected_layout_hot_field_cluster_bases": len(projected_hot_field_cluster_base_counts),
+        "projected_layout_hot_field_cluster_accesses": projected_hot_field_cluster_accesses,
         "llm_fallback": 1 if str(summary.get("llm_status", "") or "") == "fallback" else 0,
     }
     score, reasons = _score_metrics(metrics, warning_classes)
@@ -659,6 +690,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "unannotated_named": _top_counter_items(
                 unannotated_named_base_counts,
                 len(unannotated_named_base_counts),
+            ),
+            "projected_hot_cluster": _top_counter_items(
+                projected_hot_field_cluster_base_counts,
+                len(projected_hot_field_cluster_base_counts),
             ),
         },
         "summary_path": str(summary_path),
@@ -703,6 +738,19 @@ def _layout_actionable_bases(text: str) -> set[str]:
         if base:
             bases.add(base)
     return bases
+
+
+def _projected_hot_field_clusters(text: str, existing_layout_bases: set[str]) -> list[dict[str, Any]]:
+    candidates = []
+    existing = set(existing_layout_bases or set())
+    for comment in field_layout_comments(text or ""):
+        if comment.get("kind") != "inferred_offset_field_hot_cluster":
+            continue
+        base = str(comment.get("base", "") or "")
+        if not base or base in existing:
+            continue
+        candidates.append(comment)
+    return candidates
 
 
 def _simple_offset_deref_base_counts(text: str) -> Counter[str]:
@@ -771,6 +819,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_base_stability"] * 8.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["layout_hot_field_clusters"] * 4.0
+    score += metrics["projected_layout_hot_field_clusters"] * 6.0
+    score += min(metrics["projected_layout_hot_field_cluster_accesses"], 120) * 0.25
     score += metrics["llm_fallback"] * 25.0
     score += warning_classes.get("llm_pascal_case", 0) * 2.0
     score += warning_classes.get("llm_dispatcher_context", 0) * 1.5
@@ -824,6 +874,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_base_stability")
     if metrics["layout_hot_field_clusters"]:
         reasons.append("layout_hot_field_cluster")
+    if metrics["projected_layout_hot_field_clusters"]:
+        reasons.append("projected_layout_hot_field_cluster")
     if metrics["llm_fallback"]:
         reasons.append("llm_fallback")
     return score, reasons or ["baseline_sample"]
@@ -902,6 +954,15 @@ def _score_model() -> dict[str, Any]:
             "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
             "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,
             "no_layout_overflow_weight": OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
+        },
+        "hot_cluster_projection": {
+            "cluster_metric": "projected_layout_hot_field_clusters",
+            "base_metric": "projected_layout_hot_field_cluster_bases",
+            "access_metric": "projected_layout_hot_field_cluster_accesses",
+            "cluster_weight": 6.0,
+            "access_weight": 0.25,
+            "access_score_cap": 120,
+            "purpose": "Rank old corpus outputs that will gain hot-cluster review artifacts after deterministic replay.",
         },
         "source_identity_review_queues": {
             "queue_limit": SOURCE_IDENTITY_QUEUE_LIMIT,
