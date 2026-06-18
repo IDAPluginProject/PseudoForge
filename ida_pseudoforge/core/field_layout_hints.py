@@ -43,6 +43,7 @@ _REWRITE_THRESHOLD_BLOCKERS = {
 _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "direct_argument_alias",
     "direct_call_result_alias",
+    "named_branch_call_result_alias",
     "local_out_parameter_alias",
     "named_call_result_alias",
     "parameter_field_pointer_alias",
@@ -436,6 +437,10 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         comment["source_index"] = identity["source_index"]
     if identity.get("source_call"):
         comment["source_call"] = identity["source_call"]
+    if identity.get("source_calls"):
+        comment["source_calls"] = list(identity["source_calls"])
+    if identity.get("source_call_names"):
+        comment["source_call_names"] = list(identity["source_call_names"])
     return comment
 
 
@@ -1925,6 +1930,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if direct_call_result_identity:
         return direct_call_result_identity
+    named_branch_call_result_identity = _named_branch_call_result_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if named_branch_call_result_identity:
+        return named_branch_call_result_identity
     source_kind = _layout_source_kind(source)
     source_assignments = [
         item
@@ -2285,6 +2298,66 @@ def _direct_call_result_source_identity(
         "source_rhs_kind": "call_result",
         "base_alias_assignments": base_alias_assignment_count,
         "source_assignments": 0,
+    }
+
+
+def _named_branch_call_result_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count != 1:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    if _layout_source_kind(source) != "named":
+        return {}
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    base_alias_assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < first_access
+        and item.group("op") == "="
+        and _normalize_assignment_rhs(item.group("rhs")) == source
+    ]
+    if len(base_alias_assignments) != 1:
+        return {}
+    base_alias_start = base_alias_assignments[0].start()
+    source_assignments = [
+        item
+        for item in _base_direct_assignments(text, source)
+        if item.start() < first_access
+    ]
+    if len(source_assignments) < 2 or len(source_assignments) > 4:
+        return {}
+    source_calls = []
+    source_call_names = []
+    for source_assignment in source_assignments:
+        if source_assignment.group("op") != "=":
+            return {}
+        if source_assignment.start() >= base_alias_start:
+            return {}
+        rhs = _normalize_assignment_rhs(source_assignment.group("rhs"))
+        if _layout_rhs_kind(rhs) != "call_result":
+            return {}
+        call_name = _parse_direct_call_result_name(rhs)
+        if not call_name:
+            return {}
+        source_calls.append(rhs)
+        source_call_names.append(call_name)
+    return {
+        "source": source,
+        "source_kind": "named",
+        "source_provenance": "named_branch_call_result_alias",
+        "source_rhs_kind": "call_result",
+        "source_call": "; ".join(source_calls[:4]),
+        "source_calls": source_calls,
+        "source_call_names": source_call_names,
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": len(source_assignments),
     }
 
 

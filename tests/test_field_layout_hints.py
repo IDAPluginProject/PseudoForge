@@ -702,6 +702,137 @@ __int64 __fastcall IndirectDispatchCallResultSourceLayout(__int64 context)
         self.assertEqual(1, len(blockers))
         self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
 
+    def test_temp_base_with_named_branch_call_result_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableNamedBranchCallResultSourceLayout(__int64 hive, int usePaged)
+{
+  __int64 cell;
+  __int64 v12;
+
+  if ( usePaged )
+  {
+    cell = HvpGetCellPaged(hive, 16, 0LL);
+  }
+  else
+  {
+    cell = HvpGetCellFlat(hive, 16, 0LL);
+  }
+  v12 = cell;
+  return *(_QWORD *)(v12 + 16)
+       + *(_QWORD *)(v12 + 24)
+       + *(_QWORD *)(v12 + 32)
+       + *(_QWORD *)(v12 + 40)
+       + *(_QWORD *)(v12 + 48)
+       + *(_QWORD *)(v12 + 56)
+       + *(_QWORD *)(v12 + 64)
+       + *(_QWORD *)(v12 + 72)
+       + *(_QWORD *)(v12 + 16)
+       + *(_QWORD *)(v12 + 24)
+       + *(_QWORD *)(v12 + 32)
+       + *(_QWORD *)(v12 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v12", sources[0]["base"])
+        self.assertEqual("cell", sources[0]["source"])
+        self.assertEqual("named", sources[0]["source_kind"])
+        self.assertEqual("named_branch_call_result_alias", sources[0]["source_provenance"])
+        self.assertEqual("call_result", sources[0]["source_rhs_kind"])
+        self.assertEqual(
+            ["HvpGetCellPaged(hive, 16, 0LL)", "HvpGetCellFlat(hive, 16, 0LL)"],
+            sources[0]["source_calls"],
+        )
+        self.assertEqual(["HvpGetCellPaged", "HvpGetCellFlat"], sources[0]["source_call_names"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("cell", ready[0]["source"])
+        self.assertEqual("named_branch_call_result_alias", ready[0]["source_provenance"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("named_branch_call_result_alias", previews[0]["source_provenance"])
+
+    def test_temp_base_with_guarded_named_branch_call_result_source_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall GuardedNamedBranchCallResultSourceLayout(__int64 hive, int usePaged)
+{
+  __int64 cell;
+  __int64 v12;
+
+  if ( usePaged )
+  {
+    cell = guard_dispatch_icall_no_overrides(hive, 16, 0LL);
+  }
+  else
+  {
+    cell = HvpGetCellFlat(hive, 16, 0LL);
+  }
+  v12 = cell;
+  return *(_QWORD *)(v12 + 16)
+       + *(_QWORD *)(v12 + 24)
+       + *(_QWORD *)(v12 + 32)
+       + *(_QWORD *)(v12 + 40)
+       + *(_QWORD *)(v12 + 48)
+       + *(_QWORD *)(v12 + 56)
+       + *(_QWORD *)(v12 + 64)
+       + *(_QWORD *)(v12 + 72)
+       + *(_QWORD *)(v12 + 16)
+       + *(_QWORD *)(v12 + 24)
+       + *(_QWORD *)(v12 + 32)
+       + *(_QWORD *)(v12 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("named_multi_assignment_alias", sources[0]["source_provenance"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_temp_base_with_post_alias_named_branch_source_assignment_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PostAliasNamedBranchCallResultSourceLayout(__int64 hive)
+{
+  __int64 cell;
+  __int64 v12;
+
+  cell = HvpGetCellFlat(hive, 16, 0LL);
+  v12 = cell;
+  cell = HvpGetCellPaged(hive, 24, 0LL);
+  return *(_QWORD *)(v12 + 16)
+       + *(_QWORD *)(v12 + 24)
+       + *(_QWORD *)(v12 + 32)
+       + *(_QWORD *)(v12 + 40)
+       + *(_QWORD *)(v12 + 48)
+       + *(_QWORD *)(v12 + 56)
+       + *(_QWORD *)(v12 + 64)
+       + *(_QWORD *)(v12 + 72)
+       + *(_QWORD *)(v12 + 16)
+       + *(_QWORD *)(v12 + 24)
+       + *(_QWORD *)(v12 + 32)
+       + *(_QWORD *)(v12 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("named_multi_assignment_alias", sources[0]["source_provenance"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_temp_base_with_temporary_call_result_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """
