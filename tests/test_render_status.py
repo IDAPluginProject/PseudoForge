@@ -117,6 +117,9 @@ STATUS_FLOW_COMPARISON_SAMPLE = r"""
 NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
 {
   int callStatus;
+  int indirectStatus;
+  int status;
+  int aliasedStatus;
   int plainValue;
 
   callStatus = SomeStatusCall(a1);
@@ -126,6 +129,17 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
     return callStatus;
   if ( -1073740541 != callStatus )
     return STATUS_INVALID_PARAMETER;
+  indirectStatus = (*(__int64 (__fastcall **)(int))(a1 + 16))(
+                     a1);
+  if ( indirectStatus < 0 )
+  {
+    if ( indirectStatus == -1073741267 )
+      return indirectStatus;
+  }
+  aliasedStatus = SomeStatusCall(a1);
+  status = aliasedStatus;
+  if ( aliasedStatus != -1073741789 )
+    return status;
   plainValue = a1;
   if ( plainValue >= 0 )
     return STATUS_SUCCESS;
@@ -500,6 +514,8 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
 
         self.assertIn("callStatus == STATUS_DELETE_PENDING", rendered)
         self.assertIn("STATUS_CALLBACK_BYPASS != callStatus", rendered)
+        self.assertIn("indirectStatus == STATUS_RETRY", rendered)
+        self.assertIn("aliasedStatus != STATUS_BUFFER_TOO_SMALL", rendered)
         self.assertIn("plainValue == -1073741738", rendered)
 
     def test_status_call_result_comparison_literals_are_named_for_trusted_calls(self) -> None:

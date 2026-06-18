@@ -825,8 +825,7 @@ def _status_flow_candidate_names(text: str) -> set[str]:
         )
     )
     call_result_names = {match.group("name") for match in call_assignments}
-    if not call_result_names:
-        return set()
+    call_result_names.update(_indirect_call_result_names(text))
 
     range_checked_names: set[str] = set()
     for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:<|>=)\s*0\b", text):
@@ -835,6 +834,8 @@ def _status_flow_candidate_names(text: str) -> set[str]:
         range_checked_names.add(match.group("name"))
 
     candidates = call_result_names.intersection(range_checked_names)
+    profiled_comparison_names = _profiled_status_comparison_names(text)
+    candidates.update(_status_assignment_alias_names(text).intersection(profiled_comparison_names))
     trusted_callees = _trusted_status_call_result_callee_names(text)
     for match in call_assignments:
         name = match.group("name")
@@ -844,7 +845,59 @@ def _status_flow_candidate_names(text: str) -> set[str]:
             continue
         if callee in trusted_callees or _is_trusted_status_call_result_comparison(callee, cast):
             candidates.add(name)
-    return candidates
+    return {name for name in candidates if not _target_has_bitwise_use(text, name)}
+
+
+def _indirect_call_result_names(text: str) -> set[str]:
+    names: set[str] = set()
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<rhs>[^;\n]*\([^;\n]*\)[^;\n]*)\s*;"
+    )
+    for match in assignment_pattern.finditer(text):
+        rhs = match.group("rhs")
+        if re.match(r"\s*(?:sizeof|__PAIR\d+__)\b", rhs):
+            continue
+        names.add(match.group("name"))
+    multiline_indirect_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\(\*.*\)\s*\("
+    )
+    for match in multiline_indirect_pattern.finditer(text):
+        names.add(match.group("name"))
+    return names
+
+
+def _profiled_status_comparison_names(text: str) -> set[str]:
+    names: set[str] = set()
+    identifier_first = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=)\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+    )
+    literal_first = re.compile(
+        r"(?<![A-Za-z0-9_])(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*(?:==|!=)\s*"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+    for pattern in (identifier_first, literal_first):
+        for match in pattern.finditer(text):
+            if _status_name_for_literal(match.group("literal"), allow_zero=False):
+                names.add(match.group("name"))
+    return names
+
+
+def _status_assignment_alias_names(text: str) -> set[str]:
+    names: set[str] = set()
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<status>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?:\([^)]+\)\s*)?(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*;"
+    )
+    for match in assignment_pattern.finditer(text):
+        if not _is_status_identifier(match.group("status")):
+            continue
+        alias = match.group("alias")
+        if alias == match.group("status"):
+            continue
+        names.add(alias)
+    return names
 
 
 def _guard_dispatch_status_candidate_names(text: str) -> set[str]:
