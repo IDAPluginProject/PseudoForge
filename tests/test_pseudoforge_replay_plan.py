@@ -450,6 +450,18 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                     "unannotated_argument_identity_base_pattern"
                 ],
             )
+            argument_queue = plan["source_identity_review_queues"]["argument"]
+            self.assertEqual("ArgumentBase", argument_queue[0]["function"])
+            self.assertEqual("argument0", argument_queue[0]["base"])
+            self.assertEqual(12, argument_queue[0]["offset_derefs"])
+            self.assertEqual("argument", argument_queue[0]["source_kind"])
+            self.assertEqual(
+                "argument_parameter_identity_review",
+                argument_queue[0]["disposition"],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Source Identity Review Queues", markdown)
+            self.assertIn("argument_parameter_identity_review", markdown)
 
     def test_replay_plan_splits_context_and_bugcheck_argument_identity_bases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -506,6 +518,28 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 "BugCheckParameter2",
                 plan["offset_base_breakdown"]["top_unannotated_bugcheck_bases"][0]["base"],
             )
+            context_queue = plan["source_identity_review_queues"]["context"]
+            bugcheck_queue = plan["source_identity_review_queues"]["bugcheck"]
+            self.assertEqual("ContextBase", context_queue[0]["function"])
+            self.assertEqual("context", context_queue[0]["base"])
+            self.assertEqual(12, context_queue[0]["offset_derefs"])
+            self.assertEqual("generic_parameter_trust_review", context_queue[0]["disposition"])
+            self.assertEqual("BugcheckBase", bugcheck_queue[0]["function"])
+            self.assertEqual("BugCheckParameter2", bugcheck_queue[0]["base"])
+            self.assertEqual(12, bugcheck_queue[0]["offset_derefs"])
+            self.assertEqual("bugcheck_parameter_pointer_review", bugcheck_queue[0]["disposition"])
+            self.assertEqual(
+                15,
+                plan["score_model"]["source_identity_review_queues"]["queue_limit"],
+            )
+            self.assertEqual(
+                10,
+                plan["score_model"]["source_identity_review_queues"]["min_offset_derefs"],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Context parameter candidates", markdown)
+            self.assertIn("Bugcheck parameter pointer candidates", markdown)
+            self.assertIn("bugcheck_parameter_pointer_review", markdown)
 
 
 def _write_function(

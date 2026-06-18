@@ -52,6 +52,8 @@ OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
 LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
 OFFSET_BASE_BREAKDOWN_LIMIT = 15
+SOURCE_IDENTITY_QUEUE_LIMIT = 15
+SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS = 10
 TEMP_OFFSET_BASE_PATTERN = r"[av]\d+"
 ARGUMENT_OFFSET_BASE_PATTERN = r"argument\d+"
 CONTEXT_OFFSET_BASE_PATTERN = r"context"
@@ -149,6 +151,7 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
         "candidate_count": len(items),
         "reason_counts": dict(sorted(reason_counts.items())),
         "offset_base_breakdown": _offset_base_breakdown(selected),
+        "source_identity_review_queues": _source_identity_review_queues(selected),
         "score_model": _score_model(),
         "items": selected,
         "top": int(top),
@@ -174,6 +177,7 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
     else:
         lines.append("No selected reasons.")
     lines.extend(_render_offset_base_breakdown(plan))
+    lines.extend(_render_source_identity_review_queues(plan))
     lines.extend(
         [
             "",
@@ -251,6 +255,46 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
             if not isinstance(entry, dict):
                 continue
             lines.append("| `%s` | %d |" % (entry.get("base", ""), int(entry.get("count", 0) or 0)))
+        lines.append("")
+    return lines
+
+
+def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
+    queues = _coerce_dict(plan.get("source_identity_review_queues", {}))
+    if not queues:
+        return []
+    lines = ["", "## Source Identity Review Queues", ""]
+    for title, key in (
+        ("Context parameter candidates", "context"),
+        ("Argument parameter candidates", "argument"),
+        ("Bugcheck parameter pointer candidates", "bugcheck"),
+    ):
+        entries = queues.get(key, []) or []
+        lines.append("### %s" % title)
+        lines.append("")
+        if not isinstance(entries, list) or not entries:
+            lines.append("No candidates.")
+            lines.append("")
+            continue
+        lines.append(
+            "| Function | EA | Base | Offset derefs | Function layout offsets | Function blockers | Disposition |"
+        )
+        lines.append("| --- | --- | --- | ---: | ---: | ---: | --- |")
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            lines.append(
+                "| `%s` | `%s` | `%s` | %d | %d | %d | `%s` |"
+                % (
+                    entry.get("function", ""),
+                    entry.get("ea", ""),
+                    entry.get("base", ""),
+                    int(entry.get("offset_derefs", 0) or 0),
+                    int(entry.get("layout_actionable_offset_derefs", 0) or 0),
+                    int(entry.get("layout_blockers", 0) or 0),
+                    entry.get("disposition", ""),
+                )
+            )
         lines.append("")
     return lines
 
@@ -342,6 +386,82 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
     }
+
+
+def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    queue_specs = (
+        (
+            "context",
+            "unannotated_context",
+            "generic_parameter_trust_review",
+            "Review generic context parameter identity before enabling rewrite.",
+        ),
+        (
+            "argument",
+            "unannotated_argument",
+            "argument_parameter_identity_review",
+            "Review argumentN parameter role before promoting layout identity.",
+        ),
+        (
+            "bugcheck",
+            "unannotated_bugcheck",
+            "bugcheck_parameter_pointer_review",
+            "Review bugcheck-code-specific pointer meaning before promotion.",
+        ),
+    )
+    queues: dict[str, list[dict[str, Any]]] = {}
+    for source_kind, count_key, disposition, recommended_next in queue_specs:
+        rows: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            metrics = _coerce_dict(item.get("metrics", {}))
+            offset_base_counts = _coerce_dict(item.get("offset_base_counts", {}))
+            entries = offset_base_counts.get(count_key, []) or []
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                base = str(entry.get("base", "") or "")
+                count = int(entry.get("count", 0) or 0)
+                if not base or count < SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS:
+                    continue
+                rows.append(
+                    {
+                        "function": str(item.get("name", "") or ""),
+                        "ea": str(item.get("ea", "") or ""),
+                        "base": base,
+                        "source_kind": source_kind,
+                        "offset_derefs": count,
+                        "layout_actionable_offset_derefs": int(
+                            metrics.get("body_offset_deref_layout_actionable_patterns", 0)
+                            or 0
+                        ),
+                        "unmatched_offset_derefs": int(
+                            metrics.get("body_offset_deref_unmatched_base_patterns", 0)
+                            or 0
+                        ),
+                        "layout_blockers": int(metrics.get("layout_rewrite_blockers", 0) or 0),
+                        "layout_base_stability": int(
+                            metrics.get("layout_base_stability", 0) or 0
+                        ),
+                        "disposition": disposition,
+                        "recommended_next": recommended_next,
+                    }
+                )
+        rows.sort(
+            key=lambda row: (
+                -int(row["offset_derefs"]),
+                -int(row["layout_actionable_offset_derefs"]),
+                -int(row["layout_blockers"]),
+                str(row["function"]),
+                str(row["ea"]),
+                str(row["base"]),
+            )
+        )
+        queues[source_kind] = rows[:SOURCE_IDENTITY_QUEUE_LIMIT]
+    return queues
 
 
 def _score_summary(summary_path: Path) -> dict[str, Any] | None:
@@ -772,7 +892,17 @@ def _score_model() -> dict[str, Any]:
             "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
             "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,
             "no_layout_overflow_weight": OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
-        }
+        },
+        "source_identity_review_queues": {
+            "queue_limit": SOURCE_IDENTITY_QUEUE_LIMIT,
+            "min_offset_derefs": SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS,
+            "source_kinds": [
+                "context",
+                "argument",
+                "bugcheck",
+            ],
+            "purpose": "Rank unannotated parameter-like bases before enabling promotion rules.",
+        },
     }
 
 
