@@ -577,6 +577,61 @@ __int64 __fastcall LayoutPartialPreviewNormalize(__int64 context)
             self.assertNotIn("context->field_30", cleaned_output)
             self.assertIn("*(_BYTE *)(context + 0x206)", cleaned_output)
 
+    def test_partial_layout_rewrite_handles_pointer_to_pointer_accesses(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for context: 12 safe dereference(s) across 8 safe offset(s), 1 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_40, field_48, field_50, field_58. Safe offsets +0x10, +0x18, +0x20, +0x28, +0x40, +0x48, +0x50, +0x58; excluded offsets +0x206. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.77
+*/
+__int64 __fastcall LayoutPointerPreviewNormalize(__int64 context)
+{
+  return *(_QWORD *)(context + 0x10)
+       + *(_QWORD *)(context + 0x18)
+       + *(_DWORD *)(context + 0x20)
+       + *(_DWORD *)(context + 0x28)
+       + *(_BYTE *)(context + 0x40)
+       + **(_DWORD **)(context + 0x48)
+       + *(_QWORD **)(context + 0x50)
+       + *(_QWORD *)(context + 0x58)
+       + *(_QWORD *)(context + 0x10)
+       + **(_DWORD **)(context + 0x48)
+       + *(_QWORD **)(context + 0x50)
+       + *(_QWORD *)(context + 0x58)
+       + *(_BYTE *)(context + 0x206);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPointerPreviewNormalize(__int64 context)
+{
+  return context;
+}
+""",
+                name="LayoutPointerPreviewNormalize",
+                ea=0x140002460,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual("passed", preview_metadata["validation"]["status"])
+            self.assertEqual("applied_partial", preview_metadata["canonical_rewrite_status"])
+            self.assertEqual([], preview_metadata["canonical_rewrite_errors"])
+            self.assertIn("*context->field_48 /* _DWORD * +0x48 */", cleaned_output)
+            self.assertIn("context->field_50 /* _QWORD * +0x50 */", cleaned_output)
+            self.assertIn("*(_BYTE *)(context + 0x206)", cleaned_output)
+
     def test_legacy_render_export_import_remains_compatible(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             capture = capture_from_pseudocode(SAMPLE, ea=0x140001000, source_path="sample.bin")

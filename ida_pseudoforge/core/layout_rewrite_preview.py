@@ -7,7 +7,8 @@ from typing import Any
 
 
 _OFFSET_DEREF_RE = re.compile(
-    r"\*\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*\*\s*\)\s*"
+    r"(?P<outer_stars>\*+)\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
@@ -211,7 +212,11 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         allowed_offsets = rule.get("allowed_offsets")
         if allowed_offsets is not None and offset not in allowed_offsets:
             return match.group(0)
-        type_name = " ".join(match.group("type").split())
+        type_name = _rewritten_field_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
+        deref_prefix = _outer_value_deref_prefix(match.group("outer_stars"))
         field_name = "field_%X" % offset
         rewritten_accesses += 1
         rewritten_fields.add("%s.%s" % (base, field_name))
@@ -221,7 +226,13 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         offset_accesses = rewrite_results[base]["offset_accesses"]
         offset_key = "0x%X" % offset
         offset_accesses[offset_key] = int(offset_accesses.get(offset_key, 0) or 0) + 1
-        return "%s->%s /* %s +0x%X */" % (base, field_name, type_name, offset)
+        return "%s%s->%s /* %s +0x%X */" % (
+            deref_prefix,
+            base,
+            field_name,
+            type_name,
+            offset,
+        )
 
     rewritten = _OFFSET_DEREF_RE.sub(replace, text or "")
     return rewritten, {
@@ -597,6 +608,24 @@ def _plan_allowed_offsets(plan: dict[str, Any]) -> set[int]:
 
 def _format_offset_list(offsets: list[int]) -> str:
     return ", ".join("+0x%X" % offset for offset in sorted(set(offsets)))
+
+
+def _rewritten_field_type(type_name: str, pointer_stars: str) -> str:
+    text = " ".join(str(type_name or "").split())
+    pointer_depth = len(str(pointer_stars or ""))
+    if pointer_depth <= 1:
+        return text
+    pointer_text = "%s %s" % (text, "*" * (pointer_depth - 1))
+    if len(pointer_text) > 64:
+        return text
+    return pointer_text
+
+
+def _outer_value_deref_prefix(outer_stars: str) -> str:
+    outer_depth = len(str(outer_stars or ""))
+    if outer_depth <= 1:
+        return ""
+    return "*" * (outer_depth - 1)
 
 
 def _canonical_layout_rewrite_text(rewritten_text: str) -> str:
