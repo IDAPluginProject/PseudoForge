@@ -47,6 +47,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_pointer_store_literals(result)
     result = _replace_status_pointer_alias_store_literals(result)
     result = _replace_nested_dword_status_pointer_store_literals(result)
+    result = _replace_status_field_literals(result)
     result = _replace_low_dword_status_carrier_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
@@ -744,6 +745,219 @@ def _nested_dword_store_target_has_status_read(text: str, key: str) -> bool:
             r"\b0\s*(?:>|<=)\s*%s\b",
         )
     )
+
+
+def _replace_status_field_literals(text: str) -> str:
+    indexed_candidates = _indexed_status_field_candidates(text)
+    pointer_candidates = _pointer_cast_status_field_candidates(text)
+    if not indexed_candidates and not pointer_candidates:
+        return text
+
+    result = _replace_indexed_status_field_literals(text, indexed_candidates)
+    result = _replace_pointer_cast_status_field_comparisons(result, pointer_candidates)
+    return _replace_status_field_alias_comparisons(result, indexed_candidates, pointer_candidates)
+
+
+def _replace_indexed_status_field_literals(text: str, candidates: set[str]) -> str:
+    if not candidates:
+        return text
+
+    assignment_pattern = re.compile(
+        r"(?m)(?P<prefix>^[ \t]*(?P<target>[A-Za-z_][A-Za-z0-9_]*\s*\[\s*[^\]\n]+\s*\])\s*=\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+    def replace_assignment(match: re.Match[str]) -> str:
+        if _normalize_indexed_field(match.group("target")) not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("end")
+
+    result = assignment_pattern.sub(replace_assignment, text)
+    return _replace_indexed_status_field_comparisons(result, candidates)
+
+
+def _replace_indexed_status_field_comparisons(text: str, candidates: set[str]) -> str:
+    if not candidates:
+        return text
+
+    target = r"(?P<target>[A-Za-z_][A-Za-z0-9_]*\s*\[\s*[^\]\n]+\s*\])"
+    literal = r"-?(?:0x[0-9A-Fa-f]+|\d+)"
+    identifier_first = re.compile(
+        r"(?P<prefix>%s\s*(?:==|!=)\s*)(?P<literal>%s)(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+        % (target, literal)
+    )
+    literal_first = re.compile(
+        r"(?P<prefix>(?<![A-Za-z0-9_]))(?P<literal>%s)(?P<suffix>u?LL|ULL|LL|u|U|L)?"
+        r"(?P<operator>\s*(?:==|!=)\s*)(?P<target>[A-Za-z_][A-Za-z0-9_]*\s*\[\s*[^\]\n]+\s*\])"
+        % literal
+    )
+
+    def replace_identifier_first(match: re.Match[str]) -> str:
+        if _normalize_indexed_field(match.group("target")) not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name
+
+    def replace_literal_first(match: re.Match[str]) -> str:
+        if _normalize_indexed_field(match.group("target")) not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("operator") + match.group("target")
+
+    return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _replace_pointer_cast_status_field_comparisons(text: str, candidates: set[str]) -> str:
+    if not candidates:
+        return text
+
+    target = r"\*\s*\(\s*(?:_DWORD|DWORD|int|NTSTATUS|ULONG|LONG)\s*\*\s*\)\s*%s" % _POINTER_ADDRESS_PATTERN
+    literal = r"-?(?:0x[0-9A-Fa-f]+|\d+)"
+    identifier_first = re.compile(
+        r"(?P<prefix>(?P<target>%s)\s*(?:==|!=)\s*)(?P<literal>%s)(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+        % (target, literal)
+    )
+    literal_first = re.compile(
+        r"(?P<prefix>(?<![A-Za-z0-9_]))(?P<literal>%s)(?P<suffix>u?LL|ULL|LL|u|U|L)?"
+        r"(?P<operator>\s*(?:==|!=)\s*)(?P<target>%s)" % (literal, target)
+    )
+
+    def replace_identifier_first(match: re.Match[str]) -> str:
+        if _normalize_pointer_cast_address(match.group("address")) not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name
+
+    def replace_literal_first(match: re.Match[str]) -> str:
+        if _normalize_pointer_cast_address(match.group("address")) not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("operator") + match.group("target")
+
+    return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _replace_status_field_alias_comparisons(
+    text: str,
+    indexed_candidates: set[str],
+    pointer_candidates: set[str],
+) -> str:
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    previous_alias = ""
+    for line in lines:
+        new_line = line
+        if previous_alias:
+            new_line = _replace_status_comparisons_for_names(line, {previous_alias})
+        result.append(new_line)
+
+        if not line.strip():
+            previous_alias = ""
+            continue
+        previous_alias = _status_field_alias_from_line(line, indexed_candidates, pointer_candidates)
+    return "".join(result)
+
+
+def _status_field_alias_from_line(
+    line: str,
+    indexed_candidates: set[str],
+    pointer_candidates: set[str],
+) -> str:
+    indexed_match = re.match(
+        r"^[ \t]*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?P<target>[A-Za-z_][A-Za-z0-9_]*\s*\[\s*[^\]\n]+\s*\])\s*;",
+        line or "",
+    )
+    if indexed_match and _normalize_indexed_field(indexed_match.group("target")) in indexed_candidates:
+        return indexed_match.group("alias")
+
+    pointer_match = re.match(
+        r"^[ \t]*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"\*\s*\(\s*(?:_DWORD|DWORD|int|NTSTATUS|ULONG|LONG)\s*\*\s*\)\s*(?P<address>[^;\n]+?)\s*;",
+        line or "",
+    )
+    if pointer_match and _normalize_pointer_cast_address(pointer_match.group("address")) in pointer_candidates:
+        return pointer_match.group("alias")
+    return ""
+
+
+def _indexed_status_field_candidates(text: str) -> set[str]:
+    error_store_counts: dict[str, int] = {}
+    nonstatus_literal_counts: dict[str, int] = {}
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*(?P<target>[A-Za-z_][A-Za-z0-9_]*\s*\[\s*[^\]\n]+\s*\])\s*=\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;"
+    )
+    for match in assignment_pattern.finditer(text):
+        target = _normalize_indexed_field(match.group("target"))
+        literal = match.group("literal")
+        if _error_status_name_for_literal(literal):
+            error_store_counts[target] = error_store_counts.get(target, 0) + 1
+        elif not _is_zero_literal(literal):
+            nonstatus_literal_counts[target] = nonstatus_literal_counts.get(target, 0) + 1
+
+    candidates: set[str] = set()
+    for target, count in error_store_counts.items():
+        if count <= 0:
+            continue
+        if nonstatus_literal_counts.get(target, 0):
+            continue
+        if _indexed_field_has_status_read(text, target):
+            candidates.add(target)
+    return candidates
+
+
+def _indexed_field_has_status_read(text: str, target: str) -> bool:
+    expr = re.escape(target).replace(r"\ ", r"\s*")
+    return any(
+        re.search(pattern % expr, text)
+        for pattern in (
+            r"%s\s*(?:<|>=)\s*0\b",
+            r"\b0\s*(?:>|<=)\s*%s\b",
+            r"\breturn\s+(?:\(unsigned int\)\s*)?%s\s*;",
+        )
+    )
+
+
+def _pointer_cast_status_field_candidates(text: str) -> set[str]:
+    candidates: set[str] = set()
+    read_expr = r"\*\s*\(\s*(?:_DWORD|DWORD|int|NTSTATUS|ULONG|LONG)\s*\*\s*\)\s*%s" % _POINTER_ADDRESS_PATTERN
+    for pattern in (
+        re.compile(r"%s\s*(?:<|>=)\s*0\b" % read_expr),
+        re.compile(r"\b0\s*(?:>|<=)\s*%s" % read_expr),
+    ):
+        for match in pattern.finditer(text):
+            candidates.add(_normalize_pointer_cast_address(match.group("address")))
+    return candidates
+
+
+def _normalize_indexed_field(expr: str) -> str:
+    return re.sub(r"\s+", "", str(expr or "").strip())
+
+
+def _normalize_pointer_cast_address(address: str) -> str:
+    return re.sub(r"\s+", " ", str(address or "").strip())
+
+
+_POINTER_ADDRESS_PATTERN = (
+    r"(?P<address>"
+    r"\(\s*[A-Za-z_][A-Za-z0-9_]*"
+    r"(?:\s*(?:\+|-)\s*(?:0x[0-9A-Fa-f]+|\d+|[A-Za-z_][A-Za-z0-9_]*))?\s*\)"
+    r"|[A-Za-z_][A-Za-z0-9_]*"
+    r"(?:\s*(?:\+|-)\s*(?:0x[0-9A-Fa-f]+|\d+|[A-Za-z_][A-Za-z0-9_]*))?"
+    r")"
+)
 
 
 def _replace_low_dword_status_carrier_literals(text: str) -> str:

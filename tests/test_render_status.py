@@ -282,6 +282,37 @@ NTSTATUS __fastcall StatusCarrierLiteralSample(int a1, int a2)
 """
 
 
+STATUS_FIELD_COMPARISON_SAMPLE = r"""
+NTSTATUS __fastcall StatusFieldComparisonSample(int *context, int *plainField)
+{
+  int slotStatus;
+  int pointerStatus;
+
+  context[22] = -1073741536;
+  slotStatus = context[22];
+  if ( slotStatus == -1073741536 )
+    return slotStatus;
+  if ( context[22] >= 0 )
+    return STATUS_SUCCESS;
+  if ( context[22] == -1073741536 )
+    return context[22];
+  if ( *(int *)context < 0 )
+  {
+    if ( *(_DWORD *)context == -1073741275 )
+      pointerStatus = *(_DWORD *)context;
+  }
+  if ( -1073741772 == *(_DWORD *)context )
+    return STATUS_CANCELLED;
+  plainField[2] = -1073741536;
+  if ( plainField[2] == -1073741536 )
+    return STATUS_INVALID_PARAMETER;
+  if ( *(_DWORD *)plainField == -1073741275 )
+    return STATUS_INVALID_PARAMETER;
+  return (unsigned int)context[22];
+}
+"""
+
+
 STATUS_ARGUMENT_SAMPLE = r"""
 void __fastcall StatusArgumentSample(__int64 a1)
 {
@@ -605,6 +636,20 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("v127 != STATUS_BUFFER_OVERFLOW", rendered)
         self.assertIn("plainValue = -2147483643;", rendered)
         self.assertIn("plainValue == -1073741675", rendered)
+
+    def test_status_field_comparisons_are_named_for_status_slots(self) -> None:
+        capture = capture_from_pseudocode(STATUS_FIELD_COMPARISON_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("context[22] = STATUS_CANCELLED;", rendered)
+        self.assertIn("slotStatus == STATUS_CANCELLED", rendered)
+        self.assertIn("context[22] == STATUS_CANCELLED", rendered)
+        self.assertIn("*(_DWORD *)context == STATUS_NOT_FOUND", rendered)
+        self.assertIn("STATUS_OBJECT_NAME_NOT_FOUND == *(_DWORD *)context", rendered)
+        self.assertIn("plainField[2] = -1073741536;", rendered)
+        self.assertIn("plainField[2] == -1073741536", rendered)
+        self.assertIn("*(_DWORD *)plainField == -1073741275", rendered)
 
     def test_profiled_status_argument_literals_are_named(self) -> None:
         capture = capture_from_pseudocode(STATUS_ARGUMENT_SAMPLE)
