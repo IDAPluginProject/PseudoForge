@@ -957,7 +957,7 @@ def _has_status_carrier_use(text: str, name: str) -> bool:
 
 def _target_has_bitwise_use(text: str, name: str) -> bool:
     escaped = re.escape(name)
-    bitwise_operator = r"(?:\||\^|<<|>>|(?<!&)&(?!&))"
+    bitwise_operator = r"(?:(?<!\|)\|(?!\|)|\^|<<|>>|(?<!&)&(?!&))"
     return any(
         re.search(pattern % escaped, text)
         for pattern in (

@@ -126,6 +126,8 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   int indirectStatus;
   int status;
   int aliasedStatus;
+  int relatedStatus;
+  int bitwiseResult;
   int plainValue;
 
   callStatus = SomeStatusCall(a1);
@@ -145,6 +147,15 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   aliasedStatus = SomeStatusCall(a1);
   status = aliasedStatus;
   if ( aliasedStatus != -1073741789 )
+    return status;
+  relatedStatus = SomeStatusCall(a1);
+  status = relatedStatus;
+  if ( !relatedStatus || relatedStatus == -1073741789 )
+    return status;
+  bitwiseResult = SomeStatusCall(a1);
+  status = bitwiseResult;
+  plainValue = bitwiseResult | 1;
+  if ( bitwiseResult != -1073741789 )
     return status;
   plainValue = a1;
   if ( plainValue >= 0 )
@@ -524,6 +535,8 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("STATUS_CALLBACK_BYPASS != callStatus", rendered)
         self.assertIn("indirectStatus == STATUS_RETRY", rendered)
         self.assertIn("aliasedStatus != STATUS_BUFFER_TOO_SMALL", rendered)
+        self.assertIn("relatedStatus == STATUS_BUFFER_TOO_SMALL", rendered)
+        self.assertIn("bitwiseResult != -1073741789", rendered)
         self.assertIn("plainValue == -1073741738", rendered)
 
     def test_status_call_result_comparison_literals_are_named_for_trusted_calls(self) -> None:
