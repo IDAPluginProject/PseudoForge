@@ -1393,9 +1393,40 @@ def _status_carrier_candidate_names(text: str) -> set[str]:
         name = match.group("name")
         status_assignment_counts[name] = status_assignment_counts.get(name, 0) + 1
 
+    profiled_literal_assignment_counts: dict[str, int] = {}
+    nonstatus_literal_assignment_counts: dict[str, int] = {}
+    literal_assignment_pattern = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;"
+    )
+    for match in literal_assignment_pattern.finditer(text):
+        name = match.group("name")
+        literal = match.group("literal")
+        if _status_name_for_literal(literal, allow_zero=False):
+            profiled_literal_assignment_counts[name] = profiled_literal_assignment_counts.get(
+                name,
+                0,
+            ) + 1
+            continue
+
+        value = _parse_numeric_literal(literal)
+        if value not in {None, 0}:
+            nonstatus_literal_assignment_counts[name] = nonstatus_literal_assignment_counts.get(
+                name,
+                0,
+            ) + 1
+
     candidates: set[str] = set()
     for name, count in status_assignment_counts.items():
         if count >= 2 or _is_status_identifier(name) or _has_status_carrier_use(text, name):
+            candidates.add(name)
+    for name in profiled_literal_assignment_counts:
+        if nonstatus_literal_assignment_counts.get(name):
+            continue
+        if _target_has_bitwise_use(text, name) or _target_has_direct_arithmetic_reuse(text, name):
+            continue
+        if _is_status_identifier(name) or _has_status_carrier_use(text, name):
             candidates.add(name)
     return candidates
 
@@ -1446,6 +1477,30 @@ def _target_has_arithmetic_reuse(text: str, name: str) -> bool:
             r"\b%s\s*--",
         )
     )
+
+
+def _target_has_direct_arithmetic_reuse(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    if any(
+        re.search(pattern % escaped, text)
+        for pattern in (
+            r"\+\+\s*%s\b",
+            r"--\s*%s\b",
+            r"\b%s\s*\+\+",
+            r"\b%s\s*--",
+            r"\b%s\s*(?:\+=|-=|\*=|/=|%%=|<<=|>>=)",
+        )
+    ):
+        return True
+
+    assignment_pattern = re.compile(r"(?m)^[ \t]*%s\s*=\s*(?P<expr>[^;\n]+)\s*;" % escaped)
+    for match in assignment_pattern.finditer(text):
+        expr = match.group("expr")
+        if re.search(r"\b%s\b\s*(?:[+*/%%]|(?<![A-Za-z0-9_])-|<<|>>)" % escaped, expr):
+            return True
+        if re.search(r"(?:[+*/%%]|(?<![A-Za-z0-9_])-|<<|>>)\s*\b%s\b" % escaped, expr):
+            return True
+    return False
 
 
 def _is_status_literal_expression(expr: str) -> bool:

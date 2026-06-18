@@ -307,6 +307,11 @@ NTSTATUS __fastcall StatusCarrierLiteralSample(int a1, int a2)
 {
   int v73;
   int v127;
+  int infoStatus;
+  int warningStatus;
+  int hresultLike;
+  int mixedScalar;
+  int arithCarrier;
   int plainValue;
 
   v73 = 0;
@@ -324,6 +329,23 @@ NTSTATUS __fastcall StatusCarrierLiteralSample(int a1, int a2)
     v127 = -2147483643;
   if ( v127 != -2147483643 )
     return v127;
+  infoStatus = 1073741849;
+  if ( infoStatus < 0 )
+    return infoStatus;
+  warningStatus = -2147483614;
+  if ( warningStatus < 0 )
+    return warningStatus;
+  hresultLike = -2147024891;
+  if ( hresultLike < 0 )
+    return hresultLike;
+  mixedScalar = 1073741849;
+  mixedScalar = 5;
+  if ( mixedScalar < 0 )
+    return mixedScalar;
+  arithCarrier = 1073741849;
+  arithCarrier = arithCarrier + 1;
+  if ( arithCarrier < 0 )
+    return arithCarrier;
   plainValue = -2147483643;
   if ( plainValue == -1073741675 )
     return STATUS_INVALID_PARAMETER;
@@ -723,6 +745,11 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("v73 == STATUS_INTEGER_OVERFLOW", rendered)
         self.assertIn("v127 = STATUS_BUFFER_OVERFLOW;", rendered)
         self.assertIn("v127 != STATUS_BUFFER_OVERFLOW", rendered)
+        self.assertIn("infoStatus = STATUS_WAS_LOCKED;", rendered)
+        self.assertIn("warningStatus = STATUS_NO_DATA_DETECTED;", rendered)
+        self.assertIn("hresultLike = -2147024891;", rendered)
+        self.assertIn("mixedScalar = 1073741849;", rendered)
+        self.assertIn("arithCarrier = 1073741849;", rendered)
         self.assertIn("plainValue = -2147483643;", rendered)
         self.assertIn("plainValue == -1073741675", rendered)
 
