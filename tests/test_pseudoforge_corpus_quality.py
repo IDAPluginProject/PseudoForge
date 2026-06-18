@@ -98,6 +98,29 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
         self.assertEqual("wide_or_nonstatus_target", literals[1]["target_evidence"])
         self.assertEqual("unsigned __int64", literals[1]["target_type"])
 
+    def test_decimal_status_target_review_hints_split_four_byte_scalars(self) -> None:
+        literals = _decimal_status_like_literals(
+            "int callResult;\n"
+            "int plainValue;\n"
+            "int magicValue;\n"
+            "int literalValue;\n"
+            "callResult = SomeStatusCall();\n"
+            "if ( callResult == -1073741789 )\n"
+            "if ( plainValue == -1073741789 )\n"
+            "magicValue = 1231315286;\n"
+            "literalValue = -2147483643;\n"
+        )
+
+        self.assertEqual(
+            [
+                "four_byte_scalar_call_result_review",
+                "four_byte_scalar_comparison_review",
+                "four_byte_scalar_ascii_magic_review",
+                "four_byte_scalar_status_literal_assignment_review",
+            ],
+            [item["target_review_hint"] for item in literals],
+        )
+
     def test_decimal_status_target_review_queues_split_weak_evidence(self) -> None:
         queues = _decimal_status_target_review_queues(
             [
@@ -124,6 +147,20 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                         },
                         "unknown_target": {
                             "manual_review": 1,
+                        },
+                    },
+                    "target_review_hints_by_evidence": {
+                        "complex_or_memory_target": {
+                            "complex_or_memory_review": 3,
+                        },
+                        "four_byte_scalar_target": {
+                            "four_byte_scalar_call_result_review": 1,
+                        },
+                        "wide_or_nonstatus_target": {
+                            "wide_or_nonstatus_review": 1,
+                        },
+                        "unknown_target": {
+                            "unknown_target_review": 1,
                         },
                     },
                     "contexts": [
@@ -160,6 +197,10 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
         self.assertEqual(
             {"four_byte_scalar_target": 1},
             queues["four_byte_scalar_targets"]["target_evidence"],
+        )
+        self.assertEqual(
+            {"four_byte_scalar_call_result_review": 1},
+            queues["four_byte_scalar_targets"]["target_review_hints"],
         )
 
     def test_nested_status_pointer_store_literals_split_dword_and_wide_review(self) -> None:
@@ -1277,6 +1318,10 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 decimal_stats["target_evidence"],
             )
             self.assertEqual(
+                {"status_flow_target": 3, "complex_or_memory_review": 1},
+                decimal_stats["target_review_hints"],
+            )
+            self.assertEqual(
                 3,
                 decimal_stats["review_queues"]["strong_profiled_status_literals"]["literals"],
             )
@@ -1316,6 +1361,12 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 {"complex_or_memory_target": 1},
                 decimal_stats["target_review_queues"]["complex_or_memory_targets"][
                     "target_evidence"
+                ],
+            )
+            self.assertEqual(
+                {"complex_or_memory_review": 1},
+                decimal_stats["target_review_queues"]["complex_or_memory_targets"][
+                    "target_review_hints"
                 ],
             )
             self.assertEqual(
@@ -1714,7 +1765,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `complex_or_memory_targets` | 1 | 1 | profiled_status_literal_candidate=1 | complex_or_memory_target=1 |",
+                "| `complex_or_memory_targets` | 1 | 1 | profiled_status_literal_candidate=1 | complex_or_memory_target=1 | complex_or_memory_review=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

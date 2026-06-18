@@ -389,6 +389,7 @@ def analyze_corpus(
     decimal_status_residue_context_kinds: Counter[str] = Counter()
     decimal_status_residue_review_classes: Counter[str] = Counter()
     decimal_status_residue_target_evidence: Counter[str] = Counter()
+    decimal_status_residue_target_review_hints: Counter[str] = Counter()
     nested_status_store_values: Counter[str] = Counter()
     nested_status_store_profiles: Counter[str] = Counter()
     nested_status_store_widths: Counter[str] = Counter()
@@ -679,6 +680,7 @@ def analyze_corpus(
                         decimal_status_residue_context_kinds,
                         decimal_status_residue_review_classes,
                         decimal_status_residue_target_evidence,
+                        decimal_status_residue_target_review_hints,
                     )
                     top_decimal_status_residue_functions.append(
                         _decimal_status_residue_function_summary(
@@ -1072,6 +1074,9 @@ def analyze_corpus(
             "context_kinds": _counter_to_dict(Counter(dict(decimal_status_residue_context_kinds.most_common(top)))),
             "review_classes": _counter_to_dict(Counter(dict(decimal_status_residue_review_classes.most_common(top)))),
             "target_evidence": _counter_to_dict(Counter(dict(decimal_status_residue_target_evidence.most_common(top)))),
+            "target_review_hints": _counter_to_dict(
+                Counter(dict(decimal_status_residue_target_review_hints.most_common(top)))
+            ),
             "review_queues": _decimal_status_review_queues(top_decimal_status_residue_functions, top),
             "target_review_queues": _decimal_status_target_review_queues(top_decimal_status_residue_functions, top),
             "top_functions": top_decimal_status_residue_functions[:top],
@@ -2600,8 +2605,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "#### Decimal Status-Like Target Evidence Review Queues",
             "",
-            "| Queue | Literals | Functions | Top Classes | Top Targets |",
-            "| --- | ---: | ---: | --- | --- |",
+            "| Queue | Literals | Functions | Top Classes | Top Targets | Top Hints |",
+            "| --- | ---: | ---: | --- | --- | --- |",
         ]
     )
     decimal_target_review_queues = _coerce_dict(
@@ -2617,14 +2622,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("target_evidence", {})).items()
         )
+        hints = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("target_review_hints", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s |"
             % (
                 queue_name,
                 int(queue.get("literals", 0) or 0),
                 int(queue.get("functions", 0) or 0),
                 _markdown_table_cell(classes),
                 _markdown_table_cell(targets),
+                _markdown_table_cell(hints),
             )
         )
     lines.extend(
@@ -3459,6 +3469,23 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
         target_name = _decimal_status_target_name(line_text, literal, context_kind)
         target_type = declaration_types.get(target_name, "")
         target_evidence = _decimal_status_target_evidence(text, target_name, target_type, context_kind)
+        review_class = _decimal_status_review_class(
+            unsigned_value,
+            profile_name,
+            severity,
+            context_kind,
+            line_text,
+            literal,
+            target_evidence,
+        )
+        target_review_hint = _decimal_status_target_review_hint(
+            text,
+            target_name,
+            target_type,
+            target_evidence,
+            context_kind,
+            review_class,
+        )
         result.append(
             {
                 "literal": literal,
@@ -3472,15 +3499,8 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
                 "target_name": target_name,
                 "target_type": target_type,
                 "target_evidence": target_evidence,
-                "review_class": _decimal_status_review_class(
-                    unsigned_value,
-                    profile_name,
-                    severity,
-                    context_kind,
-                    line_text,
-                    literal,
-                    target_evidence,
-                ),
+                "review_class": review_class,
+                "target_review_hint": target_review_hint,
                 "line": _line_number_for_offset(text, match.start()),
                 "line_text": line_text,
             }
@@ -3563,6 +3583,39 @@ def _decimal_status_target_evidence(text: str, target_name: str, target_type: st
     if target_type:
         return "wide_or_nonstatus_target"
     return "unknown_target"
+
+
+def _decimal_status_target_review_hint(
+    text: str,
+    target_name: str,
+    target_type: str,
+    target_evidence: str,
+    context_kind: str,
+    review_class: str,
+) -> str:
+    if target_evidence == "four_byte_scalar_target":
+        if review_class == "ascii_magic_candidate":
+            return "four_byte_scalar_ascii_magic_review"
+        if review_class == "bitmask_comparison_candidate":
+            return "four_byte_scalar_bitmask_review"
+        if target_name and _has_call_result_assignment_use(text, target_name):
+            return "four_byte_scalar_call_result_review"
+        if target_name and _has_profiled_status_literal_assignment_use(text, target_name):
+            return "four_byte_scalar_status_literal_assignment_review"
+        if context_kind == "assignment":
+            return "four_byte_scalar_assignment_review"
+        if context_kind == "comparison":
+            return "four_byte_scalar_comparison_review"
+        return "four_byte_scalar_review"
+    if target_evidence == "complex_or_memory_target":
+        return "complex_or_memory_review"
+    if target_evidence == "wide_or_nonstatus_target":
+        return "wide_or_nonstatus_review"
+    if target_evidence == "unknown_target":
+        return "unknown_target_review"
+    if target_evidence in {"status_identifier_target", "ntstatus_declared_target"}:
+        return "strong_status_target"
+    return "status_flow_target"
 
 
 def _decimal_status_review_class(
@@ -3690,6 +3743,21 @@ def _has_call_result_assignment_use(text: str, name: str) -> bool:
     ) is not None
 
 
+def _has_profiled_status_literal_assignment_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*%s\s*=\s*(?:\([^)]+\)\s*)?"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;" % escaped
+    )
+    for match in assignment_pattern.finditer(text or ""):
+        literal = match.group("literal")
+        parsed = _parse_numeric_literal(literal)
+        if parsed is not None and _ntstatus_profile_name(parsed, literal):
+            return True
+    return False
+
+
 def _update_decimal_status_residue_metrics(
     literals: list[dict[str, Any]],
     values: Counter[str],
@@ -3697,6 +3765,7 @@ def _update_decimal_status_residue_metrics(
     context_kinds: Counter[str],
     review_classes: Counter[str],
     target_evidence: Counter[str],
+    target_review_hints: Counter[str],
 ) -> None:
     for item in literals:
         values[str(item.get("hex_value", "") or "unknown")] += 1
@@ -3705,6 +3774,7 @@ def _update_decimal_status_residue_metrics(
         context_kinds[str(item.get("context_kind", "") or "unknown")] += 1
         review_classes[str(item.get("review_class", "") or "manual_review")] += 1
         target_evidence[str(item.get("target_evidence", "") or "none")] += 1
+        target_review_hints[str(item.get("target_review_hint", "") or "manual_review")] += 1
 
 
 def _decimal_status_residue_function_summary(
@@ -3718,13 +3788,19 @@ def _decimal_status_residue_function_summary(
     profile_names = Counter(str(item.get("profile_name", "") or "unprofiled") for item in literals)
     review_classes = Counter(str(item.get("review_class", "") or "manual_review") for item in literals)
     target_evidence = Counter(str(item.get("target_evidence", "") or "none") for item in literals)
+    target_review_hints = Counter(str(item.get("target_review_hint", "") or "manual_review") for item in literals)
     target_review_classes: dict[str, Counter[str]] = {}
+    target_review_hints_by_evidence: dict[str, Counter[str]] = {}
     for item in literals:
         target = str(item.get("target_evidence", "") or "none")
         review_class = str(item.get("review_class", "") or "manual_review")
+        review_hint = str(item.get("target_review_hint", "") or "manual_review")
         if target not in target_review_classes:
             target_review_classes[target] = Counter()
+        if target not in target_review_hints_by_evidence:
+            target_review_hints_by_evidence[target] = Counter()
         target_review_classes[target][review_class] += 1
+        target_review_hints_by_evidence[target][review_hint] += 1
     contexts = []
     for item in literals[:5]:
         contexts.append(
@@ -3738,6 +3814,7 @@ def _decimal_status_residue_function_summary(
                 "target_name": str(item.get("target_name", "") or ""),
                 "target_type": str(item.get("target_type", "") or ""),
                 "target_evidence": str(item.get("target_evidence", "") or "none"),
+                "target_review_hint": str(item.get("target_review_hint", "") or "manual_review"),
                 "source": str(item.get("line_text", "") or ""),
             }
         )
@@ -3753,9 +3830,14 @@ def _decimal_status_residue_function_summary(
         "profile_names": dict(profile_names.most_common()),
         "review_classes": dict(review_classes.most_common()),
         "target_evidence": dict(target_evidence.most_common()),
+        "target_review_hints": dict(target_review_hints.most_common()),
         "target_review_classes": {
             key: dict(value.most_common())
             for key, value in sorted(target_review_classes.items())
+        },
+        "target_review_hints_by_evidence": {
+            key: dict(value.most_common())
+            for key, value in sorted(target_review_hints_by_evidence.items())
         },
         "contexts": contexts,
         "summary_path": str(summary_path),
@@ -3832,6 +3914,7 @@ def _decimal_status_target_review_queues(
         items: list[dict[str, Any]] = []
         class_counts: Counter[str] = Counter()
         target_counts: Counter[str] = Counter()
+        hint_counts: Counter[str] = Counter()
         literal_total = 0
         function_names: set[str] = set()
         for function in functions:
@@ -3853,9 +3936,15 @@ def _decimal_status_target_review_queues(
             function_target_review_classes = _coerce_dict(
                 function.get("target_review_classes", {})
             )
+            function_target_review_hints = _coerce_dict(
+                function.get("target_review_hints_by_evidence", {})
+            )
             for target in target_evidence:
                 class_counts.update(
                     _coerce_dict(function_target_review_classes.get(target, {}))
+                )
+                hint_counts.update(
+                    _coerce_dict(function_target_review_hints.get(target, {}))
                 )
             target_counts.update(
                 {
@@ -3878,6 +3967,7 @@ def _decimal_status_target_review_queues(
             "functions": len(function_names),
             "review_classes": _counter_to_dict(Counter(dict(class_counts.most_common(top)))),
             "target_evidence": _counter_to_dict(Counter(dict(target_counts.most_common(top)))),
+            "target_review_hints": _counter_to_dict(Counter(dict(hint_counts.most_common(top)))),
             "items": items[:top],
         }
     return result
@@ -3901,14 +3991,18 @@ def _decimal_status_target_review_queue_item(
 ) -> dict[str, Any]:
     function_target_counts = _coerce_dict(function.get("target_evidence", {}))
     function_target_review_classes = _coerce_dict(function.get("target_review_classes", {}))
+    function_target_review_hints = _coerce_dict(function.get("target_review_hints_by_evidence", {}))
     review_classes: Counter[str] = Counter()
+    review_hints: Counter[str] = Counter()
     for target in target_evidence:
         review_classes.update(_coerce_dict(function_target_review_classes.get(target, {})))
+        review_hints.update(_coerce_dict(function_target_review_hints.get(target, {})))
     return {
         "name": str(function.get("name", "") or ""),
         "ea": str(function.get("ea", "") or ""),
         "literals": int(literal_count),
         "review_classes": _counter_to_dict(review_classes),
+        "target_review_hints": _counter_to_dict(review_hints),
         "target_evidence": _counter_to_dict(
             Counter(
                 {
