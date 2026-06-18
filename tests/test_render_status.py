@@ -128,6 +128,7 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   int aliasedStatus;
   int relatedStatus;
   int bitwiseResult;
+  int castedResult;
   int plainValue;
 
   callStatus = SomeStatusCall(a1);
@@ -157,6 +158,13 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
   plainValue = bitwiseResult | 1;
   if ( bitwiseResult != -1073741789 )
     return status;
+  castedResult = SomeStatusCall(a1);
+  status = castedResult;
+  if ( (_DWORD)castedResult != -1073741664 )
+    return status;
+  castedResult = a1 + 1;
+  if ( (_DWORD)castedResult != -1073741664 )
+    return STATUS_INVALID_PARAMETER;
   plainValue = a1;
   if ( plainValue >= 0 )
     return STATUS_SUCCESS;
@@ -537,6 +545,8 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("aliasedStatus != STATUS_BUFFER_TOO_SMALL", rendered)
         self.assertIn("relatedStatus == STATUS_BUFFER_TOO_SMALL", rendered)
         self.assertIn("bitwiseResult != -1073741789", rendered)
+        self.assertEqual(1, rendered.count("(_DWORD)castedResult != STATUS_MEMORY_NOT_ALLOCATED"))
+        self.assertEqual(1, rendered.count("(_DWORD)castedResult != -1073741664"))
         self.assertIn("plainValue == -1073741738", rendered)
 
     def test_status_call_result_comparison_literals_are_named_for_trusted_calls(self) -> None:

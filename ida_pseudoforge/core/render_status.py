@@ -38,6 +38,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_ntstatus_declared_comparisons(result)
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
+    result = _replace_immediate_status_alias_casted_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
     result = _replace_status_call_result_comparisons(result)
     result = _replace_guard_dispatch_status_ternary_fallbacks(result)
@@ -199,6 +200,68 @@ def _replace_status_comparisons_for_names(text: str, candidates: set[str]) -> st
 
 def _replace_ntstatus_declared_comparisons(text: str) -> str:
     return _replace_status_comparisons_for_names(text, _ntstatus_declared_names(text))
+
+
+def _replace_immediate_status_alias_casted_comparisons(text: str) -> str:
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    previous_status_alias = ""
+    for line in lines:
+        new_line = line
+        if previous_status_alias:
+            new_line = _replace_casted_status_comparisons_for_name(line, previous_status_alias)
+        result.append(new_line)
+
+        if not line.strip():
+            previous_status_alias = ""
+            continue
+        previous_status_alias = _status_assignment_alias_from_line(line)
+    return "".join(result)
+
+
+def _replace_casted_status_comparisons_for_name(line: str, name: str) -> str:
+    escaped = re.escape(name)
+    cast = r"\(\s*(?:_DWORD|DWORD|int|unsigned\s+int|NTSTATUS|ULONG|LONG)\s*\)\s*"
+    literal = r"-?(?:0x[0-9A-Fa-f]+|\d+)"
+    identifier_first = re.compile(
+        r"(?P<prefix>%s%s\s*(?:==|!=)\s*)(?P<literal>%s)(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+        % (cast, escaped, literal)
+    )
+    literal_first = re.compile(
+        r"(?P<prefix>(?<![A-Za-z0-9_]))(?P<literal>%s)(?P<suffix>u?LL|ULL|LL|u|U|L)?"
+        r"(?P<operator>\s*(?:==|!=)\s*)(?P<target>%s%s)" % (literal, cast, escaped)
+    )
+
+    def replace_identifier_first(match: re.Match[str]) -> str:
+        status_name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+        if not status_name:
+            return match.group(0)
+        return match.group("prefix") + status_name
+
+    def replace_literal_first(match: re.Match[str]) -> str:
+        status_name = _status_name_for_literal(match.group("literal"), allow_zero=False)
+        if not status_name:
+            return match.group(0)
+        return match.group("prefix") + status_name + match.group("operator") + match.group("target")
+
+    result = identifier_first.sub(replace_identifier_first, line)
+    return literal_first.sub(replace_literal_first, result)
+
+
+def _status_assignment_alias_from_line(line: str) -> str:
+    match = re.match(
+        r"^[ \t]*(?P<status>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?:\([^)]+\)\s*)?(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*;",
+        line or "",
+    )
+    if match is None:
+        return ""
+    if not _is_status_identifier(match.group("status")):
+        return ""
+    alias = match.group("alias")
+    if alias == match.group("status"):
+        return ""
+    return alias
 
 
 def _ntstatus_declared_names(text: str) -> set[str]:
@@ -858,9 +921,15 @@ def _status_flow_candidate_names(text: str) -> set[str]:
         cast = match.group("cast")
         if _target_has_bitwise_use(text, name):
             continue
+        if _target_has_arithmetic_reuse(text, name):
+            continue
         if callee in trusted_callees or _is_trusted_status_call_result_comparison(callee, cast):
             candidates.add(name)
-    return {name for name in candidates if not _target_has_bitwise_use(text, name)}
+    return {
+        name
+        for name in candidates
+        if not _target_has_bitwise_use(text, name) and not _target_has_arithmetic_reuse(text, name)
+    }
 
 
 def _indirect_call_result_names(text: str) -> set[str]:
@@ -967,6 +1036,33 @@ def _target_has_bitwise_use(text: str, name: str) -> bool:
             r"~\s*%s\b",
         )
     )
+
+
+def _target_has_arithmetic_reuse(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    assignment_pattern = re.compile(r"(?m)^[ \t]*%s\s*=\s*(?P<expr>[^;\n]+)\s*;" % escaped)
+    for match in assignment_pattern.finditer(text):
+        expr = match.group("expr")
+        if re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*\(", expr):
+            continue
+        if _is_status_literal_expression(expr):
+            continue
+        if re.search(r"(?:\+\+|--|<<|>>|\+=|-=|\*=|/=|%=|(?<![A-Za-z0-9_])-|[+*/%])", expr):
+            return True
+    return any(
+        re.search(pattern % escaped, text)
+        for pattern in (
+            r"\+\+\s*%s\b",
+            r"--\s*%s\b",
+            r"\b%s\s*\+\+",
+            r"\b%s\s*--",
+        )
+    )
+
+
+def _is_status_literal_expression(expr: str) -> bool:
+    stripped = expr.strip()
+    return bool(re.fullmatch(r"-?(?:0x[0-9A-Fa-f]+|\d+)(?:u?LL|ULL|LL|u|U|L)?", stripped))
 
 
 def _top_level_argument_spans(text: str) -> list[tuple[int, int]]:
