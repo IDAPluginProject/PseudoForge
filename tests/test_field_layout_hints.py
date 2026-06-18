@@ -1196,6 +1196,82 @@ __int64 __fastcall GenericArgumentLayout(__int64 argument0, __int64 BugCheckPara
 
         self.assertEqual([], comments)
 
+    def test_strong_argument_identity_base_emits_review_only_layout(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StrongArgumentLayout(__int64 argument0)
+{
+  return *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40)
+       + *(_QWORD *)(argument0 + 48)
+       + *(_QWORD *)(argument0 + 56)
+       + *(_QWORD *)(argument0 + 64)
+       + *(_QWORD *)(argument0 + 72)
+       + *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40);
+}
+"""
+        )
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(previews))
+        self.assertEqual("argument0", previews[0]["base"])
+        self.assertEqual("argument", previews[0]["base_kind"])
+        self.assertEqual(0.72, previews[0]["confidence"])
+        self.assertIn("argument identity base", previews[0]["text"])
+        self.assertEqual(1, len(aliases))
+        self.assertEqual("argument", aliases[0]["base_kind"])
+        self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("argument", blockers[0]["base_kind"])
+        self.assertIn("base name is unresolved argument identity", blockers[0]["blockers"])
+        self.assertEqual([], ready)
+
+    def test_strong_bugcheck_parameter_base_emits_review_only_layout(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StrongBugcheckLayout(__int64 BugCheckParameter2)
+{
+  return *(_QWORD *)(BugCheckParameter2 + 16)
+       + *(_QWORD *)(BugCheckParameter2 + 24)
+       + *(_QWORD *)(BugCheckParameter2 + 32)
+       + *(_QWORD *)(BugCheckParameter2 + 40)
+       + *(_QWORD *)(BugCheckParameter2 + 48)
+       + *(_QWORD *)(BugCheckParameter2 + 56)
+       + *(_QWORD *)(BugCheckParameter2 + 64)
+       + *(_QWORD *)(BugCheckParameter2 + 72)
+       + *(_QWORD *)(BugCheckParameter2 + 16)
+       + *(_QWORD *)(BugCheckParameter2 + 24)
+       + *(_QWORD *)(BugCheckParameter2 + 32)
+       + *(_QWORD *)(BugCheckParameter2 + 40);
+}
+"""
+        )
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_field_preview"]
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(previews))
+        self.assertEqual("BugCheckParameter2", previews[0]["base"])
+        self.assertEqual("bugcheck", previews[0]["base_kind"])
+        self.assertEqual(0.70, previews[0]["confidence"])
+        self.assertIn("bugcheck parameter base", previews[0]["text"])
+        self.assertEqual(1, len(aliases))
+        self.assertEqual("bugcheck", aliases[0]["base_kind"])
+        self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("bugcheck", blockers[0]["base_kind"])
+        self.assertIn("base name is unresolved bugcheck parameter identity", blockers[0]["blockers"])
+        self.assertEqual([], ready)
+
     def test_generic_named_context_requires_stronger_layout_evidence(self) -> None:
         weak_comments = field_layout_comments(
             """

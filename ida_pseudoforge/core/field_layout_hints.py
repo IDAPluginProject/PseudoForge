@@ -215,7 +215,7 @@ def _collect_layouts(text: str) -> dict[str, _LayoutEvidence]:
 
 def _has_enough_layout_evidence(layout: _LayoutEvidence) -> bool:
     distinct_offsets = len(layout.offsets)
-    if _is_decompiler_temp_base(layout.base) or _is_generic_named_base(layout.base):
+    if _layout_base_kind(layout.base) in {"temp", "generic", "argument", "bugcheck"}:
         return distinct_offsets >= 8 and layout.access_count >= 12
     if distinct_offsets >= 3 and layout.access_count >= 3:
         return True
@@ -852,6 +852,10 @@ def _field_rewrite_blockers(
         identity = _trusted_generic_parameter_layout_identity(text, layout)
         if not allow_generic_parameter_trust or not identity:
             blockers.append("base name is generic")
+    elif base_kind == "argument":
+        blockers.append("base name is unresolved argument identity")
+    elif base_kind == "bugcheck":
+        blockers.append("base name is unresolved bugcheck parameter identity")
     blockers.extend(_non_identity_layout_rewrite_blockers(text, layout))
     return list(dict.fromkeys(blockers))
 
@@ -1328,8 +1332,6 @@ def _normalize_type_name(type_name: str) -> str:
 
 def _is_scalar_like_base(name: str) -> bool:
     lower = str(name or "").lower()
-    if _is_generic_argument_base(lower) or _is_bugcheck_parameter_base(lower):
-        return True
     if lower in _SCALAR_BASE_WORDS:
         return True
     return any(lower.endswith(word) for word in _SCALAR_BASE_WORDS)
@@ -1354,6 +1356,10 @@ def _is_bugcheck_parameter_base(name: str) -> bool:
 def _layout_base_kind(name: str) -> str:
     if _is_decompiler_temp_base(name):
         return "temp"
+    if _is_generic_argument_base(name):
+        return "argument"
+    if _is_bugcheck_parameter_base(name):
+        return "bugcheck"
     if _is_generic_named_base(name):
         return "generic"
     return "named"
@@ -1364,6 +1370,10 @@ def _confidence_cap_for_base_kind(base_kind: str) -> float:
         return 0.74
     if base_kind == "generic":
         return 0.78
+    if base_kind == "argument":
+        return 0.76
+    if base_kind == "bugcheck":
+        return 0.74
     return 0.86
 
 
@@ -1372,6 +1382,10 @@ def _field_preview_confidence_cap_for_base_kind(base_kind: str) -> float:
         return 0.7
     if base_kind == "generic":
         return 0.74
+    if base_kind == "argument":
+        return 0.72
+    if base_kind == "bugcheck":
+        return 0.70
     return 0.82
 
 
@@ -1380,6 +1394,10 @@ def _field_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
         return 0.66
     if base_kind == "generic":
         return 0.7
+    if base_kind == "argument":
+        return 0.68
+    if base_kind == "bugcheck":
+        return 0.66
     return 0.78
 
 
@@ -1388,6 +1406,10 @@ def _field_subfield_overlay_confidence_cap_for_base_kind(base_kind: str) -> floa
         return 0.66
     if base_kind == "generic":
         return 0.7
+    if base_kind == "argument":
+        return 0.68
+    if base_kind == "bugcheck":
+        return 0.66
     return 0.76
 
 
@@ -1396,6 +1418,10 @@ def _field_narrow_subfield_confidence_cap_for_base_kind(base_kind: str) -> float
         return 0.68
     if base_kind == "generic":
         return 0.72
+    if base_kind == "argument":
+        return 0.70
+    if base_kind == "bugcheck":
+        return 0.68
     return 0.78
 
 
@@ -1404,6 +1430,10 @@ def _field_bitfield_alias_confidence_cap_for_base_kind(base_kind: str) -> float:
         return 0.66
     if base_kind == "generic":
         return 0.7
+    if base_kind == "argument":
+        return 0.68
+    if base_kind == "bugcheck":
+        return 0.66
     return 0.74
 
 
@@ -1426,6 +1456,10 @@ def _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind: str) -> float
         return 0.74
     if base_kind == "generic":
         return 0.76
+    if base_kind == "argument":
+        return 0.72
+    if base_kind == "bugcheck":
+        return 0.70
     return 0.82
 
 
@@ -1438,6 +1472,16 @@ def _field_preview_text(base: str, base_kind: str, field_text: str) -> str:
     if base_kind == "generic":
         return (
             "Review fields for %s (generic base): %s. Review only; no IDB type or pseudocode rewrite was applied."
+            % (base, field_text)
+        )
+    if base_kind == "argument":
+        return (
+            "Review fields for %s (argument identity base): %s. Review only; no IDB type or pseudocode rewrite was applied."
+            % (base, field_text)
+        )
+    if base_kind == "bugcheck":
+        return (
+            "Review fields for %s (bugcheck parameter base): %s. Review only; no IDB type or pseudocode rewrite was applied."
             % (base, field_text)
         )
     return (
@@ -1457,6 +1501,16 @@ def _field_alias_text(base: str, base_kind: str, alias_text: str) -> str:
             "Review aliases for %s (generic base): %s. Review-only shorthand; do not treat as a recovered structure type."
             % (base, alias_text)
         )
+    if base_kind == "argument":
+        return (
+            "Review aliases for %s (argument identity base): %s. Review-only shorthand; do not treat as a recovered structure type."
+            % (base, alias_text)
+        )
+    if base_kind == "bugcheck":
+        return (
+            "Review aliases for %s (bugcheck parameter base): %s. Review-only shorthand; do not treat as a recovered structure type."
+            % (base, alias_text)
+        )
     return (
         "Alias map for %s: %s. Use as review-only shorthand for repeated offset dereferences."
         % (base, alias_text)
@@ -1472,6 +1526,16 @@ def _field_subfield_overlay_text(base: str, base_kind: str, overlay_text: str) -
     if base_kind == "generic":
         return (
             "Review subfield overlays for %s (generic base): %s. Review-only evidence; field rewrite remains blocked for mixed-width offsets."
+            % (base, overlay_text)
+        )
+    if base_kind == "argument":
+        return (
+            "Review subfield overlays for %s (argument identity base): %s. Review-only evidence; field rewrite remains blocked for mixed-width offsets."
+            % (base, overlay_text)
+        )
+    if base_kind == "bugcheck":
+        return (
+            "Review subfield overlays for %s (bugcheck parameter base): %s. Review-only evidence; field rewrite remains blocked for mixed-width offsets."
             % (base, overlay_text)
         )
     return (
@@ -1491,6 +1555,16 @@ def _field_narrow_subfield_text(base: str, base_kind: str, field_text: str) -> s
             "Review narrow subfields for %s (generic base): %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
             % (base, field_text)
         )
+    if base_kind == "argument":
+        return (
+            "Review narrow subfields for %s (argument identity base): %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
+            % (base, field_text)
+        )
+    if base_kind == "bugcheck":
+        return (
+            "Review narrow subfields for %s (bugcheck parameter base): %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
+            % (base, field_text)
+        )
     return (
         "Narrow subfield candidates for %s: %s. Audit-only; body rewrite remains disabled until the parent structure is trusted."
         % (base, field_text)
@@ -1506,6 +1580,16 @@ def _field_bitfield_alias_text(base: str, base_kind: str, alias_text: str) -> st
     if base_kind == "generic":
         return (
             "Review bitfield aliases for %s (generic base): %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
+            % (base, alias_text)
+        )
+    if base_kind == "argument":
+        return (
+            "Review bitfield aliases for %s (argument identity base): %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
+            % (base, alias_text)
+        )
+    if base_kind == "bugcheck":
+        return (
+            "Review bitfield aliases for %s (bugcheck parameter base): %s. Review-only names; body rewrite remains disabled until the parent structure is trusted."
             % (base, alias_text)
         )
     return (
@@ -1630,6 +1714,10 @@ def _review_text_for_base_kind(base_kind: str) -> str:
         return "Review as a high-evidence temporary base before inferring a structure."
     if base_kind == "generic":
         return "Review as a generic base before inferring a structure."
+    if base_kind == "argument":
+        return "Review argument identity before inferring a structure."
+    if base_kind == "bugcheck":
+        return "Review bugcheck parameter identity before inferring a structure."
     return "Review as an inferred structure base."
 
 
@@ -2484,6 +2572,8 @@ def _layout_source_kind(source: str) -> str:
     value = str(source or "").strip()
     if _is_generic_argument_base(value):
         return "argument"
+    if _is_bugcheck_parameter_base(value):
+        return "bugcheck"
     if _is_decompiler_temp_base(value):
         return "temporary"
     if _is_generic_named_base(value):
