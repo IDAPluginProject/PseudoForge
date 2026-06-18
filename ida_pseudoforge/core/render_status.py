@@ -43,6 +43,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
     result = _replace_status_pointer_store_literals(result)
+    result = _replace_low_dword_status_carrier_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
     result = _replace_status_carrier_literals(result)
@@ -529,6 +530,78 @@ def _named_pointer_types(text: str) -> dict[str, str]:
 def _is_strong_status_pointer_type(type_text: str) -> bool:
     normalized = _normalize_scalar_type(type_text)
     return normalized in {"NTSTATUS", "PNTSTATUS"}
+
+
+def _replace_low_dword_status_carrier_literals(text: str) -> str:
+    candidates = _low_dword_status_carrier_candidate_names(text)
+    if not candidates:
+        return text
+
+    pattern = re.compile(
+        r"(?m)(?P<prefix>^[ \t]*LODWORD\(\s*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*=\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        if match.group("target") not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("end")
+
+    return pattern.sub(repl, text)
+
+
+def _low_dword_status_carrier_candidate_names(text: str) -> set[str]:
+    error_store_counts: dict[str, int] = {}
+    store_pattern = re.compile(
+        r"(?m)^[ \t]*LODWORD\(\s*(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*=\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;"
+    )
+    for match in store_pattern.finditer(text):
+        target = match.group("target")
+        if not _error_status_name_for_literal(match.group("literal")):
+            continue
+        error_store_counts[target] = error_store_counts.get(target, 0) + 1
+
+    candidates: set[str] = set()
+    for name, count in error_store_counts.items():
+        if count < 2:
+            continue
+        if _target_has_bitwise_use(text, name):
+            continue
+        if _low_dword_target_has_accumulator_arithmetic(text, name):
+            continue
+        if _has_status_carrier_use(text, name) or _has_cast_status_carrier_use(text, name):
+            candidates.add(name)
+    return candidates
+
+
+def _has_cast_status_carrier_use(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    return any(
+        re.search(pattern % escaped, text)
+        for pattern in (
+            r"\(int\)\s*%s\s*(?:<|>=)\s*0\b",
+            r"\b0\s*(?:>|<=)\s*\(int\)\s*%s\b",
+            r"\breturn\s+\(NTSTATUS\)\s*%s\s*;",
+        )
+    )
+
+
+def _low_dword_target_has_accumulator_arithmetic(text: str, name: str) -> bool:
+    escaped = re.escape(name)
+    assignment_pattern = re.compile(
+        r"(?m)^[ \t]*LODWORD\(\s*%s\s*\)\s*=\s*(?P<expr>[^;\n]+)\s*;" % escaped
+    )
+    for match in assignment_pattern.finditer(text):
+        expr = match.group("expr")
+        if not re.search(r"\b%s\b" % escaped, expr):
+            continue
+        if re.search(r"(?:\+\+|--|<<|>>|\+|-|\||\^|(?<!&)&(?!&))", expr):
+            return True
+    return False
 
 
 def _replace_32bit_error_status_literals(text: str, capture: FunctionCapture | None) -> str:

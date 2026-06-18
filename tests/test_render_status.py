@@ -272,6 +272,30 @@ void __fastcall StatusPointerStoreSample(
 """
 
 
+LOW_DWORD_STATUS_CARRIER_SAMPLE = r"""
+__int64 __fastcall LowDwordStatusCarrierSample(int a1)
+{
+  __int64 statusCarrier;
+  __int64 singleCarrier;
+  __int64 mixedCounter;
+
+  LODWORD(statusCarrier) = SomeStatusCall(a1);
+  if ( (int)statusCarrier < 0 )
+    return (unsigned int)statusCarrier;
+  if ( a1 == 1 )
+    LODWORD(statusCarrier) = -1073741790;
+  if ( a1 == 2 )
+    LODWORD(statusCarrier) = -1073741811;
+  LODWORD(statusCarrier) = 0;
+  LODWORD(singleCarrier) = -1073741275;
+  LODWORD(mixedCounter) = -1073741790;
+  LODWORD(mixedCounter) = -1073741811;
+  LODWORD(mixedCounter) = (_DWORD)mixedCounter + 1;
+  return (unsigned int)statusCarrier;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -521,6 +545,19 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("*singleStatus = STATUS_ACCESS_DENIED;", rendered)
         self.assertIn("*plainValue = -1073741790;", rendered)
         self.assertIn("*computedValue = -1073741790;", rendered)
+
+    def test_low_dword_status_carrier_literals_are_named_conservatively(self) -> None:
+        capture = capture_from_pseudocode(LOW_DWORD_STATUS_CARRIER_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("LODWORD(statusCarrier) = STATUS_ACCESS_DENIED;", rendered)
+        self.assertIn("LODWORD(statusCarrier) = STATUS_INVALID_PARAMETER;", rendered)
+        self.assertIn("LODWORD(statusCarrier) = 0;", rendered)
+        self.assertIn("LODWORD(singleCarrier) = -1073741275;", rendered)
+        self.assertIn("LODWORD(mixedCounter) = -1073741790;", rendered)
+        self.assertIn("LODWORD(mixedCounter) = -1073741811;", rendered)
+        self.assertIn("LODWORD(mixedCounter) = (_DWORD)mixedCounter + 1;", rendered)
 
 
 if __name__ == "__main__":
