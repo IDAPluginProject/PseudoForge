@@ -53,8 +53,21 @@ LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
 LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
 OFFSET_BASE_BREAKDOWN_LIMIT = 15
 TEMP_OFFSET_BASE_PATTERN = r"[av]\d+"
-ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN = r"(?:argument\d+|context|BugCheckParameter\d+)"
+ARGUMENT_OFFSET_BASE_PATTERN = r"argument\d+"
+CONTEXT_OFFSET_BASE_PATTERN = r"context"
+BUGCHECK_PARAMETER_OFFSET_BASE_PATTERN = r"BugCheckParameter\d+"
+ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN = (
+    r"(?:%s|%s|%s)"
+    % (
+        ARGUMENT_OFFSET_BASE_PATTERN,
+        CONTEXT_OFFSET_BASE_PATTERN,
+        BUGCHECK_PARAMETER_OFFSET_BASE_PATTERN,
+    )
+)
 TEMP_OFFSET_BASE_RE = re.compile(r"%s\Z" % TEMP_OFFSET_BASE_PATTERN)
+ARGUMENT_OFFSET_BASE_RE = re.compile(r"%s\Z" % ARGUMENT_OFFSET_BASE_PATTERN)
+CONTEXT_OFFSET_BASE_RE = re.compile(r"%s\Z" % CONTEXT_OFFSET_BASE_PATTERN)
+BUGCHECK_PARAMETER_OFFSET_BASE_RE = re.compile(r"%s\Z" % BUGCHECK_PARAMETER_OFFSET_BASE_PATTERN)
 ARGUMENT_IDENTITY_OFFSET_BASE_RE = re.compile(r"%s\Z" % ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN)
 GENERIC_OFFSET_BASE_RE = re.compile(
     r"(?:%s|%s)\Z" % (TEMP_OFFSET_BASE_PATTERN, ARGUMENT_IDENTITY_OFFSET_BASE_PATTERN)
@@ -219,6 +232,9 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
         ("Top layout-actionable bases", "top_layout_actionable_bases"),
         ("Top unannotated bases", "top_unannotated_bases"),
         ("Top unannotated argument-identity bases", "top_unannotated_argument_identity_bases"),
+        ("Top unannotated context bases", "top_unannotated_context_bases"),
+        ("Top unannotated argument bases", "top_unannotated_argument_bases"),
+        ("Top unannotated bugcheck bases", "top_unannotated_bugcheck_bases"),
         ("Top unannotated temp bases", "top_unannotated_temp_bases"),
         ("Top unannotated named bases", "top_unannotated_named_bases"),
     ):
@@ -263,6 +279,9 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     layout_actionable: Counter[str] = Counter()
     unannotated: Counter[str] = Counter()
     unannotated_argument_identity: Counter[str] = Counter()
+    unannotated_context: Counter[str] = Counter()
+    unannotated_argument: Counter[str] = Counter()
+    unannotated_bugcheck: Counter[str] = Counter()
     unannotated_temp: Counter[str] = Counter()
     unannotated_named: Counter[str] = Counter()
     for item in items:
@@ -273,6 +292,9 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
             ("layout_actionable", layout_actionable),
             ("unannotated", unannotated),
             ("unannotated_argument_identity", unannotated_argument_identity),
+            ("unannotated_context", unannotated_context),
+            ("unannotated_argument", unannotated_argument),
+            ("unannotated_bugcheck", unannotated_bugcheck),
             ("unannotated_temp", unannotated_temp),
             ("unannotated_named", unannotated_named),
         ):
@@ -297,6 +319,18 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "top_unannotated_argument_identity_bases": _top_counter_items(
             unannotated_argument_identity,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_context_bases": _top_counter_items(
+            unannotated_context,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_argument_bases": _top_counter_items(
+            unannotated_argument,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_unannotated_bugcheck_bases": _top_counter_items(
+            unannotated_bugcheck,
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
         "top_unannotated_temp_bases": _top_counter_items(
@@ -354,6 +388,15 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             if _is_argument_identity_offset_base(base)
         }
     )
+    unannotated_context_base_counts = Counter(
+        {base: count for base, count in unannotated_base_counts.items() if _is_context_offset_base(base)}
+    )
+    unannotated_argument_base_counts = Counter(
+        {base: count for base, count in unannotated_base_counts.items() if _is_argument_offset_base(base)}
+    )
+    unannotated_bugcheck_base_counts = Counter(
+        {base: count for base, count in unannotated_base_counts.items() if _is_bugcheck_offset_base(base)}
+    )
     unannotated_named_base_counts = Counter(
         {
             base: count
@@ -368,6 +411,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     unannotated_argument_identity_base_offset_derefs = sum(
         unannotated_argument_identity_base_counts.values()
     )
+    unannotated_context_base_offset_derefs = sum(unannotated_context_base_counts.values())
+    unannotated_argument_base_offset_derefs = sum(unannotated_argument_base_counts.values())
+    unannotated_bugcheck_base_offset_derefs = sum(unannotated_bugcheck_base_counts.values())
     unannotated_named_base_offset_derefs = (
         non_layout_base_offset_derefs - unannotated_generic_base_offset_derefs
     )
@@ -415,6 +461,15 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "body_offset_deref_unannotated_argument_identity_base_patterns": (
             unannotated_argument_identity_base_offset_derefs
         ),
+        "body_offset_deref_unannotated_context_base_patterns": (
+            unannotated_context_base_offset_derefs
+        ),
+        "body_offset_deref_unannotated_argument_base_patterns": (
+            unannotated_argument_base_offset_derefs
+        ),
+        "body_offset_deref_unannotated_bugcheck_base_patterns": (
+            unannotated_bugcheck_base_offset_derefs
+        ),
         "body_offset_deref_unannotated_named_base_patterns": unannotated_named_base_offset_derefs,
         "body_offset_deref_unmatched_base_patterns": unmatched_base_offset_derefs,
         "body_offset_deref_bulk_noise_patterns": bulk_noise_offset_derefs,
@@ -459,6 +514,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "unannotated_argument_identity": _top_counter_items(
                 unannotated_argument_identity_base_counts,
                 len(unannotated_argument_identity_base_counts),
+            ),
+            "unannotated_context": _top_counter_items(
+                unannotated_context_base_counts,
+                len(unannotated_context_base_counts),
+            ),
+            "unannotated_argument": _top_counter_items(
+                unannotated_argument_base_counts,
+                len(unannotated_argument_base_counts),
+            ),
+            "unannotated_bugcheck": _top_counter_items(
+                unannotated_bugcheck_base_counts,
+                len(unannotated_bugcheck_base_counts),
             ),
             "unannotated_temp": _top_counter_items(
                 unannotated_temp_base_counts,
@@ -540,6 +607,18 @@ def _is_argument_identity_offset_base(base: str) -> bool:
     return bool(ARGUMENT_IDENTITY_OFFSET_BASE_RE.fullmatch(base or ""))
 
 
+def _is_context_offset_base(base: str) -> bool:
+    return bool(CONTEXT_OFFSET_BASE_RE.fullmatch(base or ""))
+
+
+def _is_argument_offset_base(base: str) -> bool:
+    return bool(ARGUMENT_OFFSET_BASE_RE.fullmatch(base or ""))
+
+
+def _is_bugcheck_offset_base(base: str) -> bool:
+    return bool(BUGCHECK_PARAMETER_OFFSET_BASE_RE.fullmatch(base or ""))
+
+
 def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
@@ -588,6 +667,12 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
                         reasons.append("temp_unannotated_base_offset_residue")
                     if metrics["body_offset_deref_unannotated_argument_identity_base_patterns"] >= 10:
                         reasons.append("argument_identity_unannotated_base_offset_residue")
+                        if metrics["body_offset_deref_unannotated_context_base_patterns"] >= 10:
+                            reasons.append("context_unannotated_base_offset_residue")
+                        if metrics["body_offset_deref_unannotated_argument_base_patterns"] >= 10:
+                            reasons.append("argument_unannotated_base_offset_residue")
+                        if metrics["body_offset_deref_unannotated_bugcheck_base_patterns"] >= 10:
+                            reasons.append("bugcheck_unannotated_base_offset_residue")
                 if metrics["body_offset_deref_unannotated_named_base_patterns"] >= 10:
                     reasons.append("named_unannotated_base_offset_residue")
             if metrics["body_offset_deref_unmatched_base_patterns"] >= 10:
@@ -668,6 +753,18 @@ def _score_model() -> dict[str, Any]:
                 "body_offset_deref_unannotated_argument_identity_base_patterns"
             ),
             "unannotated_argument_identity_base_pattern": ARGUMENT_IDENTITY_OFFSET_BASE_RE.pattern,
+            "unannotated_context_base_metric": (
+                "body_offset_deref_unannotated_context_base_patterns"
+            ),
+            "unannotated_context_base_pattern": CONTEXT_OFFSET_BASE_RE.pattern,
+            "unannotated_argument_base_metric": (
+                "body_offset_deref_unannotated_argument_base_patterns"
+            ),
+            "unannotated_argument_base_pattern": ARGUMENT_OFFSET_BASE_RE.pattern,
+            "unannotated_bugcheck_base_metric": (
+                "body_offset_deref_unannotated_bugcheck_base_patterns"
+            ),
+            "unannotated_bugcheck_base_pattern": BUGCHECK_PARAMETER_OFFSET_BASE_RE.pattern,
             "unannotated_named_base_metric": "body_offset_deref_unannotated_named_base_patterns",
             "unmatched_base_metric": "body_offset_deref_unmatched_base_patterns",
             "bulk_noise_metric": "body_offset_deref_bulk_noise_patterns",

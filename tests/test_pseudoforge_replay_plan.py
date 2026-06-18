@@ -428,20 +428,83 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             item = plan["items"][0]
             self.assertIn("generic_unannotated_base_offset_residue", item["reasons"])
             self.assertIn("argument_identity_unannotated_base_offset_residue", item["reasons"])
+            self.assertIn("argument_unannotated_base_offset_residue", item["reasons"])
+            self.assertNotIn("context_unannotated_base_offset_residue", item["reasons"])
+            self.assertNotIn("bugcheck_unannotated_base_offset_residue", item["reasons"])
             self.assertNotIn("named_unannotated_base_offset_residue", item["reasons"])
             self.assertEqual(12, item["metrics"]["body_offset_deref_unannotated_generic_base_patterns"])
             self.assertEqual(
                 12,
                 item["metrics"]["body_offset_deref_unannotated_argument_identity_base_patterns"],
             )
+            self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_context_base_patterns"])
+            self.assertEqual(12, item["metrics"]["body_offset_deref_unannotated_argument_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_bugcheck_base_patterns"])
             self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_named_base_patterns"])
             self.assertEqual("argument0", item["offset_base_counts"]["unannotated_argument_identity"][0]["base"])
+            self.assertEqual("argument0", item["offset_base_counts"]["unannotated_argument"][0]["base"])
             self.assertIn("argument", plan["score_model"]["offset_actionability"]["unannotated_generic_base_pattern"])
             self.assertIn(
                 "argument",
                 plan["score_model"]["offset_actionability"][
                     "unannotated_argument_identity_base_pattern"
                 ],
+            )
+
+    def test_replay_plan_splits_context_and_bugcheck_argument_identity_bases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            context_body = "\n".join(
+                ["__int64 __fastcall ContextBase(__int64 context)", "{"]
+                + [
+                    "  v%d = *(_QWORD *)(context + %d);" % (item_index, 16 + (item_index * 8))
+                    for item_index in range(12)
+                ]
+                + ["  return v11;", "}"]
+            )
+            bugcheck_body = "\n".join(
+                ["__int64 __fastcall BugcheckBase(__int64 BugCheckParameter2)", "{"]
+                + [
+                    "  v%d = *(_QWORD *)(BugCheckParameter2 + %d);" % (item_index, 16 + (item_index * 8))
+                    for item_index in range(12)
+                ]
+                + ["  return v11;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="ContextBase",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=context_body,
+            )
+            _write_function(
+                root,
+                ea="0x140002000",
+                name="BugcheckBase",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=bugcheck_body,
+            )
+
+            plan = build_replay_plan(root, limit=2)
+
+            by_name = {item["name"]: item for item in plan["items"]}
+            context_item = by_name["ContextBase"]
+            bugcheck_item = by_name["BugcheckBase"]
+            self.assertIn("context_unannotated_base_offset_residue", context_item["reasons"])
+            self.assertEqual(12, context_item["metrics"]["body_offset_deref_unannotated_context_base_patterns"])
+            self.assertIn("bugcheck_unannotated_base_offset_residue", bugcheck_item["reasons"])
+            self.assertEqual(12, bugcheck_item["metrics"]["body_offset_deref_unannotated_bugcheck_base_patterns"])
+            self.assertEqual(
+                "context",
+                plan["offset_base_breakdown"]["top_unannotated_context_bases"][0]["base"],
+            )
+            self.assertEqual(
+                "BugCheckParameter2",
+                plan["offset_base_breakdown"]["top_unannotated_bugcheck_bases"][0]["base"],
             )
 
 
