@@ -65,6 +65,11 @@ _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "nonstatus_bitmask_comparisons",
     "manual_review",
 )
+_STATUS_STORE_REVIEW_QUEUE_ORDER = (
+    "dword_nested_pointer_status_stores",
+    "wide_nested_pointer_status_stores",
+    "manual_review",
+)
 FIELD_PREVIEW_RE = re.compile(r"-\s+inferred_offset_field_preview:")
 FIELD_ALIAS_RE = re.compile(r"-\s+inferred_offset_field_aliases:")
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
@@ -378,6 +383,10 @@ def analyze_corpus(
     decimal_status_residue_context_kinds: Counter[str] = Counter()
     decimal_status_residue_review_classes: Counter[str] = Counter()
     decimal_status_residue_target_evidence: Counter[str] = Counter()
+    nested_status_store_values: Counter[str] = Counter()
+    nested_status_store_profiles: Counter[str] = Counter()
+    nested_status_store_widths: Counter[str] = Counter()
+    nested_status_store_review_classes: Counter[str] = Counter()
     ntstatus_body_unprofiled_values: Counter[str] = Counter()
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
     ntstatus_body_unprofiled_value_contexts: dict[str, Counter[str]] = {}
@@ -402,6 +411,7 @@ def analyze_corpus(
     top_rewrite_partial_opportunity_functions = []
     top_rewrite_blocker_functions = []
     top_decimal_status_residue_functions = []
+    top_nested_status_store_functions = []
     top_ntstatus_body_unprofiled_functions = []
 
     for summary_path in summary_paths:
@@ -672,6 +682,24 @@ def analyze_corpus(
                             decimal_status_body_literals,
                         )
                     )
+                cleaned_body_text = _strip_pseudoforge_header(_read_text(cleaned_path))
+                nested_status_stores = _nested_status_pointer_store_literals(cleaned_body_text)
+                if nested_status_stores:
+                    _update_nested_status_store_metrics(
+                        nested_status_stores,
+                        nested_status_store_values,
+                        nested_status_store_profiles,
+                        nested_status_store_widths,
+                        nested_status_store_review_classes,
+                    )
+                    top_nested_status_store_functions.append(
+                        _nested_status_store_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            nested_status_stores,
+                        )
+                    )
                 unprofiled_ntstatus_body_literals = [
                     item
                     for item in ntstatus_body_literals
@@ -834,6 +862,13 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["literal_count"]),
             -int(item["profiled_count"]),
+            str(item["name"]),
+        )
+    )
+    top_nested_status_store_functions.sort(
+        key=lambda item: (
+            -int(item["store_count"]),
+            -int(item["dword_store_count"]),
             str(item["name"]),
         )
     )
@@ -1034,6 +1069,16 @@ def analyze_corpus(
             "review_queues": _decimal_status_review_queues(top_decimal_status_residue_functions, top),
             "top_functions": top_decimal_status_residue_functions[:top],
         },
+        "status_store_residue_stats": {
+            "nested_pointer_store_values": _counter_to_dict(Counter(dict(nested_status_store_values.most_common(top)))),
+            "nested_pointer_store_profiles": _counter_to_dict(Counter(dict(nested_status_store_profiles.most_common(top)))),
+            "nested_pointer_store_widths": _counter_to_dict(Counter(dict(nested_status_store_widths.most_common(top)))),
+            "nested_pointer_store_review_classes": _counter_to_dict(
+                Counter(dict(nested_status_store_review_classes.most_common(top)))
+            ),
+            "review_queues": _nested_status_store_review_queues(top_nested_status_store_functions, top),
+            "top_nested_pointer_store_functions": top_nested_status_store_functions[:top],
+        },
         "text_stats": _counter_to_dict(text_totals),
         "body_text_stats": _counter_to_dict(body_text_totals),
         "top_warning_functions": top_warning_functions[:top],
@@ -1063,6 +1108,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
     decimal_status_residue_stats = _coerce_dict(report.get("decimal_status_residue_stats", {}))
+    status_store_residue_stats = _coerce_dict(report.get("status_store_residue_stats", {}))
     ntstatus_review_queues = _coerce_dict(ntstatus_body_residue_stats.get("review_queues", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
@@ -2598,6 +2644,126 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Nested Pointer Status Store Residue",
+            "",
+            "#### Nested Pointer Store Values",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(status_store_residue_stats.get("nested_pointer_store_values", {})),
+            "Value",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "#### Nested Pointer Store Widths",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(status_store_residue_stats.get("nested_pointer_store_widths", {})),
+            "Width",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "#### Nested Pointer Store Review Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(status_store_residue_stats.get("nested_pointer_store_review_classes", {})),
+            "Class",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "#### Nested Pointer Store Review Queues",
+            "",
+            "| Queue | Stores | Functions | Top Classes | Store Widths |",
+            "| --- | ---: | ---: | --- | --- |",
+        ]
+    )
+    nested_store_review_queues = _coerce_dict(status_store_residue_stats.get("review_queues", {}))
+    for queue_name in _STATUS_STORE_REVIEW_QUEUE_ORDER:
+        queue = _coerce_dict(nested_store_review_queues.get(queue_name, {}))
+        classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("review_classes", {})).items()
+        )
+        widths = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("store_widths", {})).items()
+        )
+        lines.append(
+            "| `%s` | %s | %s | %s | %s |"
+            % (
+                queue_name,
+                int(queue.get("stores", 0) or 0),
+                int(queue.get("functions", 0) or 0),
+                _markdown_table_cell(classes),
+                _markdown_table_cell(widths),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "#### Functions With Nested Pointer Status Stores",
+            "",
+            "| Function | EA | Stores | DWORD | Wide | Profiled | Classes | Widths | Values | Context |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+        ]
+    )
+    for item in status_store_residue_stats.get("top_nested_pointer_store_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        values = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("values", {})).items()
+        )
+        review_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("review_classes", {})).items()
+        )
+        widths = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("store_widths", {})).items()
+        )
+        context_text = "; ".join(
+            "L%s [%s]: %s"
+            % (
+                context.get("line", ""),
+                context.get("store_width", ""),
+                context.get("source", ""),
+            )
+            for context in item.get("contexts", []) or []
+            if isinstance(context, dict)
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("store_count", 0) or 0),
+                int(item.get("dword_store_count", 0) or 0),
+                int(item.get("wide_store_count", 0) or 0),
+                int(item.get("profiled_count", 0) or 0),
+                _markdown_table_cell(review_classes),
+                _markdown_table_cell(widths),
+                _markdown_table_cell(values),
+                _markdown_table_cell(context_text),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "### Unprofiled NTSTATUS Error Values",
             "",
             "| Value | Signed | Facility | Code | Hint | Kinds | Count | Functions |",
@@ -3568,6 +3734,215 @@ def _decimal_status_review_queue_item(
             if key in queue_classes
         },
         "target_evidence": _coerce_dict(function.get("target_evidence", {})),
+        "contexts": contexts[:3],
+        "summary_path": str(function.get("summary_path", "") or ""),
+    }
+
+
+def _nested_status_pointer_store_literals(text: str) -> list[dict[str, Any]]:
+    result = []
+    pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)"
+        r"(?P<target>\*\*\s*\((?P<store_type>[^)\n;]*\*\*)\)\s*(?P<address>[^=\n;]+?))\s*=\s*"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\s*;"
+    )
+    for match in pattern.finditer(text or ""):
+        literal = match.group("literal")
+        parsed = _parse_numeric_literal(literal)
+        if parsed is None:
+            continue
+        unsigned_value = parsed & 0xFFFFFFFF
+        severity = _ntstatus_severity_name(unsigned_value)
+        if severity != "error":
+            continue
+        profile_name = _ntstatus_profile_name(parsed, literal)
+        store_type = re.sub(r"\s+", " ", match.group("store_type")).strip()
+        width = _nested_pointer_store_width(store_type)
+        line_text = _line_for_match(text, match.start(), match.end()).strip()
+        result.append(
+            {
+                "literal": literal,
+                "unsigned_value": unsigned_value,
+                "signed_value": _signed_32bit_value(unsigned_value),
+                "hex_value": "0x%08X" % unsigned_value,
+                "profile_name": profile_name,
+                "profiled": profile_name != "",
+                "severity": severity,
+                "store_type": store_type,
+                "store_width": width,
+                "target": match.group("target").strip(),
+                "address": match.group("address").strip(),
+                "review_class": _nested_status_store_review_class(profile_name, width),
+                "line": _line_number_for_offset(text, match.start()),
+                "line_text": line_text,
+            }
+        )
+    return result
+
+
+def _nested_pointer_store_width(store_type: str) -> str:
+    normalized = _normalize_scalar_type((store_type or "").replace("*", " "))
+    if any(token in normalized for token in ("_DWORD", "DWORD", "ULONG", "LONG", "INT", "NTSTATUS")):
+        return "dword"
+    if any(token in normalized for token in ("_QWORD", "QWORD", "__INT64", "ULONG_PTR", "UINT64")):
+        return "wide"
+    return "unknown"
+
+
+def _nested_status_store_review_class(profile_name: str, store_width: str) -> str:
+    if store_width == "dword":
+        return "dword_nested_pointer_status_store_candidate"
+    if store_width == "wide":
+        return "wide_nested_pointer_status_store_review"
+    if profile_name:
+        return "manual_review"
+    return "manual_review"
+
+
+def _update_nested_status_store_metrics(
+    stores: list[dict[str, Any]],
+    values: Counter[str],
+    profile_names: Counter[str],
+    widths: Counter[str],
+    review_classes: Counter[str],
+) -> None:
+    for item in stores:
+        values[str(item.get("hex_value", "") or "unknown")] += 1
+        profile_name = str(item.get("profile_name", "") or "unprofiled")
+        profile_names[profile_name] += 1
+        widths[str(item.get("store_width", "") or "unknown")] += 1
+        review_classes[str(item.get("review_class", "") or "manual_review")] += 1
+
+
+def _nested_status_store_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    stores: list[dict[str, Any]],
+) -> dict[str, Any]:
+    values = Counter(str(item.get("hex_value", "") or "unknown") for item in stores)
+    profile_names = Counter(str(item.get("profile_name", "") or "unprofiled") for item in stores)
+    widths = Counter(str(item.get("store_width", "") or "unknown") for item in stores)
+    review_classes = Counter(str(item.get("review_class", "") or "manual_review") for item in stores)
+    review_class_store_widths: dict[str, Counter[str]] = {}
+    for item in stores:
+        review_class = str(item.get("review_class", "") or "manual_review")
+        width = str(item.get("store_width", "") or "unknown")
+        review_class_store_widths.setdefault(review_class, Counter())[width] += 1
+    contexts = []
+    for item in stores[:5]:
+        contexts.append(
+            {
+                "line": int(item.get("line", 0) or 0),
+                "literal": str(item.get("literal", "") or ""),
+                "hex_value": str(item.get("hex_value", "") or ""),
+                "profile_name": str(item.get("profile_name", "") or ""),
+                "store_width": str(item.get("store_width", "") or "unknown"),
+                "store_type": str(item.get("store_type", "") or ""),
+                "review_class": str(item.get("review_class", "") or "manual_review"),
+                "target": str(item.get("target", "") or ""),
+                "address": str(item.get("address", "") or ""),
+                "source": str(item.get("line_text", "") or ""),
+            }
+        )
+    dword_store_count = sum(1 for item in stores if str(item.get("store_width", "")) == "dword")
+    profiled_count = sum(1 for item in stores if bool(item.get("profiled")))
+    return {
+        "name": name,
+        "ea": ea,
+        "store_count": len(stores),
+        "dword_store_count": dword_store_count,
+        "wide_store_count": sum(1 for item in stores if str(item.get("store_width", "")) == "wide"),
+        "profiled_count": profiled_count,
+        "unprofiled_count": len(stores) - profiled_count,
+        "values": dict(values.most_common()),
+        "profile_names": dict(profile_names.most_common()),
+        "store_widths": dict(widths.most_common()),
+        "review_classes": dict(review_classes.most_common()),
+        "review_class_store_widths": {
+            key: dict(value.most_common())
+            for key, value in sorted(review_class_store_widths.items())
+        },
+        "contexts": contexts,
+        "summary_path": str(summary_path),
+    }
+
+
+def _nested_status_store_review_queues(
+    functions: list[dict[str, Any]],
+    top: int,
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for queue_name in _STATUS_STORE_REVIEW_QUEUE_ORDER:
+        queue_classes = _nested_status_store_review_queue_classes(queue_name)
+        items: list[dict[str, Any]] = []
+        class_counts: Counter[str] = Counter()
+        width_counts: Counter[str] = Counter()
+        store_total = 0
+        function_names: set[str] = set()
+        for function in functions:
+            review_classes = _coerce_dict(function.get("review_classes", {}))
+            matching_store_count = sum(int(review_classes.get(name, 0) or 0) for name in queue_classes)
+            if matching_store_count <= 0:
+                continue
+            function_names.add(str(function.get("name", "") or ""))
+            store_total += matching_store_count
+            class_counts.update(
+                {
+                    name: int(review_classes.get(name, 0) or 0)
+                    for name in queue_classes
+                    if int(review_classes.get(name, 0) or 0) > 0
+                }
+            )
+            item = _nested_status_store_review_queue_item(function, queue_classes, matching_store_count)
+            width_counts.update(_coerce_dict(item.get("store_widths", {})))
+            items.append(item)
+        items.sort(key=lambda item: (-int(item.get("stores", 0) or 0), str(item.get("name", ""))))
+        result[queue_name] = {
+            "stores": store_total,
+            "functions": len(function_names),
+            "review_classes": _counter_to_dict(Counter(dict(class_counts.most_common(top)))),
+            "store_widths": _counter_to_dict(Counter(dict(width_counts.most_common(top)))),
+            "items": items[:top],
+        }
+    return result
+
+
+def _nested_status_store_review_queue_classes(queue_name: str) -> set[str]:
+    mapping = {
+        "dword_nested_pointer_status_stores": {"dword_nested_pointer_status_store_candidate"},
+        "wide_nested_pointer_status_stores": {"wide_nested_pointer_status_store_review"},
+        "manual_review": {"manual_review"},
+    }
+    return set(mapping.get(queue_name, {"manual_review"}))
+
+
+def _nested_status_store_review_queue_item(
+    function: dict[str, Any],
+    queue_classes: set[str],
+    store_count: int,
+) -> dict[str, Any]:
+    contexts = [
+        context
+        for context in function.get("contexts", []) or []
+        if isinstance(context, dict) and str(context.get("review_class", "")) in queue_classes
+    ]
+    store_widths: Counter[str] = Counter()
+    review_class_store_widths = _coerce_dict(function.get("review_class_store_widths", {}))
+    for queue_class in queue_classes:
+        store_widths.update(_coerce_dict(review_class_store_widths.get(queue_class, {})))
+    if not store_widths:
+        store_widths.update(str(context.get("store_width", "") or "unknown") for context in contexts)
+    return {
+        "name": str(function.get("name", "") or ""),
+        "ea": str(function.get("ea", "") or ""),
+        "stores": int(store_count),
+        "review_classes": {
+            key: value
+            for key, value in _coerce_dict(function.get("review_classes", {})).items()
+            if key in queue_classes
+        },
+        "store_widths": _counter_to_dict(store_widths),
         "contexts": contexts[:3],
         "summary_path": str(function.get("summary_path", "") or ""),
     }

@@ -12,8 +12,10 @@ from tools.pseudoforge_corpus_quality import (
     _base_stability_review_profile,
     _decimal_status_like_literals,
     _layout_rewrite_blocker_review_profiles,
+    _nested_status_pointer_store_literals,
     analyze_corpus,
     main,
+    render_quality_markdown,
 )
 
 
@@ -94,6 +96,98 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
         self.assertEqual("status_identifier_target", literals[0]["target_evidence"])
         self.assertEqual("wide_or_nonstatus_target", literals[1]["target_evidence"])
         self.assertEqual("unsigned __int64", literals[1]["target_type"])
+
+    def test_nested_status_pointer_store_literals_split_dword_and_wide_review(self) -> None:
+        stores = _nested_status_pointer_store_literals(
+            "**(_DWORD **)(argument3 + 16) = -1073741790;\n"
+            "**(_QWORD **)(v22 + 1224) = 3221225626LL;\n"
+            "*(_DWORD *)(argument0 + 8) = -1073741790;\n"
+        )
+
+        self.assertEqual(2, len(stores))
+        self.assertEqual("dword", stores[0]["store_width"])
+        self.assertEqual("STATUS_ACCESS_DENIED", stores[0]["profile_name"])
+        self.assertEqual(
+            "dword_nested_pointer_status_store_candidate",
+            stores[0]["review_class"],
+        )
+        self.assertEqual("wide", stores[1]["store_width"])
+        self.assertEqual("STATUS_INSUFFICIENT_RESOURCES", stores[1]["profile_name"])
+        self.assertEqual(
+            "wide_nested_pointer_status_store_review",
+            stores[1]["review_class"],
+        )
+
+    def test_analyze_corpus_reports_nested_status_pointer_store_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140003000_NestedStatusStore"
+            function_dir.mkdir(parents=True)
+            cleaned_path = function_dir / "NestedStatusStore.cleaned.cpp"
+            summary_path = function_dir / "NestedStatusStore.ida-batch-summary.json"
+            cleaned_path.write_text(
+                r"""
+__int64 __fastcall NestedStatusStore(__int64 argument0, __int64 argument1)
+{
+  **(_DWORD **)(argument0 + 16) = -1073741790;
+  **(_DWORD **)(argument0 + 16) = -1073741811;
+  **(_QWORD **)(argument1 + 1224) = 3221225626LL;
+  *(_DWORD *)(argument0 + 24) = -1073741790;
+  return 0;
+}
+""",
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "NestedStatusStore",
+                        "function_ea": "0x140003000",
+                        "artifacts": {
+                            "cleaned_pseudocode": "NestedStatusStore.cleaned.cpp",
+                            "summary": "NestedStatusStore.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            stats = report["status_store_residue_stats"]
+
+            self.assertEqual({"0xC0000022": 1, "0xC000000D": 1, "0xC000009A": 1}, stats["nested_pointer_store_values"])
+            self.assertEqual({"dword": 2, "wide": 1}, stats["nested_pointer_store_widths"])
+            self.assertEqual(
+                {
+                    "dword_nested_pointer_status_store_candidate": 2,
+                    "wide_nested_pointer_status_store_review": 1,
+                },
+                stats["nested_pointer_store_review_classes"],
+            )
+            self.assertEqual(2, stats["review_queues"]["dword_nested_pointer_status_stores"]["stores"])
+            self.assertEqual(
+                {"dword": 2},
+                stats["review_queues"]["dword_nested_pointer_status_stores"]["store_widths"],
+            )
+            self.assertEqual(1, stats["review_queues"]["wide_nested_pointer_status_stores"]["stores"])
+            self.assertEqual(
+                {"wide": 1},
+                stats["review_queues"]["wide_nested_pointer_status_stores"]["store_widths"],
+            )
+            self.assertEqual(
+                "NestedStatusStore",
+                stats["top_nested_pointer_store_functions"][0]["name"],
+            )
+            self.assertEqual(3, stats["top_nested_pointer_store_functions"][0]["store_count"])
+            self.assertEqual(2, stats["top_nested_pointer_store_functions"][0]["dword_store_count"])
+            self.assertEqual(1, stats["top_nested_pointer_store_functions"][0]["wide_store_count"])
+
+            markdown = render_quality_markdown(report)
+            self.assertIn("### Nested Pointer Status Store Residue", markdown)
+            self.assertIn("`dword_nested_pointer_status_stores`", markdown)
+            self.assertIn("NestedStatusStore", markdown)
 
     def test_layout_rewrite_blocker_profiles_split_base_identity(self) -> None:
         self.assertEqual(
