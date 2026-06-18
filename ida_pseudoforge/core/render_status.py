@@ -48,6 +48,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_immediate_status_alias_casted_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
     result = _replace_status_call_result_comparisons(result)
+    result = _replace_call_result_scalar_status_comparisons(result, capture)
     result = _replace_guard_dispatch_status_ternary_fallbacks(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
@@ -454,6 +455,50 @@ def _replace_status_call_result_literal_first(match: re.Match[str]) -> str:
     if not name:
         return match.group(0)
     return match.group(0).replace(match.group("literal") + (match.group("suffix") or ""), name, 1)
+
+
+def _replace_call_result_scalar_status_comparisons(text: str, capture: FunctionCapture | None) -> str:
+    candidates = _call_result_scalar_status_comparison_names(text, capture)
+    return _replace_status_comparisons_for_names(text, candidates)
+
+
+def _call_result_scalar_status_comparison_names(
+    text: str,
+    capture: FunctionCapture | None,
+) -> set[str]:
+    four_byte_names = _four_byte_status_candidate_names(text, capture)
+    if not four_byte_names:
+        return set()
+
+    profiled_counts = _profiled_status_comparison_name_counts(text)
+    if not profiled_counts:
+        return set()
+
+    call_result_names = _call_result_assignment_names(text)
+    candidates: set[str] = set()
+    for name in call_result_names.intersection(four_byte_names):
+        if profiled_counts.get(name, 0) < 2:
+            continue
+        if _target_has_bitwise_use(text, name) or _target_has_direct_arithmetic_reuse(text, name):
+            continue
+        candidates.add(name)
+    return candidates
+
+
+def _call_result_assignment_names(text: str) -> set[str]:
+    names: set[str] = set()
+    assignment_pattern = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+        r"(?P<cast>\(\s*(?:unsigned\s+int|int|NTSTATUS|ULONG|LONG)\s*\)\s*)?"
+        r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\s*\("
+    )
+    for match in assignment_pattern.finditer(text):
+        callee = match.group("callee")
+        if re.fullmatch(r"(?:sizeof|__PAIR\d+__)", callee or ""):
+            continue
+        names.add(match.group("name"))
+    names.update(_indirect_call_result_names(text))
+    return names
 
 
 def _trusted_status_call_result_callee_names(text: str) -> set[str]:
@@ -1312,7 +1357,11 @@ def _indirect_call_result_names(text: str) -> set[str]:
 
 
 def _profiled_status_comparison_names(text: str) -> set[str]:
-    names: set[str] = set()
+    return set(_profiled_status_comparison_name_counts(text))
+
+
+def _profiled_status_comparison_name_counts(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
     identifier_first = re.compile(
         r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=)\s*"
         r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
@@ -1325,8 +1374,9 @@ def _profiled_status_comparison_names(text: str) -> set[str]:
     for pattern in (identifier_first, literal_first):
         for match in pattern.finditer(text):
             if _status_name_for_literal(match.group("literal"), allow_zero=False):
-                names.add(match.group("name"))
-    return names
+                name = match.group("name")
+                counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def _status_assignment_alias_names(text: str) -> set[str]:

@@ -232,6 +232,10 @@ NTSTATUS __fastcall StatusCallResultComparisonSample(HANDLE handle, int a1)
   int internalStatus;
   int zwStatus;
   int plainResult;
+  int callResultScalar;
+  int singleCallResult;
+  int mixedCallResult;
+  int sizeofScalar;
 
   if ( ZwQuerySecurityObject(handle, 4u, 0LL, 0, &scratch) == -1073741789 )
     return STATUS_BUFFER_TOO_SMALL;
@@ -252,6 +256,21 @@ NTSTATUS __fastcall StatusCallResultComparisonSample(HANDLE handle, int a1)
     scratch = 1;
   if ( (unsigned int)sub_140001000(a1) == -1073741789 )
     scratch = 2;
+  callResultScalar = QueryPackageStatus(a1);
+  if ( callResultScalar == -1073741772 && callResultScalar != -1073741789 )
+    scratch = 4;
+  if ( callResultScalar == -2147483606 )
+    scratch = 5;
+  singleCallResult = QueryMaybeInteger(a1);
+  if ( singleCallResult == -1073741772 )
+    scratch = 6;
+  mixedCallResult = QueryMaybeStatus(a1);
+  mixedCallResult |= 1;
+  if ( mixedCallResult == -1073741772 && mixedCallResult != -1073741789 )
+    scratch = 7;
+  sizeofScalar = sizeof(int);
+  if ( sizeofScalar == -1073741772 && sizeofScalar != -1073741789 )
+    scratch = 8;
   return STATUS_SUCCESS;
 }
 """
@@ -710,6 +729,14 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("plainResult == -1073739509", rendered)
         self.assertIn("PlainIntegerCall(argument1) == -1073741789", rendered)
         self.assertIn("(unsigned int)sub_140001000(argument1) == -1073741789", rendered)
+        self.assertIn("callResultScalar == STATUS_OBJECT_NAME_NOT_FOUND", rendered)
+        self.assertIn("callResultScalar != STATUS_BUFFER_TOO_SMALL", rendered)
+        self.assertIn("callResultScalar == STATUS_REGISTRY_HIVE_RECOVERED", rendered)
+        self.assertIn("singleCallResult == -1073741772", rendered)
+        self.assertIn("mixedCallResult == -1073741772", rendered)
+        self.assertIn("mixedCallResult != -1073741789", rendered)
+        self.assertIn("sizeofScalar == -1073741772", rendered)
+        self.assertIn("sizeofScalar != -1073741789", rendered)
 
     def test_guard_dispatch_status_flow_comparison_literals_are_named(self) -> None:
         capture = capture_from_pseudocode(GUARD_DISPATCH_STATUS_FLOW_SAMPLE)
