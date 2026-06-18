@@ -43,6 +43,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
     result = _replace_status_pointer_store_literals(result)
+    result = _replace_nested_dword_status_pointer_store_literals(result)
     result = _replace_low_dword_status_carrier_literals(result)
     result = _replace_32bit_error_status_literals(result, capture)
     result = _replace_status_ternaries(result, capture)
@@ -530,6 +531,71 @@ def _named_pointer_types(text: str) -> dict[str, str]:
 def _is_strong_status_pointer_type(type_text: str) -> bool:
     normalized = _normalize_scalar_type(type_text)
     return normalized in {"NTSTATUS", "PNTSTATUS"}
+
+
+def _replace_nested_dword_status_pointer_store_literals(text: str) -> str:
+    candidates = _nested_dword_status_pointer_store_targets(text)
+    if not candidates:
+        return text
+
+    pattern = _nested_dword_store_assignment_pattern()
+
+    def repl(match: re.Match[str]) -> str:
+        key = _normalize_nested_dword_store_target(match.group("address"))
+        if key not in candidates:
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name + match.group("end")
+
+    return pattern.sub(repl, text)
+
+
+def _nested_dword_status_pointer_store_targets(text: str) -> set[str]:
+    error_store_counts: dict[str, int] = {}
+    nonstatus_literal_counts: dict[str, int] = {}
+    for match in _nested_dword_store_assignment_pattern().finditer(text):
+        key = _normalize_nested_dword_store_target(match.group("address"))
+        literal = match.group("literal")
+        if _error_status_name_for_literal(literal):
+            error_store_counts[key] = error_store_counts.get(key, 0) + 1
+        elif not _is_zero_literal(literal):
+            nonstatus_literal_counts[key] = nonstatus_literal_counts.get(key, 0) + 1
+
+    candidates: set[str] = set()
+    for key, count in error_store_counts.items():
+        if count < 2:
+            continue
+        if nonstatus_literal_counts.get(key, 0):
+            continue
+        if not _nested_dword_store_target_has_status_read(text, key):
+            continue
+        candidates.add(key)
+    return candidates
+
+
+def _nested_dword_store_assignment_pattern() -> re.Pattern[str]:
+    return re.compile(
+        r"(?m)(?P<prefix>^[ \t]*\*\*\s*\(_DWORD\s*\*\*\)\s*(?P<address>[^=\n;]+?)\s*=\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<end>\s*;)"
+    )
+
+
+def _normalize_nested_dword_store_target(address: str) -> str:
+    return re.sub(r"\s+", " ", str(address or "").strip())
+
+
+def _nested_dword_store_target_has_status_read(text: str, key: str) -> bool:
+    address = re.escape(key).replace(r"\ ", r"\s+")
+    read_expr = r"\*\*\s*\((?:_DWORD|int)\s*\*\*\)\s*%s" % address
+    return any(
+        re.search(pattern % read_expr, text)
+        for pattern in (
+            r"%s\s*(?:<|>=)\s*0\b",
+            r"\b0\s*(?:>|<=)\s*%s\b",
+        )
+    )
 
 
 def _replace_low_dword_status_carrier_literals(text: str) -> str:

@@ -296,6 +296,26 @@ __int64 __fastcall LowDwordStatusCarrierSample(int a1)
 """
 
 
+NESTED_DWORD_STATUS_POINTER_STORE_SAMPLE = r"""
+__int64 __fastcall NestedDwordStatusPointerStoreSample(__int64 a1, __int64 a2)
+{
+  **(_DWORD **)(a1 + 16) = -1073741790;
+  **(_DWORD **)(a1 + 16) = 0;
+  if ( **(int **)(a1 + 16) < 0 )
+    return 0;
+  **(_DWORD **)(a1 + 16) = -1073741659;
+  **(_DWORD **)(a2 + 16) = -1073741790;
+  **(_QWORD **)(a1 + 24) = 3221225626LL;
+  **(_DWORD **)(a1 + 8) = -1073741790;
+  **(_DWORD **)(a1 + 8) = -1073741811;
+  **(_DWORD **)(a1 + 8) = 5;
+  if ( **(int **)(a1 + 8) < 0 )
+    return 0;
+  return 1;
+}
+"""
+
+
 class RenderStatusTests(unittest.TestCase):
     def test_zero_status_literal_requires_status_context(self) -> None:
         capture = capture_from_pseudocode(NON_STATUS_ZERO_SAMPLE)
@@ -558,6 +578,20 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("LODWORD(mixedCounter) = -1073741790;", rendered)
         self.assertIn("LODWORD(mixedCounter) = -1073741811;", rendered)
         self.assertIn("LODWORD(mixedCounter) = (_DWORD)mixedCounter + 1;", rendered)
+
+    def test_nested_dword_status_pointer_store_literals_are_named_conservatively(self) -> None:
+        capture = capture_from_pseudocode(NESTED_DWORD_STATUS_POINTER_STORE_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("**(_DWORD **)(context + 16) = STATUS_ACCESS_DENIED;", rendered)
+        self.assertIn("**(_DWORD **)(context + 16) = 0;", rendered)
+        self.assertIn("**(_DWORD **)(context + 16) = STATUS_BAD_IMPERSONATION_LEVEL;", rendered)
+        self.assertIn("**(_DWORD **)(argument1 + 16) = -1073741790;", rendered)
+        self.assertIn("**(_QWORD **)(context + 24) = 3221225626LL;", rendered)
+        self.assertIn("**(_DWORD **)(context + 8) = -1073741790;", rendered)
+        self.assertIn("**(_DWORD **)(context + 8) = -1073741811;", rendered)
+        self.assertIn("**(_DWORD **)(context + 8) = 5;", rendered)
 
 
 if __name__ == "__main__":
