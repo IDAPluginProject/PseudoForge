@@ -463,6 +463,52 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("Source Identity Review Queues", markdown)
             self.assertIn("argument_parameter_identity_review", markdown)
 
+    def test_replay_plan_treats_hot_field_cluster_as_layout_actionable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            hot_cluster_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_field_hot_cluster: Hot field cluster for context (generic base): 27 typed dereference(s) concentrated in 6 offset(s); top fields field_20=+0x20 _DWORD x10; field_18=+0x18 _QWORD x8. Review-only access-pressure evidence; no structure type or body rewrite was inferred. confidence=0.72",
+                    "*/",
+                    "__int64 __fastcall HotCluster(__int64 context)",
+                    "{",
+                ]
+                + [
+                    "  v%d = *(_QWORD *)(context + %d);" % (item_index, 16 + (item_index * 8))
+                    for item_index in range(12)
+                ]
+                + ["  return v11;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="HotCluster",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=hot_cluster_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertIn("layout_actionable_offset_residue", item["reasons"])
+            self.assertIn("layout_hot_field_cluster", item["reasons"])
+            self.assertNotIn("context_unannotated_base_offset_residue", item["reasons"])
+            self.assertEqual(1, item["metrics"]["layout_hot_field_clusters"])
+            self.assertEqual(1, item["metrics"]["layout_actionability_signals"])
+            self.assertEqual(1, item["metrics"]["layout_actionability_bases"])
+            self.assertEqual(12, item["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_context_base_patterns"])
+            self.assertEqual("context", item["offset_base_counts"]["layout_actionable"][0]["base"])
+            self.assertEqual([], plan["source_identity_review_queues"]["context"])
+            self.assertIn(
+                "layout_hot_field_clusters",
+                plan["score_model"]["offset_actionability"]["layout_signal_metrics"],
+            )
+
     def test_replay_plan_splits_context_and_bugcheck_argument_identity_bases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
