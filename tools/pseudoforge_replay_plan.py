@@ -18,6 +18,7 @@ from tools.pseudoforge_corpus_quality import (
     FIELD_BASE_STABILITY_RE,
     FIELD_REWRITE_BLOCKER_RE,
     FIELD_REWRITE_NEAR_READY_RE,
+    FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE,
     FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE,
     FIELD_STABLE_BASE_SOURCE_RE,
     GENERIC_IDENTIFIER_RE,
@@ -205,6 +206,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     warning_classes = Counter(_classify_warning(item) for item in warnings)
     rename_candidates = _int_value(summary.get("rename_candidates"), 0)
     applied_renames = _int_value(summary.get("renames"), 0)
+    partial_opportunities = _layout_partial_opportunity_counts(cleaned_text)
     metrics = {
         "warnings": _int_value(summary.get("warnings"), len(warnings)),
         "rename_candidates": rename_candidates,
@@ -217,7 +219,11 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "body_hex_status_like_literals": len(HEX_STATUS_RE.findall(body_text)),
         "layout_rewrite_blockers": len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text)),
         "layout_rewrite_near_ready": len(FIELD_REWRITE_NEAR_READY_RE.findall(cleaned_text)),
-        "layout_rewrite_partial_opportunities": len(FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE.findall(cleaned_text)),
+        "layout_rewrite_partial_opportunities": int(partial_opportunities.get("total", 0)),
+        "layout_rewrite_partial_review_only": int(partial_opportunities.get("review_only", 0)),
+        "layout_rewrite_partial_validated_applied": int(
+            partial_opportunities.get("validated_partial_applied", 0)
+        ),
         "layout_base_stability": len(FIELD_BASE_STABILITY_RE.findall(cleaned_text)),
         "layout_stable_base_sources": len(FIELD_STABLE_BASE_SOURCE_RE.findall(cleaned_text)),
         "llm_fallback": 1 if str(summary.get("llm_status", "") or "") == "fallback" else 0,
@@ -234,6 +240,23 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     }
 
 
+def _layout_partial_opportunity_counts(text: str) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for match in FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE.finditer(text or ""):
+        counts["total"] += 1
+        disposition = str(match.groupdict().get("disposition") or "")
+        if "Validated partial layout rewrite applied" in disposition:
+            counts["validated_partial_applied"] += 1
+        else:
+            counts["review_only"] += 1
+    if not counts:
+        total = len(FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE.findall(text or ""))
+        if total:
+            counts["total"] = total
+            counts["review_only"] = total
+    return counts
+
+
 def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tuple[float, list[str]]:
     score = 0.0
     reasons: list[str] = []
@@ -246,7 +269,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["body_hex_status_like_literals"] * 3.0
     score += metrics["layout_rewrite_blockers"] * 10.0
     score += metrics["layout_rewrite_near_ready"] * 8.0
-    score += metrics["layout_rewrite_partial_opportunities"] * 12.0
+    score += metrics["layout_rewrite_partial_review_only"] * 12.0
     score += metrics["layout_base_stability"] * 8.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["llm_fallback"] * 25.0
@@ -266,7 +289,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("status_literal_residue")
     if metrics["layout_rewrite_blockers"]:
         reasons.append("layout_blockers")
-    if metrics["layout_rewrite_near_ready"] or metrics["layout_rewrite_partial_opportunities"]:
+    if metrics["layout_rewrite_near_ready"] or metrics["layout_rewrite_partial_review_only"]:
         reasons.append("layout_near_ready")
     if metrics["layout_base_stability"]:
         reasons.append("layout_base_stability")

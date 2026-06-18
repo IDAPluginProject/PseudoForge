@@ -87,6 +87,59 @@ __int64 __fastcall Quiet(__int64 status)
             payload = json.loads((out_dir / "replay-plan.json").read_text(encoding="utf-8"))
             self.assertIn(str(out_dir / "replay-eas.txt"), payload["recommended_commands"][0])
 
+    def test_replay_plan_scores_only_review_only_partial_opportunities(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="ReviewOnlyPartial",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body="""
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for context: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Safe offsets +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40, +0x48; excluded offsets +0x206. Excluded reasons one or more offsets mix narrow subfield access widths. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.77
+*/
+__int64 __fastcall ReviewOnlyPartial(__int64 context)
+{
+  return context;
+}
+""",
+            )
+            _write_function(
+                root,
+                ea="0x140002000",
+                name="ValidatedPartial",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body="""
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for context: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Safe offsets +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40, +0x48; excluded offsets +0x206. Excluded reasons one or more offsets mix narrow subfield access widths. Validated partial layout rewrite applied to canonical cleaned output. confidence=0.77
+*/
+__int64 __fastcall ValidatedPartial(__int64 context)
+{
+  return context;
+}
+""",
+            )
+
+            plan = build_replay_plan(root, limit=2)
+
+            by_name = {item["name"]: item for item in plan["items"]}
+            review_only = by_name["ReviewOnlyPartial"]
+            validated = by_name["ValidatedPartial"]
+            self.assertGreater(review_only["score"], validated["score"])
+            self.assertIn("layout_near_ready", review_only["reasons"])
+            self.assertNotIn("layout_near_ready", validated["reasons"])
+            self.assertEqual(1, review_only["metrics"]["layout_rewrite_partial_review_only"])
+            self.assertEqual(0, review_only["metrics"]["layout_rewrite_partial_validated_applied"])
+            self.assertEqual(0, validated["metrics"]["layout_rewrite_partial_review_only"])
+            self.assertEqual(1, validated["metrics"]["layout_rewrite_partial_validated_applied"])
+
 
 def _write_function(
     root: Path,
