@@ -136,6 +136,26 @@ NTSTATUS __fastcall StatusFlowComparisonSample(int a1)
 """
 
 
+STATUS_CALL_RESULT_COMPARISON_SAMPLE = r"""
+NTSTATUS __fastcall StatusCallResultComparisonSample(HANDLE handle, int a1)
+{
+  int scratch;
+
+  if ( ZwQuerySecurityObject(handle, 4u, 0LL, 0, &scratch) == -1073741789 )
+    return STATUS_BUFFER_TOO_SMALL;
+  if ( (unsigned int)InternalStatusQuery(a1) != -1073741275 )
+    return STATUS_NOT_FOUND;
+  if ( -1073741789 == (unsigned int)InternalStatusQuery(a1) )
+    return STATUS_BUFFER_TOO_SMALL;
+  if ( PlainIntegerCall(a1) == -1073741789 )
+    scratch = 1;
+  if ( (unsigned int)sub_140001000(a1) == -1073741789 )
+    scratch = 2;
+  return STATUS_SUCCESS;
+}
+"""
+
+
 GUARD_DISPATCH_STATUS_FLOW_SAMPLE = r"""
 NTSTATUS __fastcall GuardDispatchStatusFlowSample(__int64 a1, __int64 a2)
 {
@@ -392,6 +412,17 @@ __int64 __fastcall StatusStoreSample(__int64 a1)
         self.assertIn("callStatus == STATUS_DELETE_PENDING", rendered)
         self.assertIn("STATUS_CALLBACK_BYPASS != callStatus", rendered)
         self.assertIn("plainValue == -1073741738", rendered)
+
+    def test_status_call_result_comparison_literals_are_named_for_trusted_calls(self) -> None:
+        capture = capture_from_pseudocode(STATUS_CALL_RESULT_COMPARISON_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertIn("ZwQuerySecurityObject(handle, 4u, 0LL, 0, &scratch) == STATUS_BUFFER_TOO_SMALL", rendered)
+        self.assertIn("(unsigned int)InternalStatusQuery(argument1) != STATUS_NOT_FOUND", rendered)
+        self.assertIn("STATUS_BUFFER_TOO_SMALL == (unsigned int)InternalStatusQuery(argument1)", rendered)
+        self.assertIn("PlainIntegerCall(argument1) == -1073741789", rendered)
+        self.assertIn("(unsigned int)sub_140001000(argument1) == -1073741789", rendered)
 
     def test_guard_dispatch_status_flow_comparison_literals_are_named(self) -> None:
         capture = capture_from_pseudocode(GUARD_DISPATCH_STATUS_FLOW_SAMPLE)

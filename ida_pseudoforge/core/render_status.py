@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 
 from ida_pseudoforge.core.api_semantics import FUNCTION_SIGNATURE_OVERRIDES, NTSTATUS_RETURN_MAP, STATUS_ARGUMENT_INDEXES
 from ida_pseudoforge.core.kernel_semantics import looks_like_driver_entry, looks_like_irp_dispatch
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+
+try:
+    from ida_pseudoforge.profiles.loader import load_kernel_api_family
+except Exception:
+    load_kernel_api_family = None
 
 
 def _replace_status_returns(text: str) -> str:
@@ -32,6 +38,7 @@ def _replace_status_literals(text: str, capture: FunctionCapture | None, plan: C
     result = _replace_status_alias_comparisons(result)
     result = _replace_status_flow_comparisons(result)
     result = _replace_guard_dispatch_status_comparisons(result)
+    result = _replace_status_call_result_comparisons(result)
     result = _replace_guard_dispatch_status_ternary_fallbacks(result)
     result = _replace_rtl_raise_status_literals(result)
     result = _replace_status_argument_literals(result)
@@ -183,6 +190,78 @@ def _replace_status_comparisons_for_names(text: str, candidates: set[str]) -> st
         return match.group("prefix") + name + match.group("operator") + match.group("name")
 
     return literal_first.sub(replace_literal_first, identifier_first.sub(replace_identifier_first, text))
+
+
+def _replace_status_call_result_comparisons(text: str) -> str:
+    identifier_first = re.compile(
+        r"(?P<prefix>(?P<cast>\(\s*(?:unsigned\s+int|int|NTSTATUS|ULONG|LONG)\s*\)\s*)?"
+        r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\([^;\n]*?\)\s*(?:==|!=)\s*)"
+        r"(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))(?P<suffix>u?LL|ULL|LL|u|U|L)?\b"
+    )
+    literal_first = re.compile(
+        r"(?P<prefix>(?<![A-Za-z0-9_]))(?P<literal>-?(?:0x[0-9A-Fa-f]+|\d+))"
+        r"(?P<suffix>u?LL|ULL|LL|u|U|L)?(?P<operator>\s*(?:==|!=)\s*)"
+        r"(?P<cast>\(\s*(?:unsigned\s+int|int|NTSTATUS|ULONG|LONG)\s*\)\s*)?"
+        r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\([^;\n]*?\)"
+    )
+
+    def replace_identifier_first(match: re.Match[str]) -> str:
+        if not _is_trusted_status_call_result_comparison(match.group("callee"), match.group("cast")):
+            return match.group(0)
+        name = _error_status_name_for_literal(match.group("literal"))
+        if not name:
+            return match.group(0)
+        return match.group("prefix") + name
+
+    result = identifier_first.sub(replace_identifier_first, text)
+    return literal_first.sub(_replace_status_call_result_literal_first, result)
+
+
+def _replace_status_call_result_literal_first(match: re.Match[str]) -> str:
+    if not _is_trusted_status_call_result_comparison(match.group("callee"), match.group("cast")):
+        return match.group(0)
+    name = _error_status_name_for_literal(match.group("literal"))
+    if not name:
+        return match.group(0)
+    return match.group(0).replace(match.group("literal") + (match.group("suffix") or ""), name, 1)
+
+
+def _is_trusted_status_call_result_comparison(callee: str, cast: str | None) -> bool:
+    name = str(callee or "")
+    if _is_untrusted_call_result_name(name):
+        return False
+    if name in _ntstatus_returning_api_names():
+        return True
+    return bool(cast and _is_status_call_result_cast(cast))
+
+
+def _is_status_call_result_cast(cast: str) -> bool:
+    normalized = _normalize_scalar_type(str(cast or "").strip("() "))
+    return normalized in {"UNSIGNED INT", "INT", "NTSTATUS", "ULONG", "LONG"}
+
+
+def _is_untrusted_call_result_name(name: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?i)(?:sub_[0-9A-F]+|qword_[0-9A-F]+|dword_[0-9A-F]+|off_[0-9A-F]+|guard_dispatch_icall_no_overrides)",
+            name or "",
+        )
+    )
+
+
+@lru_cache(maxsize=1)
+def _ntstatus_returning_api_names() -> frozenset[str]:
+    if load_kernel_api_family is None:
+        return frozenset()
+    functions = load_kernel_api_family("functions")
+    names: set[str] = set()
+    for name, item in functions.items():
+        if not isinstance(item, dict):
+            continue
+        return_type = str(item.get("return_type", "") or "")
+        if "NTSTATUS" in return_type.upper():
+            names.add(str(name))
+    return frozenset(names)
 
 
 def _replace_status_assignments_for_names(text: str, candidates: set[str]) -> str:
