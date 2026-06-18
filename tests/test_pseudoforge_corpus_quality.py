@@ -104,11 +104,15 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
             "int plainValue;\n"
             "int magicValue;\n"
             "int literalValue;\n"
+            "int enumValue;\n"
+            "int directEnumValue;\n"
             "callResult = SomeStatusCall();\n"
             "if ( callResult == -1073741789 )\n"
             "if ( plainValue == -1073741789 )\n"
             "magicValue = 1231315286;\n"
             "literalValue = -2147483643;\n"
+            "if ( enumValue == 4 || (unsigned int)(enumValue - 1) <= 1 || enumValue == -2147483647 )\n"
+            "if ( directEnumValue != -1073741789 || 7u == directEnumValue )\n"
         )
 
         self.assertEqual(
@@ -117,9 +121,13 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
                 "four_byte_scalar_comparison_review",
                 "four_byte_scalar_ascii_magic_review",
                 "four_byte_scalar_status_literal_assignment_review",
+                "four_byte_scalar_small_enum_comparison_review",
+                "four_byte_scalar_small_enum_comparison_review",
             ],
             [item["target_review_hint"] for item in literals],
         )
+        self.assertEqual("small_enum_comparison_candidate", literals[4]["review_class"])
+        self.assertEqual("small_enum_comparison_candidate", literals[5]["review_class"])
 
     def test_decimal_status_target_review_queues_split_weak_evidence(self) -> None:
         queues = _decimal_status_target_review_queues(

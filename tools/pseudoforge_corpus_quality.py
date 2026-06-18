@@ -63,6 +63,7 @@ _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "unprofiled_ntstatus_error_literals",
     "nonstatus_ascii_magic_literals",
     "nonstatus_bitmask_comparisons",
+    "nonstatus_small_enum_comparisons",
     "manual_review",
 )
 _DECIMAL_STATUS_TARGET_REVIEW_QUEUE_ORDER = (
@@ -3476,6 +3477,7 @@ def _decimal_status_like_literals(text: str) -> list[dict[str, Any]]:
             context_kind,
             line_text,
             literal,
+            target_name,
             target_evidence,
         )
         target_review_hint = _decimal_status_target_review_hint(
@@ -3598,6 +3600,8 @@ def _decimal_status_target_review_hint(
             return "four_byte_scalar_ascii_magic_review"
         if review_class == "bitmask_comparison_candidate":
             return "four_byte_scalar_bitmask_review"
+        if review_class == "small_enum_comparison_candidate":
+            return "four_byte_scalar_small_enum_comparison_review"
         if target_name and _has_call_result_assignment_use(text, target_name):
             return "four_byte_scalar_call_result_review"
         if target_name and _has_profiled_status_literal_assignment_use(text, target_name):
@@ -3625,8 +3629,15 @@ def _decimal_status_review_class(
     context_kind: str,
     line_text: str,
     literal: str,
+    target_name: str,
     target_evidence: str,
 ) -> str:
+    if (
+        context_kind == "comparison"
+        and target_evidence == "four_byte_scalar_target"
+        and _line_has_mixed_small_enum_comparison_context(line_text, target_name, literal)
+    ):
+        return "small_enum_comparison_candidate"
     if profile_name:
         if context_kind == "assignment" and target_evidence not in {
             "status_identifier_target",
@@ -3642,6 +3653,52 @@ def _decimal_status_review_class(
     if _is_ascii_magic_value(unsigned_value):
         return "ascii_magic_candidate"
     return "manual_review"
+
+
+def _line_has_mixed_small_enum_comparison_context(line_text: str, target_name: str, literal: str) -> bool:
+    if not line_text or not target_name:
+        return False
+
+    escaped_target = re.escape(target_name)
+    value_pattern = r"-?(?:0x[0-9A-Fa-f]+|\d+)(?:u?LL|ULL|LL|u|U|L)?"
+    values: list[str] = []
+    identifier_first = re.compile(
+        r"(?<![A-Za-z0-9_*>.\]])(?:\([^)]+\)\s*)?"
+        r"%s\s*(?:==|!=)\s*(?P<value>%s)\b" % (escaped_target, value_pattern)
+    )
+    literal_first = re.compile(
+        r"(?<![A-Za-z0-9_])(?P<value>%s)\s*(?:==|!=)\s*"
+        r"(?:\([^)]+\)\s*)?%s\b" % (value_pattern, escaped_target)
+    )
+    for pattern in (identifier_first, literal_first):
+        values.extend(match.group("value") for match in pattern.finditer(line_text))
+
+    escaped_literal = re.escape(literal)
+    if any(
+        _is_small_nonzero_enum_literal(value)
+        for value in values
+        if not re.fullmatch(escaped_literal + r"(?:u?LL|ULL|LL|u|U|L)?", value)
+    ):
+        return True
+
+    compact_range_pattern = re.compile(
+        r"\(\s*(?:unsigned\s+int|int|_DWORD|unsigned\s+__int32)?\s*\)?\s*"
+        r"\(\s*%s\s*-\s*(?P<base>0x[0-9A-Fa-f]+|\d+)\s*\)\s*"
+        r"(?:<=|<)\s*(?P<width>0x[0-9A-Fa-f]+|\d+)" % escaped_target
+    )
+    return any(
+        _is_small_nonzero_enum_literal(match.group("base"))
+        and _is_small_nonzero_enum_literal(match.group("width"))
+        for match in compact_range_pattern.finditer(line_text)
+    )
+
+
+def _is_small_nonzero_enum_literal(value: str) -> bool:
+    cleaned = re.sub(r"(?:u?LL|ULL|LL|u|U|L)$", "", str(value or ""))
+    parsed = _parse_numeric_literal(cleaned)
+    if parsed is None:
+        return False
+    return 0 < parsed <= 0xFF
 
 
 def _is_ascii_magic_value(unsigned_value: int) -> bool:
@@ -3899,6 +3956,7 @@ def _decimal_status_review_queue_classes(queue_name: str) -> set[str]:
         "unprofiled_ntstatus_error_literals": {"unprofiled_ntstatus_error_candidate"},
         "nonstatus_ascii_magic_literals": {"ascii_magic_candidate"},
         "nonstatus_bitmask_comparisons": {"bitmask_comparison_candidate"},
+        "nonstatus_small_enum_comparisons": {"small_enum_comparison_candidate"},
         "manual_review": {"manual_review"},
     }
     return set(mapping.get(queue_name, {"manual_review"}))
