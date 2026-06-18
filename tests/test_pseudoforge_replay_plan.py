@@ -202,6 +202,72 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 plan["score_model"]["bulk_residue_saturation"]["label_full_score_limit"],
             )
 
+    def test_replay_plan_splits_layout_actionable_and_bulk_offset_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            layout_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for context: base identity unresolved. Review-only aliases remain available. confidence=0.64",
+                    "*/",
+                    "__int64 __fastcall LayoutOffset(__int64 context)",
+                    "{",
+                ]
+                + [
+                    "  v%d = *(_QWORD *)(context + %d);" % (index, 16 + (index * 8))
+                    for index in range(80)
+                ]
+                + ["  return v79;", "}"]
+            )
+            bulk_body = "\n".join(
+                ["__int64 __fastcall BulkOffset(__int64 buffer)", "{"]
+                + [
+                    "  v%d = *(_QWORD *)(buffer + %d);" % (index, 16 + (index * 8))
+                    for index in range(160)
+                ]
+                + ["  return v159;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140001000",
+                name="BulkOffset",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=bulk_body,
+            )
+            _write_function(
+                root,
+                ea="0x140002000",
+                name="LayoutOffset",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=layout_body,
+            )
+
+            plan = build_replay_plan(root, limit=2)
+
+            self.assertEqual("LayoutOffset", plan["items"][0]["name"])
+            by_name = {item["name"]: item for item in plan["items"]}
+            layout_item = by_name["LayoutOffset"]
+            bulk_item = by_name["BulkOffset"]
+            self.assertIn("layout_actionable_offset_residue", layout_item["reasons"])
+            self.assertNotIn("bulk_offset_residue", layout_item["reasons"])
+            self.assertNotIn("non_layout_offset_residue", layout_item["reasons"])
+            self.assertIn("non_layout_offset_residue", bulk_item["reasons"])
+            self.assertIn("bulk_offset_residue", bulk_item["reasons"])
+            self.assertNotIn("layout_actionable_offset_residue", bulk_item["reasons"])
+            self.assertEqual(80, layout_item["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertEqual(0, layout_item["metrics"]["body_offset_deref_bulk_noise_patterns"])
+            self.assertEqual(0, bulk_item["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertEqual(160, bulk_item["metrics"]["body_offset_deref_bulk_noise_patterns"])
+            self.assertEqual(
+                1.0,
+                plan["score_model"]["offset_actionability"]["no_layout_weight"],
+            )
+
 
 def _write_function(
     root: Path,

@@ -40,7 +40,10 @@ from tools.pseudoforge_corpus_quality import (
 GENERIC_RESIDUE_FULL_SCORE_LIMIT = 1000
 GENERIC_RESIDUE_OVERFLOW_WEIGHT = 0.002
 OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT = 120
+OFFSET_DEREF_LAYOUT_WEIGHT = 2.0
 OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT = 0.25
+OFFSET_DEREF_NO_LAYOUT_WEIGHT = 1.0
+OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
 LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
 
@@ -218,6 +221,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
     body_offset_derefs = len(OFFSET_DEREF_RE.findall(body_text))
     body_label_tokens = len(LABEL_RE.findall(body_text))
+    layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text))
+    layout_rewrite_near_ready = len(FIELD_REWRITE_NEAR_READY_RE.findall(cleaned_text))
+    layout_rewrite_partial_review_only = int(partial_opportunities.get("review_only", 0))
+    layout_base_stability = len(FIELD_BASE_STABILITY_RE.findall(cleaned_text))
+    layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(cleaned_text))
+    layout_actionability_signals = (
+        layout_rewrite_blockers
+        + layout_rewrite_near_ready
+        + layout_rewrite_partial_review_only
+        + layout_base_stability
+        + layout_stable_base_sources
+    )
     metrics = {
         "warnings": _int_value(summary.get("warnings"), len(warnings)),
         "rename_candidates": rename_candidates,
@@ -233,19 +248,26 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             0,
             body_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
         ),
+        "body_offset_deref_layout_actionable_patterns": body_offset_derefs
+        if layout_actionability_signals
+        else 0,
+        "body_offset_deref_bulk_noise_patterns": body_offset_derefs
+        if not layout_actionability_signals
+        else 0,
         "body_label_tokens": body_label_tokens,
         "body_label_overflow_tokens": max(0, body_label_tokens - LABEL_RESIDUE_FULL_SCORE_LIMIT),
         "body_decimal_status_like_literals": len(DECIMAL_STATUS_RE.findall(body_text)),
         "body_hex_status_like_literals": len(HEX_STATUS_RE.findall(body_text)),
-        "layout_rewrite_blockers": len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text)),
-        "layout_rewrite_near_ready": len(FIELD_REWRITE_NEAR_READY_RE.findall(cleaned_text)),
+        "layout_actionability_signals": layout_actionability_signals,
+        "layout_rewrite_blockers": layout_rewrite_blockers,
+        "layout_rewrite_near_ready": layout_rewrite_near_ready,
         "layout_rewrite_partial_opportunities": int(partial_opportunities.get("total", 0)),
-        "layout_rewrite_partial_review_only": int(partial_opportunities.get("review_only", 0)),
+        "layout_rewrite_partial_review_only": layout_rewrite_partial_review_only,
         "layout_rewrite_partial_validated_applied": int(
             partial_opportunities.get("validated_partial_applied", 0)
         ),
-        "layout_base_stability": len(FIELD_BASE_STABILITY_RE.findall(cleaned_text)),
-        "layout_stable_base_sources": len(FIELD_STABLE_BASE_SOURCE_RE.findall(cleaned_text)),
+        "layout_base_stability": layout_base_stability,
+        "layout_stable_base_sources": layout_stable_base_sources,
         "llm_fallback": 1 if str(summary.get("llm_status", "") or "") == "fallback" else 0,
     }
     score, reasons = _score_metrics(metrics, warning_classes)
@@ -288,12 +310,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         GENERIC_RESIDUE_FULL_SCORE_LIMIT,
         GENERIC_RESIDUE_OVERFLOW_WEIGHT,
     )
-    score += _residue_score(
-        metrics["body_offset_deref_patterns"],
-        2.0,
-        OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
-        OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT,
-    )
+    score += _offset_deref_residue_score(metrics)
     score += _residue_score(
         metrics["body_label_tokens"],
         1.0,
@@ -318,6 +335,12 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("generic_residue")
     if metrics["body_offset_deref_patterns"] >= 10:
         reasons.append("offset_deref_residue")
+        if metrics["layout_actionability_signals"]:
+            reasons.append("layout_actionable_offset_residue")
+        else:
+            reasons.append("non_layout_offset_residue")
+            if metrics["body_offset_deref_overflow_patterns"]:
+                reasons.append("bulk_offset_residue")
     if metrics["body_label_tokens"] >= 8:
         reasons.append("label_residue")
     if (
@@ -346,6 +369,22 @@ def _residue_score(value: int, weight: float, full_score_limit: int, overflow_we
     return (full_score_value * weight) + (overflow_value * overflow_weight)
 
 
+def _offset_deref_residue_score(metrics: dict[str, int]) -> float:
+    if metrics["layout_actionability_signals"]:
+        return _residue_score(
+            metrics["body_offset_deref_patterns"],
+            OFFSET_DEREF_LAYOUT_WEIGHT,
+            OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+            OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT,
+        )
+    return _residue_score(
+        metrics["body_offset_deref_patterns"],
+        OFFSET_DEREF_NO_LAYOUT_WEIGHT,
+        OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+        OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
+    )
+
+
 def _score_model() -> dict[str, Any]:
     return {
         "bulk_residue_saturation": {
@@ -355,6 +394,18 @@ def _score_model() -> dict[str, Any]:
             "offset_deref_overflow_weight": OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT,
             "label_full_score_limit": LABEL_RESIDUE_FULL_SCORE_LIMIT,
             "label_overflow_weight": LABEL_RESIDUE_OVERFLOW_WEIGHT,
+        },
+        "offset_actionability": {
+            "layout_signal_metrics": [
+                "layout_rewrite_blockers",
+                "layout_rewrite_near_ready",
+                "layout_rewrite_partial_review_only",
+                "layout_base_stability",
+                "layout_stable_base_sources",
+            ],
+            "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
+            "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,
+            "no_layout_overflow_weight": OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
         }
     }
 
