@@ -1,0 +1,1650 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "dispatcher-synchronization-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 dispatcher object, wait, lock, resource, rundown, and spin lock role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.dispatcher_synchronization.ke_initialize_event",
+      "source": "Reviewed KeInitializeEvent dispatcher event initialization.",
+      "function_names": [
+        "KeInitializeEvent"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "event",
+          "role": "event",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.96,
+          "accepted_types": [
+            "PRKEVENT",
+            "PKEVENT",
+            "KEVENT *",
+            "__int64"
+          ],
+          "source": "KeInitializeEvent Event argument initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "eventType",
+          "role": "eventType",
+          "structure": "EVENT_TYPE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "EVENT_TYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "KeInitializeEvent Type argument controls notification versus synchronization event behavior"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "initialState",
+          "role": "initialState",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeInitializeEvent initial State argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_set_event",
+      "source": "Reviewed KeSetEvent signal path, dispatcher lock acquisition, unwait, and optional wait exit.",
+      "function_names": [
+        "KeSetEvent"
+      ],
+      "required_calls": [
+        "KiTryUnwaitThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "event",
+          "role": "event",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PRKEVENT",
+            "PKEVENT",
+            "KEVENT *",
+            "__int64"
+          ],
+          "source": "KeSetEvent Event argument signaled through dispatcher wait lists"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "increment",
+          "role": "increment",
+          "structure": "KPRIORITY",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "KPRIORITY",
+            "int",
+            "LONG"
+          ],
+          "source": "KeSetEvent priority increment argument used when unwaiting threads"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeSetEvent Wait argument controls immediate wait tail behavior"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_reset_event",
+      "source": "Reviewed KeResetEvent event signal state reset under dispatcher lock.",
+      "function_names": [
+        "KeResetEvent"
+      ],
+      "required_calls": [
+        "KiLowerIrqlProcessIrqlFlags"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "event",
+          "role": "event",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PRKEVENT",
+            "PKEVENT",
+            "KEVENT *",
+            "__int64"
+          ],
+          "source": "KeResetEvent Event argument whose signal state is cleared"
+        },
+        {
+          "local_names": [
+            "signalState"
+          ],
+          "role": "previousSignalState",
+          "structure": "SIGNAL_STATE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KeResetEvent local carrying the previous event signal state"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_pulse_event",
+      "source": "Reviewed KePulseEvent transient signal and waiter release path.",
+      "function_names": [
+        "KePulseEvent"
+      ],
+      "required_calls": [
+        "KiTryUnwaitThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "event",
+          "role": "event",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PRKEVENT",
+            "PKEVENT",
+            "KEVENT *",
+            "__int64"
+          ],
+          "source": "KePulseEvent Event argument pulsed through dispatcher wait lists"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "increment",
+          "role": "increment",
+          "structure": "KPRIORITY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KPRIORITY",
+            "int",
+            "LONG"
+          ],
+          "source": "KePulseEvent priority increment argument used for released waiters"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KePulseEvent Wait argument controls immediate wait tail behavior"
+        },
+        {
+          "local_names": [
+            "signalState"
+          ],
+          "role": "previousSignalState",
+          "structure": "SIGNAL_STATE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KePulseEvent local carrying previous event signal state"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_initialize_semaphore",
+      "source": "Reviewed KeInitializeSemaphore dispatcher semaphore initialization.",
+      "function_names": [
+        "KeInitializeSemaphore"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "semaphore",
+          "role": "semaphore",
+          "structure": "KSEMAPHORE",
+          "mode": "report-only",
+          "confidence": 0.96,
+          "accepted_types": [
+            "PRKSEMAPHORE",
+            "PKSEMAPHORE",
+            "KSEMAPHORE *",
+            "__int64"
+          ],
+          "source": "KeInitializeSemaphore Semaphore argument initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "count",
+          "role": "count",
+          "structure": "SEMAPHORE_COUNT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "LONG",
+            "int"
+          ],
+          "source": "KeInitializeSemaphore initial Count argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "limit",
+          "role": "limit",
+          "structure": "SEMAPHORE_LIMIT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "LONG",
+            "int"
+          ],
+          "source": "KeInitializeSemaphore maximum Limit argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_release_semaphore",
+      "source": "Reviewed KeReleaseSemaphore count adjustment, overflow status, and waiter release path.",
+      "function_names": [
+        "KeReleaseSemaphore"
+      ],
+      "required_calls": [
+        "KiTryUnwaitThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "semaphore",
+          "role": "semaphore",
+          "structure": "KSEMAPHORE",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PRKSEMAPHORE",
+            "PKSEMAPHORE",
+            "KSEMAPHORE *",
+            "__int64"
+          ],
+          "source": "KeReleaseSemaphore Semaphore argument whose count is adjusted"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "increment",
+          "role": "increment",
+          "structure": "KPRIORITY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KPRIORITY",
+            "int",
+            "LONG"
+          ],
+          "source": "KeReleaseSemaphore priority increment argument used for waiters"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "adjustment",
+          "role": "adjustment",
+          "structure": "SEMAPHORE_ADJUSTMENT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "LONG",
+            "int"
+          ],
+          "source": "KeReleaseSemaphore count adjustment argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeReleaseSemaphore Wait argument controls immediate wait tail behavior"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_read_state_semaphore",
+      "source": "Reviewed KeReadStateSemaphore semaphore signal state accessor.",
+      "function_names": [
+        "KeReadStateSemaphore"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "semaphore",
+          "role": "semaphore",
+          "structure": "KSEMAPHORE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PRKSEMAPHORE",
+            "PKSEMAPHORE",
+            "KSEMAPHORE *",
+            "__int64"
+          ],
+          "source": "KeReadStateSemaphore Semaphore argument whose signal state is read"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_initialize_mutant",
+      "source": "Reviewed KeInitializeMutant wrapper into KiInitializeMutant.",
+      "function_names": [
+        "KeInitializeMutant"
+      ],
+      "required_calls": [
+        "KiInitializeMutant"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "mutant",
+          "role": "mutant",
+          "structure": "KMUTANT",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PRKMUTANT",
+            "PKMUTANT",
+            "KMUTANT *",
+            "__int64"
+          ],
+          "source": "KeInitializeMutant Mutant argument initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "initialOwner",
+          "role": "initialOwner",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeInitializeMutant initial owner argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_release_mutant",
+      "source": "Reviewed KeReleaseMutant wrapper into KeReleaseMutantEx.",
+      "function_names": [
+        "KeReleaseMutant"
+      ],
+      "required_calls": [
+        "KeReleaseMutantEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "mutant",
+          "role": "mutant",
+          "structure": "KMUTANT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PRKMUTANT",
+            "PKMUTANT",
+            "KMUTANT *",
+            "__int64"
+          ],
+          "source": "KeReleaseMutant Mutant argument released through KeReleaseMutantEx"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "increment",
+          "role": "increment",
+          "structure": "KPRIORITY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "KPRIORITY",
+            "int",
+            "LONG"
+          ],
+          "source": "KeReleaseMutant priority increment argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "abandoned",
+          "role": "abandoned",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeReleaseMutant Abandoned argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeReleaseMutant Wait argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_initialize_mutex",
+      "source": "Reviewed KeInitializeMutex dispatcher mutex initialization.",
+      "function_names": [
+        "KeInitializeMutex"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "mutex",
+          "role": "mutex",
+          "structure": "KMUTEX",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PRKMUTEX",
+            "PKMUTEX",
+            "KMUTEX *",
+            "__int64"
+          ],
+          "source": "KeInitializeMutex Mutex argument initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "level",
+          "role": "level",
+          "structure": "MUTEX_LEVEL",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "KeInitializeMutex Level argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_release_mutex",
+      "source": "Reviewed KeReleaseMutex wrapper into KeReleaseMutantEx.",
+      "function_names": [
+        "KeReleaseMutex"
+      ],
+      "required_calls": [
+        "KeReleaseMutantEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "mutex",
+          "role": "mutex",
+          "structure": "KMUTEX",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PRKMUTEX",
+            "PKMUTEX",
+            "KMUTEX *",
+            "__int64"
+          ],
+          "source": "KeReleaseMutex Mutex argument released through KeReleaseMutantEx"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeReleaseMutex Wait argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_initialize_queue",
+      "source": "Reviewed KeInitializeQueue KQUEUE initialization and processor-count fallback.",
+      "function_names": [
+        "KeInitializeQueue"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "queue",
+          "role": "queue",
+          "structure": "KQUEUE",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PRKQUEUE",
+            "PKQUEUE",
+            "KQUEUE *",
+            "__int64"
+          ],
+          "source": "KeInitializeQueue Queue argument initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "count",
+          "role": "count",
+          "structure": "QUEUE_THREAD_COUNT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "KeInitializeQueue Count argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_insert_queue",
+      "source": "Reviewed KeInsertQueue KQUEUE list insertion, ETW work enqueue trace, and waiter wake path.",
+      "function_names": [
+        "KeInsertQueue"
+      ],
+      "required_calls": [
+        "EtwTraceEnqueueWork",
+        "KiWakeQueueWaiter"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "queue",
+          "role": "queue",
+          "structure": "KQUEUE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PRKQUEUE",
+            "PKQUEUE",
+            "KQUEUE *",
+            "__int64"
+          ],
+          "source": "KeInsertQueue Queue argument receiving the inserted list entry"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "entry",
+          "role": "entry",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PLIST_ENTRY",
+            "LIST_ENTRY *",
+            "__int64"
+          ],
+          "source": "KeInsertQueue list entry argument inserted into the queue"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KeInsertQueue current thread local used in queue waiter logic"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_remove_queue",
+      "source": "Reviewed KeRemoveQueue wrapper into KeRemoveQueueEx.",
+      "function_names": [
+        "KeRemoveQueue"
+      ],
+      "required_calls": [
+        "KeRemoveQueueEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "queue",
+          "role": "queue",
+          "structure": "KQUEUE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PRKQUEUE",
+            "PKQUEUE",
+            "KQUEUE *",
+            "__int64"
+          ],
+          "source": "KeRemoveQueue Queue argument removed from through KeRemoveQueueEx"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "waitMode",
+          "role": "waitMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "KPROCESSOR_MODE",
+            "char",
+            "unsigned __int8"
+          ],
+          "source": "KeRemoveQueue WaitMode argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "timeout",
+          "role": "timeout",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "__int64"
+          ],
+          "source": "KeRemoveQueue optional Timeout argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_rundown_queue",
+      "source": "Reviewed KeRundownQueue wrapper into KeRundownQueueEx.",
+      "function_names": [
+        "KeRundownQueue"
+      ],
+      "required_calls": [
+        "KeRundownQueueEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "queue",
+          "role": "queue",
+          "structure": "KQUEUE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PRKQUEUE",
+            "PKQUEUE",
+            "KQUEUE *",
+            "__int64"
+          ],
+          "source": "KeRundownQueue Queue argument rundown through KeRundownQueueEx"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_wait_for_single_object",
+      "source": "Reviewed KeWaitForSingleObject dispatcher wait setup, thread wait state, timer delay, and wait status path.",
+      "function_names": [
+        "KeWaitForSingleObject"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "object",
+          "role": "object",
+          "structure": "DISPATCHER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "KeWaitForSingleObject referencedObject dispatcher object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "waitReason",
+          "role": "waitReason",
+          "structure": "KWAIT_REASON",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KWAIT_REASON",
+            "int",
+            "unsigned int"
+          ],
+          "source": "KeWaitForSingleObject WaitReason argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "waitMode",
+          "role": "waitMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KPROCESSOR_MODE",
+            "char",
+            "unsigned __int8"
+          ],
+          "source": "KeWaitForSingleObject WaitMode argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "alertable",
+          "role": "alertable",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeWaitForSingleObject Alertable argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "timeout",
+          "role": "timeout",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "__int64"
+          ],
+          "source": "KeWaitForSingleObject optional Timeout argument"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KeWaitForSingleObject current thread local used in wait state setup"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_wait_for_multiple_objects",
+      "source": "Reviewed KeWaitForMultipleObjects dispatcher multi-object wait path and wait block array handling.",
+      "function_names": [
+        "KeWaitForMultipleObjects"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "count",
+          "role": "count",
+          "structure": "WAIT_OBJECT_COUNT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "KeWaitForMultipleObjects Count argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "objects",
+          "role": "objects",
+          "structure": "DISPATCHER_OBJECT_ARRAY",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PVOID *",
+            "PVOID[]",
+            "__int64",
+            "void **"
+          ],
+          "source": "KeWaitForMultipleObjects referencedObject array argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "waitType",
+          "role": "waitType",
+          "structure": "WAIT_TYPE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "WAIT_TYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "KeWaitForMultipleObjects WaitType argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "waitReason",
+          "role": "waitReason",
+          "structure": "KWAIT_REASON",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "KWAIT_REASON",
+            "int",
+            "unsigned int"
+          ],
+          "source": "KeWaitForMultipleObjects WaitReason argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "waitMode",
+          "role": "waitMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "KPROCESSOR_MODE",
+            "char",
+            "unsigned __int8"
+          ],
+          "source": "KeWaitForMultipleObjects WaitMode argument"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "alertable",
+          "role": "alertable",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeWaitForMultipleObjects Alertable argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "timeout",
+          "role": "timeout",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "__int64"
+          ],
+          "source": "KeWaitForMultipleObjects optional Timeout argument"
+        },
+        {
+          "parameter_index": 7,
+          "rename_to": "waitBlockArray",
+          "role": "waitBlockArray",
+          "structure": "KWAIT_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PKWAIT_BLOCK",
+            "KWAIT_BLOCK *",
+            "__int64"
+          ],
+          "source": "KeWaitForMultipleObjects WaitBlockArray argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_initialize_push_lock",
+      "source": "Reviewed ExInitializePushLock push lock zero initialization.",
+      "function_names": [
+        "ExInitializePushLock"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "pushLock",
+          "role": "pushLock",
+          "structure": "EX_PUSH_LOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PKSPIN_LOCK",
+            "PEX_PUSH_LOCK",
+            "EX_PUSH_LOCK *",
+            "__int64"
+          ],
+          "source": "ExInitializePushLock push lock storage argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_acquire_push_lock_exclusive",
+      "source": "Reviewed ExAcquirePushLockExclusiveEx pre-acquire instrumentation and ExfAcquirePushLockExclusiveEx slow path.",
+      "function_names": [
+        "ExAcquirePushLockExclusiveEx"
+      ],
+      "required_calls": [
+        "ExfAcquirePushLockExclusiveEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "pushLock",
+          "role": "pushLock",
+          "structure": "EX_PUSH_LOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "volatile signed __int32 *",
+            "PEX_PUSH_LOCK",
+            "EX_PUSH_LOCK *",
+            "__int64"
+          ],
+          "source": "ExAcquirePushLockExclusiveEx push lock argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "flags",
+          "role": "flags",
+          "structure": "PUSH_LOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "ULONG"
+          ],
+          "source": "ExAcquirePushLockExclusiveEx flags argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_acquire_push_lock_shared",
+      "source": "Reviewed ExAcquirePushLockSharedEx shared acquisition and ExfAcquirePushLockSharedEx slow path.",
+      "function_names": [
+        "ExAcquirePushLockSharedEx"
+      ],
+      "required_calls": [
+        "ExfAcquirePushLockSharedEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "pushLock",
+          "role": "pushLock",
+          "structure": "EX_PUSH_LOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "volatile signed __int64 *",
+            "PEX_PUSH_LOCK",
+            "EX_PUSH_LOCK *",
+            "__int64"
+          ],
+          "source": "ExAcquirePushLockSharedEx push lock argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "flags",
+          "role": "flags",
+          "structure": "PUSH_LOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "ULONG"
+          ],
+          "source": "ExAcquirePushLockSharedEx flags argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_release_push_lock",
+      "source": "Reviewed ExReleasePushLockEx exclusive release and wake helper path.",
+      "function_names": [
+        "ExReleasePushLockEx"
+      ],
+      "required_calls": [
+        "ExfReleasePushLock"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "pushLock",
+          "role": "pushLock",
+          "structure": "EX_PUSH_LOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PEX_PUSH_LOCK"
+          ],
+          "source": "ExReleasePushLockEx push lock argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "flags",
+          "role": "flags",
+          "structure": "PUSH_LOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "ULONG"
+          ],
+          "source": "ExReleasePushLockEx flags argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_release_push_lock_shared",
+      "source": "Reviewed ExReleasePushLockSharedEx shared release and wake helper path.",
+      "function_names": [
+        "ExReleasePushLockSharedEx"
+      ],
+      "required_calls": [
+        "ExfReleasePushLockShared"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "pushLock",
+          "role": "pushLock",
+          "structure": "EX_PUSH_LOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PEX_PUSH_LOCK"
+          ],
+          "source": "ExReleasePushLockSharedEx push lock argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "flags",
+          "role": "flags",
+          "structure": "PUSH_LOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "ULONG"
+          ],
+          "source": "ExReleasePushLockSharedEx flags argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_acquire_fast_mutex",
+      "source": "Reviewed ExAcquireFastMutex guarded mutex acquisition and wait path.",
+      "function_names": [
+        "ExAcquireFastMutex"
+      ],
+      "required_calls": [
+        "KeWaitForSingleObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "mutex",
+          "role": "mutex",
+          "structure": "KGUARDED_MUTEX",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PKGUARDED_MUTEX",
+            "KGUARDED_MUTEX *",
+            "__int64"
+          ],
+          "source": "ExAcquireFastMutex guarded mutex argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_initialize_resource_lite",
+      "source": "Reviewed ExInitializeResourceLite ERESOURCE initialization and resource list registration.",
+      "function_names": [
+        "ExInitializeResourceLite"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "resource",
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PERESOURCE",
+            "ERESOURCE *",
+            "__int64"
+          ],
+          "source": "ExInitializeResourceLite Resource argument initialized in place"
+        },
+        {
+          "local_names": [
+            "creatorBackTraceIndex"
+          ],
+          "role": "creatorBackTraceIndex",
+          "structure": "STACK_TRACE_INDEX",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "ExInitializeResourceLite stack trace index local"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_acquire_resource_exclusive_lite",
+      "source": "Reviewed ExAcquireResourceExclusiveLite exclusive ERESOURCE acquisition and owner/waiter path.",
+      "function_names": [
+        "ExAcquireResourceExclusiveLite"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "resource",
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PERESOURCE",
+            "ERESOURCE *",
+            "__int64"
+          ],
+          "source": "ExAcquireResourceExclusiveLite Resource argument acquired exclusively"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "ExAcquireResourceExclusiveLite Wait argument"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "ExAcquireResourceExclusiveLite current thread local used as resource owner"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_acquire_resource_shared_lite",
+      "source": "Reviewed ExAcquireResourceSharedLite shared ERESOURCE acquisition and owner table handling.",
+      "function_names": [
+        "ExAcquireResourceSharedLite"
+      ],
+      "required_calls": [
+        "ExpAcquireResourceSharedLite"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "resource",
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PERESOURCE",
+            "ERESOURCE *",
+            "__int64"
+          ],
+          "source": "ExAcquireResourceSharedLite Resource argument acquired shared"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "wait",
+          "role": "wait",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "ExAcquireResourceSharedLite Wait argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_release_resource_lite",
+      "source": "Reviewed ExReleaseResourceLite ERESOURCE owner release and waiter wake path.",
+      "function_names": [
+        "ExReleaseResourceLite"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "resource",
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PERESOURCE",
+            "ERESOURCE *",
+            "__int64"
+          ],
+          "source": "ExReleaseResourceLite Resource argument being released"
+        },
+        {
+          "local_names": [
+            "ownerTable"
+          ],
+          "role": "ownerTable",
+          "structure": "OWNER_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "ExReleaseResourceLite owner table local"
+        },
+        {
+          "local_names": [
+            "ownerThread"
+          ],
+          "role": "ownerThread",
+          "structure": "ERESOURCE_THREAD",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "ExReleaseResourceLite owner thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_delete_resource_lite",
+      "source": "Reviewed ExDeleteResourceLite ERESOURCE deletion and owner table cleanup.",
+      "function_names": [
+        "ExDeleteResourceLite"
+      ],
+      "required_calls": [
+        "ExpResourceEnforcesOwnershipTransfer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "resource",
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PERESOURCE",
+            "ERESOURCE *",
+            "__int64"
+          ],
+          "source": "ExDeleteResourceLite Resource argument deleted from resource tracking"
+        },
+        {
+          "local_names": [
+            "ownerTable"
+          ],
+          "role": "ownerTable",
+          "structure": "OWNER_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "ExDeleteResourceLite owner table local"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.exp_release_resource_for_thread_lite",
+      "source": "Reviewed ExpReleaseResourceForThreadLite internal ERESOURCE release-for-thread path.",
+      "function_names": [
+        "ExpReleaseResourceForThreadLite"
+      ],
+      "required_calls": [
+        "KeGetCurrentIrql"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "resource",
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PERESOURCE"
+          ],
+          "source": "ExpReleaseResourceForThreadLite first argument is the resource context"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "resourceThread",
+          "role": "resourceThread",
+          "structure": "ERESOURCE_THREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "ExpReleaseResourceForThreadLite second argument identifies the releasing resource thread"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "releaseState",
+          "role": "releaseState",
+          "structure": "RESOURCE_RELEASE_STATE",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "accepted_types": [
+            "_DWORD *",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "ExpReleaseResourceForThreadLite output/state argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_acquire_rundown_protection_ex",
+      "source": "Reviewed ExAcquireRundownProtectionEx rundown reference acquire loop.",
+      "function_names": [
+        "ExAcquireRundownProtectionEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "runRef",
+          "role": "runRef",
+          "structure": "EX_RUNDOWN_REF",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PEX_RUNDOWN_REF",
+            "EX_RUNDOWN_REF *",
+            "__int64"
+          ],
+          "source": "ExAcquireRundownProtectionEx RunRef argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "count",
+          "role": "count",
+          "structure": "RUNDOWN_REF_COUNT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "ExAcquireRundownProtectionEx Count argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_wait_for_rundown_protection_release",
+      "source": "Reviewed ExWaitForRundownProtectionRelease transition into rundown wait helper.",
+      "function_names": [
+        "ExWaitForRundownProtectionRelease"
+      ],
+      "required_calls": [
+        "ExfWaitForRundownProtectionRelease"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "runRef",
+          "role": "runRef",
+          "structure": "EX_RUNDOWN_REF",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PEX_RUNDOWN_REF",
+            "EX_RUNDOWN_REF *",
+            "__int64"
+          ],
+          "source": "ExWaitForRundownProtectionRelease RunRef argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_rundown_completed",
+      "source": "Reviewed ExRundownCompleted rundown completion marker.",
+      "function_names": [
+        "ExRundownCompleted"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "runRef",
+          "role": "runRef",
+          "structure": "EX_RUNDOWN_REF",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEX_RUNDOWN_REF",
+            "EX_RUNDOWN_REF *",
+            "__int64"
+          ],
+          "source": "ExRundownCompleted RunRef argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ex_reinitialize_rundown_protection",
+      "source": "Reviewed ExReInitializeRundownProtection rundown reference reinitialization.",
+      "function_names": [
+        "ExReInitializeRundownProtection"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "runRef",
+          "role": "runRef",
+          "structure": "EX_RUNDOWN_REF",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEX_RUNDOWN_REF",
+            "EX_RUNDOWN_REF *",
+            "__int64"
+          ],
+          "source": "ExReInitializeRundownProtection RunRef argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_acquire_spin_lock_raise_to_dpc",
+      "source": "Reviewed KeAcquireSpinLockRaiseToDpc spin lock acquisition and IRQL raise path.",
+      "function_names": [
+        "KeAcquireSpinLockRaiseToDpc"
+      ],
+      "required_calls": [
+        "KxWaitForSpinLockAndAcquire"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "spinLock",
+          "role": "spinLock",
+          "structure": "KSPIN_LOCK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PKSPIN_LOCK",
+            "KSPIN_LOCK *",
+            "__int64"
+          ],
+          "source": "KeAcquireSpinLockRaiseToDpc SpinLock argument"
+        },
+        {
+          "local_names": [
+            "CurrentIrql",
+            "currentIrql"
+          ],
+          "role": "oldIrql",
+          "structure": "KIRQL",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "KeAcquireSpinLockRaiseToDpc local current IRQL returned to caller"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.ke_release_spin_lock",
+      "source": "Reviewed KeReleaseSpinLock spin lock release and IRQL restore path.",
+      "function_names": [
+        "KeReleaseSpinLock"
+      ],
+      "required_calls": [
+        "KiLowerIrqlProcessIrqlFlags"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "spinLock",
+          "role": "spinLock",
+          "structure": "KSPIN_LOCK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PKSPIN_LOCK",
+            "KSPIN_LOCK *",
+            "__int64"
+          ],
+          "source": "KeReleaseSpinLock SpinLock argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "newIrql",
+          "role": "newIrql",
+          "structure": "KIRQL",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KIRQL",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "KeReleaseSpinLock NewIrql restore argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.kx_acquire_spin_lock",
+      "source": "Reviewed KxAcquireSpinLock low-level spin lock acquisition helper.",
+      "function_names": [
+        "KxAcquireSpinLock"
+      ],
+      "required_calls": [
+        "KxWaitForSpinLockAndAcquire"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "spinLock",
+          "role": "spinLock",
+          "structure": "KSPIN_LOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PKSPIN_LOCK",
+            "KSPIN_LOCK *",
+            "__int64"
+          ],
+          "source": "KxAcquireSpinLock SpinLock argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.dispatcher_synchronization.kx_release_spin_lock",
+      "source": "Reviewed KxReleaseSpinLock low-level spin lock release helper.",
+      "function_names": [
+        "KxReleaseSpinLock"
+      ],
+      "required_calls": [
+        "KiReleaseSpinLockInstrumented"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "spinLock",
+          "role": "spinLock",
+          "structure": "KSPIN_LOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "volatile signed __int64 *",
+            "PKSPIN_LOCK",
+            "KSPIN_LOCK *",
+            "__int64"
+          ],
+          "source": "KxReleaseSpinLock SpinLock argument"
+        }
+      ]
+    }
+  ]
+}

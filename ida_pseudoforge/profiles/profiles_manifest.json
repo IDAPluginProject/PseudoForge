@@ -143,6 +143,16 @@
         "profiles": 28
       }
     },
+    "domain_identity/dispatcher_synchronization.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl dispatcher object, wait, lock, resource, rundown, and spin lock role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "6247232F1249E1179B746E024FF39AA4ACF86FF6E2CF539BEC81DBA95F43FFDB",
+      "counts": {
+        "profiles": 37
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",
