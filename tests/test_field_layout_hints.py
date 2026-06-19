@@ -876,6 +876,115 @@ __int64 __fastcall StableTempSourceLayout(__int64 argument2)
         self.assertIn("field_10", previews[0]["text"])
         self.assertIn("Preview artifact only", previews[0]["text"])
 
+    def test_temp_base_with_parameter_indirect_source_reports_source_hint(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall ParameterIndirectSourceLayout(__int64 *a1)
+{
+  __int64 v4;
+
+  v4 = *a1;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("a1", sources[0]["source"])
+        self.assertEqual("argument", sources[0]["source_kind"])
+        self.assertEqual("parameter_indirect_pointer_alias", sources[0]["source_provenance"])
+        self.assertEqual("parameter_pointer_deref", sources[0]["source_rhs_kind"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("parameter_indirect_pointer_alias", ready[0]["source_provenance"])
+        self.assertEqual("parameter_pointer_deref", ready[0]["source_rhs_kind"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("parameter_indirect_pointer_alias", previews[0]["source_provenance"])
+
+    def test_temp_base_with_cast_parameter_indirect_source_reports_source_type(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall CastParameterIndirectSourceLayout(void *P)
+{
+  __int64 v4;
+
+  v4 = *(_QWORD *)P;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("P", sources[0]["source"])
+        self.assertEqual("parameter", sources[0]["source_kind"])
+        self.assertEqual("parameter_indirect_pointer_alias", sources[0]["source_provenance"])
+        self.assertEqual("_QWORD", sources[0]["source_type"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("parameter_indirect_pointer_alias", ready[0]["source_provenance"])
+
+    def test_temp_base_with_parameter_indirect_source_rejects_local_pointer(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall LocalIndirectSourceLayout(__int64 input)
+{
+  __int64 *local;
+  __int64 v4;
+
+  local = (__int64 *)input;
+  v4 = *local;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_stable_base_source" for item in comments))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_temp_base_with_named_call_result_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """

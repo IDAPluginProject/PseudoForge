@@ -62,6 +62,7 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "named_call_result_alias",
     "named_parameter_direct_alias",
     "parameter_field_pointer_alias",
+    "parameter_indirect_pointer_alias",
     "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
     "parameter_subobject_pointer_alias",
@@ -2687,6 +2688,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if field_pointer_identity:
         return field_pointer_identity
+    parameter_indirect_identity = _parameter_indirect_pointer_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if parameter_indirect_identity:
+        return parameter_indirect_identity
     parameter_direct_identity = _parameter_direct_source_identity(
         text,
         base,
@@ -2802,6 +2811,69 @@ def _field_pointer_source_identity(
         "source_type": type_name,
         "base_alias_assignments": base_alias_assignment_count,
         "source_assignments": 0,
+    }
+
+
+def _parameter_indirect_pointer_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count != 1:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    match = _parse_parameter_indirect_pointer_source(source)
+    if not match:
+        return {}
+    parent = str(match["parent"])
+    if not _base_is_function_parameter(text, parent):
+        return {}
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    parent_assignments = [
+        item
+        for item in _base_direct_assignments(text, parent)
+        if item.start() < first_access
+    ]
+    if parent_assignments:
+        return {}
+    source_kind = "argument" if _is_decompiler_argument_base(parent) else "parameter"
+    identity: dict[str, Any] = {
+        "source": parent,
+        "source_kind": source_kind,
+        "source_provenance": "parameter_indirect_pointer_alias",
+        "source_rhs_kind": "parameter_pointer_deref",
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": 0,
+    }
+    if match.get("type"):
+        identity["source_type"] = match["type"]
+    return identity
+
+
+def _parse_parameter_indirect_pointer_source(source: str) -> dict[str, Any]:
+    value = str(source or "").strip()
+    direct = re.fullmatch(r"\*\s*(?P<parent>[A-Za-z_][A-Za-z0-9_]*)", value)
+    if direct:
+        return {
+            "parent": direct.group("parent"),
+            "type": "",
+        }
+    casted = re.fullmatch(
+        r"\*\s*\(\s*(?P<type>[^()]+?)\s*\*\s*\)\s*(?P<parent>[A-Za-z_][A-Za-z0-9_]*)",
+        value,
+    )
+    if not casted:
+        return {}
+    type_name = _normalize_type_name(casted.group("type"))
+    if _field_type_storage_size(type_name) != 8:
+        return {}
+    return {
+        "parent": casted.group("parent"),
+        "type": type_name,
     }
 
 
