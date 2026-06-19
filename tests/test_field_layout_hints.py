@@ -921,10 +921,10 @@ __int64 __fastcall StableNamedParameterSourceLayout(ULONG_PTR inputLength)
         self.assertEqual(1, len(previews))
         self.assertEqual("parameter_direct_alias", previews[0]["source_provenance"])
 
-    def test_temp_base_with_local_direct_alias_source_remains_blocked(self) -> None:
+    def test_temp_base_with_named_parameter_direct_alias_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """
-__int64 __fastcall UntrustedLocalDirectAliasLayout(__int64 context)
+__int64 __fastcall StableNamedParameterDirectAliasLayout(__int64 context)
 {
   __int64 holder;
   __int64 v4;
@@ -948,10 +948,93 @@ __int64 __fastcall UntrustedLocalDirectAliasLayout(__int64 context)
         )
         sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("context", sources[0]["source"])
+        self.assertEqual("holder", sources[0]["source_alias"])
+        self.assertEqual("parameter", sources[0]["source_kind"])
+        self.assertEqual("named_parameter_direct_alias", sources[0]["source_provenance"])
+        self.assertEqual("direct_parameter_alias", sources[0]["source_rhs_kind"])
+        self.assertIn("named_parameter_direct_alias", sources[0]["text"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("context", ready[0]["source"])
+        self.assertEqual("holder", ready[0]["source_alias"])
+        self.assertEqual("named_parameter_direct_alias", ready[0]["source_provenance"])
+        self.assertEqual("direct_parameter_alias", ready[0]["source_rhs_kind"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("named_parameter_direct_alias", previews[0]["source_provenance"])
+
+    def test_temp_base_with_non_parameter_local_direct_alias_source_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall UntrustedLocalDirectAliasLayout(__int64 context)
+{
+  __int64 root;
+  __int64 holder;
+  __int64 v4;
+
+  root = *(_QWORD *)(context + 8);
+  holder = root;
+  v4 = holder;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
 
         self.assertEqual(1, len(sources))
         self.assertEqual("named_direct_alias", sources[0]["source_provenance"])
-        self.assertNotEqual("parameter_direct_alias", sources[0]["source_provenance"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_temp_base_with_reassigned_named_parameter_alias_source_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall ReassignedNamedParameterDirectAliasLayout(__int64 context)
+{
+  __int64 holder;
+  __int64 v4;
+
+  holder = context;
+  v4 = holder;
+  holder = context + 8;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("named_multi_assignment_alias", sources[0]["source_provenance"])
         self.assertEqual(1, len(blockers))
         self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))

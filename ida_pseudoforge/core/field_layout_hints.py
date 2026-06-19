@@ -60,6 +60,7 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "named_branch_call_result_alias",
     "local_out_parameter_alias",
     "named_call_result_alias",
+    "named_parameter_direct_alias",
     "parameter_field_pointer_alias",
     "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
@@ -881,6 +882,8 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         comment["source_calls"] = list(identity["source_calls"])
     if identity.get("source_call_names"):
         comment["source_call_names"] = list(identity["source_call_names"])
+    if identity.get("source_alias"):
+        comment["source_alias"] = identity["source_alias"]
     return comment
 
 
@@ -1095,6 +1098,8 @@ def _field_rewrite_ready_comment(
         )
         if identity.get("source_call"):
             comment["source_call"] = identity["source_call"]
+        if identity.get("source_alias"):
+            comment["source_alias"] = identity["source_alias"]
         if identity.get("domain_profile_id"):
             comment["domain_profile_id"] = identity["domain_profile_id"]
             comment["domain_role"] = identity.get("domain_role", "")
@@ -2628,6 +2633,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if parameter_derived_identity:
         return parameter_derived_identity
+    named_parameter_identity = _named_parameter_direct_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if named_parameter_identity:
+        return named_parameter_identity
     temporary_call_result_identity = _temporary_call_result_source_identity(
         text,
         base,
@@ -2837,6 +2850,70 @@ def _parameter_source_identity(
     if "index" in match:
         identity["source_index"] = int(match["index"])
     return identity
+
+
+def _named_parameter_direct_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count != 1:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    if _layout_source_kind(source) != "named":
+        return {}
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    base_alias_assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < first_access
+        and item.group("op") == "="
+        and _normalize_assignment_rhs(item.group("rhs")) == source
+    ]
+    if len(base_alias_assignments) != 1:
+        return {}
+    base_alias_start = base_alias_assignments[0].start()
+    source_assignments = [
+        item
+        for item in _base_direct_assignments(text, source)
+        if item.start() < first_access
+    ]
+    if len(source_assignments) != 1:
+        return {}
+    source_assignment = source_assignments[0]
+    if source_assignment.group("op") != "=":
+        return {}
+    if source_assignment.start() >= base_alias_start:
+        return {}
+    root = _normalize_assignment_rhs(source_assignment.group("rhs"))
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", root):
+        return {}
+    if _is_generic_argument_base(root) or _is_bugcheck_parameter_base(root):
+        return {}
+    if not _base_is_function_parameter(text, root):
+        return {}
+    root_assignments = [
+        item
+        for item in _base_direct_assignments(text, root)
+        if item.start() < first_access
+    ]
+    if root_assignments:
+        return {}
+    if _base_address_taken(text, source) or _base_has_array_index_use(text, source) or _base_is_incremented(text, source):
+        return {}
+    return {
+        "source": root,
+        "source_kind": "parameter",
+        "source_provenance": "named_parameter_direct_alias",
+        "source_rhs_kind": "direct_parameter_alias",
+        "source_alias": source,
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": len(source_assignments),
+    }
 
 
 def _parse_parameter_subobject_source(source: str) -> dict[str, Any]:
