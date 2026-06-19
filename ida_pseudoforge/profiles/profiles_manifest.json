@@ -113,6 +113,16 @@
         "profiles": 10
       }
     },
+    "domain_identity/alpc_port.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl ALPC port/message/resource/security role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "53CDCE995177EC738123412A1127593EE96F249EDC378A60FEC369A271354AF7",
+      "counts": {
+        "profiles": 25
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",

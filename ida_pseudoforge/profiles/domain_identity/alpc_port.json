@@ -1,0 +1,1814 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "alpc-port-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 ALPC port, message, resource, view, and security-context role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.alpc_port.nt_create_port",
+      "source": "Reviewed NtAlpcCreatePort wrapper into AlpcpCreateConnectionPort under a critical region.",
+      "function_names": [
+        "NtAlpcCreatePort"
+      ],
+      "required_calls": [
+        "AlpcpCreateConnectionPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtAlpcCreatePort output port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "__int64"
+          ],
+          "source": "NtAlpcCreatePort object attributes argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "portAttributes",
+          "structure": "ALPC_PORT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PALPC_PORT_ATTRIBUTES",
+            "__int64"
+          ],
+          "source": "NtAlpcCreatePort ALPC port attributes argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.create_port_internal",
+      "source": "Reviewed AlpcpCreatePort object allocation with AlpcPortObjectType and output port object initialization.",
+      "function_names": [
+        "AlpcpCreatePort"
+      ],
+      "required_calls": [
+        "ObCreateObjectEx"
+      ],
+      "required_call_regex": [
+        "\\bAlpcPortObjectType\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "accessModeOrObjectContext",
+          "structure": "ALPC_CREATE_PORT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "int",
+            "__int64"
+          ],
+          "source": "AlpcpCreatePort creation context/access mode argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "__int64",
+            "POBJECT_ATTRIBUTES"
+          ],
+          "source": "AlpcpCreatePort object attributes/security argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "portObjectOutput",
+          "structure": "ALPC_PORT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "void **",
+            "PVOID *",
+            "__int64"
+          ],
+          "source": "AlpcpCreatePort output ALPC port object pointer"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "referencedObjectStatus"
+          ],
+          "role": "createStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "AlpcpCreatePort status returned from ObCreateObjectEx"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.initialize_port",
+      "source": "Reviewed AlpcpInitializePort list-head initialization, optional semaphore allocation, and AlpcpPortList insertion.",
+      "function_names": [
+        "AlpcpInitializePort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "AlpcpInitializePort target ALPC port object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "connectionPortFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "int"
+          ],
+          "source": "AlpcpInitializePort connection/client port flag argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "waitablePortFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int8",
+            "char",
+            "BOOLEAN",
+            "int"
+          ],
+          "source": "AlpcpInitializePort waitable port flag argument"
+        },
+        {
+          "local_names": [
+            "lookasideEntry"
+          ],
+          "role": "waitSemaphore",
+          "structure": "KSEMAPHORE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpInitializePort optional semaphore allocated from AlpcpNPLookasides"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_connect_port",
+      "source": "Reviewed NtAlpcConnectPort wrapper into AlpcpConnectPort.",
+      "function_names": [
+        "NtAlpcConnectPort"
+      ],
+      "required_calls": [
+        "AlpcpConnectPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPort output connected port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "portName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPort target port name argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPort object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "portAttributes",
+          "structure": "ALPC_PORT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PALPC_PORT_ATTRIBUTES",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPort port attributes argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "connectionMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PPORT_MESSAGE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcConnectPort connection message argument"
+        },
+        {
+          "parameter_index": 8,
+          "role": "receiveMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PPORT_MESSAGE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcConnectPort receive message argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_connect_port_ex",
+      "source": "Reviewed NtAlpcConnectPortEx wrapper into AlpcpConnectPort with connection port handle input.",
+      "function_names": [
+        "NtAlpcConnectPortEx"
+      ],
+      "required_calls": [
+        "AlpcpConnectPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPortEx output connected port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "connectionPortHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPortEx connection port handle argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "serverSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PSID",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcConnectPortEx optional server SID argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.connect_port_internal",
+      "source": "Reviewed AlpcpConnectPort client-port creation, connection request processing, and handle return flow.",
+      "function_names": [
+        "AlpcpConnectPort"
+      ],
+      "required_calls": [
+        "AlpcpCreateClientPort",
+        "AlpcpProcessConnectionRequest"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE *",
+            "PHANDLE",
+            "__int64"
+          ],
+          "source": "AlpcpConnectPort output connected port handle argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "POBJECT_ATTRIBUTES"
+          ],
+          "source": "AlpcpConnectPort object attributes argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "portAttributes",
+          "structure": "ALPC_PORT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_OWORD *",
+            "PALPC_PORT_ATTRIBUTES",
+            "__int64"
+          ],
+          "source": "AlpcpConnectPort captured port attributes input"
+        },
+        {
+          "parameter_index": 8,
+          "role": "connectionMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "char *",
+            "PPORT_MESSAGE",
+            "__int64"
+          ],
+          "source": "AlpcpConnectPort connection message argument"
+        },
+        {
+          "local_names": [
+            "Handle"
+          ],
+          "role": "clientPortHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "AlpcpConnectPort client port handle returned from AlpcpCreateClientPort"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v21"
+          ],
+          "role": "clientPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "AlpcpConnectPort client port object used by connection request processing"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_accept_connect_port",
+      "source": "Reviewed NtAlpcAcceptConnectPort wrapper into AlpcpAcceptConnectPort.",
+      "function_names": [
+        "NtAlpcAcceptConnectPort"
+      ],
+      "required_calls": [
+        "AlpcpAcceptConnectPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcAcceptConnectPort output accepted port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "connectionPortHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcAcceptConnectPort connection port handle argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "connectionMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PPORT_MESSAGE",
+            "int",
+            "__int64"
+          ],
+          "source": "NtAlpcAcceptConnectPort connection message argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "securityQos",
+          "structure": "SECURITY_QUALITY_OF_SERVICE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PSECURITY_QUALITY_OF_SERVICE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcAcceptConnectPort security QoS argument"
+        },
+        {
+          "parameter_index": 7,
+          "role": "messageAttributes",
+          "structure": "ALPC_MESSAGE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PALPC_MESSAGE_ATTRIBUTES",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcAcceptConnectPort message attributes argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_disconnect_port",
+      "source": "Reviewed NtAlpcDisconnectPort handle reference and AlpcpDisconnectPort handoff.",
+      "function_names": [
+        "NtAlpcDisconnectPort"
+      ],
+      "required_calls": [
+        "ObReferenceObjectByHandle",
+        "AlpcpDisconnectPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcDisconnectPort port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "disconnectFlags",
+          "structure": "ALPC_DISCONNECT_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtAlpcDisconnectPort disconnect flags argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcDisconnectPort referenced ALPC port object"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_send_wait_receive_port",
+      "source": "Reviewed NtAlpcSendWaitReceivePort port handle reference, send/receive dispatch, synchronous request, and signal flow.",
+      "function_names": [
+        "NtAlpcSendWaitReceivePort"
+      ],
+      "required_calls": [
+        "ObReferenceObjectByHandle"
+      ],
+      "required_call_regex": [
+        "\\bAlpcp(?:SendMessage|ReceiveMessage|ProcessSynchronousRequest)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcSendWaitReceivePort port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "sendReceiveFlags",
+          "structure": "ALPC_SEND_RECEIVE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtAlpcSendWaitReceivePort flags argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "sendMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PPORT_MESSAGE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcSendWaitReceivePort send message argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "receiveMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PPORT_MESSAGE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcSendWaitReceivePort receive message argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "receiveMessageSize",
+          "structure": "SIZE_T_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PSIZE_T",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "NtAlpcSendWaitReceivePort receive message size argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "messageAttributes",
+          "structure": "ALPC_MESSAGE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PALPC_MESSAGE_ATTRIBUTES",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcSendWaitReceivePort message attributes argument"
+        },
+        {
+          "parameter_index": 7,
+          "role": "timeout",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "NtAlpcSendWaitReceivePort timeout argument"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v16"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcSendWaitReceivePort referenced ALPC port object"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.send_message_internal",
+      "source": "Reviewed AlpcpSendMessage message validation, quota accounting, message allocation, attribute capture, and dispatch flow.",
+      "function_names": [
+        "AlpcpSendMessage"
+      ],
+      "required_calls": [
+        "AlpcpValidateDataInformation"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "communicationInfo",
+          "structure": "ALPC_COMMUNICATION_INFO",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "AlpcpSendMessage packed communication context argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "message",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__m256i *",
+            "PPORT_MESSAGE",
+            "__int64"
+          ],
+          "source": "AlpcpSendMessage input port message argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "messageAttributes",
+          "structure": "ALPC_MESSAGE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PALPC_MESSAGE_ATTRIBUTES",
+            "PVOID"
+          ],
+          "source": "AlpcpSendMessage message attributes/data information argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "previousMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "char",
+            "KPROCESSOR_MODE",
+            "int"
+          ],
+          "source": "AlpcpSendMessage caller previous mode argument"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "messageBuffer",
+          "structure": "ALPC_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpSendMessage allocated ALPC message buffer"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpSendMessage current thread used for message metadata"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.receive_message_internal",
+      "source": "Reviewed AlpcpReceiveMessage receive-port selection, buffer probing, direct/queued receive, message copy-out, and attribute exposure flow.",
+      "function_names": [
+        "AlpcpReceiveMessage"
+      ],
+      "required_call_regex": [
+        "\\bAlpcpReceive(?:Direct)?MessagePort\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "communicationInfo",
+          "structure": "ALPC_COMMUNICATION_INFO",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "__int64 *",
+            "_QWORD *"
+          ],
+          "source": "AlpcpReceiveMessage packed port/message context argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "receiveMessage",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned __int64",
+            "PPORT_MESSAGE",
+            "__int64"
+          ],
+          "source": "AlpcpReceiveMessage output message buffer argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "receiveMessageSize",
+          "structure": "SIZE_T_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64 *",
+            "PSIZE_T",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "AlpcpReceiveMessage receive message size argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "messageAttributes",
+          "structure": "ALPC_MESSAGE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "int *",
+            "PALPC_MESSAGE_ATTRIBUTES",
+            "__int64"
+          ],
+          "source": "AlpcpReceiveMessage message attributes argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "timeout",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "LARGE_INTEGER *",
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "AlpcpReceiveMessage timeout argument"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter2"
+          ],
+          "role": "receivedMessage",
+          "structure": "ALPC_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "AlpcpReceiveMessage received message pointer"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpReceiveMessage current thread used for mode and message ownership"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.reference_message_by_waiting_thread",
+      "source": "Reviewed AlpcpReferenceMessageByWaitingThread port-list scan, safe port references, and waiting-thread message lookup.",
+      "function_names": [
+        "AlpcpReferenceMessageByWaitingThread"
+      ],
+      "required_calls": [
+        "AlpcpReferenceMessageByWaitingThreadPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "waitingThreadMessageContext",
+          "structure": "ALPC_WAIT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "AlpcpReferenceMessageByWaitingThread waiting-thread lookup context argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "messageOutput",
+          "structure": "ALPC_MESSAGE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "PVOID *"
+          ],
+          "source": "AlpcpReferenceMessageByWaitingThread output referenced message argument"
+        },
+        {
+          "local_names": [
+            "currentPortObj"
+          ],
+          "role": "currentPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "AlpcpReferenceMessageByWaitingThread current referenced port during port-list scan"
+        },
+        {
+          "local_names": [
+            "portEntry"
+          ],
+          "role": "portListEntry",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpReferenceMessageByWaitingThread ALPC port list entry"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_create_port_section",
+      "source": "Reviewed NtAlpcCreatePortSection handle reference, AlpcpCreateSection, and output section handle/offset copy-out.",
+      "function_names": [
+        "NtAlpcCreatePortSection"
+      ],
+      "required_calls": [
+        "AlpcpCreateSection"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcCreatePortSection port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "sectionHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "HANDLE",
+            "__int64"
+          ],
+          "source": "NtAlpcCreatePortSection optional existing section handle argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "sectionSize",
+          "structure": "SIZE_T",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "SIZE_T",
+            "ULONG_PTR"
+          ],
+          "source": "NtAlpcCreatePortSection section size argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "alpcSectionHandleOutput",
+          "structure": "ALPC_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_QWORD *",
+            "__int64 *",
+            "PVOID *"
+          ],
+          "source": "NtAlpcCreatePortSection output ALPC section handle argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "actualSectionSizeOutput",
+          "structure": "SIZE_T_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "_QWORD *",
+            "__int64 *",
+            "PSIZE_T"
+          ],
+          "source": "NtAlpcCreatePortSection output actual section size/offset argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcCreatePortSection referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter2"
+          ],
+          "role": "createdSectionBlob",
+          "structure": "ALPC_SECTION",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtAlpcCreatePortSection created ALPC section blob"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_delete_port_section",
+      "source": "Reviewed NtAlpcDeletePortSection section blob lookup and AlpcpDeleteBlob flow.",
+      "function_names": [
+        "NtAlpcDeletePortSection"
+      ],
+      "required_calls": [
+        "AlpcReferenceBlobByHandle",
+        "AlpcpDeleteBlob"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcDeletePortSection port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "sectionHandle",
+          "structure": "ALPC_HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "__int64"
+          ],
+          "source": "NtAlpcDeletePortSection ALPC section handle argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcDeletePortSection referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "v7",
+            "v8"
+          ],
+          "role": "sectionBlob",
+          "structure": "ALPC_SECTION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcDeletePortSection referenced ALPC section blob"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_create_resource_reserve",
+      "source": "Reviewed NtAlpcCreateResourceReserve handle reference and AlpcpCreateReserve output handle encoding.",
+      "function_names": [
+        "NtAlpcCreateResourceReserve"
+      ],
+      "required_calls": [
+        "AlpcpCreateReserve"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcCreateResourceReserve port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "messageSize",
+          "structure": "SIZE_T",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "SIZE_T",
+            "ULONG_PTR"
+          ],
+          "source": "NtAlpcCreateResourceReserve message size argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "resourceReserveOutput",
+          "structure": "ALPC_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_DWORD *",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "NtAlpcCreateResourceReserve output reserve handle argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcCreateResourceReserve referenced ALPC port object"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_delete_resource_reserve",
+      "source": "Reviewed NtAlpcDeleteResourceReserve reserve blob lookup and AlpcpDeleteBlob flow.",
+      "function_names": [
+        "NtAlpcDeleteResourceReserve"
+      ],
+      "required_calls": [
+        "AlpcReferenceBlobByHandle",
+        "AlpcpDeleteBlob"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcDeleteResourceReserve port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "resourceReserveHandle",
+          "structure": "ALPC_HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "__int64"
+          ],
+          "source": "NtAlpcDeleteResourceReserve reserve handle argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcDeleteResourceReserve referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "v8",
+            "v9"
+          ],
+          "role": "reserveBlob",
+          "structure": "ALPC_RESERVE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcDeleteResourceReserve referenced ALPC reserve blob"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_create_section_view",
+      "source": "Reviewed NtAlpcCreateSectionView section blob lookup, AlpcpCreateSectionView, and mapped base/size copy-out.",
+      "function_names": [
+        "NtAlpcCreateSectionView"
+      ],
+      "required_calls": [
+        "AlpcpCreateSectionView"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcCreateSectionView port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "sectionView",
+          "structure": "ALPC_DATA_VIEW_ATTR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PALPC_DATA_VIEW_ATTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "NtAlpcCreateSectionView ALPC data view attribute buffer argument"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v10"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcCreateSectionView referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "v11"
+          ],
+          "role": "sectionBlob",
+          "structure": "ALPC_SECTION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcCreateSectionView referenced ALPC section blob"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter2",
+            "v12"
+          ],
+          "role": "sectionViewBlob",
+          "structure": "ALPC_VIEW",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcCreateSectionView created section view blob"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_delete_section_view",
+      "source": "Reviewed NtAlpcDeleteSectionView port resource enumeration, AlpcpDeleteView, and blob dereference flow.",
+      "function_names": [
+        "NtAlpcDeleteSectionView"
+      ],
+      "required_calls": [
+        "AlpcpEnumerateResourcesPort",
+        "AlpcpDeleteView"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcDeleteSectionView port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "viewBase",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "NtAlpcDeleteSectionView view base address argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcDeleteSectionView referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "v11",
+            "BugCheckParameter2"
+          ],
+          "role": "sectionViewBlob",
+          "structure": "ALPC_VIEW",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcDeleteSectionView found section view blob"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_create_security_context",
+      "source": "Reviewed NtAlpcCreateSecurityContext QoS capture, port handle reference, security blob allocation, and process quota charging.",
+      "function_names": [
+        "NtAlpcCreateSecurityContext"
+      ],
+      "required_calls": [
+        "ExAllocatePool2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcCreateSecurityContext port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "securityContext",
+          "structure": "ALPC_SECURITY_ATTR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__m128i *",
+            "PALPC_SECURITY_ATTR",
+            "__int64"
+          ],
+          "source": "NtAlpcCreateSecurityContext ALPC security attribute buffer argument"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v13"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcCreateSecurityContext referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "ClientSecurityQos"
+          ],
+          "role": "clientSecurityQos",
+          "structure": "SECURITY_QUALITY_OF_SERVICE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtAlpcCreateSecurityContext captured client security QoS"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "securityContextBlob",
+          "structure": "ALPC_SECURITY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtAlpcCreateSecurityContext allocated ALPC security context blob"
+        },
+        {
+          "local_names": [
+            "ClientThread",
+            "currentThread"
+          ],
+          "role": "clientThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcCreateSecurityContext client thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_delete_security_context",
+      "source": "Reviewed NtAlpcDeleteSecurityContext security blob lookup, owner-port validation, and AlpcpDeleteBlob flow.",
+      "function_names": [
+        "NtAlpcDeleteSecurityContext"
+      ],
+      "required_calls": [
+        "AlpcReferenceBlobByHandle",
+        "AlpcpDeleteBlob"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcDeleteSecurityContext port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "securityContextHandle",
+          "structure": "ALPC_HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "int"
+          ],
+          "source": "NtAlpcDeleteSecurityContext security context handle argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcDeleteSecurityContext referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "v7",
+            "v8"
+          ],
+          "role": "securityContextBlob",
+          "structure": "ALPC_SECURITY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcDeleteSecurityContext referenced security context blob"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_impersonate_client_of_port",
+      "source": "Reviewed NtAlpcImpersonateClientOfPort message lookup, sender context validation, token/SID checks, and impersonation setup.",
+      "function_names": [
+        "NtAlpcImpersonateClientOfPort"
+      ],
+      "required_calls": [
+        "ObReferenceObjectByHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtAlpcImpersonateClientOfPort port handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "messageAttributes",
+          "structure": "ALPC_MESSAGE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PALPC_MESSAGE_ATTRIBUTES",
+            "PVOID"
+          ],
+          "source": "NtAlpcImpersonateClientOfPort message attributes argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "impersonationFlags",
+          "structure": "ALPC_IMPERSONATION_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "NtAlpcImpersonateClientOfPort impersonation flags argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcImpersonateClientOfPort referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "HandlePointer"
+          ],
+          "role": "messageObject",
+          "structure": "ALPC_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtAlpcImpersonateClientOfPort ALPC message object resolved from message attributes"
+        },
+        {
+          "local_names": [
+            "SourceSid"
+          ],
+          "role": "sourceSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "NtAlpcImpersonateClientOfPort source SID used for impersonation validation"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_open_sender_process",
+      "source": "Reviewed NtAlpcOpenSenderProcess message lookup and sender process handle open flow.",
+      "function_names": [
+        "NtAlpcOpenSenderProcess"
+      ],
+      "required_calls": [
+        "AlpcpLookupMessage"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_QWORD *",
+            "PHANDLE",
+            "__int64"
+          ],
+          "source": "NtAlpcOpenSenderProcess output process handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcOpenSenderProcess port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "message",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "unsigned __int64",
+            "PPORT_MESSAGE",
+            "__int64"
+          ],
+          "source": "NtAlpcOpenSenderProcess message header argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtAlpcOpenSenderProcess desired process access argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcOpenSenderProcess referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter2"
+          ],
+          "role": "messageObject",
+          "structure": "ALPC_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtAlpcOpenSenderProcess looked-up ALPC message object"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.nt_open_sender_thread",
+      "source": "Reviewed NtAlpcOpenSenderThread message lookup and sender thread handle open flow.",
+      "function_names": [
+        "NtAlpcOpenSenderThread"
+      ],
+      "required_calls": [
+        "AlpcpLookupMessage"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_QWORD *",
+            "PHANDLE",
+            "__int64"
+          ],
+          "source": "NtAlpcOpenSenderThread output thread handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "portHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtAlpcOpenSenderThread port handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "message",
+          "structure": "PORT_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int128 *",
+            "PPORT_MESSAGE",
+            "__int64"
+          ],
+          "source": "NtAlpcOpenSenderThread message header argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtAlpcOpenSenderThread desired thread access argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedPortObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtAlpcOpenSenderThread referenced ALPC port object"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter2"
+          ],
+          "role": "messageObject",
+          "structure": "ALPC_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtAlpcOpenSenderThread looked-up ALPC message object"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.delete_port_internal",
+      "source": "Reviewed AlpcpDeletePort close-message, connection blob cleanup, completion packet release, client security deletion, and destroy handoff.",
+      "function_names": [
+        "AlpcpDeletePort"
+      ],
+      "required_calls": [
+        "AlpcpDestroyPort"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "AlpcpDeletePort target ALPC port object argument"
+        },
+        {
+          "local_names": [
+            "v3",
+            "v5",
+            "v10"
+          ],
+          "role": "connectionBlob",
+          "structure": "ALPC_CONNECTION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpDeletePort connection/blob reference locals"
+        },
+        {
+          "local_names": [
+            "v6"
+          ],
+          "role": "completionPacket",
+          "structure": "IO_COMPLETION_PACKET",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "AlpcpDeletePort completion packet local"
+        },
+        {
+          "local_names": [
+            "v8"
+          ],
+          "role": "clientSecurity",
+          "structure": "SECURITY_CLIENT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "AlpcpDeletePort client security local"
+        }
+      ]
+    },
+    {
+      "id": "windows.alpc_port.destroy_port_internal",
+      "source": "Reviewed AlpcpDestroyPort AlpcpPortList unlink and optional lookaside buffer release.",
+      "function_names": [
+        "AlpcpDestroyPort"
+      ],
+      "required_calls": [
+        "KeAbPreAcquire"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "portObject",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "AlpcpDestroyPort target ALPC port object argument"
+        },
+        {
+          "local_names": [
+            "next_list_entry",
+            "nextListEntry"
+          ],
+          "role": "nextPortListEntry",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpDestroyPort next list entry during AlpcpPortList unlink"
+        },
+        {
+          "local_names": [
+            "prev_list_entry_ptr",
+            "prevListEntryPtr"
+          ],
+          "role": "previousPortListEntry",
+          "structure": "ALPC_PORT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "AlpcpDestroyPort previous list entry during AlpcpPortList unlink"
+        },
+        {
+          "local_names": [
+            "lookaside_buffer",
+            "lookasideBuffer"
+          ],
+          "role": "lookasideBuffer",
+          "structure": "ALPC_LOOKASIDE_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "AlpcpDestroyPort optional nonpaged lookaside buffer"
+        }
+      ]
+    }
+  ]
+}
