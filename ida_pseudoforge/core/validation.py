@@ -4,6 +4,7 @@ import keyword
 import re
 from dataclasses import replace
 
+from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP
 from ida_pseudoforge.core.normalize import extract_identifiers
 from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion
 
@@ -133,6 +134,18 @@ WEAK_COPY_NAME_WORDS = {
     "tmp",
     "value",
 }
+STATUS_RENAME_TARGET = "status"
+OBJECT_STYLE_RENAME_EXACT_NAMES = {
+    "object",
+    "referencedobject",
+    "objectpointer",
+    "targetobject",
+    "fileobject",
+    "deviceobject",
+    "processobject",
+    "threadobject",
+}
+NTSTATUS_RETURN_KEYS = {str(key) for key in NTSTATUS_RETURN_MAP}
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -153,6 +166,15 @@ def validate_renames(
     lvar_names = {var.name for var in capture.lvars}
     known_names = identifiers | lvar_names
     argument_semantics = _argument_semantic_words(suggestions)
+    status_carrier_evidence = _status_carrier_evidence_by_name(
+        capture.pseudocode,
+        {item.old for item in suggestions if item.old in known_names},
+    )
+    reserved_status_sources = {
+        item.old
+        for item in suggestions
+        if item.old in known_names and item.new == STATUS_RENAME_TARGET
+    }
     accepted = []
     warnings = []
     used_new_names = set()
@@ -171,6 +193,34 @@ def validate_renames(
         elif item.new in known_names and item.new != item.old:
             item.apply = False
             warnings.append(f"Skipped colliding rename {item.old}->{item.new}")
+        elif item.apply and _is_object_style_status_conflict(item, status_carrier_evidence):
+            replacement = _status_conflict_replacement(
+                item,
+                known_names,
+                used_new_names,
+                reserved_status_sources,
+            )
+            evidence = _format_status_carrier_evidence(status_carrier_evidence.get(item.old, []))
+            if replacement:
+                original_new = item.new
+                item.new = replacement
+                item.confidence = min(item.confidence, 0.86)
+                item.evidence = _append_evidence(
+                    item.evidence,
+                    "status/object conflict downgraded from %s based on %s" % (original_new, evidence),
+                )
+                warnings.append(
+                    "Downgraded status/object semantic conflict rename %s->%s to %s->%s: %s has "
+                    "NTSTATUS carrier evidence (%s)"
+                    % (item.old, original_new, item.old, replacement, item.old, evidence)
+                )
+            else:
+                item.apply = False
+                warnings.append(
+                    "Skipped status/object semantic conflict rename %s->%s: %s has "
+                    "NTSTATUS carrier evidence (%s)"
+                    % (item.old, item.new, item.old, evidence)
+                )
         elif item.source == "llm" and _is_untyped_subroutine_rename(item):
             item.apply = False
         elif item.source == "llm" and _is_pascal_case_llm_local_rename(item):
@@ -216,6 +266,209 @@ def validate_renames(
         accepted.append(item)
 
     return accepted, warnings
+
+
+def _status_carrier_evidence_by_name(text: str, names: set[str]) -> dict[str, list[str]]:
+    result = {}
+    for name in sorted(names):
+        evidence = _status_carrier_evidence(text, name)
+        if _is_strong_status_carrier_evidence(evidence):
+            result[name] = evidence
+    return result
+
+
+def _status_carrier_evidence(text: str, name: str) -> list[str]:
+    contexts = _usage_contexts(text, name)
+    if not contexts:
+        return []
+    evidence = []
+    declaration = _declared_type_for_name(text, name)
+    if "NTSTATUS" in declaration.upper():
+        evidence.append("declared_ntstatus")
+    if any(_is_status_literal_expression(expr) for expr in _assigned_expressions(text, name)):
+        evidence.append("assigned_status_constant")
+    if _is_compared_with_status_constant(contexts, name):
+        evidence.append("compared_status_constant")
+    if _has_signed_status_branch(contexts, name):
+        evidence.append("signed_status_branch")
+    if _is_returned_status_value(contexts, name):
+        evidence.append("returned_status_value")
+    if _is_written_to_output_status_slot(contexts, name):
+        evidence.append("output_status_slot")
+    if _assigned_from_call(contexts, name):
+        evidence.append("assigned_from_call")
+    return _dedupe_sequence(evidence)
+
+
+def _is_strong_status_carrier_evidence(evidence: list[str]) -> bool:
+    strong = {
+        "declared_ntstatus",
+        "assigned_status_constant",
+        "compared_status_constant",
+        "output_status_slot",
+    }
+    if any(item in evidence for item in strong):
+        return True
+    if "signed_status_branch" in evidence and (
+        "assigned_from_call" in evidence or "returned_status_value" in evidence
+    ):
+        return True
+    return False
+
+
+def _is_object_style_status_conflict(
+    item: RenameSuggestion,
+    status_carrier_evidence: dict[str, list[str]],
+) -> bool:
+    if item.old not in status_carrier_evidence:
+        return False
+    return _is_object_style_rename(item.new)
+
+
+def _is_object_style_rename(name: str) -> bool:
+    normalized = re.sub(r"[^A-Za-z0-9_]", "", name or "").lower()
+    if normalized in OBJECT_STYLE_RENAME_EXACT_NAMES:
+        return True
+    words = _split_identifier_words(name)
+    return "object" in words
+
+
+def _status_conflict_replacement(
+    item: RenameSuggestion,
+    known_names: set[str],
+    used_new_names: set[str],
+    reserved_status_sources: set[str],
+) -> str:
+    if STATUS_RENAME_TARGET in known_names or STATUS_RENAME_TARGET in used_new_names:
+        return ""
+    if any(source != item.old for source in reserved_status_sources):
+        return ""
+    return STATUS_RENAME_TARGET
+
+
+def _format_status_carrier_evidence(evidence: list[str]) -> str:
+    return ", ".join(evidence[:5]) if evidence else "unknown"
+
+
+def _append_evidence(existing: str, detail: str) -> str:
+    if not existing:
+        return detail
+    return "%s; %s" % (existing, detail)
+
+
+def _dedupe_sequence(values: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _is_compared_with_status_constant(contexts: str, name: str) -> bool:
+    target = re.escape(name)
+    left_pattern = re.compile(
+        r"\b"
+        + target
+        + r"\b\s*(?:==|!=|<=|>=|<|>)\s*(?P<expr>[^)&|;\n]+)"
+    )
+    right_pattern = re.compile(
+        r"(?P<expr>[^(&|;\n]+?)\s*(?:==|!=|<=|>=|<|>)\s*\b"
+        + target
+        + r"\b"
+    )
+    for match in left_pattern.finditer(contexts):
+        if _is_status_literal_expression(match.group("expr")):
+            return True
+    for match in right_pattern.finditer(contexts):
+        if _is_status_literal_expression(match.group("expr")):
+            return True
+    return False
+
+
+def _has_signed_status_branch(contexts: str, name: str) -> bool:
+    target = re.escape(name)
+    cast_prefix = r"(?:\([A-Za-z_][A-Za-z0-9_:\s\*\&]*\)\s*)*"
+    operand = cast_prefix + r"\b" + target + r"\b"
+    return bool(
+        re.search(r"\bif\s*\([^;\n]*" + operand + r"\s*(?:<|>=)\s*0\b", contexts)
+        or re.search(r"\bif\s*\([^;\n]*\b0\s*(?:>|<=)\s*" + operand, contexts)
+    )
+
+
+def _is_returned_status_value(contexts: str, name: str) -> bool:
+    return bool(re.search(r"\breturn\s+(?:\([^)]+\)\s*)?%s\b" % re.escape(name), contexts))
+
+
+def _is_written_to_output_status_slot(contexts: str, name: str) -> bool:
+    target = re.escape(name)
+    value = r"(?:\([^)]+\)\s*)?\b" + target + r"\b\s*;"
+    status_lvalue = r"(?:\bstatus\b|\b[A-Za-z_][A-Za-z0-9_]*[Ss]tatus\b)"
+    return bool(
+        re.search(r"\*\s*\([^)]*NTSTATUS[^)]*\)\s*[^=;\n]+\s*=\s*" + value, contexts, re.IGNORECASE)
+        or re.search(status_lvalue + r"\s*=\s*" + value, contexts)
+        or re.search(r"\*\s*" + status_lvalue + r"\s*=\s*" + value, contexts)
+    )
+
+
+def _is_status_literal_expression(expr: str) -> bool:
+    value = _strip_casts_and_suffixes(expr)
+    if not value:
+        return False
+    if re.fullmatch(r"STATUS_[A-Za-z0-9_]+", value):
+        return True
+    numeric = _parse_integer_literal(value)
+    if numeric is None:
+        return False
+    return _is_ntstatus_numeric_literal(numeric)
+
+
+def _strip_casts_and_suffixes(expr: str) -> str:
+    value = (expr or "").strip()
+    value = re.sub(r"\s+", " ", value)
+    cast_pattern = re.compile(r"^\([A-Za-z_][A-Za-z0-9_:\s\*\&]*\)\s*")
+    while True:
+        updated = cast_pattern.sub("", value)
+        if updated == value:
+            break
+        value = updated.strip()
+    value = re.sub(r"\s+", "", value)
+    value = re.sub(r"(?i)(?:ui64|i64|ull|llu|ll|ul|lu|u|l)$", "", value)
+    return value
+
+
+def _parse_integer_literal(value: str) -> int | None:
+    if re.fullmatch(r"[0-9A-Fa-f]+[hH]", value or ""):
+        try:
+            return int(value[:-1], 16)
+        except ValueError:
+            return None
+    if not re.fullmatch(r"[+-]?(?:0x[0-9A-Fa-f]+|\d+)", value or ""):
+        return None
+    try:
+        return int(value, 0)
+    except ValueError:
+        return None
+
+
+def _is_ntstatus_numeric_literal(value: int) -> bool:
+    if value == 0:
+        return False
+    unsigned = value & 0xFFFFFFFF
+    signed = unsigned if unsigned < 0x80000000 else unsigned - 0x100000000
+    candidates = {
+        str(value),
+        str(unsigned),
+        str(signed),
+        "0x%X" % unsigned,
+        "0x%x" % unsigned,
+    }
+    if candidates & NTSTATUS_RETURN_KEYS:
+        return True
+    severity = unsigned & 0xC0000000
+    return unsigned > 0xFFFF and severity in {0x40000000, 0x80000000, 0xC0000000}
 
 
 def _is_pascal_case_llm_local_rename(item: RenameSuggestion) -> bool:

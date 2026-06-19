@@ -465,6 +465,67 @@ __int64 __fastcall LengthCheckedInputSample(_DWORD *a1, _DWORD *a2, unsigned int
 """
 
 
+STATUS_OBJECT_RENAME_CONFLICT_SAMPLE = r"""
+__int64 __fastcall StatusObjectConflictSample()
+{
+  int Object;
+  ULONG updated;
+
+  Object = STATUS_MORE_PROCESSING_REQUIRED;
+  if ( Object == STATUS_BUFFER_TOO_SMALL )
+  {
+    updated = Object;
+  }
+  if ( Object < 0 )
+  {
+    updated = Object;
+  }
+  return updated;
+}
+"""
+
+
+STATUS_OBJECT_DOWNGRADE_SAMPLE = r"""
+__int64 __fastcall StatusObjectDowngradeSample()
+{
+  int v7;
+
+  v7 = STATUS_MORE_PROCESSING_REQUIRED;
+  if ( v7 == STATUS_BUFFER_TOO_SMALL )
+  {
+    return v7;
+  }
+  return 0;
+}
+"""
+
+
+OUTPUT_STATUS_SLOT_RENAME_CONFLICT_SAMPLE = r"""
+__int64 __fastcall OutputStatusSlotRenameConflictSample()
+{
+  int v7;
+  NTSTATUS outputStatus;
+
+  outputStatus = v7;
+  return outputStatus;
+}
+"""
+
+
+OBJECT_POINTER_RENAME_SAMPLE = r"""
+void __fastcall ObjectPointerRenameSample(PVOID source)
+{
+  PVOID Object;
+
+  Object = source;
+  if ( Object )
+  {
+    ObfDereferenceObject(Object);
+  }
+}
+"""
+
+
 class RenameHeuristicTests(unittest.TestCase):
     def test_identifier_renames_do_not_touch_struct_members(self) -> None:
         class FakeProvider:
@@ -865,6 +926,90 @@ __int64 __fastcall TextLvarMergeSample()
         self.assertNotIn("outputBuffer", rename_map.values())
         self.assertNotIn("returnLength", rename_map.values())
         self.assertIn("argument2 < 0x18", rendered)
+
+    def test_status_carrier_cannot_use_referenced_object_name(self) -> None:
+        capture = capture_from_pseudocode(STATUS_OBJECT_RENAME_CONFLICT_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotEqual(rename_map.get("Object"), "referencedObject")
+        self.assertEqual(rename_map["updated"], "status")
+        self.assertIn(
+            "Skipped status/object semantic conflict rename Object->referencedObject",
+            "\n".join(plan.warnings),
+        )
+        self.assertIn("Object = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+        self.assertNotIn("referencedObject = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+
+    def test_status_carrier_object_name_downgrades_when_status_name_is_free(self) -> None:
+        class FakeProvider:
+            def suggest_renames(self, capture):
+                return json.dumps(
+                    {
+                        "renames": [
+                            {
+                                "old": "v7",
+                                "new": "referencedObject",
+                                "confidence": 0.93,
+                                "reason": "mistaken object-style status local",
+                            }
+                        ]
+                    }
+                )
+
+        capture = capture_from_pseudocode(STATUS_OBJECT_DOWNGRADE_SAMPLE)
+        plan = build_clean_plan(capture, rename_provider=FakeProvider())
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["v7"], "status")
+        self.assertIn(
+            "Downgraded status/object semantic conflict rename v7->referencedObject to v7->status",
+            "\n".join(plan.warnings),
+        )
+        self.assertIn("status = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+        self.assertNotIn("int referencedObject;", rendered)
+        self.assertNotIn("referencedObject = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+
+    def test_output_status_slot_blocks_object_style_name(self) -> None:
+        class FakeProvider:
+            def suggest_renames(self, capture):
+                return json.dumps(
+                    {
+                        "renames": [
+                            {
+                                "old": "v7",
+                                "new": "targetObject",
+                                "confidence": 0.91,
+                                "reason": "mistaken object-style status slot carrier",
+                            }
+                        ]
+                    }
+                )
+
+        capture = capture_from_pseudocode(OUTPUT_STATUS_SLOT_RENAME_CONFLICT_SAMPLE)
+        plan = build_clean_plan(capture, rename_provider=FakeProvider())
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["v7"], "status")
+        self.assertIn("outputStatus = status;", rendered)
+        self.assertIn(
+            "Downgraded status/object semantic conflict rename v7->targetObject to v7->status",
+            "\n".join(plan.warnings),
+        )
+
+    def test_valid_object_pointer_rename_is_not_broadly_banned(self) -> None:
+        capture = capture_from_pseudocode(OBJECT_POINTER_RENAME_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(rename_map["Object"], "referencedObject")
+        self.assertIn("PVOID referencedObject;", rendered)
+        self.assertIn("ObfDereferenceObject(referencedObject);", rendered)
+        self.assertNotIn("status/object semantic conflict", "\n".join(plan.warnings))
 
 
 if __name__ == "__main__":
