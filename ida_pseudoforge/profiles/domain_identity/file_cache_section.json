@@ -1,0 +1,1730 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "file-cache-section-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 file object, section object, and cache manager role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.file_cache_section.nt_create_file",
+      "source": "Reviewed NtCreateFile wrapper into IopCreateFile.",
+      "function_names": [
+        "NtCreateFile"
+      ],
+      "required_calls": [
+        "IopCreateFile"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtCreateFile output file handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtCreateFile desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *",
+            "__int64"
+          ],
+          "source": "NtCreateFile object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "IO_STATUS_BLOCK *",
+            "__int64"
+          ],
+          "source": "NtCreateFile I/O status block argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "allocationSize",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "__int64"
+          ],
+          "source": "NtCreateFile optional allocation size argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "fileAttributes",
+          "structure": "FILE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateFile file attributes argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "shareAccess",
+          "structure": "FILE_SHARE_ACCESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateFile share access argument"
+        },
+        {
+          "parameter_index": 7,
+          "role": "createDisposition",
+          "structure": "FILE_CREATE_DISPOSITION",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateFile create disposition argument"
+        },
+        {
+          "parameter_index": 8,
+          "role": "createOptions",
+          "structure": "FILE_CREATE_OPTIONS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateFile create options argument"
+        },
+        {
+          "parameter_index": 9,
+          "role": "eaBuffer",
+          "structure": "FILE_EA_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtCreateFile extended attributes buffer argument"
+        },
+        {
+          "parameter_index": 10,
+          "role": "eaLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateFile extended attributes length argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.nt_open_file",
+      "source": "Reviewed NtOpenFile wrapper into IopCreateFile with open disposition.",
+      "function_names": [
+        "NtOpenFile"
+      ],
+      "required_calls": [
+        "IopCreateFile"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtOpenFile output file handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtOpenFile desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *",
+            "__int64"
+          ],
+          "source": "NtOpenFile object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "IO_STATUS_BLOCK *",
+            "__int64"
+          ],
+          "source": "NtOpenFile I/O status block argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "shareAccess",
+          "structure": "FILE_SHARE_ACCESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtOpenFile share access argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "openOptions",
+          "structure": "FILE_OPEN_OPTIONS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtOpenFile open options argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.io_create_file",
+      "source": "Reviewed IoCreateFile kernel wrapper into IopCreateFile.",
+      "function_names": [
+        "IoCreateFile"
+      ],
+      "required_calls": [
+        "IopCreateFile"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "IoCreateFile output file handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "__int64"
+          ],
+          "source": "IoCreateFile object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "__int64"
+          ],
+          "source": "IoCreateFile I/O status block argument"
+        },
+        {
+          "parameter_index": 11,
+          "role": "createFileType",
+          "structure": "CREATE_FILE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "CREATE_FILE_TYPE",
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "IoCreateFile create file type argument"
+        },
+        {
+          "parameter_index": 12,
+          "role": "internalParameters",
+          "structure": "IO_CREATE_INTERNAL_PARAMETERS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "IoCreateFile internal parameters argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.io_create_file_ex",
+      "source": "Reviewed IoCreateFileEx driver create context and ECP preparation wrapper into IopCreateFile.",
+      "function_names": [
+        "IoCreateFileEx"
+      ],
+      "required_calls": [
+        "IopCreateFile"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "IoCreateFileEx output file handle argument"
+        },
+        {
+          "parameter_index": 14,
+          "role": "driverCreateContext",
+          "structure": "IO_DRIVER_CREATE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PIO_DRIVER_CREATE_CONTEXT",
+            "IO_DRIVER_CREATE_CONTEXT *",
+            "__int64"
+          ],
+          "source": "IoCreateFileEx driver create context argument"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter4",
+            "ActiveEcpList"
+          ],
+          "role": "extraCreateParameterList",
+          "structure": "ECP_LIST",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoCreateFileEx ECP list from DriverContext->ExtraCreateParameter"
+        },
+        {
+          "local_names": [
+            "Flink",
+            "NextEcpEntry"
+          ],
+          "role": "extraCreateParameterEntry",
+          "structure": "ECP_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "IoCreateFileEx ECP list entry walk before IopCreateFile"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.iop_create_file",
+      "source": "Reviewed IopCreateFile EA buffer allocation, ECP preparation, and ObOpenObjectByNameEx over IoFileObjectType.",
+      "function_names": [
+        "IopCreateFile"
+      ],
+      "required_calls": [
+        "ObOpenObjectByNameEx",
+        "ExAllocatePool2"
+      ],
+      "required_call_regex": [
+        "\\bIoFileObjectType\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE *",
+            "PHANDLE",
+            "int",
+            "__int64"
+          ],
+          "source": "IopCreateFile output handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "IopCreateFile desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "__int64",
+            "int"
+          ],
+          "source": "IopCreateFile object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "NTSTATUS *",
+            "__int64",
+            "int"
+          ],
+          "source": "IopCreateFile I/O status block argument"
+        },
+        {
+          "parameter_index": 9,
+          "role": "eaBuffer",
+          "structure": "FILE_EA_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "IopCreateFile extended attribute input buffer"
+        },
+        {
+          "parameter_index": 14,
+          "role": "createFlags",
+          "structure": "IO_CREATE_FILE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "IopCreateFile private create flags argument"
+        },
+        {
+          "local_names": [
+            "Handle"
+          ],
+          "role": "openedFileHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IopCreateFile handle returned by ObOpenObjectByNameEx"
+        },
+        {
+          "local_names": [
+            "EcpList",
+            "v57"
+          ],
+          "role": "extraCreateParameterList",
+          "structure": "ECP_LIST",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IopCreateFile ECP list prepared before object open"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "extraCreateParameterEntry",
+          "structure": "ECP_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "IopCreateFile ECP entry allocated for dual oplock create flow"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "IopCreateFile current thread accounting before object open"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.iop_parse_device",
+      "source": "Reviewed IopParseDevice device parse flow through related file/device objects, fast I/O, and IRP path.",
+      "function_names": [
+        "IopParseDevice"
+      ],
+      "required_calls": [
+        "IoGetRelatedDeviceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 2,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "struct _ACCESS_STATE *",
+            "PACCESS_STATE",
+            "__int64"
+          ],
+          "source": "IopParseDevice access state argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "remainingName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "UNICODE_STRING *",
+            "PUNICODE_STRING",
+            "__int64"
+          ],
+          "source": "IopParseDevice remaining name argument"
+        },
+        {
+          "parameter_index": 9,
+          "role": "parseInformationOutput",
+          "structure": "IO_PARSE_INFORMATION_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "_QWORD *",
+            "__int64 *",
+            "__int64"
+          ],
+          "source": "IopParseDevice object manager parse information output argument"
+        },
+        {
+          "local_names": [
+            "relatedFileObject"
+          ],
+          "role": "relatedFileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IopParseDevice file object related to the parsed device object"
+        },
+        {
+          "local_names": [
+            "relatedDeviceObject"
+          ],
+          "role": "relatedDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IopParseDevice related device object used for fast I/O or IRP dispatch"
+        },
+        {
+          "local_names": [
+            "driverObject"
+          ],
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "IopParseDevice driver object reached from related device object"
+        },
+        {
+          "local_names": [
+            "fastIoDispatch"
+          ],
+          "role": "fastIoDispatch",
+          "structure": "FAST_IO_DISPATCH",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "IopParseDevice FastIoDispatch consulted for fast query/open path"
+        },
+        {
+          "local_names": [
+            "Irp"
+          ],
+          "role": "parseIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "IopParseDevice IRP built for non-fast parse/create path"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.nt_create_section",
+      "source": "Reviewed NtCreateSection wrapper into MiCreateSectionCommon.",
+      "function_names": [
+        "NtCreateSection"
+      ],
+      "required_calls": [
+        "MiCreateSectionCommon"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtCreateSection output section handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtCreateSection desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "__int64"
+          ],
+          "source": "NtCreateSection object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "maximumSize",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "__int64"
+          ],
+          "source": "NtCreateSection maximum size argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "sectionPageProtection",
+          "structure": "PAGE_PROTECTION",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtCreateSection section page protection argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "allocationAttributes",
+          "structure": "SECTION_ALLOCATION_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtCreateSection allocation attributes argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "fileHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "NtCreateSection optional file handle argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.mm_create_section",
+      "source": "Reviewed MmCreateSection wrapper into MmCreateSectionEx.",
+      "function_names": [
+        "MmCreateSection"
+      ],
+      "required_calls": [
+        "MmCreateSectionEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "int",
+            "__int64"
+          ],
+          "source": "MmCreateSection output section handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "MmCreateSection desired access argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "maximumSize",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "MmCreateSection maximum size argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "fileHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MmCreateSection optional file handle argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.mi_create_image_or_data_section",
+      "source": "Reviewed MiCreateImageOrDataSection file-object reference, cache-map wait, image/data section setup, and control-area creation flow.",
+      "function_names": [
+        "MiCreateImageOrDataSection"
+      ],
+      "required_calls": [
+        "ObpReferenceObjectByHandleWithTag",
+        "IoGetFileMemoryPartitionInformation"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionCreateContext",
+          "structure": "MI_SECTION_CREATE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "_QWORD *",
+            "PVOID"
+          ],
+          "source": "MiCreateImageOrDataSection packed section creation context argument"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v6"
+          ],
+          "role": "referencedFileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiCreateImageOrDataSection file object referenced from the file handle or context"
+        },
+        {
+          "local_names": [
+            "FileMemoryPartitionInformation"
+          ],
+          "role": "fileMemoryPartitionInformation",
+          "structure": "FILE_MEMORY_PARTITION_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiCreateImageOrDataSection memory partition information read from file object"
+        },
+        {
+          "local_names": [
+            "v36",
+            "NewCtrlAreaPtr"
+          ],
+          "role": "controlAreaOutput",
+          "structure": "CONTROL_AREA_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "MiCreateImageOrDataSection control area output local"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.nt_map_view_of_section",
+      "source": "Reviewed NtMapViewOfSection wrapper into MiMapViewOfSectionCommon and section control area accounting.",
+      "function_names": [
+        "NtMapViewOfSection"
+      ],
+      "required_calls": [
+        "MiMapViewOfSectionCommon"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "HANDLE",
+            "__int64"
+          ],
+          "source": "NtMapViewOfSection section handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "processHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "HANDLE",
+            "__int64"
+          ],
+          "source": "NtMapViewOfSection target process handle argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "baseAddressOutput",
+          "structure": "VIRTUAL_ADDRESS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "NtMapViewOfSection base address output argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "viewSizeOutput",
+          "structure": "SIZE_T_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PSIZE_T",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "NtMapViewOfSection view size output argument"
+        },
+        {
+          "parameter_index": 9,
+          "role": "win32Protect",
+          "structure": "PAGE_PROTECTION",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtMapViewOfSection Win32 protect argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.mi_map_view_of_section",
+      "source": "Reviewed MiMapViewOfSection VAD, control area, base-address, view-size, and process attachment flow.",
+      "function_names": [
+        "MiMapViewOfSection"
+      ],
+      "required_calls": [
+        "MiSectionControlArea"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionObject",
+          "structure": "SECTION_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MiMapViewOfSection section object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "vad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PMMVAD"
+          ],
+          "source": "MiMapViewOfSection VAD argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "baseAddressOutput",
+          "structure": "VIRTUAL_ADDRESS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "unsigned __int64 *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "MiMapViewOfSection base address output argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "viewSize",
+          "structure": "SIZE_T",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64",
+            "SIZE_T",
+            "__int64"
+          ],
+          "source": "MiMapViewOfSection view size argument"
+        },
+        {
+          "local_names": [
+            "associated_process",
+            "associatedProcess"
+          ],
+          "role": "associatedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiMapViewOfSection associated process loaded from VAD"
+        },
+        {
+          "local_names": [
+            "section_control_area_ptr",
+            "sectionControlArea",
+            "v16"
+          ],
+          "role": "sectionControlArea",
+          "structure": "CONTROL_AREA",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiMapViewOfSection control area returned by MiSectionControlArea"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_initialize_cache_map",
+      "source": "Reviewed CcInitializeCacheMap wrapper into CcInitializeCacheMapInternal.",
+      "function_names": [
+        "CcInitializeCacheMap"
+      ],
+      "required_calls": [
+        "CcInitializeCacheMapInternal"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "struct _FILE_OBJECT *",
+            "__int64"
+          ],
+          "source": "CcInitializeCacheMap file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "fileSizes",
+          "structure": "CC_FILE_SIZES",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCC_FILE_SIZES",
+            "CC_FILE_SIZES *",
+            "__int64"
+          ],
+          "source": "CcInitializeCacheMap file sizes argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "pinAccess",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "BOOLEAN",
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "CcInitializeCacheMap pin access argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "callbacks",
+          "structure": "CACHE_MANAGER_CALLBACKS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PCACHE_MANAGER_CALLBACKS",
+            "CACHE_MANAGER_CALLBACKS *",
+            "__int64"
+          ],
+          "source": "CcInitializeCacheMap callbacks argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "lazyWriteContext",
+          "structure": "CACHE_LAZY_WRITE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "CcInitializeCacheMap lazy writer context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_uninitialize_cache_map",
+      "source": "Reviewed CcUninitializeCacheMap private/shared cache map teardown and file object cache state checks.",
+      "function_names": [
+        "CcUninitializeCacheMap"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "struct _FILE_OBJECT *",
+            "__int64"
+          ],
+          "source": "CcUninitializeCacheMap file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "truncateSize",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "__int64"
+          ],
+          "source": "CcUninitializeCacheMap optional truncate size argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "uninitializeEvent",
+          "structure": "CACHE_UNINITIALIZE_EVENT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PCACHE_UNINITIALIZE_EVENT",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "CcUninitializeCacheMap optional uninitialize event argument"
+        },
+        {
+          "local_names": [
+            "privateCacheMap"
+          ],
+          "role": "privateCacheMap",
+          "structure": "PRIVATE_CACHE_MAP",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CcUninitializeCacheMap file object PrivateCacheMap local"
+        },
+        {
+          "local_names": [
+            "sharedCacheMap"
+          ],
+          "role": "sharedCacheMap",
+          "structure": "SHARED_CACHE_MAP",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CcUninitializeCacheMap SectionObjectPointer->SharedCacheMap local"
+        },
+        {
+          "local_names": [
+            "fsContext"
+          ],
+          "role": "fsContext",
+          "structure": "FSRTL_COMMON_FCB_HEADER",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "CcUninitializeCacheMap file object FsContext local"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_set_file_sizes",
+      "source": "Reviewed CcSetFileSizes wrapper into CcSetFileSizesEx.",
+      "function_names": [
+        "CcSetFileSizes"
+      ],
+      "required_calls": [
+        "CcSetFileSizesEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "__int64"
+          ],
+          "source": "CcSetFileSizes file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "fileSizes",
+          "structure": "CC_FILE_SIZES",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCC_FILE_SIZES",
+            "__int64"
+          ],
+          "source": "CcSetFileSizes file sizes argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_flush_cache",
+      "source": "Reviewed CcFlushCache wrapper into CcFlushCachePriv.",
+      "function_names": [
+        "CcFlushCache"
+      ],
+      "required_calls": [
+        "CcFlushCachePriv"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionObjectPointers",
+          "structure": "SECTION_OBJECT_POINTERS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PSECTION_OBJECT_POINTERS",
+            "__int64"
+          ],
+          "source": "CcFlushCache section object pointers argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "fileOffset",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "CcFlushCache file offset argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "length",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CcFlushCache length argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "__int64"
+          ],
+          "source": "CcFlushCache I/O status output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_purge_cache_section",
+      "source": "Reviewed CcPurgeCacheSection shared cache map lookup, VACB unmap, trim, and uninitialize loop.",
+      "function_names": [
+        "CcPurgeCacheSection"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sectionObjectPointers",
+          "structure": "SECTION_OBJECT_POINTERS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PSECTION_OBJECT_POINTERS",
+            "__int64"
+          ],
+          "source": "CcPurgeCacheSection section object pointers argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "fileOffset",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "CcPurgeCacheSection file offset argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "length",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CcPurgeCacheSection length argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "purgeFlags",
+          "structure": "CC_PURGE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CcPurgeCacheSection flags argument"
+        },
+        {
+          "local_names": [
+            "SharedCacheMap"
+          ],
+          "role": "sharedCacheMap",
+          "structure": "SHARED_CACHE_MAP",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CcPurgeCacheSection shared cache map local"
+        },
+        {
+          "local_names": [
+            "i",
+            "VacbEntryPtr"
+          ],
+          "role": "vacbEntry",
+          "structure": "VACB",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "CcPurgeCacheSection VACB/file-object list walk local"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_copy_read",
+      "source": "Reviewed CcCopyRead wrapper into CcCopyReadEx.",
+      "function_names": [
+        "CcCopyRead"
+      ],
+      "required_calls": [
+        "CcCopyReadEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "__int64"
+          ],
+          "source": "CcCopyRead file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "fileOffset",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "CcCopyRead file offset argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "length",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CcCopyRead length argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "buffer",
+          "structure": "USER_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "CcCopyRead destination buffer argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "__int64"
+          ],
+          "source": "CcCopyRead I/O status block argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_copy_write",
+      "source": "Reviewed CcCopyWrite wrapper into CcCopyWriteEx.",
+      "function_names": [
+        "CcCopyWrite"
+      ],
+      "required_calls": [
+        "CcCopyWriteEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "__int64"
+          ],
+          "source": "CcCopyWrite file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "fileOffset",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "CcCopyWrite file offset argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "length",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CcCopyWrite length argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "buffer",
+          "structure": "USER_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "CcCopyWrite source buffer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_reference_shared_cache_map_file_object",
+      "source": "Reviewed CcReferenceSharedCacheMapFileObject shared cache map pointer nibble/refcount handling.",
+      "function_names": [
+        "CcReferenceSharedCacheMapFileObject"
+      ],
+      "required_calls": [
+        "ObpTraceObjectReferenceIfActive"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "CcReferenceSharedCacheMapFileObject file object argument"
+        },
+        {
+          "local_names": [
+            "currentSharedCacheMapValue"
+          ],
+          "role": "sharedCacheMapEncodedValue",
+          "structure": "SHARED_CACHE_MAP_ENCODED",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "CcReferenceSharedCacheMapFileObject encoded SharedCacheMap value local"
+        },
+        {
+          "local_names": [
+            "baseCacheMapPtr"
+          ],
+          "role": "sharedCacheMap",
+          "structure": "SHARED_CACHE_MAP",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CcReferenceSharedCacheMapFileObject base shared cache map pointer"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.fsrtl_acquire_file_for_mod_write_ex",
+      "source": "Reviewed FsRtlAcquireFileForModWriteEx related/base file system device discovery, fast I/O callback, and FsFilter fallback flow.",
+      "function_names": [
+        "FsRtlAcquireFileForModWriteEx"
+      ],
+      "required_calls": [
+        "IoGetRelatedDeviceObject",
+        "IoGetBaseFileSystemDeviceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "__int64"
+          ],
+          "source": "FsRtlAcquireFileForModWriteEx file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "modWriteFlags",
+          "structure": "FSRTL_MOD_WRITE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "int"
+          ],
+          "source": "FsRtlAcquireFileForModWriteEx flags argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "resourceOutput",
+          "structure": "ERESOURCE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PERESOURCE *",
+            "struct _ERESOURCE **"
+          ],
+          "source": "FsRtlAcquireFileForModWriteEx output resource/context argument"
+        },
+        {
+          "local_names": [
+            "relatedDeviceObject"
+          ],
+          "role": "relatedDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "FsRtlAcquireFileForModWriteEx related device object local"
+        },
+        {
+          "local_names": [
+            "baseFileSystemDeviceObject"
+          ],
+          "role": "baseFileSystemDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "FsRtlAcquireFileForModWriteEx base file system device local"
+        },
+        {
+          "local_names": [
+            "fastIoDispatch"
+          ],
+          "role": "fastIoDispatch",
+          "structure": "FAST_IO_DISPATCH",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "FsRtlAcquireFileForModWriteEx FastIoDispatch local"
+        },
+        {
+          "local_names": [
+            "fsContext"
+          ],
+          "role": "fsContext",
+          "structure": "FSRTL_COMMON_FCB_HEADER",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "FsRtlAcquireFileForModWriteEx file system context local"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.fsrtl_release_file_for_mod_write",
+      "source": "Reviewed FsRtlReleaseFileForModWrite related/base file system device discovery, fast I/O release callback, and FsFilter fallback flow.",
+      "function_names": [
+        "FsRtlReleaseFileForModWrite"
+      ],
+      "required_calls": [
+        "IoGetRelatedDeviceObject",
+        "IoGetBaseFileSystemDeviceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "__int64"
+          ],
+          "source": "FsRtlReleaseFileForModWrite file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "resource",
+          "structure": "ERESOURCE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "struct _ERESOURCE *",
+            "PERESOURCE",
+            "__int64"
+          ],
+          "source": "FsRtlReleaseFileForModWrite acquired resource argument"
+        },
+        {
+          "local_names": [
+            "relatedDeviceObject"
+          ],
+          "role": "relatedDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "FsRtlReleaseFileForModWrite related device object local"
+        },
+        {
+          "local_names": [
+            "baseFileSystemDeviceObject"
+          ],
+          "role": "baseFileSystemDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "FsRtlReleaseFileForModWrite base file system device local"
+        },
+        {
+          "local_names": [
+            "fastIoDispatch"
+          ],
+          "role": "fastIoDispatch",
+          "structure": "FAST_IO_DISPATCH",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "FsRtlReleaseFileForModWrite FastIoDispatch local"
+        }
+      ]
+    },
+    {
+      "id": "windows.file_cache_section.mm_is_file_object_a_paging_file",
+      "source": "Reviewed MmIsFileObjectAPagingFile paging-file tree lookup keyed by file object pointer.",
+      "function_names": [
+        "MmIsFileObjectAPagingFile"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MmIsFileObjectAPagingFile file object argument"
+        },
+        {
+          "local_names": [
+            "targetFileObject"
+          ],
+          "role": "targetFileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MmIsFileObjectAPagingFile target file object local"
+        },
+        {
+          "local_names": [
+            "tailLink"
+          ],
+          "role": "pagingFileTreeNode",
+          "structure": "MM_PAGING_FILE_NODE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "MmIsFileObjectAPagingFile paging file tree node local"
+        }
+      ]
+    }
+  ]
+}
