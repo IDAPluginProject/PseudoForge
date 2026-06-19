@@ -1,0 +1,712 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "trap-processor-state-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 trap frame, exception frame, context, PRCB, processor control state, and idle/swap role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.trap_processor_state.ke_context_from_kframes",
+      "source": "Reviewed KeContextFromKframes trap/exception frame to CONTEXT materialization path.",
+      "function_names": [
+        "KeContextFromKframes"
+      ],
+      "required_calls": [
+        "KeGetCurrentIrql",
+        "KeGetCurrentPrcb"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "trapFrame",
+          "role": "trapFrame",
+          "structure": "KTRAP_FRAME",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKTRAP_FRAME",
+            "_KTRAP_FRAME *"
+          ],
+          "source": "KeContextFromKframes first frame argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "exceptionFrame",
+          "role": "exceptionFrame",
+          "structure": "KEXCEPTION_FRAME",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKEXCEPTION_FRAME",
+            "_KEXCEPTION_FRAME *"
+          ],
+          "source": "KeContextFromKframes second frame argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "contextRecord",
+          "role": "contextRecord",
+          "structure": "CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PCONTEXT",
+            "CONTEXT *"
+          ],
+          "source": "KeContextFromKframes destination CONTEXT argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ke_context_to_kframes",
+      "source": "Reviewed KeContextToKframes wrapper around KxContextToKframes and FPU restore from CONTEXT.",
+      "function_names": [
+        "KeContextToKframes"
+      ],
+      "required_calls": [
+        "KxContextToKframes",
+        "_fxrstor"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "thread",
+          "role": "thread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int64",
+            "PKTHREAD",
+            "struct _KTHREAD *",
+            "_KTHREAD *"
+          ],
+          "source": "KeContextToKframes thread argument forwarded to KxContextToKframes"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "trapFrame",
+          "role": "trapFrame",
+          "structure": "KTRAP_FRAME",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKTRAP_FRAME",
+            "_KTRAP_FRAME *"
+          ],
+          "source": "KeContextToKframes trap frame argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "contextRecord",
+          "role": "contextRecord",
+          "structure": "CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PCONTEXT",
+            "CONTEXT *"
+          ],
+          "source": "KeContextToKframes source CONTEXT argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "contextFlags",
+          "role": "contextFlags",
+          "structure": "CONTEXT_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "KeContextToKframes context flags argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "xstateContext",
+          "role": "xstateContext",
+          "structure": "XSTATE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "KeContextToKframes extended state context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_dispatch_exception",
+      "source": "Reviewed KiDispatchException exception record, frame, trap frame, previous mode, first chance, process/thread, and PRCB handling.",
+      "function_names": [
+        "KiDispatchException"
+      ],
+      "required_calls": [
+        "KeContextFromKframes",
+        "KiPreprocessFault",
+        "DbgkForwardException"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "exceptionRecord",
+          "role": "exceptionRecord",
+          "structure": "EXCEPTION_RECORD",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int *",
+            "PEXCEPTION_RECORD",
+            "_EXCEPTION_RECORD *",
+            "__int64"
+          ],
+          "source": "KiDispatchException exception record argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "exceptionFrame",
+          "role": "exceptionFrame",
+          "structure": "KEXCEPTION_FRAME",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKEXCEPTION_FRAME",
+            "_KEXCEPTION_FRAME *"
+          ],
+          "source": "KiDispatchException exception frame argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "trapFrame",
+          "role": "trapFrame",
+          "structure": "KTRAP_FRAME",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKTRAP_FRAME",
+            "_KTRAP_FRAME *"
+          ],
+          "source": "KiDispatchException trap frame argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "previousMode",
+          "role": "previousMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned __int8",
+            "KPROCESSOR_MODE",
+            "char"
+          ],
+          "source": "KiDispatchException previous mode / trap mode byte"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "firstChance",
+          "role": "firstChance",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned __int8",
+            "BOOLEAN",
+            "char"
+          ],
+          "source": "KiDispatchException first-chance dispatch flag"
+        },
+        {
+          "local_names": [
+            "currentThread",
+            "CurrentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "KiDispatchException current thread local from KeGetCurrentThread"
+        },
+        {
+          "local_names": [
+            "currentProcess",
+            "CurrentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KiDispatchException current process local from current thread APC state"
+        },
+        {
+          "local_names": [
+            "CurrentPrcb",
+            "currentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KiDispatchException current PRCB locals"
+        },
+        {
+          "local_names": [
+            "SchedulerAssist",
+            "schedulerAssist"
+          ],
+          "role": "schedulerAssist",
+          "structure": "KPRCB_SCHEDULER_ASSIST",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "KiDispatchException PRCB scheduler assist local"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_save_processor_control_state",
+      "source": "Reviewed KiSaveProcessorControlState control register, descriptor table, debug register, and MSR save path.",
+      "function_names": [
+        "KiSaveProcessorControlState"
+      ],
+      "required_calls": [
+        "__readcr0",
+        "__sgdt",
+        "KeGetPcr"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "processorControlState",
+          "role": "processorControlState",
+          "structure": "KSPECIAL_REGISTERS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PKSPECIAL_REGISTERS",
+            "KSPECIAL_REGISTERS *",
+            "void *",
+            "PVOID"
+          ],
+          "source": "KiSaveProcessorControlState destination special-register state"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "xcr0High",
+          "role": "xcr0High",
+          "structure": "XSTATE_MASK_HIGH",
+          "mode": "report-only",
+          "confidence": 0.66,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "ULONG"
+          ],
+          "source": "KiSaveProcessorControlState high XCR0 state value"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_restore_processor_control_state",
+      "source": "Reviewed KiRestoreProcessorControlState control register, descriptor table, debug register, and MSR restore path.",
+      "function_names": [
+        "KiRestoreProcessorControlState"
+      ],
+      "required_calls": [
+        "__writecr0",
+        "__lgdt",
+        "__writedr"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "processorControlState",
+          "role": "processorControlState",
+          "structure": "KSPECIAL_REGISTERS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PKSPECIAL_REGISTERS",
+            "KSPECIAL_REGISTERS *",
+            "void *",
+            "PVOID"
+          ],
+          "source": "KiRestoreProcessorControlState source special-register state"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ke_save_state_for_hibernate",
+      "source": "Reviewed KeSaveStateForHibernate CONTEXT capture and processor control state save into hibernation processor state.",
+      "function_names": [
+        "KeSaveStateForHibernate"
+      ],
+      "required_calls": [
+        "RtlCaptureContext",
+        "KiSaveProcessorControlState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "hibernationState",
+          "role": "hibernationState",
+          "structure": "KPROCESSOR_STATE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PKPROCESSOR_STATE",
+            "KPROCESSOR_STATE *",
+            "void *",
+            "PVOID"
+          ],
+          "source": "KeSaveStateForHibernate hibernation processor state buffer"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_save_processor_state",
+      "source": "Reviewed KiSaveProcessorState PRCB context capture, Kframes-to-CONTEXT conversion, and control-state save path.",
+      "function_names": [
+        "KiSaveProcessorState"
+      ],
+      "required_calls": [
+        "KeGetCurrentPrcb",
+        "KeContextFromKframes",
+        "KiSaveProcessorControlState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "trapFrame",
+          "role": "trapFrame",
+          "structure": "KTRAP_FRAME",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKTRAP_FRAME",
+            "_KTRAP_FRAME *"
+          ],
+          "source": "KiSaveProcessorState trap frame argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "exceptionFrame",
+          "role": "exceptionFrame",
+          "structure": "KEXCEPTION_FRAME",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKEXCEPTION_FRAME",
+            "_KEXCEPTION_FRAME *"
+          ],
+          "source": "KiSaveProcessorState exception frame argument"
+        },
+        {
+          "local_names": [
+            "CurrentPrcb",
+            "currentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "KiSaveProcessorState current PRCB local"
+        },
+        {
+          "local_names": [
+            "Context",
+            "context"
+          ],
+          "role": "contextRecord",
+          "structure": "CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "KiSaveProcessorState PRCB context local"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_restore_processor_state",
+      "source": "Reviewed KiRestoreProcessorState PRCB context restore, CONTEXT-to-Kframes conversion, and control-state restore path.",
+      "function_names": [
+        "KiRestoreProcessorState"
+      ],
+      "required_calls": [
+        "KeGetCurrentPrcb",
+        "KeContextToKframes",
+        "KiRestoreProcessorControlState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "trapFrame",
+          "role": "trapFrame",
+          "structure": "KTRAP_FRAME",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKTRAP_FRAME",
+            "_KTRAP_FRAME *"
+          ],
+          "source": "KiRestoreProcessorState trap frame argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "exceptionFrame",
+          "role": "exceptionFrame",
+          "structure": "KEXCEPTION_FRAME",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKEXCEPTION_FRAME",
+            "_KEXCEPTION_FRAME *"
+          ],
+          "source": "KiRestoreProcessorState exception frame argument"
+        },
+        {
+          "local_names": [
+            "CurrentPrcb",
+            "currentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "KiRestoreProcessorState current PRCB local"
+        },
+        {
+          "local_names": [
+            "Context",
+            "context"
+          ],
+          "role": "contextRecord",
+          "structure": "CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "KiRestoreProcessorState PRCB context local"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ke_get_current_processor_number_ex",
+      "source": "Reviewed KeGetCurrentProcessorNumberEx PRCB-backed current processor number and optional PROCESSOR_NUMBER output.",
+      "function_names": [
+        "KeGetCurrentProcessorNumberEx"
+      ],
+      "required_calls": [
+        "KeGetCurrentPrcb"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "processorNumber",
+          "role": "processorNumber",
+          "structure": "PROCESSOR_NUMBER_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PPROCESSOR_NUMBER",
+            "PROCESSOR_NUMBER *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "KeGetCurrentProcessorNumberEx optional processor number output"
+        },
+        {
+          "local_names": [
+            "CurrentPrcb",
+            "currentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "KeGetCurrentProcessorNumberEx current PRCB local"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_initialize_processor",
+      "source": "Reviewed KiInitializeProcessor PRCB DPC and processor DPC-limit initialization path.",
+      "function_names": [
+        "KiInitializeProcessor"
+      ],
+      "required_calls": [
+        "KeInitializeDpc",
+        "KiApplyProcessorDpcLimits"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "currentPrcb",
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PKPRCB",
+            "struct _KPRCB *",
+            "_KPRCB *"
+          ],
+          "source": "KiInitializeProcessor processor control block argument"
+        },
+        {
+          "local_names": [
+            "v6",
+            "processorDpcLimits"
+          ],
+          "role": "processorDpcLimits",
+          "structure": "DPC_LIMIT_CONFIGURATION",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "KiInitializeProcessor stack DPC limit configuration passed to KiApplyProcessorDpcLimits"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_swap_thread",
+      "source": "Reviewed KiSwapThread current thread, PRCB, next thread, core control block, and scheduler subnode scheduling path.",
+      "function_names": [
+        "KiSwapThread"
+      ],
+      "required_calls": [
+        "KiAbProcessPreContextSwitch",
+        "KeGetCurrentPrcb",
+        "KiSearchForNewThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "currentThread",
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PKTHREAD",
+            "struct _KTHREAD *"
+          ],
+          "source": "KiSwapThread current thread argument used for accounting and pre-context-switch handling"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "currentPrcb",
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "struct _KPRCB *",
+            "_KPRCB *",
+            "PKPRCB",
+            "__int64"
+          ],
+          "source": "KiSwapThread current PRCB argument"
+        },
+        {
+          "local_names": [
+            "nextThread",
+            "NextThread"
+          ],
+          "role": "nextThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KiSwapThread selected next thread local"
+        },
+        {
+          "local_names": [
+            "coreControlBlock",
+            "CoreControlBlock"
+          ],
+          "role": "coreControlBlock",
+          "structure": "KCORE_CONTROL_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "KiSwapThread PRCB core control block local"
+        },
+        {
+          "local_names": [
+            "schedulerSubNode",
+            "SchedulerSubNode"
+          ],
+          "role": "schedulerSubNode",
+          "structure": "KSCHEDULER_SUBNODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KiSwapThread scheduler subnode local"
+        }
+      ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_idle_loop",
+      "source": "Reviewed KiIdleLoop current PRCB idle/next thread scheduling and idle transition path.",
+      "function_names": [
+        "KiIdleLoop"
+      ],
+      "required_calls": [
+        "KeGetCurrentPrcb",
+        "KiRetireDpcList",
+        "SwapContext"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "CurrentPrcb",
+            "currentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "KiIdleLoop current PRCB local"
+        },
+        {
+          "local_names": [
+            "IdleThread",
+            "idleThread"
+          ],
+          "role": "idleThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "KiIdleLoop idle thread local"
+        },
+        {
+          "local_names": [
+            "NextThread",
+            "nextThread"
+          ],
+          "role": "nextThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "KiIdleLoop selected next thread local"
+        }
+      ]
+    }
+  ]
+}

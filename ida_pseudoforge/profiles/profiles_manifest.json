@@ -173,6 +173,16 @@
         "profiles": 30
       }
     },
+    "domain_identity/trap_processor_state.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl trap frame, exception frame, context, PRCB, processor control state, and idle/swap role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "EE9226284DB6E9551E978D3157934642C45A476346A89F6D8387906D5924E9F8",
+      "counts": {
+        "profiles": 12
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",
