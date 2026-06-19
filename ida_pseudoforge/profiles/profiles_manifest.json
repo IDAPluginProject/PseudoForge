@@ -153,6 +153,16 @@
         "profiles": 37
       }
     },
+    "domain_identity/security_descriptor_acl.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl security descriptor, ACL, SID capture, assignment, query, and validation role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "85114DE118A23F2CC44CD1BA23A38A93C6385CC2868ED626D199BD5951DBDE8D",
+      "counts": {
+        "profiles": 24
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",

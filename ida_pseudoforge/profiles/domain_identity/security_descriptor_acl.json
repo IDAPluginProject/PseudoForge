@@ -1,0 +1,1351 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "security-descriptor-acl-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 security descriptor, ACL, SID capture, assignment, query, and validation role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.security_descriptor_acl.capture_security_descriptor",
+      "source": "Reviewed SeCaptureSecurityDescriptor self-relative security descriptor capture, SID/ACL copy, and validation path.",
+      "function_names": [
+        "SeCaptureSecurityDescriptor"
+      ],
+      "required_calls": [
+        "ExAllocatePoolWithTag",
+        "RtlValidAcl"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityDescriptor",
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "__int64",
+            "PSECURITY_DESCRIPTOR",
+            "SECURITY_DESCRIPTOR *"
+          ],
+          "source": "SeCaptureSecurityDescriptor source security descriptor argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "captureMode",
+          "role": "captureMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "char",
+            "KPROCESSOR_MODE",
+            "unsigned __int8"
+          ],
+          "source": "SeCaptureSecurityDescriptor capture mode byte argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "poolType",
+          "role": "poolType",
+          "structure": "POOL_TYPE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "int",
+            "POOL_TYPE"
+          ],
+          "source": "SeCaptureSecurityDescriptor pool type argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "ownerGroupPresent",
+          "role": "ownerGroupPresent",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "unsigned __int8"
+          ],
+          "source": "SeCaptureSecurityDescriptor owner/group capture mode argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "capturedSecurityDescriptor",
+          "role": "capturedSecurityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "_QWORD *",
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeCaptureSecurityDescriptor captured descriptor output argument"
+        },
+        {
+          "local_names": [
+            "srcSidPtr"
+          ],
+          "role": "sourceSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "SeCaptureSecurityDescriptor source SID local"
+        },
+        {
+          "local_names": [
+            "srcAclPtr",
+            "srcDacLPtr",
+            "srcSaCLPtr"
+          ],
+          "role": "sourceAcl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "SeCaptureSecurityDescriptor source ACL locals for DACL/SACL copy"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.release_security_descriptor",
+      "source": "Reviewed SeReleaseSecurityDescriptor captured descriptor free path.",
+      "function_names": [
+        "SeReleaseSecurityDescriptor"
+      ],
+      "required_calls": [
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityDescriptor",
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "void *",
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeReleaseSecurityDescriptor captured descriptor pointer"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "descriptorType",
+          "role": "descriptorType",
+          "structure": "SECURITY_DESCRIPTOR_TYPE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "char",
+            "unsigned __int8",
+            "int"
+          ],
+          "source": "SeReleaseSecurityDescriptor descriptor type byte argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.capture_sid",
+      "source": "Reviewed SeCaptureSid SID length, allocation, copy, and validation path.",
+      "function_names": [
+        "SeCaptureSid"
+      ],
+      "required_calls": [
+        "RtlLengthRequiredSid",
+        "RtlValidSid"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sourceSid",
+          "role": "sourceSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "_BYTE *",
+            "PSID",
+            "__int64"
+          ],
+          "source": "SeCaptureSid source SID argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "poolType",
+          "role": "poolType",
+          "structure": "POOL_TYPE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "int",
+            "POOL_TYPE"
+          ],
+          "source": "SeCaptureSid pool type argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "capturedSid",
+          "role": "capturedSid",
+          "structure": "SID_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSID *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeCaptureSid captured SID output argument"
+        },
+        {
+          "local_names": [
+            "PoolWithTag"
+          ],
+          "role": "capturedSidBuffer",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "SeCaptureSid allocated SID buffer local"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.release_sid",
+      "source": "Reviewed SeReleaseSid captured SID free path.",
+      "function_names": [
+        "SeReleaseSid"
+      ],
+      "required_calls": [
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sid",
+          "role": "sid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "void *",
+            "PSID",
+            "__int64"
+          ],
+          "source": "SeReleaseSid SID pointer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.capture_acl",
+      "source": "Reviewed SeCaptureAcl ACL copy and SepCheckAcl validation path.",
+      "function_names": [
+        "SeCaptureAcl"
+      ],
+      "required_calls": [
+        "SepCheckAcl"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sourceAcl",
+          "role": "sourceAcl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "char *",
+            "PACL",
+            "__int64"
+          ],
+          "source": "SeCaptureAcl source ACL argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "poolType",
+          "role": "poolType",
+          "structure": "POOL_TYPE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "int",
+            "POOL_TYPE"
+          ],
+          "source": "SeCaptureAcl pool type argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "capturedAcl",
+          "role": "capturedAcl",
+          "structure": "ACL_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID *",
+            "PACL *",
+            "__int64"
+          ],
+          "source": "SeCaptureAcl captured ACL output argument"
+        },
+        {
+          "parameter_index": 7,
+          "rename_to": "capturedAclLength",
+          "role": "capturedAclLength",
+          "structure": "ACL_LENGTH_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int *",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "SeCaptureAcl captured ACL length output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.release_acl",
+      "source": "Reviewed SeReleaseAcl captured ACL free path.",
+      "function_names": [
+        "SeReleaseAcl"
+      ],
+      "required_calls": [
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "acl",
+          "role": "acl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "void *",
+            "PACL",
+            "__int64"
+          ],
+          "source": "SeReleaseAcl ACL pointer argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "freeFlag",
+          "role": "freeFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "unsigned __int8",
+            "char",
+            "BOOLEAN"
+          ],
+          "source": "SeReleaseAcl free flag argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.valid_security_descriptor",
+      "source": "Reviewed SeValidSecurityDescriptor owner/group/DACL/SACL bounds and ACL validation path.",
+      "function_names": [
+        "SeValidSecurityDescriptor"
+      ],
+      "required_calls": [
+        "RtlValidAcl"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "inputLength",
+          "role": "inputLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "SeValidSecurityDescriptor input length argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "securityDescriptor",
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "SECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeValidSecurityDescriptor security descriptor argument"
+        },
+        {
+          "local_names": [
+            "dAclPtr",
+            "sAclPtr"
+          ],
+          "role": "acl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "SeValidSecurityDescriptor DACL/SACL locals"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.capture_object_attribute_security_descriptor_present",
+      "source": "Reviewed SeCaptureObjectAttributeSecurityDescriptorPresent object attributes descriptor presence probe.",
+      "function_names": [
+        "SeCaptureObjectAttributeSecurityDescriptorPresent"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "objectAttributes",
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *"
+          ],
+          "source": "SeCaptureObjectAttributeSecurityDescriptorPresent object attributes argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "securityDescriptorPresent",
+          "role": "securityDescriptorPresent",
+          "structure": "BOOLEAN_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "_BYTE *",
+            "BOOLEAN *",
+            "__int64"
+          ],
+          "source": "SeCaptureObjectAttributeSecurityDescriptorPresent output byte argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.capture_security_qos",
+      "source": "Reviewed SeCaptureSecurityQos SECURITY_QUALITY_OF_SERVICE capture/probe flow.",
+      "function_names": [
+        "SeCaptureSecurityQos"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityQos",
+          "role": "securityQos",
+          "structure": "SECURITY_QUALITY_OF_SERVICE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PSECURITY_QUALITY_OF_SERVICE",
+            "SECURITY_QUALITY_OF_SERVICE *"
+          ],
+          "source": "SeCaptureSecurityQos source QoS argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "capturedStatus",
+          "role": "capturedStatus",
+          "structure": "BOOLEAN_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "_BYTE *",
+            "BOOLEAN *",
+            "__int64"
+          ],
+          "source": "SeCaptureSecurityQos captured status output byte"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "capturedSecurityQos",
+          "role": "capturedSecurityQos",
+          "structure": "SECURITY_QUALITY_OF_SERVICE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PSECURITY_QUALITY_OF_SERVICE",
+            "void *"
+          ],
+          "source": "SeCaptureSecurityQos output QoS buffer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.assign_security",
+      "source": "Reviewed SeAssignSecurity wrapper into RtlpNewSecurityObject.",
+      "function_names": [
+        "SeAssignSecurity"
+      ],
+      "required_calls": [
+        "RtlpNewSecurityObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "parentDescriptor",
+          "role": "parentDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeAssignSecurity parent security descriptor argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "explicitDescriptor",
+          "role": "explicitDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeAssignSecurity explicit security descriptor argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "newDescriptor",
+          "role": "newDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeAssignSecurity new descriptor output argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "subjectContext",
+          "role": "subjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "__int64"
+          ],
+          "source": "SeAssignSecurity subject context argument"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "genericMapping",
+          "role": "genericMapping",
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PGENERIC_MAPPING",
+            "__int64"
+          ],
+          "source": "SeAssignSecurity generic mapping argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.assign_security_ex",
+      "source": "Reviewed SeAssignSecurityEx typed security assignment wrapper into SeAssignSecurityEx2.",
+      "function_names": [
+        "SeAssignSecurityEx"
+      ],
+      "required_calls": [
+        "SeAssignSecurityEx2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "parentDescriptor",
+          "role": "parentDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeAssignSecurityEx parent descriptor argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "explicitDescriptor",
+          "role": "explicitDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeAssignSecurityEx explicit descriptor argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "newDescriptor",
+          "role": "newDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeAssignSecurityEx new descriptor output argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "objectTypeGuid",
+          "role": "objectTypeGuid",
+          "structure": "GUID",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "GUID *",
+            "__int64"
+          ],
+          "source": "SeAssignSecurityEx object type GUID argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "subjectContext",
+          "role": "subjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "__int64"
+          ],
+          "source": "SeAssignSecurityEx subject context argument"
+        },
+        {
+          "parameter_index": 7,
+          "rename_to": "genericMapping",
+          "role": "genericMapping",
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PGENERIC_MAPPING",
+            "__int64"
+          ],
+          "source": "SeAssignSecurityEx generic mapping argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.deassign_security",
+      "source": "Reviewed SeDeassignSecurity security descriptor pointer clear and free path.",
+      "function_names": [
+        "SeDeassignSecurity"
+      ],
+      "required_calls": [
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityDescriptorPointer",
+          "role": "securityDescriptorPointer",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeDeassignSecurity descriptor pointer-to-pointer argument"
+        },
+        {
+          "local_names": [
+            "secDesc"
+          ],
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SeDeassignSecurity local descriptor before free"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.set_security_descriptor_info",
+      "source": "Reviewed SeSetSecurityDescriptorInfo wrapper into RtlpSetSecurityObject.",
+      "function_names": [
+        "SeSetSecurityDescriptorInfo"
+      ],
+      "required_calls": [
+        "RtlpSetSecurityObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "object",
+          "role": "object",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeSetSecurityDescriptorInfo referenced object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "securityInformation",
+          "role": "securityInformation",
+          "structure": "SECURITY_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_INFORMATION",
+            "SECURITY_INFORMATION *",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfo security information selector argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "modificationDescriptor",
+          "role": "modificationDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfo modification descriptor argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "objectSecurityDescriptor",
+          "role": "objectSecurityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfo object descriptor pointer argument"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "genericMapping",
+          "role": "genericMapping",
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PGENERIC_MAPPING",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfo generic mapping argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.set_security_descriptor_info_ex",
+      "source": "Reviewed SeSetSecurityDescriptorInfoEx extended wrapper into RtlpSetSecurityObject.",
+      "function_names": [
+        "SeSetSecurityDescriptorInfoEx"
+      ],
+      "required_calls": [
+        "RtlpSetSecurityObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "object",
+          "role": "object",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeSetSecurityDescriptorInfoEx referenced object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "securityInformation",
+          "role": "securityInformation",
+          "structure": "SECURITY_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PSECURITY_INFORMATION",
+            "SECURITY_INFORMATION *",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfoEx security information selector argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "modificationDescriptor",
+          "role": "modificationDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfoEx modification descriptor argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "objectSecurityDescriptor",
+          "role": "objectSecurityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfoEx object descriptor pointer argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "autoInheritFlags",
+          "role": "autoInheritFlags",
+          "structure": "SECURITY_AUTO_INHERIT_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "SeSetSecurityDescriptorInfoEx auto-inherit flags argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "genericMapping",
+          "role": "genericMapping",
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PGENERIC_MAPPING",
+            "__int64"
+          ],
+          "source": "SeSetSecurityDescriptorInfoEx generic mapping argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.query_security_descriptor_info",
+      "source": "Reviewed SeQuerySecurityDescriptorInfo self-relative descriptor assembly, requested security information, length, and SACL filtering path.",
+      "function_names": [
+        "SeQuerySecurityDescriptorInfo"
+      ],
+      "required_calls": [
+        "memmove"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityInformation",
+          "role": "securityInformation",
+          "structure": "SECURITY_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_INFORMATION",
+            "SECURITY_INFORMATION *",
+            "__int64"
+          ],
+          "source": "SeQuerySecurityDescriptorInfo security information selector argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "securityDescriptor",
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SeQuerySecurityDescriptorInfo output security descriptor buffer"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "inputLength",
+          "role": "inputLength",
+          "structure": "BUFFER_LENGTH_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PULONG",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "SeQuerySecurityDescriptorInfo input/output length argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "objectSecurityDescriptor",
+          "role": "objectSecurityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SeQuerySecurityDescriptorInfo object security descriptor pointer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.query_security_access_mask",
+      "source": "Reviewed SeQuerySecurityAccessMask query mask construction.",
+      "function_names": [
+        "SeQuerySecurityAccessMask"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "requestedAccess",
+          "role": "requestedAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ACCESS_MASK",
+            "unsigned int"
+          ],
+          "source": "SeQuerySecurityAccessMask requested access argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "accessMask",
+          "role": "accessMask",
+          "structure": "ACCESS_MASK_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "int *",
+            "ACCESS_MASK *",
+            "unsigned int *"
+          ],
+          "source": "SeQuerySecurityAccessMask output access mask argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.set_security_access_mask",
+      "source": "Reviewed SeSetSecurityAccessMask set mask construction.",
+      "function_names": [
+        "SeSetSecurityAccessMask"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "requestedAccess",
+          "role": "requestedAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ACCESS_MASK",
+            "unsigned int"
+          ],
+          "source": "SeSetSecurityAccessMask requested access argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "accessMask",
+          "role": "accessMask",
+          "structure": "ACCESS_MASK_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "int *",
+            "ACCESS_MASK *",
+            "unsigned int *"
+          ],
+          "source": "SeSetSecurityAccessMask output access mask argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_check_acl",
+      "source": "Reviewed SepCheckAcl ACE walking and object/compound/attribute ACE validation.",
+      "function_names": [
+        "SepCheckAcl"
+      ],
+      "required_calls": [
+        "RtlpValidObjectAce"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "acl",
+          "role": "acl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PACL",
+            "ACL *"
+          ],
+          "source": "SepCheckAcl ACL argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "expectedAclSize",
+          "role": "expectedAclSize",
+          "structure": "ACL_SIZE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "SepCheckAcl expected ACL size argument"
+        },
+        {
+          "local_names": [
+            "currentAcePtr"
+          ],
+          "role": "currentAce",
+          "structure": "ACE_HEADER",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "SepCheckAcl current ACE cursor local"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_check_and_copy_self_relative_sd",
+      "source": "Reviewed SepCheckAndCopySelfRelativeSD absolute-to-self-relative conversion and strict length validation.",
+      "function_names": [
+        "SepCheckAndCopySelfRelativeSD"
+      ],
+      "required_calls": [
+        "RtlAbsoluteToSelfRelativeSD",
+        "SepSecurityDescriptorStrictLength"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityDescriptor",
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int16 *",
+            "PSECURITY_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "SepCheckAndCopySelfRelativeSD input descriptor argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "capturedSecurityDescriptor",
+          "role": "capturedSecurityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID *",
+            "PSECURITY_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "SepCheckAndCopySelfRelativeSD output descriptor pointer"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "inputLength",
+          "role": "inputLength",
+          "structure": "BUFFER_LENGTH_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG *",
+            "PULONG",
+            "__int64"
+          ],
+          "source": "SepCheckAndCopySelfRelativeSD length in/out argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_flatten_acl",
+      "source": "Reviewed SepFlattenAcl ACE flattening into a new ACL buffer.",
+      "function_names": [
+        "SepFlattenAcl"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "inputAcl",
+          "role": "inputAcl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PACL",
+            "ACL *"
+          ],
+          "source": "SepFlattenAcl input ACL argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "flattenedAcl",
+          "role": "flattenedAcl",
+          "structure": "ACL_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64 *",
+            "PACL *",
+            "_QWORD *"
+          ],
+          "source": "SepFlattenAcl flattened ACL output argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "flattenedAclSize",
+          "role": "flattenedAclSize",
+          "structure": "ACL_SIZE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned int *",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "SepFlattenAcl flattened ACL size output argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "flattenedAceCount",
+          "role": "flattenedAceCount",
+          "structure": "ACE_COUNT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "_WORD *",
+            "USHORT *",
+            "__int64"
+          ],
+          "source": "SepFlattenAcl flattened ACE count output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_duplicate_sid",
+      "source": "Reviewed SepDuplicateSid allocation and SID copy path.",
+      "function_names": [
+        "SepDuplicateSid"
+      ],
+      "required_calls": [
+        "ExAllocatePool2",
+        "memmove"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sourceSid",
+          "role": "sourceSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "unsigned __int8 *",
+            "PSID",
+            "__int64"
+          ],
+          "source": "SepDuplicateSid source SID argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "duplicatedSid",
+          "role": "duplicatedSid",
+          "structure": "SID_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_QWORD *",
+            "PSID *",
+            "__int64"
+          ],
+          "source": "SepDuplicateSid duplicated SID output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_is_acl_equal",
+      "source": "Reviewed SepIsAclEqual ACL memory comparison path.",
+      "function_names": [
+        "SepIsAclEqual"
+      ],
+      "required_calls": [
+        "RtlCompareMemory"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "leftAcl",
+          "role": "leftAcl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_WORD *",
+            "PACL",
+            "__int64"
+          ],
+          "source": "SepIsAclEqual first ACL argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "rightAcl",
+          "role": "rightAcl",
+          "structure": "ACL",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_WORD *",
+            "PACL",
+            "__int64"
+          ],
+          "source": "SepIsAclEqual second ACL argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_is_sid_equal",
+      "source": "Reviewed SepIsSidEqual wrapper around RtlEqualSid.",
+      "function_names": [
+        "SepIsSidEqual"
+      ],
+      "required_calls": [
+        "RtlEqualSid"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "leftSid",
+          "role": "leftSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "void *",
+            "PSID",
+            "__int64"
+          ],
+          "source": "SepIsSidEqual first SID argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "rightSid",
+          "role": "rightSid",
+          "structure": "SID",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "void *",
+            "PSID",
+            "__int64"
+          ],
+          "source": "SepIsSidEqual second SID argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.security_descriptor_acl.sep_length_sid_and_attributes_array",
+      "source": "Reviewed SepLengthSidAndAttributesArray SID_AND_ATTRIBUTES capture and aggregate length calculation path.",
+      "function_names": [
+        "SepLengthSidAndAttributesArray"
+      ],
+      "required_calls": [
+        "SeCaptureSidAndAttributesArray"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sidArray",
+          "role": "sidArray",
+          "structure": "SID_AND_ATTRIBUTES_ARRAY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PSID_AND_ATTRIBUTES",
+            "SID_AND_ATTRIBUTES *"
+          ],
+          "source": "SepLengthSidAndAttributesArray SID_AND_ATTRIBUTES array argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "sidCount",
+          "role": "sidCount",
+          "structure": "SID_COUNT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "SepLengthSidAndAttributesArray SID count argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "lengthOut",
+          "role": "lengthOut",
+          "structure": "BUFFER_LENGTH_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_DWORD *",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "SepLengthSidAndAttributesArray output length argument"
+        }
+      ]
+    }
+  ]
+}
