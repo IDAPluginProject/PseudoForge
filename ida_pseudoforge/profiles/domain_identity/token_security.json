@@ -1,0 +1,1047 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "token-security-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 token/security/audit role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.token_security.capture_subject_context",
+      "source": "Reviewed SeCaptureSubjectContext subject context capture, primary token reference, and optional client token reference flow.",
+      "function_names": [
+        "SeCaptureSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "capturedSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "struct _SECURITY_SUBJECT_CONTEXT *",
+            "__int64"
+          ],
+          "source": "SeCaptureSubjectContext subject context output parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "SeCaptureSubjectContext current thread local"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "SeCaptureSubjectContext current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.capture_subject_context_ex",
+      "source": "Reviewed SeCaptureSubjectContextEx explicit thread/process subject context capture flow.",
+      "function_names": [
+        "SeCaptureSubjectContextEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sourceThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "struct _KTHREAD *",
+            "__int64"
+          ],
+          "source": "SeCaptureSubjectContextEx source thread parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "sourceProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeCaptureSubjectContextEx source process parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "capturedSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "struct _SECURITY_SUBJECT_CONTEXT *",
+            "__int64"
+          ],
+          "source": "SeCaptureSubjectContextEx subject context output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.release_subject_context",
+      "source": "Reviewed SeReleaseSubjectContext primary/client token dereference and subject context clear flow.",
+      "function_names": [
+        "SeReleaseSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "releasedSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "struct _SECURITY_SUBJECT_CONTEXT *",
+            "__int64"
+          ],
+          "source": "SeReleaseSubjectContext subject context parameter"
+        },
+        {
+          "local_names": [
+            "primaryToken"
+          ],
+          "role": "primaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "SeReleaseSubjectContext primary token local"
+        },
+        {
+          "local_names": [
+            "clientToken"
+          ],
+          "role": "clientToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "SeReleaseSubjectContext client token local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.lock_subject_context",
+      "source": "Reviewed SeLockSubjectContext token security resource lock flow.",
+      "function_names": [
+        "SeLockSubjectContext",
+        "SeUnlockSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "lockedSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "struct _SECURITY_SUBJECT_CONTEXT *",
+            "__int64"
+          ],
+          "source": "Subject context token resource lock/unlock parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.reference_primary_token",
+      "source": "Reviewed PsReferencePrimaryToken wrapper role for EPROCESS primary token reference.",
+      "function_names": [
+        "PsReferencePrimaryToken"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sourceProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "PsReferencePrimaryToken source process parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.reference_primary_token_with_tag",
+      "source": "Reviewed PsReferencePrimaryTokenWithTag fast-reference primary token acquisition flow.",
+      "function_names": [
+        "PsReferencePrimaryTokenWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sourceProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "PsReferencePrimaryTokenWithTag source process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "referenceTag",
+          "structure": "POOL_TAG",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "PsReferencePrimaryTokenWithTag pool tag parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PsReferencePrimaryTokenWithTag current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.dereference_primary_token",
+      "source": "Reviewed PsDereferencePrimaryToken token dereference wrapper role.",
+      "function_names": [
+        "PsDereferencePrimaryToken"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "dereferencedPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PACCESS_TOKEN",
+            "void *",
+            "__int64"
+          ],
+          "source": "PsDereferencePrimaryToken token parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.assign_primary_token",
+      "source": "Reviewed SeAssignPrimaryToken process token assignment and audit/subject-context flow.",
+      "function_names": [
+        "SeAssignPrimaryToken"
+      ],
+      "required_calls": [
+        "SeCaptureSubjectContext",
+        "SeReleaseSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeAssignPrimaryToken target process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "newPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PACCESS_TOKEN",
+            "_BYTE *",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAssignPrimaryToken primary token parameter"
+        },
+        {
+          "local_names": [
+            "SubjectContext"
+          ],
+          "role": "auditSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "SeAssignPrimaryToken audit subject context local"
+        },
+        {
+          "local_names": [
+            "primaryToken"
+          ],
+          "role": "effectiveAuditToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "SeAssignPrimaryToken selected audit token local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.exchange_primary_token",
+      "source": "Reviewed SeExchangePrimaryToken EPROCESS primary token exchange and old-token output flow.",
+      "function_names": [
+        "SeExchangePrimaryToken"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeExchangePrimaryToken target process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "newPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PACCESS_TOKEN",
+            "ULONG_PTR",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeExchangePrimaryToken new primary token parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "oldPrimaryTokenOutput",
+          "structure": "ACCESS_TOKEN_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PACCESS_TOKEN *",
+            "unsigned __int64 *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeExchangePrimaryToken old token output parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "oldPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "SeExchangePrimaryToken old token local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.deassign_primary_token",
+      "source": "Reviewed SeDeassignPrimaryToken process primary token removal and dereference flow.",
+      "function_names": [
+        "SeDeassignPrimaryToken"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeDeassignPrimaryToken target process parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.psp_assign_primary_token",
+      "source": "Reviewed PspAssignPrimaryToken handle-to-token validation, privilege check, process lock, token exchange, and dereference flow.",
+      "function_names": [
+        "PspAssignPrimaryToken"
+      ],
+      "required_calls": [
+        "SeExchangePrimaryToken"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "callerThreadOrLockContext",
+          "structure": "THREAD_LOCK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "PspAssignPrimaryToken lock/context parameter observed in corpus"
+        },
+        {
+          "parameter_index": 1,
+          "role": "accessMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KPROCESSOR_MODE",
+            "char",
+            "int"
+          ],
+          "source": "PspAssignPrimaryToken access mode parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "targetProcessHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspAssignPrimaryToken target process handle parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "newTokenHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "PspAssignPrimaryToken new token handle parameter"
+        },
+        {
+          "local_names": [
+            "v16"
+          ],
+          "role": "newPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "PspAssignPrimaryToken token object referenced from handle"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "oldPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "PspAssignPrimaryToken old primary token returned by exchange"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.create_access_state",
+      "source": "Reviewed SeCreateAccessState current subject-context capture and access state creation role.",
+      "function_names": [
+        "SeCreateAccessState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "accessStateOutput",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeCreateAccessState access state output parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "auxiliaryAccessStateOutput",
+          "structure": "AUX_ACCESS_DATA",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PAUX_ACCESS_DATA",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeCreateAccessState auxiliary access state parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "SeCreateAccessState desired access parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "genericMapping",
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PGENERIC_MAPPING",
+            "_DWORD *",
+            "__int64"
+          ],
+          "source": "SeCreateAccessState generic mapping parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.create_access_state_ex",
+      "source": "Reviewed SeCreateAccessStateEx explicit thread/process subject context capture and access state creation role.",
+      "function_names": [
+        "SeCreateAccessStateEx"
+      ],
+      "required_calls": [
+        "SepCreateAccessStateFromSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sourceThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "__int64"
+          ],
+          "source": "SeCreateAccessStateEx source thread parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "sourceProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeCreateAccessStateEx source process parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "accessStateOutput",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeCreateAccessStateEx access state output parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "SeCreateAccessStateEx desired access parameter"
+        },
+        {
+          "parameter_index": 5,
+          "role": "remainingDesiredAccessOutput",
+          "structure": "ACCESS_MASK_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PACCESS_MASK",
+            "_DWORD *",
+            "__int64"
+          ],
+          "source": "SeCreateAccessStateEx remaining desired access output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.create_access_state_from_subject_context",
+      "source": "Reviewed SeCreateAccessStateFromSubjectContext wrapper around SepCreateAccessStateFromSubjectContext and subject-token reference management.",
+      "function_names": [
+        "SeCreateAccessStateFromSubjectContext"
+      ],
+      "required_calls": [
+        "SepCreateAccessStateFromSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "subjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "__int64"
+          ],
+          "source": "SeCreateAccessStateFromSubjectContext subject context parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "accessStateOutput",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeCreateAccessStateFromSubjectContext access state output parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "SeCreateAccessStateFromSubjectContext desired access parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.delete_access_state",
+      "source": "Reviewed SeDeleteAccessState access state deletion and subject-token dereference flow.",
+      "function_names": [
+        "SeDeleteAccessState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deletedAccessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "__int64"
+          ],
+          "source": "SeDeleteAccessState access state parameter"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SeDeleteAccessState current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.access_check_from_state",
+      "source": "Reviewed SeAccessCheckFromState token access information, security descriptor, privilege set, generic mapping, and status outputs.",
+      "function_names": [
+        "SeAccessCheckFromState"
+      ],
+      "required_calls": [
+        "SeAccessCheckWithHint"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromState security descriptor parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "primaryTokenAccessInformation",
+          "structure": "TOKEN_ACCESS_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PTOKEN_ACCESS_INFORMATION",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromState primary token access information parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "clientTokenAccessInformation",
+          "structure": "TOKEN_ACCESS_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PTOKEN_ACCESS_INFORMATION",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromState client token access information parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "SeAccessCheckFromState desired access parameter"
+        },
+        {
+          "parameter_index": 5,
+          "role": "privilegeSetOutput",
+          "structure": "PRIVILEGE_SET_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PPRIVILEGE_SET *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "SeAccessCheckFromState privilege set output parameter"
+        },
+        {
+          "parameter_index": 6,
+          "role": "genericMapping",
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PGENERIC_MAPPING",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromState generic mapping parameter"
+        },
+        {
+          "parameter_index": 8,
+          "role": "grantedAccessOutput",
+          "structure": "ACCESS_MASK_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PACCESS_MASK",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromState granted access output parameter"
+        },
+        {
+          "parameter_index": 9,
+          "role": "accessStatusOutput",
+          "structure": "NTSTATUS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PNTSTATUS",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromState access status output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.access_check_from_state_ex",
+      "source": "Reviewed SeAccessCheckFromStateEx compact access state forwarding to SeAccessCheckWithHint.",
+      "function_names": [
+        "SeAccessCheckFromStateEx"
+      ],
+      "required_calls": [
+        "SeAccessCheckWithHint"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromStateEx security descriptor parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "SeAccessCheckFromStateEx desired access parameter"
+        },
+        {
+          "parameter_index": 8,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromStateEx access state parameter"
+        },
+        {
+          "parameter_index": 9,
+          "role": "auditAlarm",
+          "structure": "SECURITY_AUDIT_ALARM",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckFromStateEx audit alarm/context parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.audit_process_creation",
+      "source": "Reviewed SeAuditProcessCreation process object, command line, subject context, and audit record assembly flow.",
+      "function_names": [
+        "SeAuditProcessCreation"
+      ],
+      "required_calls": [
+        "SepAdtLogAuditRecord"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "auditedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeAuditProcessCreation process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "commandLine",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "SeAuditProcessCreation command line parameter"
+        },
+        {
+          "local_names": [
+            "SubjectContext"
+          ],
+          "role": "auditSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "SeAuditProcessCreation subject context local"
+        },
+        {
+          "local_names": [
+            "Src"
+          ],
+          "role": "auditRecord",
+          "structure": "AUDIT_RECORD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SeAuditProcessCreation audit record buffer local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.audit_process_exit",
+      "source": "Reviewed SeAuditProcessExit process object, exit status, primary token reference, and audit record assembly flow.",
+      "function_names": [
+        "SeAuditProcessExit"
+      ],
+      "required_calls": [
+        "SepAdtLogAuditRecord"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "auditedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SeAuditProcessExit process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "NTSTATUS",
+            "unsigned int",
+            "int"
+          ],
+          "source": "SeAuditProcessExit exit status parameter"
+        },
+        {
+          "local_names": [
+            "Src"
+          ],
+          "role": "auditRecord",
+          "structure": "AUDIT_RECORD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SeAuditProcessExit audit record buffer local"
+        }
+      ]
+    },
+    {
+      "id": "windows.token_security.audit_assign_primary_token",
+      "source": "Reviewed SepAuditAssignPrimaryToken subject context capture and audit record assembly flow.",
+      "function_names": [
+        "SepAuditAssignPrimaryToken"
+      ],
+      "required_calls": [
+        "SeCaptureSubjectContext",
+        "SepAdtLogAuditRecord"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "SepAuditAssignPrimaryToken target process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "newPrimaryToken",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PACCESS_TOKEN",
+            "__int64",
+            "void *"
+          ],
+          "source": "SepAuditAssignPrimaryToken new token/process-like parameter"
+        },
+        {
+          "local_names": [
+            "SubjectContext"
+          ],
+          "role": "auditSubjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "SepAuditAssignPrimaryToken subject context local"
+        },
+        {
+          "local_names": [
+            "Src"
+          ],
+          "role": "auditRecord",
+          "structure": "AUDIT_RECORD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SepAuditAssignPrimaryToken audit record buffer local"
+        }
+      ]
+    }
+  ]
+}
