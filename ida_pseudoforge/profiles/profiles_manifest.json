@@ -123,6 +123,16 @@
         "profiles": 16
       }
     },
+    "domain_identity/io_manager.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl I/O Manager driver/device/IRP role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "4F9908274D6F80A2962753E410F8375ACEF07431DC869EFF3115CF93753BED7A",
+      "counts": {
+        "profiles": 24
+      }
+    },
     "domain_identity/memory_manager.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl Memory Manager VAD/address-space role-only identity profiles",

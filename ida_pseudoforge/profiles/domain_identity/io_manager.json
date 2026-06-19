@@ -1,0 +1,1238 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "io-manager-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 I/O Manager driver, device, file, and IRP role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.io_manager.create_device",
+      "source": "Reviewed IoCreateDevice driver object, device characteristics, and output device object flow.",
+      "function_names": [
+        "IoCreateDevice"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PDRIVER_OBJECT",
+            "struct _DRIVER_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoCreateDevice owning driver object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "deviceExtensionSize",
+          "structure": "DEVICE_EXTENSION_SIZE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "IoCreateDevice device extension size argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "deviceName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "IoCreateDevice optional device name argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "deviceType",
+          "structure": "DEVICE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "DEVICE_TYPE",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "IoCreateDevice device type argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "deviceCharacteristics",
+          "structure": "DEVICE_CHARACTERISTICS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "IoCreateDevice device characteristics argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "exclusiveDevice",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "bool",
+            "char",
+            "unsigned char"
+          ],
+          "source": "IoCreateDevice exclusive-device flag argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "deviceObjectOutput",
+          "structure": "DEVICE_OBJECT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT *",
+            "PDEVICE_OBJECT*",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "IoCreateDevice output device object pointer argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "securityOrNameObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "IoCreateDevice local object reference used on security/name creation paths"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.create_device_secure",
+      "source": "Reviewed IoCreateDeviceSecure SDDL conversion and IoCreateDevice handoff.",
+      "function_names": [
+        "IoCreateDeviceSecure"
+      ],
+      "required_calls": [
+        "IoCreateDevice"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDRIVER_OBJECT",
+            "struct _DRIVER_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoCreateDeviceSecure owning driver object argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "deviceName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "IoCreateDeviceSecure optional device name argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "deviceType",
+          "structure": "DEVICE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "DEVICE_TYPE",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "IoCreateDeviceSecure device type argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "deviceCharacteristics",
+          "structure": "DEVICE_CHARACTERISTICS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "IoCreateDeviceSecure device characteristics argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "securityDescriptorString",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PCUNICODE_STRING",
+            "PUNICODE_STRING",
+            "const void **",
+            "__int64"
+          ],
+          "source": "IoCreateDeviceSecure SDDL string argument"
+        },
+        {
+          "parameter_index": 8,
+          "role": "deviceObjectOutput",
+          "structure": "DEVICE_OBJECT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PDEVICE_OBJECT *",
+            "PDEVICE_OBJECT",
+            "__int64"
+          ],
+          "source": "IoCreateDeviceSecure output device object argument"
+        },
+        {
+          "local_names": [
+            "DeviceObject"
+          ],
+          "role": "createdDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoCreateDeviceSecure local created by IoCreateDevice before security attachment"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.delete_device",
+      "source": "Reviewed IoDeleteDevice timer, shutdown notification, and delete/unload completion flow.",
+      "function_names": [
+        "IoDeleteDevice"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoDeleteDevice target device object argument"
+        },
+        {
+          "local_names": [
+            "timer"
+          ],
+          "role": "deviceTimer",
+          "structure": "IO_TIMER",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IoDeleteDevice local timer removed from the device timer list"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.create_driver",
+      "source": "Reviewed IoCreateDriver object creation, insertion, handle reference, and driver initialization flow.",
+      "function_names": [
+        "IoCreateDriver"
+      ],
+      "required_calls": [
+        "ObCreateObjectEx",
+        "ObInsertObjectEx",
+        "ObReferenceObjectByHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "driverName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "_OWORD *",
+            "__int64"
+          ],
+          "source": "IoCreateDriver optional driver name argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "driverInitialize",
+          "structure": "DRIVER_INITIALIZE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PDRIVER_INITIALIZE",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "IoCreateDriver initialization routine argument"
+        },
+        {
+          "local_names": [
+            "pDriverFileObject",
+            "pReferencedDriverObj"
+          ],
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "IoCreateDriver object created and referenced through Object Manager"
+        },
+        {
+          "local_names": [
+            "hInsertedObj",
+            "Handle"
+          ],
+          "role": "driverHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoCreateDriver handle returned by ObInsertObjectEx"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.delete_driver",
+      "source": "Reviewed IoDeleteDriver temporary-object conversion and dereference flow.",
+      "function_names": [
+        "IoDeleteDriver"
+      ],
+      "required_calls": [
+        "ObMakeTemporaryObject",
+        "ObfDereferenceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDRIVER_OBJECT",
+            "char *",
+            "__int64"
+          ],
+          "source": "IoDeleteDriver target driver object argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.register_driver_reinitialization",
+      "source": "Reviewed IoRegisterDriverReinitialization driver reference and reinit queue entry insertion flow.",
+      "function_names": [
+        "IoRegisterDriverReinitialization"
+      ],
+      "required_calls": [
+        "ExAllocatePool2",
+        "IopInterlockedInsertTailList"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDRIVER_OBJECT",
+            "struct _DRIVER_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoRegisterDriverReinitialization driver object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "driverReinitializationRoutine",
+          "structure": "DRIVER_REINITIALIZE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PDRIVER_REINITIALIZE",
+            "__int64"
+          ],
+          "source": "IoRegisterDriverReinitialization callback routine argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "driverReinitContext",
+          "structure": "DRIVER_REINIT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "IoRegisterDriverReinitialization callback context argument"
+        },
+        {
+          "local_names": [
+            "Pool2"
+          ],
+          "role": "driverReinitQueueEntry",
+          "structure": "IO_DRIVER_REINIT_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoRegisterDriverReinitialization queue entry allocated with IoRi tag"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.attach_device_to_stack_safe",
+      "source": "Reviewed IoAttachDeviceToDeviceStackSafe wrapper into IopAttachDeviceToDeviceStackSafe.",
+      "function_names": [
+        "IoAttachDeviceToDeviceStackSafe"
+      ],
+      "required_calls": [
+        "IopAttachDeviceToDeviceStackSafe"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sourceDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoAttachDeviceToDeviceStackSafe source device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoAttachDeviceToDeviceStackSafe target device object argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "attachedDeviceOutput",
+          "structure": "DEVICE_OBJECT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PDEVICE_OBJECT *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "IoAttachDeviceToDeviceStackSafe attached-device output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.attach_device_to_stack",
+      "source": "Reviewed IoAttachDeviceToDeviceStack wrapper into IopAttachDeviceToDeviceStackSafe.",
+      "function_names": [
+        "IoAttachDeviceToDeviceStack"
+      ],
+      "required_calls": [
+        "IopAttachDeviceToDeviceStackSafe"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sourceDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoAttachDeviceToDeviceStack source device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoAttachDeviceToDeviceStack target device object argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.detach_device",
+      "source": "Reviewed IoDetachDevice attached-device unlink and unload/delete completion flow.",
+      "function_names": [
+        "IoDetachDevice"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoDetachDevice target device object argument"
+        },
+        {
+          "local_names": [
+            "DeviceObjectExtension"
+          ],
+          "role": "deviceObjectExtension",
+          "structure": "DEVOBJ_EXTENSION",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoDetachDevice local device object extension used to clear attach state"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.get_attached_device_reference",
+      "source": "Reviewed IoGetAttachedDeviceReference attachment stack traversal and tagged object reference.",
+      "function_names": [
+        "IoGetAttachedDeviceReference"
+      ],
+      "required_calls": [
+        "ObfReferenceObjectWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "startingDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoGetAttachedDeviceReference starting device object argument"
+        },
+        {
+          "local_names": [
+            "i"
+          ],
+          "role": "topAttachedDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoGetAttachedDeviceReference attachment traversal local"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.get_related_device_object",
+      "source": "Reviewed IoGetRelatedDeviceObject file object VPB and attached-device traversal flow.",
+      "function_names": [
+        "IoGetRelatedDeviceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "struct _FILE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoGetRelatedDeviceObject file object argument"
+        },
+        {
+          "local_names": [
+            "result",
+            "v8",
+            "i"
+          ],
+          "role": "relatedDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoGetRelatedDeviceObject related or top attached device local"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.get_base_file_system_device_object",
+      "source": "Reviewed IoGetBaseFileSystemDeviceObject file object VPB/base-device flow.",
+      "function_names": [
+        "IoGetBaseFileSystemDeviceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PFILE_OBJECT",
+            "struct _FILE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoGetBaseFileSystemDeviceObject file object argument"
+        },
+        {
+          "local_names": [
+            "baseDeviceObj"
+          ],
+          "role": "baseFileSystemDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IoGetBaseFileSystemDeviceObject resolved base device local"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.get_device_object_pointer",
+      "source": "Reviewed IoGetDeviceObjectPointer file open, file object reference, and related device lookup flow.",
+      "function_names": [
+        "IoGetDeviceObjectPointer"
+      ],
+      "required_calls": [
+        "ZwOpenFile",
+        "ObReferenceObjectByHandle",
+        "IoGetRelatedDeviceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "objectName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "IoGetDeviceObjectPointer object name argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "IoGetDeviceObjectPointer desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "fileObjectOutput",
+          "structure": "FILE_OBJECT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PFILE_OBJECT *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "IoGetDeviceObjectPointer output file object argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "deviceObjectOutput",
+          "structure": "DEVICE_OBJECT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_OBJECT *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "IoGetDeviceObjectPointer output related device object argument"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "tempFileObj"
+          ],
+          "role": "referencedFileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IoGetDeviceObjectPointer referenced file object local"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.call_driver",
+      "source": "Reviewed IofCallDriver dispatch wrapper into IopfCallDriver, verifier, and perf call-driver paths.",
+      "function_names": [
+        "IofCallDriver"
+      ],
+      "required_calls": [
+        "IopfCallDriver"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IofCallDriver target device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64"
+          ],
+          "source": "IofCallDriver IRP argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.call_driver_private",
+      "source": "Reviewed IopfCallDriver current stack location update and major-function dispatch flow.",
+      "function_names": [
+        "IopfCallDriver"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "IopfCallDriver device object argument despite decompiler name drift"
+        },
+        {
+          "parameter_index": 1,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PIRP",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "IopfCallDriver IRP argument despite decompiler name drift"
+        },
+        {
+          "local_names": [
+            "pCurrentStackLocation",
+            "currentStackLocation"
+          ],
+          "role": "currentStackLocation",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "IopfCallDriver current IRP stack location local"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.complete_request",
+      "source": "Reviewed IofCompleteRequest wrapper into IopfCompleteRequest, verifier, and perf completion paths.",
+      "function_names": [
+        "IofCompleteRequest"
+      ],
+      "required_calls": [
+        "IopfCompleteRequest"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "IofCompleteRequest IRP argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "priorityBoost",
+          "structure": "IO_PRIORITY_BOOST",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "CCHAR",
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "IofCompleteRequest priority boost argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.complete_request_private",
+      "source": "Reviewed IopfCompleteRequest IRP stack unwind, completion routines, and final completion flow.",
+      "function_names": [
+        "IopfCompleteRequest"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "IopfCompleteRequest IRP argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "priorityBoost",
+          "structure": "IO_PRIORITY_BOOST",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "CCHAR",
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "IopfCompleteRequest priority/completion mode argument"
+        },
+        {
+          "local_names": [
+            "currentStackLocation"
+          ],
+          "role": "currentStackLocation",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IopfCompleteRequest current completion stack location local"
+        },
+        {
+          "local_names": [
+            "deviceObject"
+          ],
+          "role": "completionDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IopfCompleteRequest completion device object local"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.allocate_irp",
+      "source": "Reviewed IoAllocateIrp stack-size and quota wrapper around private/verifier allocation paths.",
+      "function_names": [
+        "IoAllocateIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "stackSize",
+          "structure": "IRP_STACK_SIZE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "CCHAR",
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "IoAllocateIrp stack size argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "chargeQuota",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "BOOLEAN",
+            "bool",
+            "char",
+            "unsigned char"
+          ],
+          "source": "IoAllocateIrp charge quota argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.initialize_irp",
+      "source": "Reviewed IoInitializeIrp packet zeroing and IRP stack location initialization flow.",
+      "function_names": [
+        "IoInitializeIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64"
+          ],
+          "source": "IoInitializeIrp IRP argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "packetSize",
+          "structure": "IRP_PACKET_SIZE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "USHORT",
+            "unsigned short",
+            "int",
+            "unsigned int"
+          ],
+          "source": "IoInitializeIrp packet size argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "stackSize",
+          "structure": "IRP_STACK_SIZE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "CCHAR",
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "IoInitializeIrp stack size argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.free_irp",
+      "source": "Reviewed IoFreeIrp IRP validation, extension release, lookaside/free flow.",
+      "function_names": [
+        "IoFreeIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64"
+          ],
+          "source": "IoFreeIrp IRP argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.build_device_io_control_request",
+      "source": "Reviewed IoBuildDeviceIoControlRequest wrapper into IopBuildDeviceIoControlRequest.",
+      "function_names": [
+        "IoBuildDeviceIoControlRequest"
+      ],
+      "required_calls": [
+        "IopBuildDeviceIoControlRequest"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "ioControlCode",
+          "structure": "IOCTL_CODE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "IoBuildDeviceIoControlRequest IOCTL code argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoBuildDeviceIoControlRequest target device object argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "inputBuffer",
+          "structure": "IO_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "IoBuildDeviceIoControlRequest input buffer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "outputBuffer",
+          "structure": "IO_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "IoBuildDeviceIoControlRequest output buffer argument"
+        },
+        {
+          "parameter_index": 7,
+          "role": "completionEvent",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PKEVENT",
+            "struct _KEVENT *",
+            "__int64"
+          ],
+          "source": "IoBuildDeviceIoControlRequest completion event argument"
+        },
+        {
+          "parameter_index": 8,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "struct _IO_STATUS_BLOCK *",
+            "__int64"
+          ],
+          "source": "IoBuildDeviceIoControlRequest I/O status block argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.build_device_io_control_request_private",
+      "source": "Reviewed IopBuildDeviceIoControlRequest IRP allocation, stack setup, MDL, event, IOSB, and thread queueing flow.",
+      "function_names": [
+        "IopBuildDeviceIoControlRequest"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "ioControlCode",
+          "structure": "IOCTL_CODE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "IopBuildDeviceIoControlRequest IOCTL code argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "__int64"
+          ],
+          "source": "IopBuildDeviceIoControlRequest target device object argument"
+        },
+        {
+          "parameter_index": 7,
+          "role": "completionEvent",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PKEVENT",
+            "struct _KEVENT *",
+            "__int64"
+          ],
+          "source": "IopBuildDeviceIoControlRequest completion event argument"
+        },
+        {
+          "parameter_index": 8,
+          "role": "ioStatusBlock",
+          "structure": "IO_STATUS_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PIO_STATUS_BLOCK",
+            "struct _IO_STATUS_BLOCK *",
+            "__int64"
+          ],
+          "source": "IopBuildDeviceIoControlRequest I/O status block argument"
+        },
+        {
+          "local_names": [
+            "Irp",
+            "v14"
+          ],
+          "role": "allocatedIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IopBuildDeviceIoControlRequest IRP allocated by IopAllocateIrpExReturn"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.create_symbolic_link",
+      "source": "Reviewed IoCreateSymbolicLink name packaging into IoCreateSymbolicLink2.",
+      "function_names": [
+        "IoCreateSymbolicLink"
+      ],
+      "required_calls": [
+        "IoCreateSymbolicLink2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "symbolicLinkName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "IoCreateSymbolicLink link name argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetDeviceName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "IoCreateSymbolicLink target device name argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.io_manager.delete_symbolic_link",
+      "source": "Reviewed IoDeleteSymbolicLink symbolic link open, temporary-object conversion, and close flow.",
+      "function_names": [
+        "IoDeleteSymbolicLink"
+      ],
+      "required_calls": [
+        "ZwOpenSymbolicLinkObject",
+        "ZwMakeTemporaryObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "symbolicLinkName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "IoDeleteSymbolicLink link name argument"
+        },
+        {
+          "local_names": [
+            "LinkHandle"
+          ],
+          "role": "symbolicLinkHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoDeleteSymbolicLink local handle returned by ZwOpenSymbolicLinkObject"
+        },
+        {
+          "local_names": [
+            "ObjectAttributes"
+          ],
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoDeleteSymbolicLink local object attributes for symbolic link open"
+        }
+      ]
+    }
+  ]
+}
