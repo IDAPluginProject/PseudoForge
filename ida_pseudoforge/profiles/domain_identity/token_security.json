@@ -879,6 +879,196 @@
       ]
     },
     {
+      "id": "windows.token_security.sep_common_access_check_ex",
+      "source": "Reviewed SepCommonAccessCheckEx subject-context validation, access-state consumption, granted/status output bundle updates, and SepAccessCheckEx forwarding path.",
+      "function_names": [
+        "SepCommonAccessCheckEx"
+      ],
+      "required_calls": [
+        "SepAccessCheckEx",
+        "SeUnlockSubjectContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "subjectContext",
+          "role": "subjectContext",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_SUBJECT_CONTEXT",
+            "__int64"
+          ],
+          "source": "SepCommonAccessCheckEx subject context carrying primary/client token state"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "subjectContextLocked",
+          "role": "subjectContextLocked",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "bool"
+          ],
+          "source": "SepCommonAccessCheckEx unlock gate checked before SeUnlockSubjectContext"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "accessState",
+          "role": "accessState",
+          "structure": "SEP_ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PACCESS_STATE"
+          ],
+          "source": "SepCommonAccessCheckEx access-state input bundle with desired/previously-granted access and generic mapping",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "size",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78,
+              "source": "SepCommonAccessCheckEx validates accessState size against 56"
+            },
+            {
+              "offset": "0x8",
+              "name": "objectTypeInfo",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.64,
+              "source": "SepCommonAccessCheckEx validates the optional object-type information block"
+            },
+            {
+              "offset": "0x10",
+              "name": "desiredAccess",
+              "type": "ACCESS_MASK",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "SepCommonAccessCheckEx masks desired access before calling SepAccessCheckEx"
+            },
+            {
+              "offset": "0x14",
+              "name": "previouslyGrantedAccess",
+              "type": "ACCESS_MASK",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "SepCommonAccessCheckEx combines previously granted access into the output access mask"
+            },
+            {
+              "offset": "0x20",
+              "name": "genericMapping",
+              "type": "PGENERIC_MAPPING",
+              "size": 8,
+              "confidence": 0.78,
+              "source": "SepCommonAccessCheckEx forwards the generic mapping into SepAccessCheckEx"
+            }
+          ]
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "accessCheckOutputs",
+          "role": "accessCheckOutputs",
+          "structure": "SEP_ACCESS_CHECK_OUTPUTS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "SepCommonAccessCheckEx output bundle containing granted access, status, and optional privilege/access-reason outputs",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "size",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78,
+              "source": "SepCommonAccessCheckEx validates output bundle size against 40"
+            },
+            {
+              "offset": "0x8",
+              "name": "grantedAccessOutput",
+              "type": "PACCESS_MASK",
+              "size": 8,
+              "confidence": 0.86,
+              "source": "SepCommonAccessCheckEx writes granted access through this pointer"
+            },
+            {
+              "offset": "0x10",
+              "name": "accessStatusOutput",
+              "type": "PNTSTATUS",
+              "size": 8,
+              "confidence": 0.86,
+              "source": "SepCommonAccessCheckEx writes STATUS_ACCESS_DENIED and other NTSTATUS results through this pointer"
+            },
+            {
+              "offset": "0x18",
+              "name": "privilegeSetOutput",
+              "type": "PPRIVILEGE_SET",
+              "size": 8,
+              "confidence": 0.70,
+              "source": "SepCommonAccessCheckEx forwards this output slot into SepAccessCheckEx"
+            },
+            {
+              "offset": "0x20",
+              "name": "accessReasonOutput",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.66,
+              "source": "SepCommonAccessCheckEx forwards this auxiliary output slot into SepAccessCheckEx"
+            }
+          ]
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "accessMode",
+          "role": "accessMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "char",
+            "KPROCESSOR_MODE",
+            "int"
+          ],
+          "source": "SepCommonAccessCheckEx mode-like argument forwarded to SepAccessCheckEx"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "accessCheckFlags",
+          "role": "accessCheckFlags",
+          "structure": "SE_ACCESS_CHECK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "SepCommonAccessCheckEx flag byte forwarded to SepAccessCheckEx"
+        },
+        {
+          "local_names": [
+            "SubjectContexta",
+            "v30",
+            "v103"
+          ],
+          "role": "subjectContextAlias",
+          "structure": "SECURITY_SUBJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "SepCommonAccessCheckEx subject-context alias used for unlock and token reads"
+        }
+      ]
+    },
+    {
       "id": "windows.token_security.audit_process_creation",
       "source": "Reviewed SeAuditProcessCreation process object, command line, subject context, and audit record assembly flow.",
       "function_names": [

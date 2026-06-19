@@ -138,6 +138,128 @@ BOOLEAN __fastcall SeAccessCheckFromState(PSECURITY_DESCRIPTOR SecurityDescripto
         self.assertEqual("ACCESS_MASK_OUTPUT", roles["grantedAccessOutput"])
         self.assertEqual("NTSTATUS_OUTPUT", roles["accessStatusOutput"])
 
+    def test_sep_common_access_check_ex_roles_and_output_bundle_fields(self) -> None:
+        without_callees = self._plan(
+            """
+BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectContext, char a2, __int64 a3, __int64 a4, _DWORD *a5, char a6, char a7)
+{
+  if ( !SubjectContext || !a3 || !a4 )
+  {
+    return FALSE;
+  }
+  return *(_DWORD *)a3 == 56 && *(_DWORD *)a4 == 40;
+}
+"""
+        )
+        with_callees = self._plan(
+            """
+BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectContext, char a2, __int64 a3, __int64 a4, _DWORD *a5, char a6, char a7)
+{
+  __int64 genericMapping;
+  __int64 grantedAccessOutput;
+  __int64 accessStatusOutput;
+  __int64 privilegeSetOutput;
+  __int64 accessReasonOutput;
+
+  if ( !SubjectContext || !a3 || !a4 )
+  {
+    return FALSE;
+  }
+  if ( *(_DWORD *)a3 != 56 || *(_DWORD *)a4 != 40 )
+  {
+    *(_DWORD *)(*(_QWORD *)(a4 + 16)) = STATUS_INVALID_PARAMETER;
+    return FALSE;
+  }
+  grantedAccessOutput = *(_QWORD *)(a4 + 8);
+  accessStatusOutput = *(_QWORD *)(a4 + 16);
+  privilegeSetOutput = *(_QWORD *)(a4 + 24);
+  accessReasonOutput = *(_QWORD *)(a4 + 32);
+  genericMapping = *(_QWORD *)(a3 + 32);
+  *(_DWORD *)grantedAccessOutput = *(_DWORD *)(a3 + 16) | *(_DWORD *)(a3 + 20);
+  *(_DWORD *)accessStatusOutput = STATUS_ACCESS_DENIED;
+  SepAccessCheckEx(
+      *(_QWORD *)(*(_QWORD *)(a3 + 8) + 8),
+      0,
+      SubjectContext->PrimaryToken,
+      SubjectContext->ClientToken,
+      *(_DWORD *)(a3 + 16),
+      0,
+      0,
+      genericMapping,
+      *(_DWORD *)(a3 + 20),
+      a6,
+      grantedAccessOutput,
+      accessReasonOutput,
+      accessStatusOutput,
+      privilegeSetOutput,
+      0,
+      0,
+      a7,
+      0,
+      0,
+      0);
+  if ( !a2 )
+  {
+    SeUnlockSubjectContext(SubjectContext);
+  }
+  return TRUE;
+}
+"""
+        )
+
+        profile_id = "windows.token_security.sep_common_access_check_ex"
+
+        self.assertFalse(
+            any(
+                item["profile_id"] == profile_id
+                for item in self._identities(without_callees)
+            )
+        )
+
+        roles = self._roles(with_callees, profile_id)
+        rename_map = {item.old: item.new for item in with_callees.renames if item.apply}
+        access_state_identity = self._identity_for_base(with_callees, profile_id, "accessState")
+        outputs_identity = self._identity_for_base(with_callees, profile_id, "accessCheckOutputs")
+        access_state_fields = {str(item["name"]): item for item in access_state_identity["fields"]}
+        output_fields = {str(item["name"]): item for item in outputs_identity["fields"]}
+        blockers = [
+            item
+            for item in with_callees.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") in {"accessState", "accessCheckOutputs"}
+        ]
+
+        self.assertEqual("SECURITY_SUBJECT_CONTEXT", roles["subjectContext"])
+        self.assertEqual("BOOLEAN", roles["subjectContextLocked"])
+        self.assertEqual("SEP_ACCESS_STATE", roles["accessState"])
+        self.assertEqual("SEP_ACCESS_CHECK_OUTPUTS", roles["accessCheckOutputs"])
+        self.assertEqual("KPROCESSOR_MODE", roles["accessMode"])
+        self.assertEqual("SE_ACCESS_CHECK_FLAGS", roles["accessCheckFlags"])
+        self.assertEqual("subjectContext", rename_map["SubjectContext"])
+        self.assertEqual("subjectContextLocked", rename_map["a2"])
+        self.assertEqual("accessState", rename_map["a3"])
+        self.assertEqual("accessCheckOutputs", rename_map["a4"])
+        self.assertEqual("accessMode", rename_map["a6"])
+        self.assertEqual("accessCheckFlags", rename_map["a7"])
+        self.assertEqual("ACCESS_MASK", access_state_fields["desiredAccess"]["type"])
+        self.assertEqual("ACCESS_MASK", access_state_fields["previouslyGrantedAccess"]["type"])
+        self.assertEqual("PGENERIC_MAPPING", access_state_fields["genericMapping"]["type"])
+        self.assertEqual("PACCESS_MASK", output_fields["grantedAccessOutput"]["type"])
+        self.assertEqual("PNTSTATUS", output_fields["accessStatusOutput"]["type"])
+        self.assertEqual("PPRIVILEGE_SET", output_fields["privilegeSetOutput"]["type"])
+        self.assertEqual("report-only", access_state_identity["effective_mode"])
+        self.assertEqual("report-only", outputs_identity["effective_mode"])
+        self.assertTrue(
+            all("domain identity profile is report-only" in item["blockers"] for item in blockers)
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") in {"accessState", "accessCheckOutputs"}
+                for item in with_callees.comments
+            )
+        )
+
     def test_audit_process_creation_requires_audit_record_call(self) -> None:
         without_callee = self._plan(
             """
@@ -306,6 +428,12 @@ void __fastcall SeCaptureSubjectContext(PSECURITY_SUBJECT_CONTEXT SubjectContext
 
     def _profile_identities(self, plan, profile_id: str) -> list[dict[str, object]]:
         return [item for item in self._identities(plan) if item.get("profile_id") == profile_id]
+
+    def _roles(self, plan, profile_id: str) -> dict[str, str]:
+        return {
+            str(item["trusted_role"]): str(item["structure_name"])
+            for item in self._profile_identities(plan, profile_id)
+        }
 
     def _single_identity(
         self,
