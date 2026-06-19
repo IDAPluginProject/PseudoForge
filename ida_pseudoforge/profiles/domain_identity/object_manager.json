@@ -1,0 +1,584 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "object-manager-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 Object Manager role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.object_manager.reference_object",
+      "source": "Reviewed ObfReferenceObject and ObfReferenceObjectWithTag role semantics in the ntoskrnl 26200.8457 corpus.",
+      "function_regex": [
+        "^(?:Obf|Ob)ReferenceObject(?:WithTag)?$"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "referencedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64",
+            "struct _FILE_OBJECT *"
+          ],
+          "source": "corpus-reviewed object reference parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "referenceTag",
+          "structure": "POOL_TAG",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "corpus-reviewed tagged object reference parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.dereference_object",
+      "source": "Reviewed ObfDereferenceObject, ObfDereferenceObjectWithTag, and ObDereferenceObject ownership-release semantics.",
+      "function_regex": [
+        "^(?:Obf|Ob)DereferenceObject(?:WithTag)?$"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "dereferencedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.91,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64",
+            "struct _FILE_OBJECT *"
+          ],
+          "source": "corpus-reviewed object dereference parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "referenceTag",
+          "structure": "POOL_TAG",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "corpus-reviewed tagged object dereference parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.obp_reference_object",
+      "source": "Internal ObpReferenceObject role profile; report-only until target-build field identity is proven.",
+      "function_names": [
+        "ObpReferenceObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "referencedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "internal Object Manager reference role"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.insert_object",
+      "source": "Reviewed ObInsertObject public wrapper and ObInsertObjectEx corpus roles; output roles are report-only.",
+      "function_names": [
+        "ObInsertObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "insertedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64",
+            "struct _FILE_OBJECT *"
+          ],
+          "source": "ObInsertObject object body parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "struct _ACCESS_STATE *",
+            "__int64"
+          ],
+          "source": "ObInsertObject access state parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "newObjectOutput",
+          "structure": "OBJECT_BODY_POINTER_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "ObInsertObject object output parameter"
+        },
+        {
+          "parameter_index": 5,
+          "role": "handleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "ObInsertObject handle output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.insert_object_ex",
+      "source": "Reviewed ObInsertObjectEx corpus roles; argument identity is report-only because private offsets are not asserted.",
+      "function_names": [
+        "ObInsertObjectEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "insertedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64",
+            "struct _FILE_OBJECT *"
+          ],
+          "source": "ObInsertObjectEx object body parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "struct _ACCESS_STATE *",
+            "__int64"
+          ],
+          "source": "ObInsertObjectEx access state parameter"
+        },
+        {
+          "parameter_index": 5,
+          "role": "newObjectOutput",
+          "structure": "OBJECT_BODY_POINTER_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "ObInsertObjectEx object output parameter"
+        },
+        {
+          "parameter_index": 6,
+          "role": "handleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "ObInsertObjectEx handle output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.create_handle",
+      "source": "Reviewed ObpCreateHandle ntoskrnl 26200.8457 corpus roles; context offsets remain report-only.",
+      "function_names": [
+        "ObpCreateHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 1,
+          "role": "objectBody",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64",
+            "struct _FILE_OBJECT *"
+          ],
+          "source": "ObpCreateHandle object parameter in corpus"
+        },
+        {
+          "parameter_index": 3,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "struct _ACCESS_STATE *",
+            "__int64"
+          ],
+          "source": "ObpCreateHandle context is used as PACCESS_STATE in access checks"
+        },
+        {
+          "parameter_index": 9,
+          "role": "handleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_QWORD *",
+            "PHANDLE",
+            "__int64"
+          ],
+          "source": "ObpCreateHandle output-like pointer in corpus"
+        },
+        {
+          "parameter_index": 10,
+          "role": "handleInformationOutput",
+          "structure": "OBJECT_HANDLE_INFORMATION_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "ObpCreateHandle auxiliary output-like pointer in corpus"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.lookup_object_name",
+      "source": "Reviewed ObpLookupObjectName corpus signature, parse flow, access state, and object output roles.",
+      "function_names": [
+        "ObpLookupObjectName"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 3,
+          "role": "objectType",
+          "structure": "OBJECT_TYPE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "POBJECT_TYPE",
+            "struct _OBJECT_TYPE *",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName object type parameter"
+        },
+        {
+          "parameter_index": 7,
+          "role": "objectName",
+          "structure": "OBJECT_NAME_STRING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "char *",
+            "PUNICODE_STRING",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName object name pointer parameter"
+        },
+        {
+          "parameter_index": 8,
+          "role": "directoryObject",
+          "structure": "OBJECT_DIRECTORY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName directory object parameter"
+        },
+        {
+          "parameter_index": 9,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "struct _ACCESS_STATE *",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName access state parameter"
+        },
+        {
+          "parameter_index": 10,
+          "role": "auxiliaryAccessState",
+          "structure": "ACCESS_STATE_AUXILIARY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "_OWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName auxiliary access state-like parameter"
+        },
+        {
+          "parameter_index": 11,
+          "role": "parseContext",
+          "structure": "OBJECT_PARSE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "int *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName parse context-like parameter"
+        },
+        {
+          "parameter_index": 12,
+          "role": "objectOutput",
+          "structure": "OBJECT_BODY_POINTER_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PVOID *",
+            "unsigned __int64 **",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "ObpLookupObjectName object output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.free_object",
+      "source": "Reviewed ObpFreeObject corpus role; parameter appears to be object-header-like teardown context.",
+      "function_names": [
+        "ObpFreeObject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "objectHeader",
+          "structure": "OBJECT_HEADER_LIKE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "ObpFreeObject object header-like parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.query_object",
+      "source": "Reviewed NtQueryObject handle reference/query/dereference flow in the ntoskrnl 26200.8457 corpus.",
+      "function_names": [
+        "NtQueryObject"
+      ],
+      "required_calls": [
+        "ObReferenceObjectByHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "queryHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtQueryObject handle parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "objectInformationClass",
+          "structure": "OBJECT_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "OBJECT_INFORMATION_CLASS",
+            "int",
+            "__int64"
+          ],
+          "source": "NtQueryObject query class parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectInformationBuffer",
+          "structure": "OBJECT_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtQueryObject caller output buffer"
+        },
+        {
+          "parameter_index": 4,
+          "role": "returnLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PULONG",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "NtQueryObject return length output"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "referencedObjPtr"
+          ],
+          "role": "referencedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "source": "NtQueryObject local object referenced by handle lookup"
+        },
+        {
+          "local_names": [
+            "headerBasePtr"
+          ],
+          "role": "objectHeader",
+          "structure": "OBJECT_HEADER_LIKE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtQueryObject local header base derived from object body"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.query_security_object",
+      "source": "Reviewed NtQuerySecurityObject handle reference, security callback, and dereference flow in the corpus.",
+      "function_names": [
+        "NtQuerySecurityObject"
+      ],
+      "required_calls": [
+        "ObReferenceObjectByHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "queryHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtQuerySecurityObject handle parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "securityInformation",
+          "structure": "SECURITY_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "SECURITY_INFORMATION",
+            "ULONG",
+            "__int64"
+          ],
+          "source": "NtQuerySecurityObject security information selector"
+        },
+        {
+          "parameter_index": 2,
+          "role": "securityDescriptorBuffer",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtQuerySecurityObject caller security descriptor buffer"
+        },
+        {
+          "parameter_index": 4,
+          "role": "returnLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PULONG",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "NtQuerySecurityObject return length output"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "NtQuerySecurityObject local object referenced by handle lookup"
+        },
+        {
+          "local_names": [
+            "HandleInformation"
+          ],
+          "role": "handleInformation",
+          "structure": "OBJECT_HANDLE_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtQuerySecurityObject handle information local"
+        }
+      ]
+    }
+  ]
+}

@@ -10,11 +10,13 @@ def rewrite_critical_region_entry(text: str, plan: CleanPlan) -> str:
     if not has_comment_kind(plan, "critical_region"):
         return text
 
-    matched_var = ""
+    matched_vars = []
 
     def repl(match: re.Match[str]) -> str:
-        nonlocal matched_var
-        matched_var = match.group("var")
+        var_name = match.group("var")
+        if not _critical_region_entry_var_is_isolated(text, match, var_name):
+            return match.group(0)
+        matched_vars.append(var_name)
         return match.group("indent") + "KeEnterCriticalRegion();"
 
     result = re.sub(
@@ -22,16 +24,51 @@ def rewrite_critical_region_entry(text: str, plan: CleanPlan) -> str:
         r"(?P=indent)--(?P=var)->KernelApcDisable;",
         repl,
         text,
-        count=1,
     )
-    if matched_var and matched_var not in _strip_declaration_for_var(result, matched_var):
-        result = re.sub(
-            r"(?m)^\s*struct _KTHREAD \*%s\s*;[^\n]*\n" % re.escape(matched_var),
-            "",
-            result,
-            count=1,
-        )
+    result = _rewrite_current_thread_critical_region_leave(result)
+    for matched_var in sorted(set(matched_vars)):
+        result = _rewrite_critical_region_leave_for_var(result, matched_var)
+        if matched_var and matched_var not in _strip_declaration_for_var(result, matched_var):
+            result = re.sub(
+                r"(?m)^\s*struct _KTHREAD \*%s\s*;[^\n]*\n" % re.escape(matched_var),
+                "",
+                result,
+                count=1,
+            )
     return result
+
+
+def _rewrite_critical_region_leave_for_var(text: str, name: str) -> str:
+    return re.sub(
+        r"(?m)^(?P<indent>\s*)KeLeaveCriticalRegionThread\(\s*(?:\([^)]*\)\s*)?%s\s*\);"
+        % re.escape(name),
+        lambda match: match.group("indent") + "KeLeaveCriticalRegion();",
+        text,
+    )
+
+
+def _rewrite_current_thread_critical_region_leave(text: str) -> str:
+    return re.sub(
+        r"(?m)^(?P<indent>\s*)KeLeaveCriticalRegionThread\(\s*(?:\([^)]*\)\s*)?KeGetCurrentThread\(\)\s*\);",
+        lambda match: match.group("indent") + "KeLeaveCriticalRegion();",
+        text,
+    )
+
+
+def _critical_region_entry_var_is_isolated(text: str, match: re.Match[str], name: str) -> bool:
+    without_entry = text[: match.start()] + text[match.end() :]
+    without_leave = _remove_critical_region_leave_for_var(without_entry, name)
+    without_declaration = _strip_declaration_for_var(without_leave, name)
+    return re.search(r"\b%s\b" % re.escape(name), without_declaration) is None
+
+
+def _remove_critical_region_leave_for_var(text: str, name: str) -> str:
+    return re.sub(
+        r"(?m)^\s*KeLeaveCriticalRegionThread\(\s*(?:\([^)]*\)\s*)?%s\s*\);[^\n]*(?:\n|$)"
+        % re.escape(name),
+        "",
+        text,
+    )
 
 
 def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:

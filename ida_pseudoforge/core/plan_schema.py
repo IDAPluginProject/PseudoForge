@@ -24,9 +24,11 @@ class FunctionCapture:
     lvars: list[LocalVariable] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
     source_path: str = ""
+    profile_context: dict[str, Any] = field(default_factory=dict)
 
     def input_fingerprint(self) -> str:
         import hashlib
+        import json
 
         payload = "\n".join(
             [
@@ -34,6 +36,7 @@ class FunctionCapture:
                 self.prototype,
                 self.pseudocode,
                 ",".join(var.name for var in self.lvars),
+                json.dumps(self.profile_context, sort_keys=True, default=str),
             ]
         )
         return hashlib.sha256(payload.encode("utf-8", errors="replace")).hexdigest()

@@ -13,6 +13,7 @@ from ida_pseudoforge.core.domain_identity import (
     domain_identity_match_for_base,
     domain_identity_matches,
     domain_identity_profiles_available,
+    domain_identity_role_matches,
 )
 from ida_pseudoforge.core.event_builder_patterns import etw_event_builder_append_counts
 
@@ -156,9 +157,13 @@ class _LayoutEvidence:
     access_count: int = 0
 
 
-def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, Any]]:
+def field_layout_comments(
+    text: str,
+    max_comments: int = 4,
+    profile_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     layouts = _collect_layouts(text or "")
-    profile_matches = _domain_identity_matches_for_layouts(text or "", layouts)
+    profile_matches = _domain_identity_matches_for_layouts(text or "", layouts, profile_context)
     candidates = [
         item
         for item in layouts.values()
@@ -213,25 +218,25 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
             unaligned_preview = _field_unaligned_subfield_comment_from_layout(item, domain_identity)
             if unaligned_preview:
                 comments.append(unaligned_preview)
-            blocker = _field_rewrite_blocker_comment(text or "", item)
-            if blocker:
-                comments.append(blocker)
-                stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
-                if stability:
-                    comments.append(stability)
-                near_ready = _field_rewrite_near_ready_comment(item, blocker)
-                if near_ready:
-                    comments.append(near_ready)
-                partial_opportunity = _field_rewrite_partial_opportunity_comment(text or "", item, blocker)
-                if partial_opportunity:
-                    comments.append(partial_opportunity)
-            else:
-                ready = _field_rewrite_ready_comment(text or "", item)
-                if ready:
-                    comments.append(ready)
-                    rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
-                    if rewrite_preview:
-                        comments.append(rewrite_preview)
+        blocker = _field_rewrite_blocker_comment(text or "", item, profile_context)
+        if blocker:
+            comments.append(blocker)
+            stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
+            if stability:
+                comments.append(stability)
+            near_ready = _field_rewrite_near_ready_comment(item, blocker)
+            if near_ready:
+                comments.append(near_ready)
+            partial_opportunity = _field_rewrite_partial_opportunity_comment(text or "", item, blocker)
+            if partial_opportunity:
+                comments.append(partial_opportunity)
+        else:
+            ready = _field_rewrite_ready_comment(text or "", item, profile_context)
+            if ready:
+                comments.append(ready)
+                rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
+                if rewrite_preview:
+                    comments.append(rewrite_preview)
     hot_clusters = [
         item
         for item in layouts.values()
@@ -247,6 +252,20 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
     )
     for item in hot_clusters[:max(0, int(max_comments or 0))]:
         comments.append(_field_hot_cluster_comment_from_layout(item))
+    return comments
+
+
+def domain_identity_role_comments(
+    text: str,
+    profile_context: dict[str, Any] | None = None,
+    exclude_bases: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    excluded = {str(item) for item in (exclude_bases or set()) if str(item)}
+    comments = []
+    for match in domain_identity_role_matches(text or "", profile_context=profile_context):
+        if match.base in excluded:
+            continue
+        comments.append(_domain_identity_role_comment_from_match(match))
     return comments
 
 
@@ -311,6 +330,7 @@ def _comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
 def _domain_identity_matches_for_layouts(
     text: str,
     layouts: dict[str, _LayoutEvidence],
+    profile_context: dict[str, Any] | None = None,
 ) -> dict[str, DomainIdentityMatch]:
     if not domain_identity_profiles_available():
         return {}
@@ -322,6 +342,7 @@ def _domain_identity_matches_for_layouts(
         text or "",
         set(layouts),
         non_identity_blockers_by_base=non_identity_blockers_by_base,
+        profile_context=profile_context,
     )
 
 
@@ -329,6 +350,7 @@ def _domain_identity_for_layout(
     text: str,
     layout: _LayoutEvidence,
     non_identity_blockers: list[str] | None = None,
+    profile_context: dict[str, Any] | None = None,
 ) -> DomainIdentityMatch | None:
     blockers = non_identity_blockers
     if blockers is None:
@@ -337,6 +359,7 @@ def _domain_identity_for_layout(
         text or "",
         layout.base,
         non_identity_blockers=blockers,
+        profile_context=profile_context,
     )
 
 
@@ -376,8 +399,11 @@ def _domain_identity_comment_from_match(
         "base": layout.base,
         "base_kind": _layout_base_kind(layout.base),
         "profile_id": domain_identity.profile_id,
+        "matched_profile_id": domain_identity.profile_id,
         "role": domain_identity.role,
+        "trusted_role": domain_identity.role,
         "structure": domain_identity.structure,
+        "structure_name": domain_identity.structure,
         "mode": domain_identity.mode,
         "effective_mode": domain_identity.effective_mode,
         "parameter_index": domain_identity.parameter_index,
@@ -385,6 +411,71 @@ def _domain_identity_comment_from_match(
         "fields": _domain_identity_observed_fields(text, domain_identity, layout),
         "ambiguous_profile_ids": list(domain_identity.ambiguous_profile_ids),
         "forced_report_only_reasons": list(domain_identity.forced_report_only_reasons),
+        "blockers": _domain_identity_structured_blockers(domain_identity),
+        "profile_source": domain_identity.profile_source,
+        "profile_version": domain_identity.profile_version,
+        "profile_metadata": dict(domain_identity.profile_metadata),
+    }
+
+
+def _domain_identity_structured_blockers(domain_identity: DomainIdentityMatch) -> list[str]:
+    blockers = list(domain_identity.forced_report_only_reasons)
+    if domain_identity.ambiguous:
+        blockers.append("ambiguous_profile_match")
+    elif domain_identity.effective_mode == MODE_REPORT_ONLY:
+        blockers.append("profile_report_only")
+    elif domain_identity.effective_mode == MODE_PREVIEW_REWRITE:
+        blockers.append("profile_preview_only")
+    elif domain_identity.effective_mode != MODE_CANONICAL_REWRITE_ELIGIBLE:
+        blockers.append("unsupported_profile_mode")
+    return list(dict.fromkeys(blockers))
+
+
+def _domain_identity_role_comment_from_match(domain_identity: DomainIdentityMatch) -> dict[str, Any]:
+    if domain_identity.ambiguous:
+        detail = "ambiguous profiles %s" % ", ".join(domain_identity.ambiguous_profile_ids[:6])
+        mode_text = "report-only"
+    else:
+        detail = domain_identity.match_reason
+        mode_text = domain_identity.effective_mode
+    forced_text = ""
+    if domain_identity.forced_report_only_reasons:
+        forced_text = " Forced report-only by %s." % ", ".join(domain_identity.forced_report_only_reasons)
+    return {
+        "kind": "domain_structure_identity",
+        "text": (
+            "Domain identity for %s: role %s, structure %s, mode %s, %s. Fields none observed.%s "
+            "Role-only evidence; no field rewrite was applied."
+            % (
+                domain_identity.base,
+                domain_identity.role,
+                domain_identity.structure,
+                mode_text,
+                detail,
+                forced_text,
+            )
+        ),
+        "confidence": domain_identity.confidence,
+        "base": domain_identity.base,
+        "base_kind": "role",
+        "profile_id": domain_identity.profile_id,
+        "matched_profile_id": domain_identity.profile_id,
+        "role": domain_identity.role,
+        "trusted_role": domain_identity.role,
+        "structure": domain_identity.structure,
+        "structure_name": domain_identity.structure,
+        "mode": domain_identity.mode,
+        "effective_mode": domain_identity.effective_mode,
+        "parameter_index": domain_identity.parameter_index,
+        "parameter_name": domain_identity.parameter_name,
+        "fields": [],
+        "ambiguous_profile_ids": list(domain_identity.ambiguous_profile_ids),
+        "forced_report_only_reasons": list(domain_identity.forced_report_only_reasons),
+        "blockers": _domain_identity_structured_blockers(domain_identity),
+        "profile_source": domain_identity.profile_source,
+        "profile_version": domain_identity.profile_version,
+        "profile_metadata": dict(domain_identity.profile_metadata),
+        "role_only": True,
     }
 
 
@@ -429,6 +520,8 @@ def _domain_identity_observed_fields(
                 "type": field_item.type_text,
                 "size": field_item.size,
                 "confidence": field_item.confidence,
+                "source": field_item.source,
+                "provenance": field_item.provenance,
                 "note": field_item.note,
             }
         )
@@ -854,8 +947,12 @@ def _field_generic_base_trust_candidate_comment_from_layout(text: str, layout: _
     }
 
 
-def _field_rewrite_blocker_comment(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
-    blockers = _field_rewrite_blockers(text, layout)
+def _field_rewrite_blocker_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    profile_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    blockers = _field_rewrite_blockers(text, layout, profile_context=profile_context)
     if not blockers:
         return None
     base_kind = _layout_base_kind(layout.base)
@@ -929,14 +1026,23 @@ def _field_base_stability_comment_from_layout(
     }
 
 
-def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _field_rewrite_ready_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    profile_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
     identity = _trusted_stable_base_source_identity(text, layout.base)
     if not identity:
         identity = _trusted_generic_parameter_layout_identity(text, layout)
     if not identity:
         non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
-        domain_identity = _domain_identity_for_layout(text, layout, non_identity_blockers)
+        domain_identity = _domain_identity_for_layout(
+            text,
+            layout,
+            non_identity_blockers,
+            profile_context=profile_context,
+        )
         if domain_identity and domain_identity.effective_mode == MODE_CANONICAL_REWRITE_ELIGIBLE:
             identity = {
                 "source": domain_identity.base,
@@ -1207,11 +1313,17 @@ def _field_rewrite_blockers(
     text: str,
     layout: _LayoutEvidence,
     allow_generic_parameter_trust: bool = True,
+    profile_context: dict[str, Any] | None = None,
 ) -> list[str]:
     blockers: list[str] = []
     base_kind = _layout_base_kind(layout.base)
     non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
-    domain_identity = _domain_identity_for_layout(text, layout, non_identity_blockers)
+    domain_identity = _domain_identity_for_layout(
+        text,
+        layout,
+        non_identity_blockers,
+        profile_context=profile_context,
+    )
     if domain_identity:
         if domain_identity.ambiguous:
             blockers.append("domain identity profile is ambiguous")

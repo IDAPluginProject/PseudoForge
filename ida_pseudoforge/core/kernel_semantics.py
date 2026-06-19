@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ida_pseudoforge.core.field_layout_hints import field_layout_comments
+from ida_pseudoforge.core.field_layout_hints import domain_identity_role_comments, field_layout_comments
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, parse_c_integer_literal
 from ida_pseudoforge.core.normalize import (
     extract_call_arguments,
@@ -346,7 +346,20 @@ def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> lis
         )
 
     comments.extend(registry_domain_comments(capture, rename_map))
-    comments.extend(field_layout_comments(text))
+    layout_comments = field_layout_comments(text, profile_context=capture.profile_context)
+    layout_identity_bases = {
+        str(comment.get("base", ""))
+        for comment in layout_comments
+        if comment.get("kind") == "domain_structure_identity"
+    }
+    comments.extend(
+        domain_identity_role_comments(
+            text,
+            profile_context=capture.profile_context,
+            exclude_bases=layout_identity_bases,
+        )
+    )
+    comments.extend(layout_comments)
 
     if "previousMode" in text and "STATUS_PRIVILEGE_NOT_HELD" in text:
         comments.append(

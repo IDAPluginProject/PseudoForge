@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from ida_pseudoforge.core.normalize import (
     extract_calls,
@@ -23,6 +24,7 @@ def capture_from_pseudocode(
     name: str = "",
     ea: int = 0,
     source_path: str = "",
+    profile_context: dict[str, object] | None = None,
 ) -> FunctionCapture:
     clean_text = strip_ida_tags(pseudocode)
     signature = extract_function_signature(clean_text)
@@ -37,7 +39,58 @@ def capture_from_pseudocode(
         lvars=lvars,
         calls=calls,
         source_path=source_path,
+        profile_context=_profile_context(source_path, profile_context),
     )
+
+
+def _profile_context(source_path: str, profile_context: dict[str, object] | None) -> dict[str, object]:
+    result = _profile_context_from_source_path(source_path)
+    result.update(dict(profile_context or {}))
+    return result
+
+
+def _profile_context_from_source_path(source_path: str) -> dict[str, object]:
+    path_text = str(source_path or "").strip()
+    if not path_text:
+        return {}
+    path = Path(path_text)
+    context: dict[str, object] = {}
+    image = _image_name_from_source_path(path)
+    if image:
+        context["image"] = image
+    build = _build_number_from_source_path(path)
+    if build:
+        context["build"] = build
+    arch = _arch_from_source_path(path)
+    if arch:
+        context["arch"] = arch
+    return context
+
+
+def _image_name_from_source_path(path: Path) -> str:
+    name = path.name
+    lowered = name.lower()
+    for suffix in (".i64", ".idb"):
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _build_number_from_source_path(path: Path) -> str:
+    for part in reversed(path.parts[:-1]):
+        match = re.fullmatch(r"\d{4,6}(?:\.\d{1,6})+", str(part))
+        if match:
+            return match.group(0)
+    return ""
+
+
+def _arch_from_source_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".i64":
+        return "x64"
+    if suffix == ".idb":
+        return "x86"
+    return ""
 
 
 def _extract_declared_lvars(pseudocode: str) -> list[LocalVariable]:

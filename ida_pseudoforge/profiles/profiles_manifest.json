@@ -103,6 +103,16 @@
         "profiles": 3
       }
     },
+    "domain_identity/object_manager.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl Object Manager role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "08132351C81BCA650BE00114117FADE95F05BBDB0B7AEAD3589EA488EDF71203",
+      "counts": {
+        "profiles": 10
+      }
+    },
     "registry_domain.json": {
       "profile_kind": "registry_domain",
       "source": "PseudoForge curated report-only registry domain triage profiles",

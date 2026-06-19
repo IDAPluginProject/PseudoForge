@@ -43,6 +43,70 @@ class RenderKernelHintTests(unittest.TestCase):
         self.assertNotIn("--CurrentThread->KernelApcDisable", rewritten)
         self.assertNotIn("struct _KTHREAD *CurrentThread;", rewritten)
 
+    def test_rewrite_critical_region_entry_pairs_thread_leave(self) -> None:
+        text = "\n".join(
+            [
+                "void sample()",
+                "{",
+                "  struct _KTHREAD *currentThread;",
+                "  currentThread = KeGetCurrentThread();",
+                "  --currentThread->KernelApcDisable;",
+                "  DoWork();",
+                "  KeLeaveCriticalRegionThread((__int64)currentThread);",
+                "}",
+            ]
+        )
+
+        rewritten = rewrite_critical_region_entry(text, _plan("critical_region"))
+
+        self.assertIn("  KeEnterCriticalRegion();", rewritten)
+        self.assertIn("  KeLeaveCriticalRegion();", rewritten)
+        self.assertNotIn("KeLeaveCriticalRegionThread", rewritten)
+        self.assertNotIn("--currentThread->KernelApcDisable", rewritten)
+        self.assertNotIn("struct _KTHREAD *currentThread;", rewritten)
+
+    def test_rewrite_critical_region_entry_keeps_reused_thread_variable(self) -> None:
+        text = "\n".join(
+            [
+                "void sample()",
+                "{",
+                "  struct _KTHREAD *currentThread;",
+                "  currentThread = KeGetCurrentThread();",
+                "  --currentThread->KernelApcDisable;",
+                "  UseThread(currentThread);",
+                "  KeLeaveCriticalRegionThread((__int64)currentThread);",
+                "}",
+            ]
+        )
+
+        rewritten = rewrite_critical_region_entry(text, _plan("critical_region"))
+
+        self.assertIn("  currentThread = KeGetCurrentThread();", rewritten)
+        self.assertIn("  --currentThread->KernelApcDisable;", rewritten)
+        self.assertIn("  KeLeaveCriticalRegionThread((__int64)currentThread);", rewritten)
+
+    def test_rewrite_critical_region_entry_pairs_direct_current_thread_leave(self) -> None:
+        text = "\n".join(
+            [
+                "void sample()",
+                "{",
+                "  struct _KTHREAD *currentThread;",
+                "  currentThread = KeGetCurrentThread();",
+                "  --currentThread->KernelApcDisable;",
+                "  DoWork();",
+                "  KeLeaveCriticalRegionThread((__int64)KeGetCurrentThread());",
+                "}",
+            ]
+        )
+
+        rewritten = rewrite_critical_region_entry(text, _plan("critical_region"))
+
+        self.assertIn("  KeEnterCriticalRegion();", rewritten)
+        self.assertIn("  KeLeaveCriticalRegion();", rewritten)
+        self.assertNotIn("KeLeaveCriticalRegionThread", rewritten)
+        self.assertNotIn("currentThread = KeGetCurrentThread();", rewritten)
+        self.assertNotIn("--currentThread->KernelApcDisable", rewritten)
+
     def test_rewrite_critical_region_entry_requires_semantic_comment(self) -> None:
         text = "CurrentThread = KeGetCurrentThread();\n--CurrentThread->KernelApcDisable;"
 

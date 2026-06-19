@@ -340,6 +340,8 @@ def _is_object_style_rename(name: str) -> bool:
     if normalized in OBJECT_STYLE_RENAME_EXACT_NAMES:
         return True
     words = _split_identifier_words(name)
+    if "status" in words:
+        return False
     return "object" in words
 
 

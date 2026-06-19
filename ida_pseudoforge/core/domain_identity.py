@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ida_pseudoforge.core.normalize import (
+    extract_calls,
     extract_function_name,
     extract_function_signature,
     extract_parameters_from_signature,
 )
-from ida_pseudoforge.profiles.loader import load_json_profile
+from ida_pseudoforge.profiles import loader as profile_loader
 
 
 PROFILE_NAME = "domain_identity.json"
+PROFILE_PACK_DIR = "domain_identity"
 
 MODE_REPORT_ONLY = "report-only"
 MODE_PREVIEW_REWRITE = "preview-rewrite"
@@ -31,6 +34,8 @@ class DomainIdentityField:
     type_text: str
     size: int
     confidence: float
+    source: str = ""
+    provenance: str = ""
     note: str = ""
 
 
@@ -49,6 +54,9 @@ class DomainIdentityMatch:
     match_reason: str
     forced_report_only_reasons: tuple[str, ...] = ()
     ambiguous_profile_ids: tuple[str, ...] = ()
+    profile_source: str = ""
+    profile_version: str = ""
+    profile_metadata: tuple[tuple[str, str], ...] = ()
 
     @property
     def ambiguous(self) -> bool:
@@ -77,6 +85,7 @@ def domain_identity_match_for_base(
     text: str,
     base: str,
     non_identity_blockers: list[str] | None = None,
+    profile_context: dict[str, Any] | None = None,
 ) -> DomainIdentityMatch | None:
     if not domain_identity_profiles_available():
         return None
@@ -85,7 +94,7 @@ def domain_identity_match_for_base(
         return None
     matches = [
         match
-        for match in _candidate_matches(text, base_name, non_identity_blockers or [])
+        for match in _candidate_matches(text, base_name, non_identity_blockers or [], profile_context)
         if match.base == base_name
     ]
     if not matches:
@@ -109,6 +118,9 @@ def domain_identity_match_for_base(
         match_reason="ambiguous profile match",
         forced_report_only_reasons=("ambiguous_profile_match",),
         ambiguous_profile_ids=profile_ids,
+        profile_source=first.profile_source,
+        profile_version=first.profile_version,
+        profile_metadata=first.profile_metadata,
     )
 
 
@@ -116,6 +128,7 @@ def domain_identity_matches(
     text: str,
     bases: list[str] | set[str] | tuple[str, ...],
     non_identity_blockers_by_base: dict[str, list[str]] | None = None,
+    profile_context: dict[str, Any] | None = None,
 ) -> dict[str, DomainIdentityMatch]:
     if not domain_identity_profiles_available():
         return {}
@@ -126,17 +139,51 @@ def domain_identity_matches(
             text,
             base,
             non_identity_blockers=blockers_by_base.get(base, []),
+            profile_context=profile_context,
         )
         if match:
             result[base] = match
     return result
 
 
+def domain_identity_role_matches(
+    text: str,
+    profile_context: dict[str, Any] | None = None,
+) -> list[DomainIdentityMatch]:
+    if not domain_identity_profiles_available():
+        return []
+    signature = extract_function_signature(text or "")
+    function_name = extract_function_name(signature)
+    full_name = _extract_full_function_name(signature)
+    parameters = extract_parameters_from_signature(signature)
+    matches: list[DomainIdentityMatch] = []
+    for profile in _domain_identity_profiles():
+        if not _function_matches(profile, function_name, full_name, signature, text or ""):
+            continue
+        profile_blockers = _profile_context_blockers(profile, profile_context)
+        for parameter in _profile_parameters(profile):
+            for base in _parameter_role_bases(parameter, parameters, text or ""):
+                match = _parameter_match(
+                    profile,
+                    parameter,
+                    base,
+                    parameters,
+                    [],
+                    profile_blockers,
+                )
+                if match:
+                    matches.append(match)
+    return _dedupe_role_matches(matches)
+
+
 def domain_identity_profiles_available() -> bool:
     return bool(_domain_identity_profiles())
 
 
-def domain_identity_parameter_renames(text: str) -> list[DomainIdentityParameterRename]:
+def domain_identity_parameter_renames(
+    text: str,
+    profile_context: dict[str, Any] | None = None,
+) -> list[DomainIdentityParameterRename]:
     if not domain_identity_profiles_available():
         return []
     signature = extract_function_signature(text or "")
@@ -145,7 +192,9 @@ def domain_identity_parameter_renames(text: str) -> list[DomainIdentityParameter
     parameters = extract_parameters_from_signature(signature)
     candidates: list[DomainIdentityParameterRename] = []
     for profile in _domain_identity_profiles():
-        if not _function_matches(profile, function_name, full_name, signature):
+        if not _function_matches(profile, function_name, full_name, signature, text or ""):
+            continue
+        if _profile_context_blockers(profile, profile_context):
             continue
         if not _profile_parameter_shape_matches(profile, parameters):
             continue
@@ -161,6 +210,7 @@ def _candidate_matches(
     text: str,
     base: str,
     non_identity_blockers: list[str],
+    profile_context: dict[str, Any] | None,
 ) -> list[DomainIdentityMatch]:
     signature = extract_function_signature(text or "")
     function_name = extract_function_name(signature)
@@ -168,23 +218,79 @@ def _candidate_matches(
     parameters = extract_parameters_from_signature(signature)
     result: list[DomainIdentityMatch] = []
     for profile in _domain_identity_profiles():
-        if not _function_matches(profile, function_name, full_name, signature):
+        if not _function_matches(profile, function_name, full_name, signature, text or ""):
             continue
+        profile_blockers = _profile_context_blockers(profile, profile_context)
         for parameter in _profile_parameters(profile):
-            match = _parameter_match(profile, parameter, base, parameters, non_identity_blockers)
+            match = _parameter_match(
+                profile,
+                parameter,
+                base,
+                parameters,
+                non_identity_blockers,
+                profile_blockers,
+            )
             if match:
                 result.append(match)
     return result
 
 
 def _domain_identity_profiles() -> tuple[dict[str, Any], ...]:
-    payload = load_json_profile(PROFILE_NAME)
+    result: list[dict[str, Any]] = []
+    for name in _domain_identity_profile_names():
+        payload = profile_loader.load_json_profile(name)
+        result.extend(_profiles_from_payload(payload, name))
+    return tuple(result)
+
+
+def _domain_identity_profile_names() -> list[str]:
+    root = Path(profile_loader.active_profile_root())
+    names: list[str] = []
+    if (root / PROFILE_NAME).exists():
+        names.append(PROFILE_NAME)
+    pack_root = root / PROFILE_PACK_DIR
+    if pack_root.exists():
+        for path in sorted(pack_root.glob("*.json")):
+            names.append("%s/%s" % (PROFILE_PACK_DIR, path.name))
+    if not names:
+        names.append(PROFILE_NAME)
+    return names
+
+
+def _profiles_from_payload(payload: Any, profile_name: str) -> list[dict[str, Any]]:
     if not isinstance(payload, dict):
-        return ()
+        return []
+    pack_metadata = _pack_metadata(payload, profile_name)
     profiles = payload.get("profiles", [])
+    if not isinstance(profiles, list) and _looks_like_profile(payload):
+        profiles = [payload]
     if not isinstance(profiles, list):
-        return ()
-    return tuple(item for item in profiles if isinstance(item, dict))
+        return []
+    result = []
+    for item in profiles:
+        if not isinstance(item, dict):
+            continue
+        profile = dict(item)
+        profile["_pack_metadata"] = dict(pack_metadata)
+        profile["_pack_name"] = profile_name
+        result.append(profile)
+    return result
+
+
+def _looks_like_profile(payload: dict[str, Any]) -> bool:
+    return bool(payload.get("id") or payload.get("name")) and bool(payload.get("parameters"))
+
+
+def _pack_metadata(payload: dict[str, Any], profile_name: str) -> dict[str, str]:
+    metadata: dict[str, str] = {"profile_name": profile_name}
+    for section_name in ("metadata", "target"):
+        section = payload.get(section_name)
+        if isinstance(section, dict):
+            metadata.update(_metadata_items(section))
+    for key in ("schema", "profile_version", "version", "image", "image_name", "arch", "architecture", "build", "build_number"):
+        if key in payload and not isinstance(payload.get(key), (dict, list)):
+            metadata[key] = str(payload.get(key) or "").strip()
+    return {key: value for key, value in metadata.items() if value}
 
 
 def _profile_parameter_shape_matches(profile: dict[str, Any], parameters: list[tuple[str, str]]) -> bool:
@@ -194,20 +300,57 @@ def _profile_parameter_shape_matches(profile: dict[str, Any], parameters: list[t
     return True
 
 
-def _function_matches(profile: dict[str, Any], function_name: str, full_name: str, signature: str) -> bool:
+def _function_matches(
+    profile: dict[str, Any],
+    function_name: str,
+    full_name: str,
+    signature: str,
+    text: str = "",
+) -> bool:
+    matched = False
     names = _string_list(profile.get("function_names"))
     if names and function_name in names:
-        return True
+        matched = True
     demangled_names = _string_list(profile.get("demangled_names"))
     if demangled_names and (full_name in demangled_names or signature in demangled_names):
+        matched = True
+    if not matched:
+        for pattern in _string_list(profile.get("function_regex")):
+            if _safe_regex_search(pattern, function_name) or _safe_regex_search(pattern, full_name):
+                matched = True
+                break
+    if not matched:
+        for pattern in _string_list(profile.get("demangled_regex")):
+            if _safe_regex_search(pattern, full_name) or _safe_regex_search(pattern, signature):
+                matched = True
+                break
+    if not matched:
+        return False
+    return _callee_hints_match(profile, text)
+
+
+def _callee_hints_match(profile: dict[str, Any], text: str) -> bool:
+    names = set(
+        _string_list(profile.get("callee_names"))
+        + _string_list(profile.get("required_calls"))
+        + _string_list(profile.get("required_callees"))
+    )
+    regexes = (
+        _string_list(profile.get("callee_regex"))
+        + _string_list(profile.get("required_call_regex"))
+        + _string_list(profile.get("required_callee_regex"))
+    )
+    if not names and not regexes:
         return True
-    for pattern in _string_list(profile.get("function_regex")):
-        if _safe_regex_search(pattern, function_name) or _safe_regex_search(pattern, full_name):
-            return True
-    for pattern in _string_list(profile.get("demangled_regex")):
-        if _safe_regex_search(pattern, full_name) or _safe_regex_search(pattern, signature):
-            return True
-    return False
+    calls = set(extract_calls(text or ""))
+    for name in names:
+        if name not in calls and re.search(r"\b%s\s*\(" % re.escape(name), text or "") is None:
+            return False
+    for pattern in regexes:
+        if not any(_safe_regex_search(pattern, call) for call in calls):
+            if not _safe_regex_search(pattern, text or ""):
+                return False
+    return True
 
 
 def _profile_parameters(profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,6 +360,80 @@ def _profile_parameters(profile: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(parameters, dict):
         return [parameters]
     return []
+
+
+def _parameter_role_bases(
+    parameter: dict[str, Any],
+    parameters: list[tuple[str, str]],
+    text: str,
+) -> list[str]:
+    result: list[str] = []
+    parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
+    if 0 <= parameter_index < len(parameters):
+        result.append(parameters[parameter_index][0])
+    for name in (
+        _string_list(parameter.get("parameter_name"))
+        + _string_list(parameter.get("name"))
+        + _string_list(parameter.get("base_names"))
+        + _string_list(parameter.get("parameter_names"))
+        + _string_list(parameter.get("local_names"))
+        + _string_list(parameter.get("name_hints"))
+    ):
+        if _identifier_exists(text, name):
+            result.append(name)
+    return list(dict.fromkeys(item for item in result if item))
+
+
+def _dedupe_role_matches(matches: list[DomainIdentityMatch]) -> list[DomainIdentityMatch]:
+    selected: dict[tuple[str, str, str], DomainIdentityMatch] = {}
+    conflicts: dict[tuple[str, str], list[DomainIdentityMatch]] = {}
+    for match in sorted(matches, key=lambda item: (item.base, item.structure, item.profile_id, item.role)):
+        key = (match.base, match.structure, match.role)
+        selected.setdefault(key, match)
+        conflicts.setdefault((match.base, match.structure), [])
+        if all(item.profile_id != match.profile_id for item in conflicts[(match.base, match.structure)]):
+            conflicts[(match.base, match.structure)].append(match)
+
+    result: list[DomainIdentityMatch] = []
+    ambiguous_keys = {
+        key: values
+        for key, values in conflicts.items()
+        if len({item.profile_id for item in values}) > 1
+    }
+    emitted_ambiguous: set[tuple[str, str]] = set()
+    for key, match in selected.items():
+        conflict_key = (match.base, match.structure)
+        ambiguous = ambiguous_keys.get(conflict_key)
+        if not ambiguous:
+            result.append(match)
+            continue
+        if conflict_key in emitted_ambiguous:
+            continue
+        emitted_ambiguous.add(conflict_key)
+        profile_ids = tuple(item.profile_id for item in ambiguous)
+        first = ambiguous[0]
+        result.append(
+            DomainIdentityMatch(
+                profile_id="ambiguous",
+                base=first.base,
+                role=first.role,
+                structure=first.structure,
+                mode=MODE_REPORT_ONLY,
+                effective_mode=MODE_REPORT_ONLY,
+                confidence=min(0.54, first.confidence),
+                parameter_index=first.parameter_index,
+                parameter_name=first.parameter_name,
+                fields=(),
+                match_reason="ambiguous profile match",
+                forced_report_only_reasons=("ambiguous_profile_match",),
+                ambiguous_profile_ids=profile_ids,
+                profile_source=first.profile_source,
+                profile_version=first.profile_version,
+                profile_metadata=first.profile_metadata,
+            )
+        )
+    result.sort(key=lambda item: (item.base.lower(), item.structure, item.role, item.profile_id))
+    return result
 
 
 def _parameter_rename(
@@ -294,29 +511,41 @@ def _parameter_match(
     base: str,
     parameters: list[tuple[str, str]],
     non_identity_blockers: list[str],
+    profile_blockers: list[str],
 ) -> DomainIdentityMatch | None:
     parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
     parameter_name = str(parameter.get("parameter_name", parameter.get("name", "")) or "").strip()
     base_names = set(_string_list(parameter.get("base_names")))
+    base_names.update(_string_list(parameter.get("parameter_names")))
+    base_names.update(_string_list(parameter.get("local_names")))
+    base_names.update(_string_list(parameter.get("name_hints")))
     if parameter_name:
         base_names.add(parameter_name)
     if 0 <= parameter_index < len(parameters):
         base_names.add(parameters[parameter_index][0])
     if not base_names or base not in base_names:
         return None
+    type_index = parameter_index if 0 <= parameter_index < len(parameters) else _parameter_index_for_name(parameters, base)
+    if type_index >= 0 and not _parameter_type_matches(parameter, parameters[type_index][1]):
+        return None
 
     role = _safe_identifier_text(parameter.get("role"), "domainRole")
     structure = _safe_identifier_text(parameter.get("structure"), "DOMAIN_STRUCTURE")
     mode = _mode_value(parameter.get("mode"))
+    confidence_value = _float_value(parameter.get("confidence"), 0.72)
+    effective_profile_blockers = list(profile_blockers)
+    if mode != MODE_REPORT_ONLY and confidence_value < 0.75:
+        effective_profile_blockers.append("low_confidence")
     effective_mode, forced_reasons = _effective_mode(
         mode,
         _string_list(parameter.get("force_report_only_on")),
         non_identity_blockers,
+        effective_profile_blockers,
     )
     profile_id = _profile_id(profile)
-    fields = tuple(_profile_fields(parameter.get("fields", [])))
+    fields = tuple() if effective_profile_blockers else tuple(_profile_fields(parameter.get("fields", []), profile, parameter))
     confidence = min(
-        _float_value(parameter.get("confidence"), 0.72),
+        confidence_value,
         _mode_confidence_cap(effective_mode),
     )
     if parameter_index < 0:
@@ -336,10 +565,13 @@ def _parameter_match(
         fields=fields,
         match_reason=_match_reason(profile_id, parameter_index, parameter_name or base),
         forced_report_only_reasons=tuple(forced_reasons),
+        profile_source=_profile_source(profile, parameter),
+        profile_version=_profile_version(profile),
+        profile_metadata=_profile_metadata_tuple(profile),
     )
 
 
-def _profile_fields(value: Any) -> list[DomainIdentityField]:
+def _profile_fields(value: Any, profile: dict[str, Any], parameter: dict[str, Any]) -> list[DomainIdentityField]:
     if not isinstance(value, list):
         return []
     result: list[DomainIdentityField] = []
@@ -354,6 +586,10 @@ def _profile_fields(value: Any) -> list[DomainIdentityField]:
         type_text = _safe_type_text(item.get("type", item.get("type_text", "unknown")))
         size = _int_value(item.get("size"), 0)
         confidence = _float_value(item.get("confidence"), 0.72)
+        source = _safe_note_text(item.get("source", item.get("provenance", "")))
+        if not source:
+            source = _profile_source(profile, parameter)
+        provenance = _safe_note_text(item.get("provenance", source))
         seen_offsets.add(offset)
         result.append(
             DomainIdentityField(
@@ -362,6 +598,8 @@ def _profile_fields(value: Any) -> list[DomainIdentityField]:
                 type_text=type_text,
                 size=max(0, size),
                 confidence=round(max(0.0, min(1.0, confidence)), 2),
+                source=source,
+                provenance=provenance,
                 note=_safe_note_text(item.get("note", "")),
             )
         )
@@ -373,8 +611,10 @@ def _effective_mode(
     mode: str,
     force_report_only_on: list[str],
     non_identity_blockers: list[str],
+    profile_blockers: list[str],
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
+    reasons.extend(profile_blockers)
     categories = _blocker_categories(non_identity_blockers)
     for item in force_report_only_on:
         category = str(item or "").strip().lower().replace("-", "_")
@@ -403,7 +643,184 @@ def _blocker_categories(blockers: list[str]) -> set[str]:
             categories.add("base_stability")
         if "address is taken" in lowered or "indexed like an array" in lowered:
             categories.add("base_escape")
+        if "build_mismatch" in lowered or "build mismatch" in lowered:
+            categories.add("build_mismatch")
+        if "missing_source_identity" in lowered or "missing source identity" in lowered:
+            categories.add("missing_source_identity")
+        if "low_confidence" in lowered or "low confidence" in lowered:
+            categories.add("low_confidence")
     return categories
+
+
+def _profile_context_blockers(
+    profile: dict[str, Any],
+    profile_context: dict[str, Any] | None,
+) -> list[str]:
+    constraints = _profile_context_constraints(profile)
+    if not constraints:
+        return []
+    context = _normalize_profile_context(profile_context)
+    if not context:
+        return ["missing_source_identity"]
+    blockers: list[str] = []
+    missing = False
+    for key, expected_values in constraints.items():
+        actual = context.get(key, "")
+        if not actual:
+            missing = True
+            continue
+        if not any(_context_value_matches(key, actual, expected) for expected in expected_values):
+            blockers.append(_context_mismatch_blocker(key))
+    if missing:
+        blockers.insert(0, "missing_source_identity")
+    return list(dict.fromkeys(blockers))
+
+
+def _profile_context_constraints(profile: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    constraints: dict[str, list[str]] = {}
+    for section in _profile_metadata_sections(profile):
+        for key, values in _metadata_constraints(section).items():
+            constraints.setdefault(key, [])
+            constraints[key].extend(values)
+    return {
+        key: tuple(dict.fromkeys(value for value in values if value))
+        for key, values in constraints.items()
+        if values
+    }
+
+
+def _profile_metadata_sections(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    for key in ("_pack_metadata", "target", "metadata", "build"):
+        value = profile.get(key)
+        if isinstance(value, dict):
+            sections.append(value)
+        elif key == "build" and value not in (None, ""):
+            sections.append({"build": value})
+    sections.append(profile)
+    return sections
+
+
+def _metadata_constraints(section: dict[str, Any]) -> dict[str, list[str]]:
+    aliases = {
+        "image": ("image", "image_name", "module", "binary"),
+        "arch": ("arch", "architecture", "machine"),
+        "build": ("build", "build_number", "os_build", "nt_build"),
+        "pdb_guid_age": ("pdb_guid_age", "pdb_guidage"),
+        "pdb_guid": ("pdb_guid",),
+        "pdb_age": ("pdb_age",),
+        "image_sha256": ("image_sha256", "image_hash"),
+    }
+    result: dict[str, list[str]] = {}
+    for canonical, names in aliases.items():
+        for name in names:
+            if name not in section:
+                continue
+            values = _metadata_value_list(section.get(name))
+            if values:
+                result.setdefault(canonical, [])
+                result[canonical].extend(values)
+    return result
+
+
+def _metadata_value_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _normalize_profile_context(profile_context: dict[str, Any] | None) -> dict[str, str]:
+    if not isinstance(profile_context, dict):
+        return {}
+    result: dict[str, str] = {}
+    for section in [profile_context]:
+        for key, values in _metadata_constraints(section).items():
+            if values:
+                result[key] = _normalize_context_value(key, values[0])
+    return result
+
+
+def _context_value_matches(key: str, actual: str, expected: str) -> bool:
+    expected_normalized = _normalize_context_value(key, expected)
+    return bool(expected_normalized and actual == expected_normalized)
+
+
+def _normalize_context_value(key: str, value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if key == "image":
+        text = re.split(r"[\\/]", text)[-1]
+    if key == "arch":
+        lowered = text.lower()
+        if lowered in {"amd64", "x86_64"}:
+            return "x64"
+        if lowered in {"i386", "i686"}:
+            return "x86"
+        return lowered
+    if key in {"pdb_guid_age", "pdb_guid", "image_sha256"}:
+        return text.strip("{}").lower()
+    return text.lower()
+
+
+def _context_mismatch_blocker(key: str) -> str:
+    if key == "build":
+        return "build_mismatch"
+    if key == "image":
+        return "image_mismatch"
+    if key == "arch":
+        return "arch_mismatch"
+    if key.startswith("pdb"):
+        return "pdb_mismatch"
+    if key == "image_sha256":
+        return "image_hash_mismatch"
+    return "profile_context_mismatch"
+
+
+def _metadata_items(section: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, value in section.items():
+        if isinstance(value, (dict, list)):
+            continue
+        text = str(value or "").strip()
+        if text:
+            result[str(key)] = text
+    return result
+
+
+def _profile_source(profile: dict[str, Any], parameter: dict[str, Any] | None = None) -> str:
+    if parameter:
+        source = _safe_note_text(parameter.get("source", parameter.get("provenance", "")))
+        if source:
+            return source
+    source = _safe_note_text(profile.get("source", profile.get("provenance", "")))
+    if source:
+        return source
+    metadata = profile.get("_pack_metadata")
+    if isinstance(metadata, dict):
+        source = _safe_note_text(metadata.get("source", ""))
+        if source:
+            return source
+    return ""
+
+
+def _profile_version(profile: dict[str, Any]) -> str:
+    for section in _profile_metadata_sections(profile):
+        for key in ("profile_version", "version"):
+            value = str(section.get(key, "") if isinstance(section, dict) else "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _profile_metadata_tuple(profile: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    metadata: dict[str, str] = {}
+    for section in _profile_metadata_sections(profile):
+        metadata.update(_metadata_items(section))
+    return tuple(sorted((key, value) for key, value in metadata.items() if not key.startswith("_")))
 
 
 def _mode_value(value: Any) -> str:
@@ -465,6 +882,12 @@ def _safe_regex_search(pattern: str, text: str) -> bool:
         return re.search(pattern, text) is not None
     except re.error:
         return False
+
+
+def _identifier_exists(text: str, name: str) -> bool:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(name or "")):
+        return False
+    return re.search(r"\b%s\b" % re.escape(str(name)), text or "") is not None
 
 
 def _offset_value(value: Any) -> int | None:

@@ -219,7 +219,10 @@ def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -
     params = extract_parameters_from_signature(capture.prototype)
     domain_renames = {
         item.parameter_index: item
-        for item in domain_identity_parameter_renames(capture.pseudocode)
+        for item in domain_identity_parameter_renames(
+            capture.pseudocode,
+            profile_context=capture.profile_context,
+        )
     }
     explicit_names = FUNCTION_PARAMETER_NAMES.get(function_name, [])
     if not explicit_names:
@@ -422,7 +425,7 @@ def _source_priority(source: str) -> int:
         "kernel-callback-registration": 96,
         "kernel-registry-callback": 96,
         "kernel-mm-probe": 96,
-        "kernel-zw-probe": 96,
+        "kernel-zw-probe": 97,
         "kernel-list": 95,
         "kernel-pool": 94,
         "domain-profile": 98,
