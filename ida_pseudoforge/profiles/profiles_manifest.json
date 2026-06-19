@@ -133,6 +133,16 @@
         "profiles": 24
       }
     },
+    "domain_identity/pnp_power.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl PnP/Power Manager device lifecycle role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "F263BF954314FDF901C42E2B96BDD10081C51F78E71E53F2BA91AC97D058C4EF",
+      "counts": {
+        "profiles": 19
+      }
+    },
     "domain_identity/memory_manager.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl Memory Manager VAD/address-space role-only identity profiles",

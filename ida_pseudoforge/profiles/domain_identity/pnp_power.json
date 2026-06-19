@@ -1,0 +1,1095 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "pnp-power-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 PnP and Power Manager device lifecycle role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.pnp_power.invalidate_device_state",
+      "source": "Reviewed IoInvalidateDeviceState physical device object validation and PnpRequestDeviceAction queueing flow.",
+      "function_names": [
+        "IoInvalidateDeviceState"
+      ],
+      "required_calls": [
+        "PnpRequestDeviceAction"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "physicalDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoInvalidateDeviceState physical device object argument"
+        },
+        {
+          "local_names": [
+            "deviceNode",
+            "p_DeviceNode"
+          ],
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "IoInvalidateDeviceState device node reached through the device object extension"
+        },
+        {
+          "local_names": [
+            "driverObject"
+          ],
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoInvalidateDeviceState owning driver object used for triage evidence"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.invalidate_device_relations",
+      "source": "Reviewed IoInvalidateDeviceRelations bus/relation invalidation and PnP action queue handoff.",
+      "function_names": [
+        "IoInvalidateDeviceRelations"
+      ],
+      "required_calls": [
+        "IopQueueInvalidateBusRelationsRequest",
+        "PnpRequestDeviceAction"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoInvalidateDeviceRelations device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "relationType",
+          "structure": "DEVICE_RELATION_TYPE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "DEVICE_RELATION_TYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "IoInvalidateDeviceRelations relation type argument"
+        },
+        {
+          "local_names": [
+            "deviceNodePtr",
+            "nodeBasePtr"
+          ],
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IoInvalidateDeviceRelations device node reached through the device object extension"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.request_device_action",
+      "source": "Reviewed PnpRequestDeviceAction action entry allocation, device reference, queue insertion, and worker dispatch flow.",
+      "function_names": [
+        "PnpRequestDeviceAction"
+      ],
+      "required_calls": [
+        "ExAllocatePool2",
+        "ObfReferenceObjectWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "PnpRequestDeviceAction target device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "deviceAction",
+          "structure": "PNP_DEVICE_ACTION",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PNP_DEVICE_ACTION",
+            "unsigned int",
+            "int"
+          ],
+          "source": "PnpRequestDeviceAction action type argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "actionFlags",
+          "structure": "PNP_DEVICE_ACTION_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "PnpRequestDeviceAction action flags argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "actionData",
+          "structure": "PNP_DEVICE_ACTION_DATA",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PnpRequestDeviceAction optional action data argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "actionEntryOutput",
+          "structure": "PNP_DEVICE_ACTION_ENTRY_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID *",
+            "__int64 *",
+            "_QWORD *"
+          ],
+          "source": "PnpRequestDeviceAction optional action entry output argument"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "deviceActionEntry",
+          "structure": "PNP_DEVICE_ACTION_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PnpRequestDeviceAction queue entry allocated with Pnp2 tag"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.device_action_worker",
+      "source": "Reviewed PnpDeviceActionWorker action queue removal, action dispatch, device node resolution, and reference release flow.",
+      "function_names": [
+        "PnpDeviceActionWorker"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "v5",
+            "ActionRequestNode"
+          ],
+          "role": "deviceActionEntry",
+          "structure": "PNP_DEVICE_ACTION_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "PnpDeviceActionWorker queue entry removed from PnpEnumerationRequestList"
+        },
+        {
+          "local_names": [
+            "v18",
+            "ActionTypeCode"
+          ],
+          "role": "deviceAction",
+          "structure": "PNP_DEVICE_ACTION",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PnpDeviceActionWorker action type loaded from the action entry"
+        },
+        {
+          "local_names": [
+            "v21",
+            "TargetDeviceObject"
+          ],
+          "role": "targetDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PnpDeviceActionWorker target device object loaded from the action entry"
+        },
+        {
+          "local_names": [
+            "v24",
+            "DeviceNodePtr"
+          ],
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PnpDeviceActionWorker device node used by action-specific handlers"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.allocate_device_node",
+      "source": "Reviewed PipAllocateDeviceNode Dnod allocation, parent linkage, list-head initialization, and initial state setup.",
+      "function_names": [
+        "PipAllocateDeviceNode"
+      ],
+      "required_calls": [
+        "ExAllocatePool2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "parentDeviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PDEVICE_NODE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "PipAllocateDeviceNode optional parent device node argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "deviceNodeOutput",
+          "structure": "DEVICE_NODE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PDEVICE_NODE *",
+            "__int64",
+            "__int64 *",
+            "_QWORD *"
+          ],
+          "source": "PipAllocateDeviceNode output device node pointer argument"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "allocatedDeviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PipAllocateDeviceNode newly allocated device node with Dnod tag"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.set_devnode_state",
+      "source": "Reviewed PipSetDevNodeState state transition, history ring update, property event, and removal-action cleanup flow.",
+      "function_names": [
+        "PipSetDevNodeState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_NODE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "PipSetDevNodeState target device node argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "newDevNodeState",
+          "structure": "PNP_DEVNODE_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PNP_DEVNODE_STATE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "PipSetDevNodeState new state argument"
+        },
+        {
+          "local_names": [
+            "driverListPtr"
+          ],
+          "role": "devNodeDriverState",
+          "structure": "PNP_DRIVER_LOAD_STATE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PipSetDevNodeState driver loaded/started state local"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.start_device",
+      "source": "Reviewed PnpStartDevice PoFx preparation and PnpSendIrp start-device request flow.",
+      "function_names": [
+        "PnpStartDevice"
+      ],
+      "required_calls": [
+        "PoFxPrepareDevice",
+        "PnpSendIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "startIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PIRP",
+            "__int64"
+          ],
+          "source": "PnpStartDevice start IRP argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetPowerState",
+          "structure": "POWER_STATE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "POWER_STATE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "PnpStartDevice target/original power state argument"
+        },
+        {
+          "local_names": [
+            "deviceObject"
+          ],
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "PnpStartDevice device object resolved from the IRP"
+        },
+        {
+          "local_names": [
+            "stateCode"
+          ],
+          "role": "pnpIrpStackTemplate",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PnpStartDevice stack template passed to PnpSendIrp"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.query_device_relations",
+      "source": "Reviewed PnpQueryDeviceRelations relation type packaging into a PnpSendIrp request.",
+      "function_names": [
+        "PnpQueryDeviceRelations"
+      ],
+      "required_calls": [
+        "PnpSendIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "__int64"
+          ],
+          "source": "PnpQueryDeviceRelations device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "relationType",
+          "structure": "DEVICE_RELATION_TYPE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "DEVICE_RELATION_TYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "PnpQueryDeviceRelations relation type argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "irpContext",
+          "structure": "PNP_SEND_IRP_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PnpQueryDeviceRelations IRP context argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "completionRoutine",
+          "structure": "IO_COMPLETION_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PIO_COMPLETION_ROUTINE",
+            "__int64"
+          ],
+          "source": "PnpQueryDeviceRelations completion routine argument"
+        },
+        {
+          "local_names": [
+            "requestRelationCode"
+          ],
+          "role": "pnpIrpStackTemplate",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PnpQueryDeviceRelations stack template passed to PnpSendIrp"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.process_requery_device_state",
+      "source": "Reviewed PiProcessRequeryDeviceState action context validation and PiProcessQueryDeviceState handoff.",
+      "function_names": [
+        "PiProcessRequeryDeviceState"
+      ],
+      "required_calls": [
+        "PiProcessQueryDeviceState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceActionEntry",
+          "structure": "PNP_DEVICE_ACTION_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PiProcessRequeryDeviceState action entry carrying the target device object"
+        },
+        {
+          "local_names": [
+            "v3",
+            "v9"
+          ],
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PiProcessRequeryDeviceState device node reached from the action entry device object"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.process_query_device_state",
+      "source": "Reviewed PiProcessQueryDeviceState synchronous query-device-state IRP and devnode user flag updates.",
+      "function_names": [
+        "PiProcessQueryDeviceState"
+      ],
+      "required_calls": [
+        "IopSynchronousCall"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "__int64"
+          ],
+          "source": "PiProcessQueryDeviceState device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "irpStackContext",
+          "structure": "PNP_SEND_IRP_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PiProcessQueryDeviceState operation context argument"
+        },
+        {
+          "local_names": [
+            "v5"
+          ],
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PiProcessQueryDeviceState target device node reached through the device object extension"
+        },
+        {
+          "local_names": [
+            "v15"
+          ],
+          "role": "pnpIrpStackTemplate",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PiProcessQueryDeviceState stack template passed to IopSynchronousCall"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.request_device_eject",
+      "source": "Reviewed IoRequestDeviceEject wrapper into IoRequestDeviceEjectEx.",
+      "function_names": [
+        "IoRequestDeviceEject"
+      ],
+      "required_calls": [
+        "IoRequestDeviceEjectEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "physicalDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoRequestDeviceEject physical device object argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.request_device_eject_ex",
+      "source": "Reviewed IoRequestDeviceEjectEx eject work item allocation, optional driver reference, and worker queue flow.",
+      "function_names": [
+        "IoRequestDeviceEjectEx"
+      ],
+      "required_calls": [
+        "ExAllocatePool2",
+        "ExQueueWorkItem"
+      ],
+      "required_call_regex": [
+        "\\bPnpRequestDeviceEjectExWorker\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "physicalDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoRequestDeviceEjectEx physical device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "ejectCallback",
+          "structure": "IO_DEVICE_EJECT_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PIO_DEVICE_EJECT_CALLBACK",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "IoRequestDeviceEjectEx optional eject callback argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "ejectContext",
+          "structure": "PNP_EJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "IoRequestDeviceEjectEx optional eject callback context argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "driverObject",
+          "structure": "DRIVER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PDRIVER_OBJECT",
+            "struct _DRIVER_OBJECT *",
+            "__int64"
+          ],
+          "source": "IoRequestDeviceEjectEx optional driver object argument"
+        },
+        {
+          "local_names": [
+            "DeviceNode",
+            "v11"
+          ],
+          "role": "deviceNode",
+          "structure": "DEVICE_NODE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "IoRequestDeviceEjectEx device node used to snapshot the device instance name"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "ejectWorkItem",
+          "structure": "PNP_EJECT_WORK_ITEM",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IoRequestDeviceEjectEx eject work item allocated with PnpF tag"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.request_device_eject_worker",
+      "source": "Reviewed PnpRequestDeviceEjectExWorker query/remove event, callback dispatch, driver dereference, and work item cleanup.",
+      "function_names": [
+        "PnpRequestDeviceEjectExWorker"
+      ],
+      "required_calls": [
+        "PnpQueueQueryAndRemoveEvent",
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "ejectWorkItem",
+          "structure": "PNP_EJECT_WORK_ITEM",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PVOID",
+            "WCHAR *",
+            "__int64"
+          ],
+          "source": "PnpRequestDeviceEjectExWorker eject work item argument"
+        },
+        {
+          "local_names": [
+            "DestinationString"
+          ],
+          "role": "deviceInstanceName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PnpRequestDeviceEjectExWorker device instance name initialized from the work item"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.eject_device",
+      "source": "Reviewed IopEjectDevice attached-device reference, eject IRP allocation, pending-eject queue, and call-driver flow.",
+      "function_names": [
+        "IopEjectDevice"
+      ],
+      "required_calls": [
+        "IoAllocateIrp",
+        "IofCallDriver",
+        "PnpQueuePendingEject"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "physicalDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "IopEjectDevice physical device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "ejectContext",
+          "structure": "PNP_EJECT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "IopEjectDevice pending eject context argument"
+        },
+        {
+          "local_names": [
+            "AttachedDeviceReferenceWithTag",
+            "attachedDeviceReference"
+          ],
+          "role": "attachedDeviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IopEjectDevice top attached device referenced before building the eject IRP"
+        },
+        {
+          "local_names": [
+            "Irp"
+          ],
+          "role": "ejectIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IopEjectDevice allocated eject IRP"
+        },
+        {
+          "local_names": [
+            "CurrentStackLocation",
+            "nextIrpStackLocation"
+          ],
+          "role": "currentStackLocation",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "IopEjectDevice stack location initialized for eject IRP"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.request_power_irp",
+      "source": "Reviewed PoRequestPowerIrp wrapper into PopRequestPowerIrp.",
+      "function_names": [
+        "PoRequestPowerIrp"
+      ],
+      "required_calls": [
+        "PopRequestPowerIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "PoRequestPowerIrp device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "powerMinorFunction",
+          "structure": "POWER_IRP_MINOR_FUNCTION",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "UCHAR",
+            "unsigned char",
+            "char",
+            "int"
+          ],
+          "source": "PoRequestPowerIrp minor function argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "powerState",
+          "structure": "POWER_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "POWER_STATE",
+            "__int64",
+            "int"
+          ],
+          "source": "PoRequestPowerIrp requested power state argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "completionFunction",
+          "structure": "REQUEST_POWER_COMPLETE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PREQUEST_POWER_COMPLETE",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "PoRequestPowerIrp completion callback argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "completionContext",
+          "structure": "POWER_IRP_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "PoRequestPowerIrp completion context argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "powerIrpOutput",
+          "structure": "IRP_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PIRP *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PoRequestPowerIrp optional output IRP pointer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.pop_request_power_irp",
+      "source": "Reviewed PopRequestPowerIrp allocation, completion routine setup, power stack location initialization, and queue/call flow.",
+      "function_names": [
+        "PopRequestPowerIrp"
+      ],
+      "required_calls": [
+        "PopAllocateIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "__int64"
+          ],
+          "source": "PopRequestPowerIrp device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "powerMinorFunction",
+          "structure": "POWER_IRP_MINOR_FUNCTION",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "UCHAR",
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "PopRequestPowerIrp minor function argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "powerState",
+          "structure": "POWER_STATE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "POWER_STATE",
+            "int",
+            "__int64"
+          ],
+          "source": "PopRequestPowerIrp requested power state argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "powerIrpOutput",
+          "structure": "IRP_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PIRP *",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "PopRequestPowerIrp optional output IRP pointer argument"
+        },
+        {
+          "local_names": [
+            "v13",
+            "a7"
+          ],
+          "role": "powerIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PopRequestPowerIrp allocated power IRP local"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.po_call_driver",
+      "source": "Reviewed PoCallDriver wrapper into IofCallDriver.",
+      "function_names": [
+        "PoCallDriver"
+      ],
+      "required_calls": [
+        "IofCallDriver"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "PoCallDriver device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64"
+          ],
+          "source": "PoCallDriver IRP argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.set_power_state",
+      "source": "Reviewed PoSetPowerState device/system power state update through the device object extension.",
+      "function_names": [
+        "PoSetPowerState"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "PoSetPowerState device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "powerStateType",
+          "structure": "POWER_STATE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POWER_STATE_TYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "PoSetPowerState power state type argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "powerState",
+          "structure": "POWER_STATE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POWER_STATE",
+            "__int64",
+            "int"
+          ],
+          "source": "PoSetPowerState new power state argument"
+        },
+        {
+          "local_names": [
+            "deviceObjectExtension"
+          ],
+          "role": "deviceObjectExtension",
+          "structure": "DEVOBJ_EXTENSION",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PoSetPowerState device extension holding the serialized power flags"
+        }
+      ]
+    },
+    {
+      "id": "windows.pnp_power.power_dispatch",
+      "source": "Reviewed IopPowerDispatch power minor-function dispatch and completion flow.",
+      "function_names": [
+        "IopPowerDispatch"
+      ],
+      "required_calls": [
+        "IofCompleteRequest"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "IopPowerDispatch device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64"
+          ],
+          "source": "IopPowerDispatch power IRP argument"
+        },
+        {
+          "local_names": [
+            "currentStackLocation"
+          ],
+          "role": "currentStackLocation",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "IopPowerDispatch current stack location used to read the power minor function"
+        }
+      ]
+    }
+  ]
+}
