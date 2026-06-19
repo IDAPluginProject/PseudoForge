@@ -166,10 +166,13 @@ def validate_renames(
     lvar_names = {var.name for var in capture.lvars}
     known_names = identifiers | lvar_names
     argument_semantics = _argument_semantic_words(suggestions)
-    status_carrier_evidence = _status_carrier_evidence_by_name(
-        capture.pseudocode,
-        {item.old for item in suggestions if item.old in known_names},
+    status_carrier_names = {item.old for item in suggestions if item.old in known_names}
+    status_carrier_names.update(
+        name
+        for name in lvar_names
+        if _is_existing_object_style_status_name(name)
     )
+    status_carrier_evidence = _status_carrier_evidence_by_name(capture.pseudocode, status_carrier_names)
     reserved_status_sources = {
         item.old
         for item in suggestions
@@ -265,6 +268,13 @@ def validate_renames(
             used_new_names.add(item.new)
         accepted.append(item)
 
+    _append_existing_object_status_carrier_renames(
+        accepted,
+        warnings,
+        status_carrier_evidence,
+        used_new_names,
+        known_names,
+    )
     return accepted, warnings
 
 
@@ -333,17 +343,103 @@ def _is_object_style_rename(name: str) -> bool:
     return "object" in words
 
 
+def _append_existing_object_status_carrier_renames(
+    accepted: list[RenameSuggestion],
+    warnings: list[str],
+    status_carrier_evidence: dict[str, list[str]],
+    used_new_names: set[str],
+    known_names: set[str],
+) -> None:
+    applied_old_names = {item.old for item in accepted if item.apply}
+    for old_name, evidence_items in sorted(status_carrier_evidence.items()):
+        if old_name in applied_old_names:
+            continue
+        new_name = _existing_object_status_name(old_name, known_names, used_new_names)
+        if not new_name:
+            continue
+        accepted.append(
+            RenameSuggestion(
+                kind="lvar",
+                old=old_name,
+                new=new_name,
+                confidence=0.84,
+                source="kernel-status",
+                evidence=(
+                    "object-style local has NTSTATUS carrier evidence (%s)"
+                    % _format_status_carrier_evidence(evidence_items)
+                ),
+            )
+        )
+        used_new_names.add(new_name)
+        warnings.append(
+            "Downgraded object-style status carrier name %s->%s: %s has NTSTATUS carrier evidence (%s)"
+            % (old_name, new_name, old_name, _format_status_carrier_evidence(evidence_items))
+        )
+
+
+def _is_existing_object_style_status_name(name: str) -> bool:
+    words = _split_identifier_words(name)
+    return "object" in words and "status" not in words
+
+
+def _existing_object_status_name(
+    old_name: str,
+    known_names: set[str],
+    used_new_names: set[str],
+) -> str:
+    words = _ordered_identifier_words(old_name)
+    if not words or "object" not in words or "status" in words:
+        return ""
+    base = _lower_camel_words(words)
+    candidates = []
+    if base == "object":
+        candidates.append("objectStatus")
+    else:
+        candidates.append("%sStatus" % base)
+    candidates.extend(("statusValue", "localStatus"))
+    for candidate in candidates:
+        if _rename_target_available(candidate, known_names, used_new_names):
+            return candidate
+    return ""
+
+
+def _lower_camel_words(words: list[str]) -> str:
+    if not words:
+        return ""
+    first = words[0].lower()
+    rest = [word[:1].upper() + word[1:].lower() for word in words[1:]]
+    return "".join([first] + rest)
+
+
 def _status_conflict_replacement(
     item: RenameSuggestion,
     known_names: set[str],
     used_new_names: set[str],
     reserved_status_sources: set[str],
 ) -> str:
-    if STATUS_RENAME_TARGET in known_names or STATUS_RENAME_TARGET in used_new_names:
-        return ""
-    if any(source != item.old for source in reserved_status_sources):
-        return ""
-    return STATUS_RENAME_TARGET
+    if _rename_target_available(STATUS_RENAME_TARGET, known_names, used_new_names) and not any(
+        source != item.old for source in reserved_status_sources
+    ):
+        return STATUS_RENAME_TARGET
+    for candidate in _status_conflict_fallback_names(item):
+        if _rename_target_available(candidate, known_names, used_new_names):
+            return candidate
+    return ""
+
+
+def _status_conflict_fallback_names(item: RenameSuggestion) -> tuple[str, ...]:
+    words = _split_identifier_words(item.old) | _split_identifier_words(item.new)
+    if "object" in words:
+        return ("objectStatus", "statusValue", "localStatus")
+    return ("statusValue", "localStatus")
+
+
+def _rename_target_available(
+    name: str,
+    known_names: set[str],
+    used_new_names: set[str],
+) -> bool:
+    return bool(name) and name not in known_names and name not in used_new_names
 
 
 def _format_status_carrier_evidence(evidence: list[str]) -> str:

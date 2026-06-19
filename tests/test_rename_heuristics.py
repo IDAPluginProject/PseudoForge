@@ -485,6 +485,28 @@ __int64 __fastcall StatusObjectConflictSample()
 """
 
 
+STATUS_OBJECT_EXISTING_NAMES_SAMPLE = r"""
+__int64 __fastcall StatusObjectExistingNamesSample()
+{
+  int ObjectProperty;
+  int ObjectList;
+  int status;
+
+  ObjectProperty = QueryObjectProperty();
+  if ( ObjectProperty == STATUS_BUFFER_TOO_SMALL )
+  {
+    status = ObjectProperty;
+  }
+  ObjectList = STATUS_MORE_PROCESSING_REQUIRED;
+  if ( ObjectList < 0 )
+  {
+    return ObjectList;
+  }
+  return status;
+}
+"""
+
+
 STATUS_OBJECT_DOWNGRADE_SAMPLE = r"""
 __int64 __fastcall StatusObjectDowngradeSample()
 {
@@ -968,14 +990,35 @@ __int64 __fastcall TextLvarMergeSample()
         rename_map = {item.old: item.new for item in plan.renames if item.apply}
         rendered = render_cleaned_pseudocode(capture, plan)
 
-        self.assertNotEqual(rename_map.get("Object"), "referencedObject")
+        self.assertEqual(rename_map["Object"], "objectStatus")
         self.assertEqual(rename_map["updated"], "status")
         self.assertIn(
-            "Skipped status/object semantic conflict rename Object->referencedObject",
+            "Downgraded status/object semantic conflict rename Object->referencedObject to Object->objectStatus",
             "\n".join(plan.warnings),
         )
-        self.assertIn("Object = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+        self.assertIn("objectStatus = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+        self.assertNotIn("Object = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
         self.assertNotIn("referencedObject = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+
+    def test_existing_object_style_status_names_get_status_suffix(self) -> None:
+        capture = capture_from_pseudocode(STATUS_OBJECT_EXISTING_NAMES_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+        warnings = "\n".join(plan.warnings)
+
+        self.assertEqual("objectPropertyStatus", rename_map["ObjectProperty"])
+        self.assertEqual("objectListStatus", rename_map["ObjectList"])
+        self.assertIn("objectPropertyStatus = QueryObjectProperty();", rendered)
+        self.assertIn("if ( objectPropertyStatus == STATUS_BUFFER_TOO_SMALL )", rendered)
+        self.assertIn("objectListStatus = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
+        self.assertIn("return objectListStatus;", rendered)
+        self.assertIn(
+            "Downgraded object-style status carrier name ObjectProperty->objectPropertyStatus",
+            warnings,
+        )
+        self.assertNotIn("ObjectProperty = QueryObjectProperty();", rendered)
+        self.assertNotIn("ObjectList = STATUS_MORE_PROCESSING_REQUIRED;", rendered)
 
     def test_status_carrier_object_name_downgrades_when_status_name_is_free(self) -> None:
         class FakeProvider:
