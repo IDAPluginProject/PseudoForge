@@ -1,7 +1,7 @@
 {
   "schema": "domain_identity_profiles_v1",
   "profile_version": "image-code-integrity-v1",
-  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 image load, loaded module, image notification, code integrity, and driver block role-only identity pack; no private field offsets.",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 image load, loaded module, image notification, code integrity, PE header validation, and driver block report-only identity pack.",
   "metadata": {
     "image": "ntoskrnl.exe",
     "arch": "x64",
@@ -330,6 +330,388 @@
             "void *"
           ],
           "source": "MmGetImageFileSignatureInformation section object or control area context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mi_verify_image_header",
+      "source": "Reviewed MiVerifyImageHeader PE signature, FileHeader, OptionalHeader, data-directory validation, and internal image-header summary materialization.",
+      "function_names": [
+        "MiVerifyImageHeader"
+      ],
+      "required_calls": [
+        "MiComputeBadImageHeaderType"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "imageHeaderInfo",
+          "role": "imageHeaderInfo",
+          "structure": "MI_IMAGE_HEADER_INFO",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "unsigned __int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "MiVerifyImageHeader destination image-header summary populated from IMAGE_NT_HEADERS",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "imageBase",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "source": "MiVerifyImageHeader output summary image base"
+            },
+            {
+              "offset": "0x8",
+              "name": "sectionAlignment",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.SectionAlignment"
+            },
+            {
+              "offset": "0xC",
+              "name": "fileAlignment",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.FileAlignment"
+            },
+            {
+              "offset": "0x10",
+              "name": "sizeOfImage",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.SizeOfImage"
+            },
+            {
+              "offset": "0x14",
+              "name": "loaderFlags",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "source": "Copied and adjusted from IMAGE_OPTIONAL_HEADER.LoaderFlags"
+            },
+            {
+              "offset": "0x18",
+              "name": "sizeOfHeaders",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.SizeOfHeaders"
+            },
+            {
+              "offset": "0x1C",
+              "name": "entryPointRva",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.82,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.AddressOfEntryPoint"
+            },
+            {
+              "offset": "0x20",
+              "name": "sizeOfStackReserve",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.78,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.SizeOfStackReserve"
+            },
+            {
+              "offset": "0x28",
+              "name": "sizeOfStackCommit",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.78,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.SizeOfStackCommit"
+            },
+            {
+              "offset": "0x30",
+              "name": "optionalHeaderMagic",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.82,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.Magic"
+            },
+            {
+              "offset": "0x32",
+              "name": "subsystem",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.80,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.Subsystem"
+            },
+            {
+              "offset": "0x3C",
+              "name": "dllCharacteristics",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.80,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.DllCharacteristics"
+            },
+            {
+              "offset": "0x40",
+              "name": "checkSum",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.CheckSum"
+            },
+            {
+              "offset": "0x44",
+              "name": "sizeOfCode",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78,
+              "source": "Copied from IMAGE_OPTIONAL_HEADER.SizeOfCode"
+            },
+            {
+              "offset": "0x48",
+              "name": "baseRelocationTableRva",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.74,
+              "source": "Copied from IMAGE_DIRECTORY_ENTRY_BASERELOC.VirtualAddress when present"
+            },
+            {
+              "offset": "0x4C",
+              "name": "baseRelocationTableSize",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.74,
+              "source": "Copied from IMAGE_DIRECTORY_ENTRY_BASERELOC.Size when present"
+            }
+          ]
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "ntHeaders",
+          "role": "ntHeaders",
+          "structure": "IMAGE_NT_HEADERS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "unsigned __int64",
+            "PIMAGE_NT_HEADERS",
+            "PIMAGE_NT_HEADERS64",
+            "IMAGE_NT_HEADERS *"
+          ],
+          "source": "MiVerifyImageHeader source PE NT headers; PE32 and PE32+ optional-header offsets are handled as review-only overlays",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "signature",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.92,
+              "source": "IMAGE_NT_HEADERS.Signature"
+            },
+            {
+              "offset": "0x4",
+              "name": "machine",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.90,
+              "source": "IMAGE_FILE_HEADER.Machine"
+            },
+            {
+              "offset": "0x14",
+              "name": "sizeOfOptionalHeader",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.88,
+              "source": "IMAGE_FILE_HEADER.SizeOfOptionalHeader"
+            },
+            {
+              "offset": "0x16",
+              "name": "characteristics",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.88,
+              "source": "IMAGE_FILE_HEADER.Characteristics"
+            },
+            {
+              "offset": "0x18",
+              "name": "optionalHeaderMagic",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.90,
+              "source": "IMAGE_OPTIONAL_HEADER.Magic"
+            },
+            {
+              "offset": "0x1C",
+              "name": "sizeOfCode",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.86,
+              "source": "IMAGE_OPTIONAL_HEADER.SizeOfCode"
+            },
+            {
+              "offset": "0x28",
+              "name": "entryPointRva",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.86,
+              "source": "IMAGE_OPTIONAL_HEADER.AddressOfEntryPoint"
+            },
+            {
+              "offset": "0x30",
+              "name": "imageBase64OrBaseOfData32",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "source": "PE32+ ImageBase or PE32 BaseOfData overlay",
+              "note": "PE32/PE32+ overlay"
+            },
+            {
+              "offset": "0x34",
+              "name": "imageBase32",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.76,
+              "source": "IMAGE_OPTIONAL_HEADER32.ImageBase"
+            },
+            {
+              "offset": "0x38",
+              "name": "sectionAlignment",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.88,
+              "source": "IMAGE_OPTIONAL_HEADER.SectionAlignment"
+            },
+            {
+              "offset": "0x3C",
+              "name": "fileAlignment",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.88,
+              "source": "IMAGE_OPTIONAL_HEADER.FileAlignment"
+            },
+            {
+              "offset": "0x50",
+              "name": "sizeOfImage",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.88,
+              "source": "IMAGE_OPTIONAL_HEADER.SizeOfImage"
+            },
+            {
+              "offset": "0x54",
+              "name": "sizeOfHeaders",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.88,
+              "source": "IMAGE_OPTIONAL_HEADER.SizeOfHeaders"
+            },
+            {
+              "offset": "0x58",
+              "name": "checkSum",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.84,
+              "source": "IMAGE_OPTIONAL_HEADER.CheckSum"
+            },
+            {
+              "offset": "0x5C",
+              "name": "subsystem",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.84,
+              "source": "IMAGE_OPTIONAL_HEADER.Subsystem"
+            },
+            {
+              "offset": "0x5E",
+              "name": "dllCharacteristics",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.84,
+              "source": "IMAGE_OPTIONAL_HEADER.DllCharacteristics"
+            },
+            {
+              "offset": "0x70",
+              "name": "loaderFlags32",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "source": "IMAGE_OPTIONAL_HEADER32.LoaderFlags"
+            },
+            {
+              "offset": "0x74",
+              "name": "numberOfRvaAndSizes32",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "source": "IMAGE_OPTIONAL_HEADER32.NumberOfRvaAndSizes"
+            },
+            {
+              "offset": "0x80",
+              "name": "loaderFlags64",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78,
+              "source": "IMAGE_OPTIONAL_HEADER64.LoaderFlags"
+            },
+            {
+              "offset": "0x84",
+              "name": "numberOfRvaAndSizes64",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78,
+              "source": "IMAGE_OPTIONAL_HEADER64.NumberOfRvaAndSizes"
+            },
+            {
+              "offset": "0xB0",
+              "name": "baseRelocationTableRva64",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "source": "IMAGE_OPTIONAL_HEADER64.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress"
+            },
+            {
+              "offset": "0xB4",
+              "name": "baseRelocationTableSize64",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "source": "IMAGE_OPTIONAL_HEADER64.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size"
+            }
+          ]
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "imageSize",
+          "role": "imageSize",
+          "structure": "IMAGE_SIZE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "__int64",
+            "unsigned __int64",
+            "SIZE_T",
+            "ULONG_PTR"
+          ],
+          "source": "MiVerifyImageHeader image size argument forwarded to MiComputeBadImageHeaderType"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "loadFlags",
+          "role": "loadFlags",
+          "structure": "SYSTEM_IMAGE_LOAD_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "__int64",
+            "unsigned __int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "MiVerifyImageHeader load/verification flags forwarded to MiComputeBadImageHeaderType"
         }
       ]
     },

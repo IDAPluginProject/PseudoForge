@@ -194,6 +194,91 @@ __int64 __fastcall ExpConvertLdrEntryToModuleInfo(ULONG InformationClass, PLDR_D
         self.assertEqual("LDR_DATA_TABLE_ENTRY", convert_roles["loaderEntry"])
         self.assertEqual("SYSTEM_MODULE_INFORMATION_BUFFER", convert_roles["moduleInformation"])
 
+    def test_mi_verify_image_header_roles_and_pe_fields(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall MiVerifyImageHeader(__int64 a1, __int64 a2, __int64 a3, __int64 a4)
+{
+  if ( *(_DWORD *)a2 != 17744 )
+  {
+    return MiComputeBadImageHeaderType(a2, a3, a4);
+  }
+  if ( (*(_BYTE *)(a2 + 22) & 2) == 0 )
+  {
+    return STATUS_INVALID_IMAGE_FORMAT;
+  }
+  *(_WORD *)(a1 + 48) = *(_WORD *)(a2 + 24);
+  *(_DWORD *)(a1 + 8) = *(_DWORD *)(a2 + 60);
+  *(_DWORD *)(a1 + 12) = *(_DWORD *)(a2 + 56);
+  *(_DWORD *)(a1 + 16) = *(_DWORD *)(a2 + 80);
+  *(_DWORD *)(a1 + 20) = *(_DWORD *)(a2 + 128);
+  *(_QWORD *)a1 = *(_QWORD *)(a2 + 48);
+  *(_DWORD *)(a1 + 24) = *(_DWORD *)(a2 + 84);
+  *(_DWORD *)(a1 + 28) = *(_DWORD *)(a2 + 40);
+  *(_QWORD *)(a1 + 32) = *(_QWORD *)(a2 + 96);
+  *(_QWORD *)(a1 + 40) = *(_QWORD *)(a2 + 104);
+  if ( *(_DWORD *)(a2 + 132) > 5u )
+  {
+    *(_DWORD *)(a1 + 72) = *(_DWORD *)(a2 + 176);
+    *(_DWORD *)(a1 + 76) = *(_DWORD *)(a2 + 180);
+  }
+  return *(_WORD *)(a2 + 4)
+       + *(_WORD *)(a2 + 20)
+       + *(_WORD *)(a2 + 24)
+       + *(_DWORD *)(a2 + 28)
+       + *(_DWORD *)(a2 + 52)
+       + *(_DWORD *)(a2 + 88)
+       + *(_WORD *)(a2 + 92)
+       + *(_WORD *)(a2 + 94)
+       + *(_DWORD *)(a1 + 8)
+       + *(_DWORD *)(a1 + 12)
+       + *(_DWORD *)(a1 + 16)
+       + a3
+       + a4;
+}
+"""
+        )
+
+        profile_id = "windows.image_code_integrity.mi_verify_image_header"
+        roles = self._roles(plan, profile_id)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        image_header_identity = self._identity_for_base(plan, profile_id, "imageHeaderInfo")
+        nt_headers_identity = self._identity_for_base(plan, profile_id, "ntHeaders")
+        image_fields = {str(item["name"]): item for item in image_header_identity["fields"]}
+        nt_header_fields = {str(item["name"]): item for item in nt_headers_identity["fields"]}
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") in {"imageHeaderInfo", "ntHeaders"}
+        ]
+
+        self.assertEqual("MI_IMAGE_HEADER_INFO", roles["imageHeaderInfo"])
+        self.assertEqual("IMAGE_NT_HEADERS", roles["ntHeaders"])
+        self.assertEqual("IMAGE_SIZE", roles["imageSize"])
+        self.assertEqual("SYSTEM_IMAGE_LOAD_FLAGS", roles["loadFlags"])
+        self.assertEqual("imageHeaderInfo", rename_map["a1"])
+        self.assertEqual("ntHeaders", rename_map["a2"])
+        self.assertEqual("imageSize", rename_map["a3"])
+        self.assertEqual("loadFlags", rename_map["a4"])
+        self.assertEqual("report-only", image_header_identity["effective_mode"])
+        self.assertEqual("report-only", nt_headers_identity["effective_mode"])
+        self.assertEqual("ULONG", image_fields["sectionAlignment"]["type"])
+        self.assertEqual("USHORT", image_fields["optionalHeaderMagic"]["type"])
+        self.assertEqual("USHORT", nt_header_fields["sizeOfOptionalHeader"]["type"])
+        self.assertEqual("USHORT", nt_header_fields["characteristics"]["type"])
+        self.assertEqual("PE32/PE32+ overlay", nt_header_fields["imageBase64OrBaseOfData32"]["note"])
+        self.assertTrue(
+            all("domain identity profile is report-only" in item["blockers"] for item in blockers)
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") in {"imageHeaderInfo", "ntHeaders"}
+                for item in plan.comments
+            )
+        )
+
     def test_image_notify_roles(self) -> None:
         set_plan = self._plan(
             """
