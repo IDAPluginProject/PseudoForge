@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from ida_pseudoforge.core.event_builder_patterns import etw_event_builder_append_counts
 from ida_pseudoforge.core.plan_schema import CleanPlan
 
 
@@ -39,7 +40,10 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
         return text
     devpropkey_bases = _devpropkey_identity_bases(plan)
     devpropkey_intro_notes = _devpropkey_function_intro_notes(text, devpropkey_bases)
-    devpropkey_intro_emitted = False
+    event_builder_bases = _event_builder_identity_bases(plan)
+    event_builder_intro_notes = _event_builder_function_intro_notes(text, event_builder_bases)
+    intro_notes = devpropkey_intro_notes + event_builder_intro_notes
+    intro_notes_emitted = False
     lines = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -52,10 +56,10 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
             else:
                 lines.append(indent + "// PseudoForge: InsertTailList(&ExpFirmwareTableProviderListHead, newProviderLink).")
         lines.append(line)
-        if devpropkey_intro_notes and not devpropkey_intro_emitted and stripped == "{":
-            for note in devpropkey_intro_notes:
+        if intro_notes and not intro_notes_emitted and stripped == "{":
+            for note in intro_notes:
                 lines.append(indent + "  // PseudoForge: " + note)
-            devpropkey_intro_emitted = True
+            intro_notes_emitted = True
         if "inferred_record_layout" in comment_kinds and _is_provider_link_assignment(stripped):
             if "CONTAINING_RECORD(providerLink" in stripped:
                 lines.append(indent + "// PseudoForge: providerRecord owns providerLink at Link offset +0x18.")
@@ -69,11 +73,19 @@ def has_comment_kind(plan: CleanPlan, kind: str) -> bool:
 
 
 def _devpropkey_identity_bases(plan: CleanPlan) -> set[str]:
+    return _domain_identity_bases_by_structure(plan, "DEVPROPKEY")
+
+
+def _event_builder_identity_bases(plan: CleanPlan) -> set[str]:
+    return _domain_identity_bases_by_structure(plan, "SMST_ETW_EVENT_BUILDER")
+
+
+def _domain_identity_bases_by_structure(plan: CleanPlan, structure: str) -> set[str]:
     bases = set()
     for comment in plan.comments:
         if str(comment.get("kind", "")) != "domain_structure_identity":
             continue
-        if str(comment.get("structure", "")) != "DEVPROPKEY":
+        if str(comment.get("structure", "")) != structure:
             continue
         base = str(comment.get("base", "") or "")
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", base):
@@ -153,6 +165,28 @@ def _devpkey_symbol_from_text(text: str) -> str:
         return ""
     return match.group(1)
 
+
+def _event_builder_function_intro_notes(text: str, bases: set[str]) -> list[str]:
+    notes = []
+    for base in sorted(bases):
+        notes.append(
+            "%s is SMST_ETW_EVENT_BUILDER: descriptorTable +0x0, payloadBuffer +0x8, "
+            "itemCount +0x10, payloadWriteOffset +0x18."
+            % base
+        )
+        counts = etw_event_builder_append_counts(text, base)
+        if (
+            counts["payload_buffer_targets"] > 0
+            and counts["descriptor_table_slots"] > 0
+            and counts["item_count_updates"] > 0
+            and counts["payload_offset_updates"] > 0
+        ):
+            notes.append(
+                "Repeated append pattern on %s writes payload data, records pointer/size descriptors, "
+                "increments itemCount, and advances payloadWriteOffset."
+                % base
+            )
+    return notes
 
 def _strip_declaration_for_var(text: str, name: str) -> str:
     return re.sub(

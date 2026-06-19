@@ -98,9 +98,9 @@
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated deterministic domain structure identity profiles",
       "schema": "domain_identity_profiles_v1",
-      "sha256": "50D597B5BFC4068FBA891ED97529066D4FFB8E87FD742D643EEE3CE123F10716",
+      "sha256": "393B50A5D494E7BBB03FA36DC335FDC9DC01A4DFF7F32AC3A46DE36B5C8B736E",
       "counts": {
-        "profiles": 2
+        "profiles": 3
       }
     },
     "status_codes.json": {

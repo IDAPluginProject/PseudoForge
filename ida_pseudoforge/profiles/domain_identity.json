@@ -192,6 +192,76 @@
           ]
         }
       ]
+    },
+    {
+      "id": "windows.etw.smst_fill_store_event_builder",
+      "source": "Reviewed ntoskrnl 10.0.26200.8457 SmStEtwFillStoreEvent replay; ETW descriptor/payload append builder pattern",
+      "function_names": [
+        "SmStEtwFillStoreEvent"
+      ],
+      "demangled_regex": [
+        "SMKM_STORE<SM_TRAITS>::SmStEtwFillStoreEvent"
+      ],
+      "parameter_count": 2,
+      "parameters": [
+        {
+          "parameter_index": 1,
+          "rename_to": "eventBuilder",
+          "role": "eventBuilder",
+          "structure": "SMST_ETW_EVENT_BUILDER",
+          "mode": "canonical-rewrite-eligible",
+          "confidence": 0.86,
+          "rename_confidence": 0.94,
+          "accepted_types": [
+            "__int64",
+            "SMKM_EVENT_DESCRIPTOR *",
+            "_SMKM_EVENT_DESCRIPTOR *",
+            "PVOID"
+          ],
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "threshold",
+            "base_stability",
+            "base_escape"
+          ],
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "descriptorTable",
+              "type": "SMKM_EVENT_DESCRIPTOR *",
+              "size": 8,
+              "confidence": 0.84,
+              "note": "descriptor table base; entries are pointer/size pairs"
+            },
+            {
+              "offset": "0x8",
+              "name": "payloadBuffer",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.90,
+              "note": "payload byte buffer base used with payloadWriteOffset"
+            },
+            {
+              "offset": "0x10",
+              "name": "itemCount",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.90,
+              "note": "descriptor item count updated after each append"
+            },
+            {
+              "offset": "0x18",
+              "name": "payloadWriteOffset",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.90,
+              "note": "payload write offset advanced by appended item size"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

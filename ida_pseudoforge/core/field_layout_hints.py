@@ -14,6 +14,7 @@ from ida_pseudoforge.core.domain_identity import (
     domain_identity_matches,
     domain_identity_profiles_available,
 )
+from ida_pseudoforge.core.event_builder_patterns import etw_event_builder_append_counts
 
 
 _OFFSET_DEREF_RE = re.compile(
@@ -170,59 +171,67 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
     for item in selected_candidates:
         domain_identity = profile_matches.get(item.base)
         comments.append(_comment_from_layout(item))
-        identity_comment = _domain_identity_comment_from_match(domain_identity, item)
+        identity_comment = _domain_identity_comment_from_match(text or "", domain_identity, item)
         if identity_comment:
             comments.append(identity_comment)
+        append_pattern = _domain_identity_append_pattern_comment(text or "", domain_identity, item)
+        if append_pattern:
+            comments.append(append_pattern)
         preview = _field_preview_comment_from_layout(item, domain_identity)
         if preview:
             comments.append(preview)
-            alias_preview = _field_alias_comment_from_layout(item, domain_identity)
-            if alias_preview:
-                comments.append(alias_preview)
-                source_preview = _field_stable_base_source_comment_from_layout(text or "", item)
-                if source_preview:
-                    comments.append(source_preview)
-                generic_base_evidence = _field_generic_base_evidence_comment_from_layout(text or "", item)
-                if generic_base_evidence:
-                    comments.append(generic_base_evidence)
-                trust_candidate = _field_generic_base_trust_candidate_comment_from_layout(text or "", item)
-                if trust_candidate:
-                    comments.append(trust_candidate)
-                overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item, domain_identity)
-                if overlay_preview:
-                    comments.append(overlay_preview)
-                    narrow_preview = _field_narrow_subfield_comment_from_layout(text or "", item, domain_identity)
-                    if narrow_preview:
-                        comments.append(narrow_preview)
-                    bitfield_alias_preview = _field_bitfield_alias_comment_from_layout(
-                        text or "",
-                        item,
-                        domain_identity,
-                    )
-                    if bitfield_alias_preview:
-                        comments.append(bitfield_alias_preview)
-                unaligned_preview = _field_unaligned_subfield_comment_from_layout(item, domain_identity)
-                if unaligned_preview:
-                    comments.append(unaligned_preview)
-                blocker = _field_rewrite_blocker_comment(text or "", item)
-                if blocker:
-                    comments.append(blocker)
-                    stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
-                    if stability:
-                        comments.append(stability)
-                    near_ready = _field_rewrite_near_ready_comment(item, blocker)
-                    if near_ready:
-                        comments.append(near_ready)
-                    partial_opportunity = _field_rewrite_partial_opportunity_comment(text or "", item, blocker)
-                    if partial_opportunity:
-                        comments.append(partial_opportunity)
-                else:
-                    ready = _field_rewrite_ready_comment(text or "", item)
-                    if ready:
-                        comments.append(ready)
-                        rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
-                        if rewrite_preview:
-                            comments.append(rewrite_preview)
+        alias_preview = _field_alias_comment_from_layout(
+            text or "",
+            item,
+            domain_identity,
+            require_preview=domain_identity is None or domain_identity.ambiguous,
+        )
+        if alias_preview:
+            comments.append(alias_preview)
+            source_preview = _field_stable_base_source_comment_from_layout(text or "", item)
+            if source_preview:
+                comments.append(source_preview)
+            generic_base_evidence = _field_generic_base_evidence_comment_from_layout(text or "", item)
+            if generic_base_evidence:
+                comments.append(generic_base_evidence)
+            trust_candidate = _field_generic_base_trust_candidate_comment_from_layout(text or "", item)
+            if trust_candidate:
+                comments.append(trust_candidate)
+            overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item, domain_identity)
+            if overlay_preview:
+                comments.append(overlay_preview)
+                narrow_preview = _field_narrow_subfield_comment_from_layout(text or "", item, domain_identity)
+                if narrow_preview:
+                    comments.append(narrow_preview)
+                bitfield_alias_preview = _field_bitfield_alias_comment_from_layout(
+                    text or "",
+                    item,
+                    domain_identity,
+                )
+                if bitfield_alias_preview:
+                    comments.append(bitfield_alias_preview)
+            unaligned_preview = _field_unaligned_subfield_comment_from_layout(item, domain_identity)
+            if unaligned_preview:
+                comments.append(unaligned_preview)
+            blocker = _field_rewrite_blocker_comment(text or "", item)
+            if blocker:
+                comments.append(blocker)
+                stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
+                if stability:
+                    comments.append(stability)
+                near_ready = _field_rewrite_near_ready_comment(item, blocker)
+                if near_ready:
+                    comments.append(near_ready)
+                partial_opportunity = _field_rewrite_partial_opportunity_comment(text or "", item, blocker)
+                if partial_opportunity:
+                    comments.append(partial_opportunity)
+            else:
+                ready = _field_rewrite_ready_comment(text or "", item)
+                if ready:
+                    comments.append(ready)
+                    rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
+                    if rewrite_preview:
+                        comments.append(rewrite_preview)
     hot_clusters = [
         item
         for item in layouts.values()
@@ -332,12 +341,13 @@ def _domain_identity_for_layout(
 
 
 def _domain_identity_comment_from_match(
+    text: str,
     domain_identity: DomainIdentityMatch | None,
     layout: _LayoutEvidence,
 ) -> dict[str, Any] | None:
     if domain_identity is None:
         return None
-    field_text = _domain_identity_field_text(domain_identity, layout)
+    field_text = _domain_identity_field_text(text, domain_identity, layout)
     if domain_identity.ambiguous:
         detail = "ambiguous profiles %s" % ", ".join(domain_identity.ambiguous_profile_ids[:6])
         mode_text = "report-only"
@@ -372,14 +382,14 @@ def _domain_identity_comment_from_match(
         "effective_mode": domain_identity.effective_mode,
         "parameter_index": domain_identity.parameter_index,
         "parameter_name": domain_identity.parameter_name,
-        "fields": _domain_identity_observed_fields(domain_identity, layout),
+        "fields": _domain_identity_observed_fields(text, domain_identity, layout),
         "ambiguous_profile_ids": list(domain_identity.ambiguous_profile_ids),
         "forced_report_only_reasons": list(domain_identity.forced_report_only_reasons),
     }
 
 
-def _domain_identity_field_text(domain_identity: DomainIdentityMatch, layout: _LayoutEvidence) -> str:
-    fields = _domain_identity_observed_fields(domain_identity, layout)
+def _domain_identity_field_text(text: str, domain_identity: DomainIdentityMatch, layout: _LayoutEvidence) -> str:
+    fields = _domain_identity_observed_fields(text, domain_identity, layout)
     if not fields:
         return "none observed"
     text = "; ".join(
@@ -400,11 +410,15 @@ def _domain_identity_field_item_text(item: dict[str, Any]) -> str:
 
 
 def _domain_identity_observed_fields(
+    text: str,
     domain_identity: DomainIdentityMatch,
     layout: _LayoutEvidence,
 ) -> list[dict[str, Any]]:
     fields = []
-    for offset in sorted(layout.offsets):
+    observed_offsets = set(layout.offsets)
+    if _domain_identity_direct_base_access_exists(text, domain_identity, layout.base):
+        observed_offsets.add(0)
+    for offset in sorted(observed_offsets):
         field_item = domain_identity.field_for_offset(offset)
         if not field_item:
             continue
@@ -420,6 +434,72 @@ def _domain_identity_observed_fields(
         )
     return fields
 
+
+def _domain_identity_direct_base_access_exists(
+    text: str,
+    domain_identity: DomainIdentityMatch,
+    base: str,
+) -> bool:
+    if domain_identity.field_for_offset(0) is None:
+        return False
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", base or ""):
+        return False
+    return (
+        re.search(
+            r"\*\s*\(\s*[^)]*\*\s*\)\s*%s\b" % re.escape(base),
+            text or "",
+        )
+        is not None
+    )
+
+
+def _domain_identity_append_pattern_comment(
+    text: str,
+    domain_identity: DomainIdentityMatch | None,
+    layout: _LayoutEvidence,
+) -> dict[str, Any] | None:
+    if domain_identity is None:
+        return None
+    if domain_identity.structure != "SMST_ETW_EVENT_BUILDER":
+        return None
+    base = layout.base
+    counts = etw_event_builder_append_counts(text or "", base)
+    if (
+        counts["payload_buffer_targets"] <= 0
+        or counts["descriptor_table_slots"] <= 0
+        or counts["item_count_updates"] <= 0
+        or counts["payload_offset_updates"] <= 0
+    ):
+        return None
+    minimum_count = min(
+        counts["payload_buffer_targets"],
+        counts["descriptor_table_slots"],
+        counts["item_count_updates"],
+        counts["payload_offset_updates"],
+    )
+    confidence = min(0.84, 0.66 + min(minimum_count, 8) * 0.02)
+    return {
+        "kind": "domain_event_builder_append_pattern",
+        "text": (
+            "ETW append pattern for %s: payloadBuffer target(s)=%d, descriptorTable slot(s)=%d, "
+            "itemCount update(s)=%d, payloadWriteOffset update(s)=%d. Review-only; each item writes "
+            "payload data, stores a pointer/size descriptor, increments itemCount, and advances payloadWriteOffset."
+            % (
+                base,
+                counts["payload_buffer_targets"],
+                counts["descriptor_table_slots"],
+                counts["item_count_updates"],
+                counts["payload_offset_updates"],
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": base,
+        "base_kind": _layout_base_kind(base),
+        "profile_id": domain_identity.profile_id,
+        "role": domain_identity.role,
+        "structure": domain_identity.structure,
+        **counts,
+    }
 
 def _field_preview_comment_from_layout(
     layout: _LayoutEvidence,
@@ -452,16 +532,21 @@ def _field_preview_comment_from_layout(
 
 
 def _field_alias_comment_from_layout(
+    text: str,
     layout: _LayoutEvidence,
     domain_identity: DomainIdentityMatch | None = None,
+    require_preview: bool = True,
 ) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
-    if base_kind == "named":
-        if len(layout.offsets) < 5 or layout.access_count < 5:
+    if domain_identity is None or require_preview:
+        if base_kind == "named":
+            if len(layout.offsets) < 5 or layout.access_count < 5:
+                return None
+        elif len(layout.offsets) < 8 or layout.access_count < 12:
             return None
-    elif len(layout.offsets) < 8 or layout.access_count < 12:
-        return None
-    fields = _preview_fields(layout, domain_identity)
+    fields = _preview_fields(layout, domain_identity, text=text)
+    if domain_identity is not None and not require_preview:
+        fields = [item for item in fields if item.get("profile_confidence", 0.0)]
     if not fields:
         return None
     alias_text = "; ".join(
@@ -1229,9 +1314,13 @@ def _trusted_partial_layout_rewrite_identity(text: str, layout: _LayoutEvidence)
 def _preview_fields(
     layout: _LayoutEvidence,
     domain_identity: DomainIdentityMatch | None = None,
+    text: str = "",
 ) -> list[dict[str, Any]]:
     fields = []
-    for offset in sorted(layout.offsets):
+    observed_offsets = set(layout.offsets)
+    if domain_identity and _domain_identity_direct_base_access_exists(text, domain_identity, layout.base):
+        observed_offsets.add(0)
+    for offset in sorted(observed_offsets):
         domain_field = domain_identity.field_for_offset(offset) if domain_identity else None
         if domain_field:
             field_name = domain_field.name

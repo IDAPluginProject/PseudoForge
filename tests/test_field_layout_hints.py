@@ -375,6 +375,75 @@ __int64 __fastcall DomainOverlayBlockedLayout(__int64 argument0)
         self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in plan.comments))
         self.assertNotIn("propertyKey->fmtidHighPart", rendered)
 
+    def test_etw_store_event_builder_profile_renames_builder_and_emits_append_hint(self) -> None:
+        capture = capture_from_pseudocode(_smst_etw_fill_store_event_sample())
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+        identities = [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+        append_hints = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "domain_event_builder_append_pattern"
+        ]
+        aliases = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_field_aliases" and item.get("base") == "eventBuilder"
+        ]
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers" and item.get("base") == "eventBuilder"
+        ]
+
+        self.assertEqual("eventBuilder", rename_map["a2"])
+        self.assertIn("SmStEtwFillStoreEvent(__int64 argument0, __int64 eventBuilder)", rendered)
+        self.assertEqual(1, len(identities))
+        self.assertEqual("windows.etw.smst_fill_store_event_builder", identities[0]["profile_id"])
+        self.assertEqual("eventBuilder", identities[0]["base"])
+        self.assertEqual("eventBuilder", identities[0]["role"])
+        self.assertEqual("SMST_ETW_EVENT_BUILDER", identities[0]["structure"])
+        self.assertEqual("report-only", identities[0]["effective_mode"])
+        self.assertEqual(["threshold"], identities[0]["forced_report_only_reasons"])
+        self.assertTrue(any(field.get("name") == "descriptorTable" for field in identities[0]["fields"]))
+        self.assertTrue(any(field.get("name") == "payloadBuffer" for field in identities[0]["fields"]))
+        self.assertTrue(any(field.get("name") == "itemCount" for field in identities[0]["fields"]))
+        self.assertTrue(any(field.get("name") == "payloadWriteOffset" for field in identities[0]["fields"]))
+        self.assertEqual(1, len(append_hints))
+        self.assertEqual(1, append_hints[0]["payload_buffer_targets"])
+        self.assertEqual(1, append_hints[0]["descriptor_table_slots"])
+        self.assertEqual(1, append_hints[0]["item_count_updates"])
+        self.assertEqual(1, append_hints[0]["payload_offset_updates"])
+        self.assertIn("payloadBuffer target(s)=1", append_hints[0]["text"])
+        self.assertEqual(1, len(aliases))
+        self.assertIn("descriptorTable=+0x0 SMKM_EVENT_DESCRIPTOR *", aliases[0]["text"])
+        self.assertIn("payloadWriteOffset=+0x18 ULONG", aliases[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("domain identity profile is report-only", blockers[0]["blockers"])
+        self.assertIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
+        self.assertIn("eventBuilder is SMST_ETW_EVENT_BUILDER", rendered)
+        self.assertIn("Repeated append pattern on eventBuilder writes payload data", rendered)
+
+    def test_etw_store_event_builder_profile_does_not_apply_to_unrelated_hot_cluster(self) -> None:
+        capture = capture_from_pseudocode(
+            _smst_etw_fill_store_event_sample().replace(
+                "SmStEtwFillStoreEvent",
+                "UnrelatedStoreEventHelper",
+                1,
+            )
+        )
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotEqual("eventBuilder", rename_map.get("a2"))
+        self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in plan.comments))
+        self.assertFalse(any(item.get("kind") == "domain_event_builder_append_pattern" for item in plan.comments))
+        self.assertNotIn("SMST_ETW_EVENT_BUILDER", rendered)
+        self.assertNotIn("eventBuilder is SMST_ETW_EVENT_BUILDER", rendered)
+
     def test_generic_temp_base_requires_stronger_layout_evidence(self) -> None:
         comments = field_layout_comments(
             """
@@ -2844,6 +2913,27 @@ __int64 __fastcall CmGetDeviceMappedPropertyFromComposite(
   if ( !v2 && v1 == 4 )
     return PnpGetObjectProperty(a1, a2, 1u, a3, 0LL, (__int64)&DEVPKEY_Device_ProblemCode, a5, a6, a7, (__int64)a8, a9);
   return v1;
+}
+"""
+
+
+def _smst_etw_fill_store_event_sample() -> str:
+    return """
+_QWORD *__fastcall SMKM_STORE<SM_TRAITS>::SmStEtwFillStoreEvent(__int64 a1, __int64 a2)
+{
+  unsigned int v3;
+  _QWORD *v4;
+  _QWORD *v5;
+
+  v3 = *(unsigned int *)(a2 + 24);
+  v4 = (_QWORD *)(*(_QWORD *)(a2 + 8) + v3);
+  *v4 = a1;
+  v5 = (_QWORD *)(*(_QWORD *)a2 + 16LL * *(unsigned int *)(a2 + 16));
+  *v5 = v4;
+  v5[1] = 8LL;
+  ++*(_DWORD *)(a2 + 16);
+  *(_DWORD *)(a2 + 24) += 8;
+  return v5;
 }
 """
 
