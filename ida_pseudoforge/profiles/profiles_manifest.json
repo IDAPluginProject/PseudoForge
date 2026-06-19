@@ -94,6 +94,14 @@
       "source_version": "10.0.26100.0",
       "sha256": "E8F137FC12A20E06F514BB9FDEBAB7256CC31B18130178DDFDCB789A100CD43B"
     },
+    "domain_identity.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated deterministic domain structure identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "counts": {
+        "profiles": 0
+      }
+    },
     "status_codes.json": {
       "profile_kind": "ntstatus",
       "source": "WDK ntstatus.h",

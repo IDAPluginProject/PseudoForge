@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.field_layout_hints import (
@@ -12,9 +14,24 @@ from ida_pseudoforge.core.field_layout_hints import (
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.profiles import loader as profile_loader
 
 
 class FieldLayoutHintTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
+    def _configure_domain_profiles(self, temp_dir: str, profiles: list[dict[str, object]]) -> None:
+        payload = {
+            "schema": "domain_identity_profiles_v1",
+            "profiles": profiles,
+        }
+        Path(temp_dir, "domain_identity.json").write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+        profile_loader.configure_profile_dir(temp_dir)
+
     def test_repeated_typed_offset_accesses_emit_layout_comment(self) -> None:
         class FakeProvider:
             def suggest_renames(self, capture):
@@ -76,6 +93,168 @@ __int64 __fastcall SparseLayout(__int64 a1)
         )
 
         self.assertEqual([], comments)
+
+    def test_domain_identity_no_profile_keeps_argument_identity_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall DomainNoProfileLayout(__int64 argument0)
+{
+  return *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40)
+       + *(_QWORD *)(argument0 + 48)
+       + *(_QWORD *)(argument0 + 56)
+       + *(_QWORD *)(argument0 + 64)
+       + *(_QWORD *)(argument0 + 72)
+       + *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in comments))
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base name is unresolved argument identity", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_domain_identity_report_only_profile_emits_identity_before_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.report_only",
+                        "DomainReportOnlyLayout",
+                        "report-only",
+                    )
+                ],
+            )
+            comments = field_layout_comments(_domain_identity_sample("DomainReportOnlyLayout"))
+
+        kinds = [str(item.get("kind", "")) for item in comments]
+        identities = [item for item in comments if item.get("kind") == "domain_structure_identity"]
+        aliases = [item for item in comments if item.get("kind") == "inferred_offset_field_aliases"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(identities))
+        self.assertLess(kinds.index("domain_structure_identity"), kinds.index("inferred_offset_field_aliases"))
+        self.assertEqual("test.report_only", identities[0]["profile_id"])
+        self.assertEqual("domainContext", identities[0]["role"])
+        self.assertEqual("TEST_DOMAIN_CONTEXT", identities[0]["structure"])
+        self.assertEqual("report-only", identities[0]["effective_mode"])
+        self.assertEqual("flags", identities[0]["fields"][0]["name"])
+        self.assertEqual(1, len(aliases))
+        self.assertIn("flags=+0x10 ULONG", aliases[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("domain identity profile is report-only", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_domain_identity_canonical_profile_can_satisfy_argument_identity_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.canonical",
+                        "DomainCanonicalLayout",
+                        "canonical-rewrite-eligible",
+                    )
+                ],
+            )
+            comments = field_layout_comments(_domain_identity_sample("DomainCanonicalLayout"))
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("domain_identity", ready[0]["source_provenance"])
+        self.assertEqual("test.canonical", ready[0]["domain_profile_id"])
+        self.assertEqual("domainContext", ready[0]["domain_role"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("domain_identity", previews[0]["source_provenance"])
+        self.assertIn("flags", previews[0]["text"])
+
+    def test_domain_identity_ambiguous_profile_match_stays_report_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.ambiguous.a",
+                        "DomainAmbiguousLayout",
+                        "canonical-rewrite-eligible",
+                    ),
+                    _domain_identity_profile(
+                        "test.ambiguous.b",
+                        "DomainAmbiguousLayout",
+                        "canonical-rewrite-eligible",
+                    ),
+                ],
+            )
+            comments = field_layout_comments(_domain_identity_sample("DomainAmbiguousLayout"))
+
+        identities = [item for item in comments if item.get("kind") == "domain_structure_identity"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(identities))
+        self.assertEqual("ambiguous", identities[0]["profile_id"])
+        self.assertEqual(
+            ["test.ambiguous.a", "test.ambiguous.b"],
+            identities[0]["ambiguous_profile_ids"],
+        )
+        self.assertEqual(1, len(blockers))
+        self.assertIn("domain identity profile is ambiguous", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_domain_identity_profile_forces_report_only_on_overlay_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.overlay_blocked",
+                        "DomainOverlayBlockedLayout",
+                        "canonical-rewrite-eligible",
+                        force_report_only_on=["overlay", "type_conflict"],
+                    )
+                ],
+            )
+            comments = field_layout_comments(
+                """
+__int64 __fastcall DomainOverlayBlockedLayout(__int64 argument0)
+{
+  return *(_BYTE *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40)
+       + *(_QWORD *)(argument0 + 48)
+       + *(_QWORD *)(argument0 + 56)
+       + *(_QWORD *)(argument0 + 64)
+       + *(_QWORD *)(argument0 + 72)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40);
+}
+"""
+            )
+
+        identities = [item for item in comments if item.get("kind") == "domain_structure_identity"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(identities))
+        self.assertEqual("report-only", identities[0]["effective_mode"])
+        self.assertEqual(["overlay"], identities[0]["forced_report_only_reasons"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("domain identity profile is report-only", blockers[0]["blockers"])
+        self.assertIn("one or more offsets mix irregular field access widths", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_generic_temp_base_requires_stronger_layout_evidence(self) -> None:
         comments = field_layout_comments(
@@ -2402,6 +2581,58 @@ __int64 __fastcall PartialTypeBlockedLayout(__int64 sessionSpace)
         self.assertIn("excluded offsets +0x206", partial[0]["text"])
         self.assertIn("canonical body rewrite remains disabled", partial[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_preview" for item in comments))
+
+
+def _domain_identity_profile(
+    profile_id: str,
+    function_name: str,
+    mode: str,
+    force_report_only_on: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "id": profile_id,
+        "function_names": [function_name],
+        "parameters": [
+            {
+                "parameter_index": 0,
+                "role": "domainContext",
+                "structure": "TEST_DOMAIN_CONTEXT",
+                "mode": mode,
+                "confidence": 0.88,
+                "force_report_only_on": force_report_only_on or [],
+                "fields": [
+                    {"offset": "0x10", "name": "flags", "type": "ULONG", "size": 4, "confidence": 0.90},
+                    {"offset": "0x18", "name": "objectPointer", "type": "PVOID", "size": 8, "confidence": 0.86},
+                    {"offset": "0x20", "name": "descriptor", "type": "PVOID", "size": 8, "confidence": 0.84},
+                    {"offset": "0x28", "name": "count", "type": "ULONG64", "size": 8, "confidence": 0.82},
+                    {"offset": "0x30", "name": "length", "type": "ULONG64", "size": 8, "confidence": 0.82},
+                    {"offset": "0x38", "name": "state", "type": "ULONG64", "size": 8, "confidence": 0.80},
+                    {"offset": "0x40", "name": "owner", "type": "PVOID", "size": 8, "confidence": 0.80},
+                    {"offset": "0x48", "name": "next", "type": "PVOID", "size": 8, "confidence": 0.78},
+                ],
+            }
+        ],
+    }
+
+
+def _domain_identity_sample(function_name: str) -> str:
+    return """
+__int64 __fastcall %s(__int64 argument0)
+{
+  return *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40)
+       + *(_QWORD *)(argument0 + 48)
+       + *(_QWORD *)(argument0 + 56)
+       + *(_QWORD *)(argument0 + 64)
+       + *(_QWORD *)(argument0 + 72)
+       + *(_QWORD *)(argument0 + 16)
+       + *(_QWORD *)(argument0 + 24)
+       + *(_QWORD *)(argument0 + 32)
+       + *(_QWORD *)(argument0 + 40);
+}
+""" % function_name
 
 
 if __name__ == "__main__":

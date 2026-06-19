@@ -5,6 +5,16 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from ida_pseudoforge.core.domain_identity import (
+    MODE_CANONICAL_REWRITE_ELIGIBLE,
+    MODE_PREVIEW_REWRITE,
+    MODE_REPORT_ONLY,
+    DomainIdentityMatch,
+    domain_identity_match_for_base,
+    domain_identity_matches,
+    domain_identity_profiles_available,
+)
+
 
 _OFFSET_DEREF_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
@@ -147,21 +157,26 @@ class _LayoutEvidence:
 
 def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, Any]]:
     layouts = _collect_layouts(text or "")
+    profile_matches = _domain_identity_matches_for_layouts(text or "", layouts)
     candidates = [
         item
         for item in layouts.values()
-        if _has_enough_layout_evidence(item)
+        if _has_enough_layout_evidence(item) or item.base in profile_matches
     ]
     candidates.sort(key=lambda item: (-len(item.offsets), -item.access_count, item.base.lower()))
     comments = []
     selected_candidates = candidates[:max(0, int(max_comments or 0))]
     selected_bases = {item.base for item in selected_candidates}
     for item in selected_candidates:
+        domain_identity = profile_matches.get(item.base)
         comments.append(_comment_from_layout(item))
-        preview = _field_preview_comment_from_layout(item)
+        identity_comment = _domain_identity_comment_from_match(domain_identity, item)
+        if identity_comment:
+            comments.append(identity_comment)
+        preview = _field_preview_comment_from_layout(item, domain_identity)
         if preview:
             comments.append(preview)
-            alias_preview = _field_alias_comment_from_layout(item)
+            alias_preview = _field_alias_comment_from_layout(item, domain_identity)
             if alias_preview:
                 comments.append(alias_preview)
                 source_preview = _field_stable_base_source_comment_from_layout(text or "", item)
@@ -198,7 +213,7 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                     ready = _field_rewrite_ready_comment(text or "", item)
                     if ready:
                         comments.append(ready)
-                        rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready)
+                        rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
                         if rewrite_preview:
                             comments.append(rewrite_preview)
     hot_clusters = [
@@ -277,14 +292,130 @@ def _comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
     }
 
 
-def _field_preview_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _domain_identity_matches_for_layouts(
+    text: str,
+    layouts: dict[str, _LayoutEvidence],
+) -> dict[str, DomainIdentityMatch]:
+    if not domain_identity_profiles_available():
+        return {}
+    non_identity_blockers_by_base = {
+        base: _non_identity_layout_rewrite_blockers(text or "", layout)
+        for base, layout in layouts.items()
+    }
+    return domain_identity_matches(
+        text or "",
+        set(layouts),
+        non_identity_blockers_by_base=non_identity_blockers_by_base,
+    )
+
+
+def _domain_identity_for_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    non_identity_blockers: list[str] | None = None,
+) -> DomainIdentityMatch | None:
+    blockers = non_identity_blockers
+    if blockers is None:
+        blockers = _non_identity_layout_rewrite_blockers(text or "", layout)
+    return domain_identity_match_for_base(
+        text or "",
+        layout.base,
+        non_identity_blockers=blockers,
+    )
+
+
+def _domain_identity_comment_from_match(
+    domain_identity: DomainIdentityMatch | None,
+    layout: _LayoutEvidence,
+) -> dict[str, Any] | None:
+    if domain_identity is None:
+        return None
+    field_text = _domain_identity_field_text(domain_identity, layout)
+    if domain_identity.ambiguous:
+        detail = "ambiguous profiles %s" % ", ".join(domain_identity.ambiguous_profile_ids[:6])
+        mode_text = "report-only"
+    else:
+        detail = domain_identity.match_reason
+        mode_text = domain_identity.effective_mode
+    forced_text = ""
+    if domain_identity.forced_report_only_reasons:
+        forced_text = " Forced report-only by %s." % ", ".join(domain_identity.forced_report_only_reasons)
+    return {
+        "kind": "domain_structure_identity",
+        "text": (
+            "Domain identity for %s: role %s, structure %s, mode %s, %s. Fields %s.%s "
+            "Canonical rewrite still requires existing validation-gated layout export."
+            % (
+                layout.base,
+                domain_identity.role,
+                domain_identity.structure,
+                mode_text,
+                detail,
+                field_text,
+                forced_text,
+            )
+        ),
+        "confidence": domain_identity.confidence,
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "profile_id": domain_identity.profile_id,
+        "role": domain_identity.role,
+        "structure": domain_identity.structure,
+        "mode": domain_identity.mode,
+        "effective_mode": domain_identity.effective_mode,
+        "parameter_index": domain_identity.parameter_index,
+        "parameter_name": domain_identity.parameter_name,
+        "fields": _domain_identity_observed_fields(domain_identity, layout),
+        "ambiguous_profile_ids": list(domain_identity.ambiguous_profile_ids),
+        "forced_report_only_reasons": list(domain_identity.forced_report_only_reasons),
+    }
+
+
+def _domain_identity_field_text(domain_identity: DomainIdentityMatch, layout: _LayoutEvidence) -> str:
+    fields = _domain_identity_observed_fields(domain_identity, layout)
+    if not fields:
+        return "none observed"
+    text = "; ".join(
+        "+0x%X %s %s" % (item["offset"], item["type"], item["name"])
+        for item in fields[:8]
+    )
+    if len(fields) > 8:
+        text += "; ..."
+    return text
+
+
+def _domain_identity_observed_fields(
+    domain_identity: DomainIdentityMatch,
+    layout: _LayoutEvidence,
+) -> list[dict[str, Any]]:
+    fields = []
+    for offset in sorted(layout.offsets):
+        field_item = domain_identity.field_for_offset(offset)
+        if not field_item:
+            continue
+        fields.append(
+            {
+                "offset": offset,
+                "name": field_item.name,
+                "type": field_item.type_text,
+                "size": field_item.size,
+                "confidence": field_item.confidence,
+            }
+        )
+    return fields
+
+
+def _field_preview_comment_from_layout(
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
     if base_kind == "named":
         if len(layout.offsets) < 5 or layout.access_count < 5:
             return None
     elif len(layout.offsets) < 8 or layout.access_count < 12:
         return None
-    fields = _preview_fields(layout)
+    fields = _preview_fields(layout, domain_identity)
     if not fields:
         return None
     field_text = "; ".join("+0x%X %s %s" % (item["offset"], item["type"], item["name"]) for item in fields[:8])
@@ -304,14 +435,17 @@ def _field_preview_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any
     }
 
 
-def _field_alias_comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _field_alias_comment_from_layout(
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
     if base_kind == "named":
         if len(layout.offsets) < 5 or layout.access_count < 5:
             return None
     elif len(layout.offsets) < 8 or layout.access_count < 12:
         return None
-    fields = _preview_fields(layout)
+    fields = _preview_fields(layout, domain_identity)
     if not fields:
         return None
     alias_text = "; ".join(
@@ -656,6 +790,19 @@ def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str
     identity = _trusted_stable_base_source_identity(text, layout.base)
     if not identity:
         identity = _trusted_generic_parameter_layout_identity(text, layout)
+    if not identity:
+        non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
+        domain_identity = _domain_identity_for_layout(text, layout, non_identity_blockers)
+        if domain_identity and domain_identity.effective_mode == MODE_CANONICAL_REWRITE_ELIGIBLE:
+            identity = {
+                "source": domain_identity.base,
+                "source_kind": "domain",
+                "source_provenance": "domain_identity",
+                "source_rhs_kind": "parameter_profile",
+                "domain_profile_id": domain_identity.profile_id,
+                "domain_role": domain_identity.role,
+                "domain_structure": domain_identity.structure,
+            }
     if base_kind != "named" and not identity:
         return None
     threshold_policy = _field_rewrite_threshold_policy(layout)
@@ -698,6 +845,10 @@ def _field_rewrite_ready_comment(text: str, layout: _LayoutEvidence) -> dict[str
         )
         if identity.get("source_call"):
             comment["source_call"] = identity["source_call"]
+        if identity.get("domain_profile_id"):
+            comment["domain_profile_id"] = identity["domain_profile_id"]
+            comment["domain_role"] = identity.get("domain_role", "")
+            comment["domain_structure"] = identity.get("domain_structure", "")
     return comment
 
 
@@ -705,8 +856,9 @@ def _field_rewrite_preview_comment(
     text: str,
     layout: _LayoutEvidence,
     ready: dict[str, Any],
+    domain_identity: DomainIdentityMatch | None = None,
 ) -> dict[str, Any] | None:
-    fields = _preview_fields(layout)
+    fields = _preview_fields(layout, domain_identity)
     if not fields:
         return None
     rewrite_count = _layout_rewrite_access_count(text, layout)
@@ -914,7 +1066,18 @@ def _field_rewrite_blockers(
 ) -> list[str]:
     blockers: list[str] = []
     base_kind = _layout_base_kind(layout.base)
-    if base_kind == "temp":
+    non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
+    domain_identity = _domain_identity_for_layout(text, layout, non_identity_blockers)
+    if domain_identity:
+        if domain_identity.ambiguous:
+            blockers.append("domain identity profile is ambiguous")
+        elif domain_identity.effective_mode == MODE_REPORT_ONLY:
+            blockers.append("domain identity profile is report-only")
+        elif domain_identity.effective_mode == MODE_PREVIEW_REWRITE:
+            blockers.append("domain identity profile is preview-only")
+        elif domain_identity.effective_mode != MODE_CANONICAL_REWRITE_ELIGIBLE:
+            blockers.append("domain identity profile mode is unsupported")
+    elif base_kind == "temp":
         if not _trusted_stable_base_source_identity(text, layout.base):
             blockers.append("base is a decompiler temporary")
     elif base_kind == "generic":
@@ -925,7 +1088,7 @@ def _field_rewrite_blockers(
         blockers.append("base name is unresolved argument identity")
     elif base_kind == "bugcheck":
         blockers.append("base name is unresolved bugcheck parameter identity")
-    blockers.extend(_non_identity_layout_rewrite_blockers(text, layout))
+    blockers.extend(non_identity_blockers)
     return list(dict.fromkeys(blockers))
 
 
@@ -1004,14 +1167,27 @@ def _trusted_partial_layout_rewrite_identity(text: str, layout: _LayoutEvidence)
     return {}
 
 
-def _preview_fields(layout: _LayoutEvidence) -> list[dict[str, Any]]:
+def _preview_fields(
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> list[dict[str, Any]]:
     fields = []
     for offset in sorted(layout.offsets):
+        domain_field = domain_identity.field_for_offset(offset) if domain_identity else None
+        if domain_field:
+            field_name = domain_field.name
+            field_type = domain_field.type_text
+            field_confidence = domain_field.confidence
+        else:
+            field_name = "field_%X" % offset
+            field_type = _preview_type_name(layout.offsets[offset])
+            field_confidence = 0.0
         fields.append(
             {
                 "offset": offset,
-                "name": "field_%X" % offset,
-                "type": _preview_type_name(layout.offsets[offset]),
+                "name": field_name,
+                "type": field_type,
+                "profile_confidence": field_confidence,
             }
         )
     return fields
