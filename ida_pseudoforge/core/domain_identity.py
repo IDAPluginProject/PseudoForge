@@ -31,6 +31,7 @@ class DomainIdentityField:
     type_text: str
     size: int
     confidence: float
+    note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,6 +362,7 @@ def _profile_fields(value: Any) -> list[DomainIdentityField]:
                 type_text=type_text,
                 size=max(0, size),
                 confidence=round(max(0.0, min(1.0, confidence)), 2),
+                note=_safe_note_text(item.get("note", "")),
             )
         )
     result.sort(key=lambda field: field.offset)
@@ -507,3 +509,12 @@ def _safe_type_text(value: Any) -> str:
     if re.search(r"[^A-Za-z0-9_\s\*\:]", text):
         return "unknown"
     return text
+
+
+def _safe_note_text(value: Any) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return ""
+    if len(text) > 180:
+        text = text[:180].rstrip()
+    return text.encode("ascii", "ignore").decode("ascii")

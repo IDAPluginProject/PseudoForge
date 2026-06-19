@@ -323,6 +323,58 @@ __int64 __fastcall DomainOverlayBlockedLayout(__int64 argument0)
         self.assertNotEqual("sourceContext", rename_map.get("a4"))
         self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in plan.comments))
 
+    def test_devpropkey_profile_renames_property_key_and_annotates_guid_parts(self) -> None:
+        capture = capture_from_pseudocode(_cm_get_device_mapped_property_sample())
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+        identities = [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+
+        self.assertEqual("propertyKey", rename_map["a4"])
+        self.assertIn("__int64 propertyKey,", rendered)
+        self.assertEqual(1, len(identities))
+        self.assertEqual("propertyKey", identities[0]["base"])
+        self.assertEqual("propertyKey", identities[0]["role"])
+        self.assertEqual("DEVPROPKEY", identities[0]["structure"])
+        self.assertEqual("windows.devpropkey.cm_get_device_mapped_property_from_composite", identities[0]["profile_id"])
+        self.assertTrue(any(field.get("name") == "fmtidHighPart" for field in identities[0]["fields"]))
+        self.assertTrue(any(field.get("name") == "pid" for field in identities[0]["fields"]))
+        self.assertIn("+0x8 ULONGLONG fmtidHighPart", rendered)
+        self.assertIn("DEVPROPKEY property identifier at +0x10", rendered)
+        self.assertIn("propertyKey is DEVPROPKEY: +0x10 is pid / DEVPROPID, +0x8 is fmtidHighPart", rendered)
+        self.assertIn("direct _QWORD loads from propertyKey are fmtidLowPart review aliases", rendered)
+        self.assertIn("Observed DEVPKEY_* comparisons, for example DEVPKEY_Device_InstanceId", rendered)
+        self.assertIn("DEVPKEY_Device_InstanceId.fmtid.Data1", rendered)
+
+    def test_devpropkey_profile_handles_partial_guid_high_access_honestly(self) -> None:
+        capture = capture_from_pseudocode(_cm_get_device_mapped_property_partial_guid_sample())
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        identities = [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+
+        self.assertEqual(1, len(identities))
+        self.assertEqual("DEVPROPKEY", identities[0]["structure"])
+        self.assertIn("fmtidHighPart", rendered)
+        self.assertIn("require both halves before treating them as a full GUID match", rendered)
+        self.assertNotIn("fmtidLowPart review aliases", rendered)
+        self.assertNotIn("full DEVPROPKEY equality", rendered)
+
+    def test_devpropkey_profile_does_not_apply_to_unrelated_guid_buffer(self) -> None:
+        capture = capture_from_pseudocode(
+            _cm_get_device_mapped_property_sample().replace(
+                "CmGetDeviceMappedPropertyFromComposite",
+                "UnrelatedGuidBufferHelper",
+                1,
+            )
+        )
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertNotEqual("propertyKey", rename_map.get("a4"))
+        self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in plan.comments))
+        self.assertNotIn("propertyKey->fmtidHighPart", rendered)
+
     def test_generic_temp_base_requires_stronger_layout_evidence(self) -> None:
         comments = field_layout_comments(
             """
@@ -2740,6 +2792,58 @@ void __fastcall RtlpCopyLegacyContext(__int64 a1, __int64 a2, __int64 a3, __int6
   *(_QWORD *)(a2 + 72) = *(_QWORD *)(a4 + 72);
   *(_QWORD *)(a2 + 80) = *(_QWORD *)(a4 + 80);
   *(_QWORD *)(a2 + 88) = *(_QWORD *)(a4 + 88);
+}
+"""
+
+
+def _cm_get_device_mapped_property_sample() -> str:
+    return """
+__int64 __fastcall CmGetDeviceMappedPropertyFromComposite(
+        _QWORD *a1,
+        WCHAR *a2,
+        void *a3,
+        __int64 a4,
+        int *a5,
+        wchar_t *a6,
+        ULONG a7,
+        int *a8,
+        int a9)
+{
+  unsigned int v1;
+  __int64 v2;
+
+  v1 = *(_DWORD *)(a4 + 16);
+  v2 = *(_QWORD *)a4 - *(_QWORD *)&DEVPKEY_Device_InstanceId.fmtid.Data1;
+  if ( *(_QWORD *)a4 == *(_QWORD *)&DEVPKEY_Device_InstanceId.fmtid.Data1 )
+    v2 = *(_QWORD *)(a4 + 8) - *(_QWORD *)DEVPKEY_Device_InstanceId.fmtid.Data4;
+  if ( !v2 && v1 == 3 )
+    return PnpGetObjectProperty(a1, a2, 1u, a3, 0LL, (__int64)&DEVPKEY_Device_InstanceId, a5, a6, a7, (__int64)a8, a9);
+  return v1;
+}
+"""
+
+
+def _cm_get_device_mapped_property_partial_guid_sample() -> str:
+    return """
+__int64 __fastcall CmGetDeviceMappedPropertyFromComposite(
+        _QWORD *a1,
+        WCHAR *a2,
+        void *a3,
+        __int64 a4,
+        int *a5,
+        wchar_t *a6,
+        ULONG a7,
+        int *a8,
+        int a9)
+{
+  unsigned int v1;
+  __int64 v2;
+
+  v1 = *(_DWORD *)(a4 + 16);
+  v2 = *(_QWORD *)(a4 + 8) - *(_QWORD *)DEVPKEY_Device_ProblemCode.fmtid.Data4;
+  if ( !v2 && v1 == 4 )
+    return PnpGetObjectProperty(a1, a2, 1u, a3, 0LL, (__int64)&DEVPKEY_Device_ProblemCode, a5, a6, a7, (__int64)a8, a9);
+  return v1;
 }
 """
 

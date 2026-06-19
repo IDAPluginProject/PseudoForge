@@ -383,11 +383,19 @@ def _domain_identity_field_text(domain_identity: DomainIdentityMatch, layout: _L
     if not fields:
         return "none observed"
     text = "; ".join(
-        "+0x%X %s %s" % (item["offset"], item["type"], item["name"])
+        _domain_identity_field_item_text(item)
         for item in fields[:8]
     )
     if len(fields) > 8:
         text += "; ..."
+    return text
+
+
+def _domain_identity_field_item_text(item: dict[str, Any]) -> str:
+    text = "+0x%X %s %s" % (item["offset"], item["type"], item["name"])
+    note = str(item.get("note", "") or "")
+    if note:
+        text += " (%s)" % note
     return text
 
 
@@ -407,6 +415,7 @@ def _domain_identity_observed_fields(
                 "type": field_item.type_text,
                 "size": field_item.size,
                 "confidence": field_item.confidence,
+                "note": field_item.note,
             }
         )
     return fields
@@ -1238,6 +1247,7 @@ def _preview_fields(
                 "name": field_name,
                 "type": field_type,
                 "profile_confidence": field_confidence,
+                "note": domain_field.note if domain_field else "",
             }
         )
     return fields

@@ -37,6 +37,9 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
     comment_kinds = {str(comment.get("kind", "")) for comment in plan.comments}
     if not comment_kinds:
         return text
+    devpropkey_bases = _devpropkey_identity_bases(plan)
+    devpropkey_intro_notes = _devpropkey_function_intro_notes(text, devpropkey_bases)
+    devpropkey_intro_emitted = False
     lines = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -49,6 +52,10 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
             else:
                 lines.append(indent + "// PseudoForge: InsertTailList(&ExpFirmwareTableProviderListHead, newProviderLink).")
         lines.append(line)
+        if devpropkey_intro_notes and not devpropkey_intro_emitted and stripped == "{":
+            for note in devpropkey_intro_notes:
+                lines.append(indent + "  // PseudoForge: " + note)
+            devpropkey_intro_emitted = True
         if "inferred_record_layout" in comment_kinds and _is_provider_link_assignment(stripped):
             if "CONTAINING_RECORD(providerLink" in stripped:
                 lines.append(indent + "// PseudoForge: providerRecord owns providerLink at Link offset +0x18.")
@@ -59,6 +66,92 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
 
 def has_comment_kind(plan: CleanPlan, kind: str) -> bool:
     return any(str(comment.get("kind", "")) == kind for comment in plan.comments)
+
+
+def _devpropkey_identity_bases(plan: CleanPlan) -> set[str]:
+    bases = set()
+    for comment in plan.comments:
+        if str(comment.get("kind", "")) != "domain_structure_identity":
+            continue
+        if str(comment.get("structure", "")) != "DEVPROPKEY":
+            continue
+        base = str(comment.get("base", "") or "")
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", base):
+            bases.add(base)
+    return bases
+
+
+def _devpropkey_function_intro_notes(text: str, bases: set[str]) -> list[str]:
+    if not bases:
+        return []
+    notes = []
+    for base in sorted(bases):
+        observed_fields = []
+        if _devpropkey_offset_access_exists(text, base, 0x10):
+            observed_fields.append("+0x10 is pid / DEVPROPID")
+        if _devpropkey_offset_access_exists(text, base, 0x8):
+            observed_fields.append("+0x8 is fmtidHighPart")
+        if _devpropkey_base_qword_access_exists(text, base):
+            observed_fields.append("direct _QWORD loads from %s are fmtidLowPart review aliases" % base)
+        if observed_fields:
+            notes.append("%s is DEVPROPKEY: %s." % (base, ", ".join(observed_fields)))
+    symbol = _devpkey_symbol_for_bases(text, bases)
+    if symbol:
+        notes.append(
+            "Observed DEVPKEY_* comparisons, for example %s, compare GUID halves; "
+            "require both halves before treating them as a full GUID match."
+            % symbol
+        )
+    return notes
+
+
+def _devpkey_symbol_for_bases(text: str, bases: set[str]) -> str:
+    for line in str(text or "").splitlines():
+        if not any(_devpropkey_line_has_base_access(line, base) for base in bases):
+            continue
+        symbol = _devpkey_symbol_from_text(line)
+        if symbol:
+            return symbol
+    return ""
+
+
+def _devpropkey_line_has_base_access(line: str, base: str) -> bool:
+    return (
+        _devpropkey_base_qword_access_exists(line, base)
+        or _devpropkey_offset_access_exists(line, base, 0x8)
+        or _devpropkey_offset_access_exists(line, base, 0x10)
+    )
+
+
+def _devpropkey_offset_access_exists(text: str, base: str, offset: int) -> bool:
+    offset_pattern = "(?:0x%X|0x%x|%d)" % (offset, offset, offset)
+    return (
+        re.search(
+            r"\*\s*\(\s*[^)]*\*\s*\)\s*\(\s*%s\s*\+\s*%s(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+            % (re.escape(base), offset_pattern),
+            text or "",
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _devpropkey_base_qword_access_exists(text: str, base: str) -> bool:
+    return (
+        re.search(
+            r"\*\s*\(\s*_?QWORD\s*\*\s*\)\s*%s\b" % re.escape(base),
+            text or "",
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _devpkey_symbol_from_text(text: str) -> str:
+    match = re.search(r"\b(DEVPKEY_[A-Za-z0-9_]+)\b", text or "")
+    if not match:
+        return ""
+    return match.group(1)
 
 
 def _strip_declaration_for_var(text: str, name: str) -> str:

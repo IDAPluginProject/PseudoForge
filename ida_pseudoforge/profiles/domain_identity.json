@@ -130,6 +130,68 @@
           ]
         }
       ]
+    },
+    {
+      "id": "windows.devpropkey.cm_get_device_mapped_property_from_composite",
+      "source": "Windows SDK 10.0.26100.0 shared/devpropdef.h DEVPROPKEY { DEVPROPGUID fmtid; DEVPROPID pid; }",
+      "function_names": [
+        "CmGetDeviceMappedPropertyFromComposite",
+        "_CmGetDeviceMappedPropertyFromComposite"
+      ],
+      "parameter_count": 9,
+      "parameters": [
+        {
+          "parameter_index": 3,
+          "rename_to": "propertyKey",
+          "role": "propertyKey",
+          "structure": "DEVPROPKEY",
+          "mode": "canonical-rewrite-eligible",
+          "confidence": 0.90,
+          "rename_confidence": 0.95,
+          "accepted_types": [
+            "__int64",
+            "DEVPROPKEY *",
+            "CONST DEVPROPKEY *",
+            "const DEVPROPKEY *",
+            "PDEVPROPKEY",
+            "const void *",
+            "PVOID"
+          ],
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "base_stability",
+            "base_escape"
+          ],
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "fmtidLowPart",
+              "type": "ULONGLONG",
+              "size": 8,
+              "confidence": 0.86,
+              "note": "review alias for the first 8 bytes of DEVPROPKEY.fmtid; compare with fmtidHighPart before treating as full GUID equality"
+            },
+            {
+              "offset": "0x8",
+              "name": "fmtidHighPart",
+              "type": "ULONGLONG",
+              "size": 8,
+              "confidence": 0.88,
+              "note": "review alias for DEVPROPKEY.fmtid Data4 bytes at +0x8"
+            },
+            {
+              "offset": "0x10",
+              "name": "pid",
+              "type": "DEVPROPID",
+              "size": 4,
+              "confidence": 0.98,
+              "note": "DEVPROPKEY property identifier at +0x10"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
