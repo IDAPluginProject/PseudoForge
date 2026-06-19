@@ -123,6 +123,16 @@
         "profiles": 25
       }
     },
+    "domain_identity/etw_wmi_telemetry.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl ETW/WMI telemetry role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "5E487C982C996793BFA3F929DA31B883849C09A54B217ECB1E5A28E11AEDFD1D",
+      "counts": {
+        "profiles": 24
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",

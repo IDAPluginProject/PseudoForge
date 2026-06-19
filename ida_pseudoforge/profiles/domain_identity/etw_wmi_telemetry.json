@@ -1,0 +1,1712 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "etw-wmi-telemetry-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 ETW/WMI provider, write, trace-control, callback, notification, and IRP role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.etw_wmi_telemetry.etw_register",
+      "source": "Reviewed EtwRegister public provider registration wrapper into EtwpRegisterKMProvider.",
+      "function_names": [
+        "EtwRegister"
+      ],
+      "required_calls": [
+        "EtwpRegisterKMProvider"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "providerId",
+          "structure": "GUID",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "LPCGUID",
+            "const GUID *",
+            "__int64"
+          ],
+          "source": "EtwRegister provider GUID argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "enableCallback",
+          "structure": "PETWENABLECALLBACK",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PETWENABLECALLBACK",
+            "__int64",
+            "void *"
+          ],
+          "source": "EtwRegister enable callback argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "callbackContext",
+          "structure": "ETW_CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "EtwRegister callback context argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "registrationHandleOutput",
+          "structure": "REGHANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PREGHANDLE",
+            "REGHANDLE *",
+            "__int64"
+          ],
+          "source": "EtwRegister registration handle output argument"
+        },
+        {
+          "local_names": [
+            "Flink",
+            "siloState"
+          ],
+          "role": "siloState",
+          "structure": "ETW_SILO_STATE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "EtwRegister current server silo ETW state local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_register_classic_provider",
+      "source": "Reviewed EtwRegisterClassicProvider classic provider wrapper and callback/context forwarding.",
+      "function_names": [
+        "EtwRegisterClassicProvider"
+      ],
+      "required_calls": [
+        "EtwpRegisterKMProvider"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "providerId",
+          "structure": "TRACE_GUID",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONGLONG",
+            "__int64",
+            "ULONG64"
+          ],
+          "source": "EtwRegisterClassicProvider provider ID argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "enableMask",
+          "structure": "TRACE_ENABLE_MASK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONGLONG",
+            "ULONG64"
+          ],
+          "source": "EtwRegisterClassicProvider classic enable mask argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "enableCallback",
+          "structure": "PETWENABLECALLBACK",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PETWENABLECALLBACK",
+            "void *"
+          ],
+          "source": "EtwRegisterClassicProvider callback argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "callbackContext",
+          "structure": "ETW_CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "EtwRegisterClassicProvider callback context argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "registrationHandleOutput",
+          "structure": "REGHANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64 *",
+            "REGHANDLE *",
+            "PREGHANDLE"
+          ],
+          "source": "EtwRegisterClassicProvider registration handle output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_unregister",
+      "source": "Reviewed EtwUnregister registration handle validation, list unlink, event write, and provider cleanup.",
+      "function_names": [
+        "EtwUnregister"
+      ],
+      "required_calls": [
+        "EtwpUnreferenceGuidEntry"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "REGHANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "EtwUnregister registration handle argument"
+        },
+        {
+          "local_names": [
+            "UserData"
+          ],
+          "role": "unregisterEventData",
+          "structure": "EVENT_DATA_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "EtwUnregister event data descriptor used for unregister tracing"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_event_enabled",
+      "source": "Reviewed EtwEventEnabled provider handle, event descriptor, and level/keyword gate.",
+      "function_names": [
+        "EtwEventEnabled"
+      ],
+      "required_calls": [
+        "EtwpLevelKeywordEnabled"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "REGHANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "EtwEventEnabled registration handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "eventDescriptor",
+          "structure": "EVENT_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PCEVENT_DESCRIPTOR",
+            "EVENT_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "EtwEventEnabled event descriptor argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_provider_enabled",
+      "source": "Reviewed EtwProviderEnabled provider handle, level, and keyword mask gate.",
+      "function_names": [
+        "EtwProviderEnabled"
+      ],
+      "required_calls": [
+        "EtwpLevelKeywordEnabled"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "REGHANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "EtwProviderEnabled registration handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "eventLevel",
+          "structure": "TRACE_LEVEL",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "UCHAR",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "EtwProviderEnabled level argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keywordMask",
+          "structure": "TRACE_KEYWORD_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONGLONG",
+            "ULONG64",
+            "__int64"
+          ],
+          "source": "EtwProviderEnabled keyword mask argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_write_ex",
+      "source": "Reviewed EtwWriteEx enabled-provider gates and EtwpEventWriteFull handoff.",
+      "function_names": [
+        "EtwWriteEx"
+      ],
+      "required_calls": [
+        "EtwpEventWriteFull"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "REGHANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "EtwWriteEx registration handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "eventDescriptor",
+          "structure": "EVENT_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PCEVENT_DESCRIPTOR",
+            "EVENT_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "EtwWriteEx event descriptor argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "filter",
+          "structure": "ETW_FILTER",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "ULONG64",
+            "ULONGLONG",
+            "__int64"
+          ],
+          "source": "EtwWriteEx filter argument renamed from Filter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "writeFlags",
+          "structure": "ETW_WRITE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "EtwWriteEx flags argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "activityId",
+          "structure": "GUID",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "LPCGUID",
+            "const GUID *",
+            "__int64"
+          ],
+          "source": "EtwWriteEx activity ID argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "relatedActivityId",
+          "structure": "GUID",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "LPCGUID",
+            "const GUID *",
+            "__int64"
+          ],
+          "source": "EtwWriteEx related activity ID argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "userDataCount",
+          "structure": "EVENT_DATA_COUNT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "EtwWriteEx user data descriptor count"
+        },
+        {
+          "parameter_index": 7,
+          "role": "userData",
+          "structure": "EVENT_DATA_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEVENT_DATA_DESCRIPTOR",
+            "EVENT_DATA_DESCRIPTOR *",
+            "__int64"
+          ],
+          "source": "EtwWriteEx event data descriptor array"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmi_trace_message",
+      "source": "Reviewed WmiTraceMessage varargs wrapper into EtwpTraceMessageVa.",
+      "function_names": [
+        "WmiTraceMessage"
+      ],
+      "required_calls": [
+        "EtwpTraceMessageVa"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "traceHandle",
+          "structure": "TRACEHANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "unsigned __int64",
+            "TRACEHANDLE",
+            "__int64"
+          ],
+          "source": "WmiTraceMessage trace handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "messageId",
+          "structure": "TRACE_MESSAGE_ID",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "WmiTraceMessage message ID argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "dataBuffer",
+          "structure": "EVENT_DATA_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int128 *",
+            "PEVENT_DATA_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "WmiTraceMessage data buffer argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "messageFlags",
+          "structure": "TRACE_MESSAGE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int16",
+            "USHORT",
+            "int"
+          ],
+          "source": "WmiTraceMessage flags argument"
+        },
+        {
+          "local_names": [
+            "varArgs",
+            "va"
+          ],
+          "role": "varArgs",
+          "structure": "VA_LIST",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmiTraceMessage varargs list forwarded to EtwpTraceMessageVa"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etwp_trace_message_va",
+      "source": "Reviewed EtwpTraceMessageVa trace-message formatting, provider gates, buffer reserve, send, and callback dispatch flow.",
+      "function_names": [
+        "EtwpTraceMessageVa"
+      ],
+      "required_calls": [
+        "EtwpReserveTraceBuffer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "traceHandle",
+          "structure": "TRACEHANDLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned __int64",
+            "TRACEHANDLE",
+            "__int64"
+          ],
+          "source": "EtwpTraceMessageVa trace handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "messageId",
+          "structure": "TRACE_MESSAGE_ID",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "EtwpTraceMessageVa message ID/descriptor flags argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "userData",
+          "structure": "EVENT_DATA_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int128 *",
+            "PEVENT_DATA_DESCRIPTOR",
+            "__int64"
+          ],
+          "source": "EtwpTraceMessageVa user data descriptor argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "traceFlags",
+          "structure": "TRACE_MESSAGE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int16",
+            "USHORT",
+            "int"
+          ],
+          "source": "EtwpTraceMessageVa trace flags argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "varArgs",
+          "structure": "VA_LIST",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "__int64",
+            "va_list",
+            "void *"
+          ],
+          "source": "EtwpTraceMessageVa varargs pointer argument"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "EtwpTraceMessageVa current thread local"
+        },
+        {
+          "local_names": [
+            "status",
+            "v77"
+          ],
+          "role": "status",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "EtwpTraceMessageVa status local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.nt_trace_event",
+      "source": "Reviewed NtTraceEvent user/system trace dispatch, logger handle/object reference, trace message, and logger open flow.",
+      "function_names": [
+        "NtTraceEvent"
+      ],
+      "required_call_regex": [
+        "\\bEtwp(?:WriteUserEvent|TraceMessageVa|OpenLogger)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationObject",
+          "structure": "ETW_REGISTRATION_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int128 *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtTraceEvent registration/logging object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "traceInformationClass",
+          "structure": "TRACE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtTraceEvent trace information class argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "bufferSize",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "NtTraceEvent input buffer size argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "dataBuffer",
+          "structure": "TRACE_EVENT_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "NtTraceEvent data buffer argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedTraceObject",
+          "structure": "ETW_TRACE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtTraceEvent object referenced from handle"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtTraceEvent current thread local"
+        },
+        {
+          "local_names": [
+            "previousMode"
+          ],
+          "role": "previousMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtTraceEvent previous mode local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.nt_trace_control",
+      "source": "Reviewed NtTraceControl control-code switch over start/stop/query/update/flush/logger-info paths.",
+      "function_names": [
+        "NtTraceControl"
+      ],
+      "required_call_regex": [
+        "\\bEtwp(?:StartTrace|StopTrace|QueryTrace|UpdateTrace|FlushTrace)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "controlCode",
+          "structure": "TRACE_CONTROL_CODE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "NtTraceControl control code argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "inputBuffer",
+          "structure": "TRACE_CONTROL_INPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned int *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtTraceControl input buffer argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "inputBufferLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "NtTraceControl input buffer length argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "outputBuffer",
+          "structure": "TRACE_CONTROL_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "void *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "NtTraceControl output buffer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "outputBufferLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "NtTraceControl output buffer length argument"
+        },
+        {
+          "local_names": [
+            "allocatedBufferPtr",
+            "Pool2",
+            "newProviderRecord"
+          ],
+          "role": "allocatedControlBuffer",
+          "structure": "TRACE_CONTROL_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtTraceControl temporary control buffer allocation"
+        },
+        {
+          "local_names": [
+            "loggerInfoPtr",
+            "v22"
+          ],
+          "role": "loggerInfo",
+          "structure": "ETW_LOGGER_INFO",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtTraceControl logger information local"
+        },
+        {
+          "local_names": [
+            "traceObjectHandle",
+            "Handle"
+          ],
+          "role": "traceObjectHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtTraceControl trace object handle local"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedTraceObject",
+          "structure": "ETW_TRACE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "NtTraceControl referenced trace object local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_register_event_callback",
+      "source": "Reviewed EtwRegisterEventCallback logger lookup, callback block allocation, and callback context install.",
+      "function_names": [
+        "EtwRegisterEventCallback"
+      ],
+      "required_calls": [
+        "EtwpAcquireLoggerContextByLoggerId"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "eventId",
+          "structure": "ETW_EVENT_ID",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "EtwRegisterEventCallback event ID argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "callbackFunction",
+          "structure": "ETW_EVENT_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "EtwRegisterEventCallback callback function argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "callbackContext",
+          "structure": "ETW_CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "EtwRegisterEventCallback callback context argument"
+        },
+        {
+          "local_names": [
+            "acquiredCtxPtr"
+          ],
+          "role": "loggerContext",
+          "structure": "ETW_LOGGER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "EtwRegisterEventCallback acquired logger context local"
+        },
+        {
+          "local_names": [
+            "callbackDataBlock",
+            "Pool2",
+            "newProviderRecord"
+          ],
+          "role": "callbackDataBlock",
+          "structure": "ETW_CALLBACK_DATA_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "EtwRegisterEventCallback allocated callback data block"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_enable_trace",
+      "source": "Reviewed EtwEnableTrace wrapper into EtwpEnableTrace with provider GUID, level, flags, and callback context inputs.",
+      "function_names": [
+        "EtwEnableTrace"
+      ],
+      "required_calls": [
+        "EtwpEnableTrace"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "contextHandle",
+          "structure": "TRACEHANDLE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "TRACEHANDLE",
+            "ULONG_PTR"
+          ],
+          "source": "EtwEnableTrace context handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "flags",
+          "structure": "TRACE_ENABLE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "EtwEnableTrace flags argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "kernelLevel",
+          "structure": "TRACE_LEVEL",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "char",
+            "UCHAR",
+            "unsigned __int8"
+          ],
+          "source": "EtwEnableTrace level argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "providerGuid",
+          "structure": "GUID",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "LPCGUID",
+            "const GUID *"
+          ],
+          "source": "EtwEnableTrace provider GUID argument"
+        },
+        {
+          "parameter_index": 7,
+          "role": "callbackContext",
+          "structure": "ETW_CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "EtwEnableTrace callback context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_set_information",
+      "source": "Reviewed EtwSetInformation provider traits, descriptor mode, and provider-binary tracking controls.",
+      "function_names": [
+        "EtwSetInformation"
+      ],
+      "required_call_regex": [
+        "\\bEtwp(?:SetProviderTraitsKm|TrackProviderBinaryKm)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "REGHANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "EtwSetInformation provider registration handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "informationClass",
+          "structure": "EVENT_INFO_CLASS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "EVENT_INFO_CLASS",
+            "int",
+            "unsigned int"
+          ],
+          "source": "EtwSetInformation information class argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "informationBuffer",
+          "structure": "EVENT_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "EtwSetInformation information buffer argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "informationLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "EtwSetInformation information length argument"
+        },
+        {
+          "local_names": [
+            "optionalInfoPtr"
+          ],
+          "role": "optionalInformation",
+          "structure": "EVENT_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "EtwSetInformation optional provider-binary tracking information local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_register_etw_provider",
+      "source": "Reviewed WmipRegisterEtwProvider provider entry refcount update and legacy ETW work queue allocation.",
+      "function_names": [
+        "WmipRegisterEtwProvider"
+      ],
+      "required_calls": [
+        "WmipQueueLegacyEtwWork"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "providerEntry",
+          "structure": "WMI_PROVIDER_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "WmipRegisterEtwProvider provider entry argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "eventId",
+          "structure": "ETW_EVENT_ID",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "WmipRegisterEtwProvider event ID/context argument"
+        },
+        {
+          "local_names": [
+            "v2",
+            "providerObject"
+          ],
+          "role": "providerObject",
+          "structure": "WMI_PROVIDER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipRegisterEtwProvider provider object loaded from provider entry"
+        },
+        {
+          "local_names": [
+            "newProviderRecord",
+            "Pool2"
+          ],
+          "role": "legacyWorkItem",
+          "structure": "WMI_LEGACY_ETW_WORK_ITEM",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipRegisterEtwProvider allocated legacy ETW work item"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_unregister_etw_provider",
+      "source": "Reviewed WmipUnregisterEtwProvider provider context teardown and legacy unregister work queue allocation.",
+      "function_names": [
+        "WmipUnregisterEtwProvider"
+      ],
+      "required_calls": [
+        "WmipQueueLegacyEtwWork"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "providerContext",
+          "structure": "WMI_PROVIDER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "WmipUnregisterEtwProvider provider context argument"
+        },
+        {
+          "local_names": [
+            "refCountBlockPtr"
+          ],
+          "role": "providerRefCountBlock",
+          "structure": "WMI_PROVIDER_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipUnregisterEtwProvider provider refcount block local"
+        },
+        {
+          "local_names": [
+            "newProviderRecord",
+            "Pool2"
+          ],
+          "role": "legacyWorkItem",
+          "structure": "WMI_LEGACY_ETW_WORK_ITEM",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipUnregisterEtwProvider allocated legacy unregister work item"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_process_legacy_etw_register",
+      "source": "Reviewed WmipProcessLegacyEtwRegister mutex-protected handle replacement through EtwUnregister and EtwRegisterClassicProvider.",
+      "function_names": [
+        "WmipProcessLegacyEtwRegister"
+      ],
+      "required_calls": [
+        "EtwRegisterClassicProvider"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "providerContext",
+          "structure": "WMI_PROVIDER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "WmipProcessLegacyEtwRegister provider context argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetInformationClass",
+          "structure": "TRACE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "WmipProcessLegacyEtwRegister target information class argument"
+        },
+        {
+          "local_names": [
+            "existingHandle"
+          ],
+          "role": "existingRegistrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipProcessLegacyEtwRegister existing registration handle local"
+        },
+        {
+          "local_names": [
+            "handleTemp"
+          ],
+          "role": "newRegistrationHandle",
+          "structure": "REGHANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipProcessLegacyEtwRegister replacement registration handle local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_process_legacy_etw_unregister",
+      "source": "Reviewed WmipProcessLegacyEtwUnregister mutex-protected registration handle clear and EtwUnregister handoff.",
+      "function_names": [
+        "WmipProcessLegacyEtwUnregister"
+      ],
+      "required_calls": [
+        "EtwUnregister"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "providerContext",
+          "structure": "WMI_PROVIDER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "WmipProcessLegacyEtwUnregister provider context argument"
+        },
+        {
+          "local_names": [
+            "regHandle"
+          ],
+          "role": "registrationHandle",
+          "structure": "REGHANDLE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipProcessLegacyEtwUnregister registration handle local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_set_trace_notify",
+      "source": "Reviewed WmipSetTraceNotify trace notify class to ETW notify routine array selection and WMI IRP forwarding.",
+      "function_names": [
+        "WmipSetTraceNotify"
+      ],
+      "required_calls": [
+        "WmipForwardWmiIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "WmipSetTraceNotify device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "traceNotifyClass",
+          "structure": "WMI_TRACE_NOTIFY_CLASS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "WmipSetTraceNotify trace notify class selector"
+        },
+        {
+          "local_names": [
+            "notifyRoutineArrayPtr"
+          ],
+          "role": "notifyRoutineArray",
+          "structure": "ETW_NOTIFY_ROUTINE_ARRAY",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipSetTraceNotify selected ETW notify routine array local"
+        },
+        {
+          "local_names": [
+            "allocatedIrp",
+            "Irp"
+          ],
+          "role": "allocatedIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipSetTraceNotify allocated IRP local"
+        },
+        {
+          "local_names": [
+            "providerId"
+          ],
+          "role": "providerId",
+          "structure": "WMI_PROVIDER_ID",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipSetTraceNotify provider ID local from IoWMIDeviceObjectToProviderId"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_receive_notifications",
+      "source": "Reviewed WmipReceiveNotifications notification handle array, GUID object references, event queue copy, and IRP completion.",
+      "function_names": [
+        "WmipReceiveNotifications"
+      ],
+      "required_calls": [
+        "WmipCopyFromEventQueues"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "guidHandleArray",
+          "structure": "WMI_GUID_HANDLE_ARRAY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned int *",
+            "_DWORD *",
+            "__int64"
+          ],
+          "source": "WmipReceiveNotifications GUID handle array argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "notificationCount",
+          "structure": "NOTIFICATION_COUNT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int *",
+            "ULONG *",
+            "__int64"
+          ],
+          "source": "WmipReceiveNotifications notification count pointer"
+        },
+        {
+          "parameter_index": 2,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PIRP",
+            "IRP *"
+          ],
+          "source": "WmipReceiveNotifications IRP argument"
+        },
+        {
+          "local_names": [
+            "objectListBuffer",
+            "Pool2",
+            "newProviderRecord"
+          ],
+          "role": "objectListBuffer",
+          "structure": "WMI_GUID_OBJECT_LIST",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipReceiveNotifications allocated or stack object list buffer"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedGuidObject",
+          "structure": "WMI_GUID_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipReceiveNotifications referenced WMI GUID object local"
+        },
+        {
+          "local_names": [
+            "spinLockHandle",
+            "LockHandle"
+          ],
+          "role": "spinLockHandle",
+          "structure": "KLOCK_QUEUE_HANDLE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "WmipReceiveNotifications queued spin lock handle local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_queue_notification",
+      "source": "Reviewed WmipQueueNotification notification queue buffer growth, payload copy, and event signal.",
+      "function_names": [
+        "WmipQueueNotification"
+      ],
+      "required_calls": [
+        "KeSetEvent"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "notificationEvent",
+          "structure": "KEVENT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "struct _KEVENT *",
+            "PKEVENT",
+            "__int64"
+          ],
+          "source": "WmipQueueNotification event to signal"
+        },
+        {
+          "parameter_index": 1,
+          "role": "queueBufferDescriptor",
+          "structure": "WMI_NOTIFICATION_QUEUE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "char **",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "WmipQueueNotification queue buffer descriptor argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "payload",
+          "structure": "WMI_NOTIFICATION_PAYLOAD",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned int *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "WmipQueueNotification payload and length pointer"
+        },
+        {
+          "local_names": [
+            "Pool2",
+            "newProviderRecord"
+          ],
+          "role": "allocatedQueueBuffer",
+          "structure": "WMI_NOTIFICATION_QUEUE_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipQueueNotification allocated queue buffer local"
+        },
+        {
+          "local_names": [
+            "Size"
+          ],
+          "role": "payloadLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "WmipQueueNotification payload size local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_io_control",
+      "source": "Reviewed WmipIoControl WMI IOCTL dispatch, WNODE probing, query/set execution, receive-notification path, and IRP completion.",
+      "function_names": [
+        "WmipIoControl"
+      ],
+      "required_call_regex": [
+        "\\bWmip(?:ProbeWnode|Query|ReceiveNotifications|OpenBlock)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PDEVICE_OBJECT",
+            "struct _DEVICE_OBJECT *",
+            "__int64"
+          ],
+          "source": "WmipIoControl device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "irp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PIRP",
+            "IRP *",
+            "__int64"
+          ],
+          "source": "WmipIoControl IRP argument"
+        },
+        {
+          "local_names": [
+            "CurrentStackLocation"
+          ],
+          "role": "currentStackLocation",
+          "structure": "IO_STACK_LOCATION",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipIoControl current stack location local"
+        },
+        {
+          "local_names": [
+            "MasterIrp"
+          ],
+          "role": "systemBuffer",
+          "structure": "WMI_WNODE_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipIoControl associated master IRP/system buffer local"
+        },
+        {
+          "local_names": [
+            "LowPart"
+          ],
+          "role": "ioControlCode",
+          "structure": "IOCTL_CODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipIoControl IOCTL code local"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedGuidObject",
+          "structure": "WMI_GUID_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipIoControl referenced GUID object local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_register_device",
+      "source": "Reviewed WmipRegisterDevice device object registration, attached-device reference, registration entry allocation, and queued registration work.",
+      "function_names": [
+        "WmipRegisterDevice"
+      ],
+      "required_calls": [
+        "WmipRegisterOrUpdateDS"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deviceObject",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "struct _DEVICE_OBJECT *",
+            "PDEVICE_OBJECT",
+            "__int64"
+          ],
+          "source": "WmipRegisterDevice device object argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "registrationFlags",
+          "structure": "WMI_REGISTRATION_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "WmipRegisterDevice registration flags argument"
+        },
+        {
+          "local_names": [
+            "RegEntryByDevice"
+          ],
+          "role": "registrationEntry",
+          "structure": "WMI_REGISTRATION_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipRegisterDevice registration entry local"
+        },
+        {
+          "local_names": [
+            "AttachedDeviceReference",
+            "attachedDeviceReference"
+          ],
+          "role": "attachedDeviceReference",
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "WmipRegisterDevice attached device reference local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_send_wmi_irp",
+      "source": "Reviewed WmipSendWmiIrp IRP allocation, service device stack setup, WmipForwardWmiIrp handoff, and IO_STATUS_BLOCK copy-out.",
+      "function_names": [
+        "WmipSendWmiIrp"
+      ],
+      "required_calls": [
+        "WmipForwardWmiIrp"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 3,
+          "role": "infoClass",
+          "structure": "WMI_IRP_INFO_CLASS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "WmipSendWmiIrp info class argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "masterIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PIRP",
+            "IRP *"
+          ],
+          "source": "WmipSendWmiIrp master IRP pointer argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "ioStatusBlockOutput",
+          "structure": "IO_STATUS_BLOCK_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_OWORD *",
+            "PIO_STATUS_BLOCK",
+            "__int64"
+          ],
+          "source": "WmipSendWmiIrp output IO status block argument"
+        },
+        {
+          "local_names": [
+            "Irp",
+            "allocatedIrp"
+          ],
+          "role": "allocatedIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipSendWmiIrp allocated forwarding IRP local"
+        },
+        {
+          "local_names": [
+            "savedIrpPtr"
+          ],
+          "role": "savedIrp",
+          "structure": "IRP",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipSendWmiIrp saved forwarding IRP local"
+        },
+        {
+          "local_names": [
+            "forwardResult"
+          ],
+          "role": "forwardStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipSendWmiIrp forward status local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.wmip_event_notification",
+      "source": "Reviewed WmipEventNotification nonpaged event queue drain, WmipProcessEvent handoff, registration-entry unreference, and work-item count release.",
+      "function_names": [
+        "WmipEventNotification"
+      ],
+      "required_calls": [
+        "WmipProcessEvent"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "removed_event_entry"
+          ],
+          "role": "removedEventEntry",
+          "structure": "WMI_EVENT_QUEUE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "WmipEventNotification removed queue entry local"
+        },
+        {
+          "local_names": [
+            "event_object_ptr"
+          ],
+          "role": "eventObject",
+          "structure": "WMI_EVENT_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "WmipEventNotification event object local"
+        },
+        {
+          "local_names": [
+            "unref_target_ptr"
+          ],
+          "role": "registrationEntry",
+          "structure": "WMI_REGISTRATION_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "WmipEventNotification registration entry unreference local"
+        },
+        {
+          "local_names": [
+            "work_item_count_prev"
+          ],
+          "role": "previousWorkItemCount",
+          "structure": "WORK_ITEM_COUNT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "WmipEventNotification previous work item count local"
+        }
+      ]
+    }
+  ]
+}
