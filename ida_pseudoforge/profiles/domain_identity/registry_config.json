@@ -1,0 +1,1585 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "registry-config-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 Configuration Manager registry role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.registry_config.nt_open_key",
+      "source": "Reviewed NtOpenKey thin wrapper into NtOpenKeyEx.",
+      "function_names": [
+        "NtOpenKey"
+      ],
+      "required_calls": [
+        "NtOpenKeyEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtOpenKey output handle pointer argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "NtOpenKey desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *",
+            "__int64"
+          ],
+          "source": "NtOpenKey object attributes argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_open_key_ex",
+      "source": "Reviewed NtOpenKeyEx stack-expanded callout packaging for CmOpenKey.",
+      "function_names": [
+        "NtOpenKeyEx"
+      ],
+      "required_calls": [
+        "KeExpandKernelStackAndCallout"
+      ],
+      "required_call_regex": [
+        "\\bCmOpenKeyCallout\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtOpenKeyEx output handle pointer argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "NtOpenKeyEx desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *",
+            "__int64"
+          ],
+          "source": "NtOpenKeyEx object attributes argument"
+        },
+        {
+          "local_names": [
+            "calloutParams",
+            "Parameter"
+          ],
+          "role": "openKeyCalloutContext",
+          "structure": "CM_OPEN_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "NtOpenKeyEx local callout block passed to CmOpenKeyCallout"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_open_key_callout",
+      "source": "Reviewed CmOpenKeyCallout unpacking a callout parameter block into CmOpenKey.",
+      "function_names": [
+        "CmOpenKeyCallout"
+      ],
+      "required_calls": [
+        "CmOpenKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "openKeyCalloutContext",
+          "structure": "CM_OPEN_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "CmOpenKeyCallout parameter block argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_open_key",
+      "source": "Reviewed CmOpenKey parse-context setup and ObOpenObjectByNameEx handoff.",
+      "function_names": [
+        "CmOpenKey"
+      ],
+      "required_calls": [
+        "ObOpenObjectByNameEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "CmOpenKey output handle pointer argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "CmOpenKey desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *",
+            "__int64"
+          ],
+          "source": "CmOpenKey object attributes argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "openOptions",
+          "structure": "REG_OPEN_OPTIONS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "__int64"
+          ],
+          "source": "CmOpenKey open options argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_create_key",
+      "source": "Reviewed NtCreateKey stack-expanded callout packaging for CmCreateKey.",
+      "function_names": [
+        "NtCreateKey"
+      ],
+      "required_calls": [
+        "KeExpandKernelStackAndCallout"
+      ],
+      "required_call_regex": [
+        "\\bCmCreateKeyCallout\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtCreateKey output handle pointer argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "NtCreateKey desired access argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "objectAttributes",
+          "structure": "OBJECT_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "POBJECT_ATTRIBUTES",
+            "OBJECT_ATTRIBUTES *",
+            "__int64"
+          ],
+          "source": "NtCreateKey object attributes argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "classString",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "const UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "NtCreateKey optional class string argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "createOptions",
+          "structure": "REG_CREATE_OPTIONS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateKey create options argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "dispositionOutput",
+          "structure": "REG_CREATE_DISPOSITION_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PULONG",
+            "unsigned int *",
+            "_DWORD *",
+            "__int64"
+          ],
+          "source": "NtCreateKey disposition output argument"
+        },
+        {
+          "local_names": [
+            "calloutParamBlock",
+            "Parameter"
+          ],
+          "role": "createKeyCalloutContext",
+          "structure": "CM_CREATE_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "NtCreateKey local callout block passed to CmCreateKeyCallout"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_create_key_callout",
+      "source": "Reviewed CmCreateKeyCallout unpacking a callout parameter block into CmCreateKey.",
+      "function_names": [
+        "CmCreateKeyCallout"
+      ],
+      "required_calls": [
+        "CmCreateKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "createKeyCalloutContext",
+          "structure": "CM_CREATE_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "_QWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmCreateKeyCallout parameter block argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_create_key",
+      "source": "Reviewed CmCreateKey class capture, parse-context setup, and ObOpenObjectByNameEx create flow.",
+      "function_names": [
+        "CmCreateKey"
+      ],
+      "required_calls": [
+        "ObOpenObjectByNameEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandleOutput",
+          "structure": "HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE *",
+            "PHANDLE",
+            "__int64"
+          ],
+          "source": "CmCreateKey output handle pointer argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "createOptions",
+          "structure": "REG_CREATE_OPTIONS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "__int64"
+          ],
+          "source": "CmCreateKey create options argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "CmCreateKey desired access argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "classString",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__m128i *",
+            "__int64"
+          ],
+          "source": "CmCreateKey optional class string argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "dispositionOutput",
+          "structure": "REG_CREATE_DISPOSITION_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PULONG",
+            "_DWORD *",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "CmCreateKey disposition output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_enumerate_key",
+      "source": "Reviewed NtEnumerateKey object reference, bounce buffer setup, and CmEnumerateKeyCallout flow.",
+      "function_names": [
+        "NtEnumerateKey"
+      ],
+      "required_calls": [
+        "KeExpandKernelStackAndCallout"
+      ],
+      "required_call_regex": [
+        "\\bCmEnumerateKeyCallout\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtEnumerateKey input key handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "keyIndex",
+          "structure": "REG_ENUM_INDEX",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "__int64"
+          ],
+          "source": "NtEnumerateKey enumeration index argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keyInformationClass",
+          "structure": "KEY_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "KEY_INFORMATION_CLASS",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtEnumerateKey information class argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "keyInformationBuffer",
+          "structure": "KEY_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "volatile void *",
+            "__int64"
+          ],
+          "source": "NtEnumerateKey caller output buffer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "keyInformationLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "SIZE_T",
+            "size_t",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "NtEnumerateKey output buffer length argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "resultLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PULONG",
+            "unsigned int *",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtEnumerateKey result length output argument"
+        },
+        {
+          "local_names": [
+            "Parameter"
+          ],
+          "role": "enumerateKeyCalloutContext",
+          "structure": "CM_ENUMERATE_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "NtEnumerateKey local callout block passed to CmEnumerateKeyCallout"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v30"
+          ],
+          "role": "referencedKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "NtEnumerateKey key object referenced by CmObReferenceObjectByHandle"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_enumerate_key_callout",
+      "source": "Reviewed CmEnumerateKeyCallout unpacking a callout parameter block into CmEnumerateKey.",
+      "function_names": [
+        "CmEnumerateKeyCallout"
+      ],
+      "required_calls": [
+        "CmEnumerateKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "enumerateKeyCalloutContext",
+          "structure": "CM_ENUMERATE_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "_QWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmEnumerateKeyCallout parameter block argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_enumerate_key",
+      "source": "Reviewed CmEnumerateKey key body deletion checks and subkey enumeration flow.",
+      "function_names": [
+        "CmEnumerateKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "CmEnumerateKey key body argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "virtualKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "CmEnumerateKey optional virtualized key body argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keyIndex",
+          "structure": "REG_ENUM_INDEX",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "CmEnumerateKey enumeration index argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "keyInformationClass",
+          "structure": "KEY_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "KEY_INFORMATION_CLASS",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CmEnumerateKey information class argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "keyInformationBuffer",
+          "structure": "KEY_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "CmEnumerateKey caller output buffer argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "keyInformationLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CmEnumerateKey output buffer length argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "resultLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PULONG",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "CmEnumerateKey result length output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_query_key",
+      "source": "Reviewed CmQueryKey key body query, merged-view handling, and key information copy flow.",
+      "function_names": [
+        "CmQueryKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmQueryKey key body argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "virtualKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmQueryKey optional virtualized key body argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keyInformationClass",
+          "structure": "KEY_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "KEY_INFORMATION_CLASS",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CmQueryKey information class argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "keyInformationBuffer",
+          "structure": "KEY_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "CmQueryKey caller output buffer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "keyInformationLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "CmQueryKey output buffer length argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "resultLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PULONG",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "CmQueryKey result length output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_query_value_key",
+      "source": "Reviewed NtQueryValueKey object reference, callback, bounce buffer, and CmQueryValueKeyCallout flow.",
+      "function_names": [
+        "NtQueryValueKey"
+      ],
+      "required_calls": [
+        "KeExpandKernelStackAndCallout"
+      ],
+      "required_call_regex": [
+        "\\bCmQueryValueKeyCallout\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtQueryValueKey input key handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "valueName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "const UNICODE_STRING *"
+          ],
+          "source": "NtQueryValueKey value name argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keyValueInformationClass",
+          "structure": "KEY_VALUE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "KEY_VALUE_INFORMATION_CLASS",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtQueryValueKey value information class argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "keyValueInformationBuffer",
+          "structure": "KEY_VALUE_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "NtQueryValueKey caller output buffer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "keyValueInformationLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "NtQueryValueKey output buffer length argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "resultLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PULONG",
+            "unsigned int *",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtQueryValueKey result length output argument"
+        },
+        {
+          "local_names": [
+            "Parameter"
+          ],
+          "role": "queryValueCalloutContext",
+          "structure": "CM_QUERY_VALUE_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "NtQueryValueKey local callout block passed to CmQueryValueKeyCallout"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "v39"
+          ],
+          "role": "referencedKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "NtQueryValueKey key object referenced by CmObReferenceObjectByHandle"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_query_value_key_callout",
+      "source": "Reviewed CmQueryValueKeyCallout unpacking a callout parameter block into CmQueryValueKey.",
+      "function_names": [
+        "CmQueryValueKeyCallout"
+      ],
+      "required_calls": [
+        "CmQueryValueKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "queryValueCalloutContext",
+          "structure": "CM_QUERY_VALUE_KEY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "_OWORD *",
+            "_QWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmQueryValueKeyCallout parameter block argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_query_value_key",
+      "source": "Reviewed CmQueryValueKey key body, value name, information class, buffer, and result length flow.",
+      "function_names": [
+        "CmQueryValueKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmQueryValueKey key body argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "valueName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "const UNICODE_STRING *",
+            "unsigned __int16 *"
+          ],
+          "source": "CmQueryValueKey value name argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keyValueInformationClass",
+          "structure": "KEY_VALUE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "KEY_VALUE_INFORMATION_CLASS",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CmQueryValueKey value information class argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "keyValueInformationBuffer",
+          "structure": "KEY_VALUE_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "size_t",
+            "__int64"
+          ],
+          "source": "CmQueryValueKey caller output buffer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "keyValueInformationLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CmQueryValueKey output buffer length argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "resultLengthOutput",
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PULONG",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "CmQueryValueKey result length output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_set_value_key",
+      "source": "Reviewed NtSetValueKey object reference, callback, capture, and CmSetValueKey handoff.",
+      "function_names": [
+        "NtSetValueKey"
+      ],
+      "required_calls": [
+        "CmObReferenceObjectByHandle",
+        "CmSetValueKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtSetValueKey input key handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "valueName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "const UNICODE_STRING *"
+          ],
+          "source": "NtSetValueKey value name argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "valueType",
+          "structure": "REG_VALUE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "NtSetValueKey registry value type argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "valueData",
+          "structure": "REG_VALUE_DATA",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "NtSetValueKey value data pointer argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "valueDataSize",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "SIZE_T",
+            "size_t",
+            "unsigned int"
+          ],
+          "source": "NtSetValueKey value data size argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtSetValueKey key object referenced by CmObReferenceObjectByHandle"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_set_value_key",
+      "source": "Reviewed CmSetValueKey key body, value name, type, data, size, transaction, and callback flow.",
+      "function_names": [
+        "CmSetValueKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmSetValueKey key body argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "valueName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PCUNICODE_STRING",
+            "PUNICODE_STRING",
+            "const UNICODE_STRING *",
+            "UNICODE_STRING *",
+            "unsigned int"
+          ],
+          "source": "CmSetValueKey value name argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "titleIndex",
+          "structure": "REG_VALUE_TITLE_INDEX",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "CmSetValueKey title index argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "valueData",
+          "structure": "REG_VALUE_DATA",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "CmSetValueKey value data pointer argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "valueDataSize",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG",
+            "SIZE_T",
+            "size_t",
+            "unsigned int"
+          ],
+          "source": "CmSetValueKey value data size argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "transactionContext",
+          "structure": "REG_TRANSACTION_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "CmSetValueKey transaction or handle context argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "virtualizationFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "BOOLEAN",
+            "bool",
+            "char",
+            "unsigned char"
+          ],
+          "source": "CmSetValueKey virtualized key-body flag argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_delete_key",
+      "source": "Reviewed NtDeleteKey object reference, callback, and CmDeleteKey handoff.",
+      "function_names": [
+        "NtDeleteKey"
+      ],
+      "required_calls": [
+        "CmObReferenceObjectByHandle",
+        "CmDeleteKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtDeleteKey input key handle argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtDeleteKey key object referenced by CmObReferenceObjectByHandle"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_delete_key",
+      "source": "Reviewed CmDeleteKey key body deletion, KCB stack, hive cell, and transaction flow.",
+      "function_names": [
+        "CmDeleteKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "CmDeleteKey key body argument"
+        },
+        {
+          "local_names": [
+            "KeyNodeForKcb"
+          ],
+          "role": "keyNode",
+          "structure": "CM_KEY_NODE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CmDeleteKey local key node resolved through KCB stack"
+        },
+        {
+          "local_names": [
+            "UnitOfWork"
+          ],
+          "role": "transactionUnitOfWork",
+          "structure": "CM_TRANS_UOW",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CmDeleteKey local transaction unit of work"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.nt_delete_value_key",
+      "source": "Reviewed NtDeleteValueKey object reference, value-name capture, and CmDeleteValueKey handoff.",
+      "function_names": [
+        "NtDeleteValueKey"
+      ],
+      "required_calls": [
+        "CmObReferenceObjectByHandle",
+        "CmDeleteValueKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "NtDeleteValueKey input key handle argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "valueName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "const UNICODE_STRING *"
+          ],
+          "source": "NtDeleteValueKey value name argument"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedKeyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "NtDeleteValueKey key object referenced by CmObReferenceObjectByHandle"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cm_delete_value_key",
+      "source": "Reviewed CmDeleteValueKey key body, value name, transaction, and hive cell update flow.",
+      "function_names": [
+        "CmDeleteValueKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmDeleteValueKey key body argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "valueName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "const UNICODE_STRING *",
+            "unsigned __int16 *"
+          ],
+          "source": "CmDeleteValueKey value name argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "transactionContext",
+          "structure": "REG_TRANSACTION_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "CmDeleteValueKey transaction or handle context argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "virtualizationFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "BOOLEAN",
+            "bool",
+            "char",
+            "unsigned char"
+          ],
+          "source": "CmDeleteValueKey virtualized key-body flag argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cmp_find_value_by_name",
+      "source": "Reviewed CmpFindValueByName wrapper around CmpFindNameInListWithStatus.",
+      "function_names": [
+        "CmpFindValueByName"
+      ],
+      "required_calls": [
+        "CmpFindNameInListWithStatus"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "valueListOrSearchContext",
+          "structure": "CM_KEY_VALUE_SEARCH_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "CmpFindValueByName value-list search context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cmp_notify_change_key",
+      "source": "Reviewed CmpNotifyChangeKey key-body notification provider/post-block insertion flow.",
+      "function_names": [
+        "CmpNotifyChangeKey"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyObject",
+          "structure": "CM_KEY_BODY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCM_KEY_BODY",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmpNotifyChangeKey key body argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "notifyPostBlock",
+          "structure": "CM_NOTIFY_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PCM_NOTIFY_BLOCK",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "CmpNotifyChangeKey post block/list entry argument"
+        },
+        {
+          "parameter_index": 2,
+          "role": "completionFilter",
+          "structure": "REG_NOTIFY_FILTER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "unsigned int"
+          ],
+          "source": "CmpNotifyChangeKey completion filter argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "watchTree",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "BOOLEAN",
+            "unsigned char",
+            "char"
+          ],
+          "source": "CmpNotifyChangeKey watch-tree flag argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "threadNotifyContext",
+          "structure": "CM_NOTIFY_THREAD_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "_QWORD *"
+          ],
+          "source": "CmpNotifyChangeKey thread notify context argument"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "notifyProviderRecord",
+          "structure": "CM_NOTIFY_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "CmpNotifyChangeKey notification provider block allocated with CMnb tag"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cmp_parse_key",
+      "source": "Reviewed CmpParseKey object-manager parse callback for registry namespace resolution.",
+      "function_names": [
+        "CmpParseKey"
+      ],
+      "required_calls": [
+        "CmpAllocateParseContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registryNamespaceRoot",
+          "structure": "CM_REGISTRY_NAMESPACE_ROOT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "CmpParseKey registry namespace root argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "objectType",
+          "structure": "OBJECT_TYPE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "POBJECT_TYPE *",
+            "POBJECT_TYPE",
+            "__int64"
+          ],
+          "source": "CmpParseKey object type argument compared against CmKeyObjectType"
+        },
+        {
+          "parameter_index": 2,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "struct _ACCESS_STATE *",
+            "__int64"
+          ],
+          "source": "CmpParseKey access state argument"
+        },
+        {
+          "parameter_index": 5,
+          "role": "remainingName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PCUNICODE_STRING",
+            "const UNICODE_STRING *",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "CmpParseKey remaining registry path string argument"
+        },
+        {
+          "parameter_index": 6,
+          "role": "objectName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__m128i *",
+            "__int64"
+          ],
+          "source": "CmpParseKey normalized object-name buffer argument"
+        },
+        {
+          "parameter_index": 10,
+          "role": "resultObjectOutput",
+          "structure": "CM_KEY_BODY_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PVOID *",
+            "__int64 *",
+            "_QWORD *"
+          ],
+          "source": "CmpParseKey result object output argument"
+        },
+        {
+          "local_names": [
+            "ParseContext"
+          ],
+          "role": "parseContext",
+          "structure": "CM_PARSE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "CmpParseKey local parse context allocated by CmpAllocateParseContext"
+        }
+      ]
+    }
+  ]
+}

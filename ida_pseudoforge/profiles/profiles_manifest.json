@@ -133,6 +133,16 @@
         "profiles": 22
       }
     },
+    "domain_identity/registry_config.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl Configuration Manager registry role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "BD861EC1C55C51CB31191E1C31AF0BDE7D598933E2A55C705AC109BAC406CF15",
+      "counts": {
+        "profiles": 23
+      }
+    },
     "domain_identity/process_thread.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl process/thread lifecycle role-only identity profiles",
