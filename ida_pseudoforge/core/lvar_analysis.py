@@ -12,6 +12,7 @@ from ida_pseudoforge.core.deterministic.emitters import emissions_to_comments, e
 from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.loader import load_default_rule_packs
 from ida_pseudoforge.core.deterministic.schema import RuleReport
+from ida_pseudoforge.core.domain_identity import domain_identity_parameter_renames
 from ida_pseudoforge.core.flow_recovery import recover_flow
 from ida_pseudoforge.core.kernel_api import kernel_function_metadata
 from ida_pseudoforge.core.kernel_semantics import (
@@ -214,6 +215,10 @@ def _rule_text_rewrite_report(
 def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -> list[RenameSuggestion]:
     function_name = capture.name or extract_function_name(capture.prototype)
     params = extract_parameters_from_signature(capture.prototype)
+    domain_renames = {
+        item.parameter_index: item
+        for item in domain_identity_parameter_renames(capture.pseudocode)
+    }
     explicit_names = FUNCTION_PARAMETER_NAMES.get(function_name, [])
     if not explicit_names:
         explicit_names = _profile_parameter_names(function_name, len(params))
@@ -231,7 +236,16 @@ def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -
 
     for index, (old_name, type_text) in enumerate(params):
         new_name = ""
-        if index < len(explicit_names):
+        confidence = 0.99 if explicit_names else 0.82
+        source = "prototype"
+        evidence = f"Parameter {index} inferred from prototype"
+        domain_rename = domain_renames.get(index)
+        if domain_rename:
+            new_name = domain_rename.new
+            confidence = domain_rename.confidence
+            source = "domain-profile"
+            evidence = domain_rename.evidence
+        elif index < len(explicit_names):
             new_name = explicit_names[index]
         elif "SYSTEM_INFORMATION_CLASS" in type_text:
             new_name = "systemInformationClass"
@@ -246,9 +260,9 @@ def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -
                     kind="arg",
                     old=old_name,
                     new=new_name,
-                    confidence=0.99 if explicit_names else 0.82,
-                    source="prototype",
-                    evidence=f"Parameter {index} inferred from prototype",
+                    confidence=confidence,
+                    source=source,
+                    evidence=evidence,
                 )
             )
 
@@ -409,6 +423,7 @@ def _source_priority(source: str) -> int:
         "kernel-zw-probe": 96,
         "kernel-list": 95,
         "kernel-pool": 94,
+        "domain-profile": 98,
         "api-out-param": 89,
         "runtime-memory": 93,
         "semantic-rule": 90,

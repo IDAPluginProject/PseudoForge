@@ -1,4 +1,135 @@
 {
   "schema": "domain_identity_profiles_v1",
-  "profiles": []
+  "profiles": [
+    {
+      "id": "windows.x64_context.rtlp_copy_legacy_context",
+      "source": "Windows SDK 10.0.26100.0 um/winnt.h DECLSPEC_ALIGN(16) _CONTEXT",
+      "function_names": [
+        "RtlpCopyLegacyContext"
+      ],
+      "parameter_count": 4,
+      "parameters": [
+        {
+          "parameter_index": 1,
+          "rename_to": "destinationContext",
+          "role": "destinationContext",
+          "structure": "CONTEXT",
+          "mode": "canonical-rewrite-eligible",
+          "confidence": 0.92,
+          "rename_confidence": 0.96,
+          "accepted_types": [
+            "__int64",
+            "CONTEXT *",
+            "PCONTEXT",
+            "PVOID"
+          ],
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned"
+          ],
+          "fields": [
+            {"offset": "0x30", "name": "ContextFlags", "type": "DWORD", "size": 4, "confidence": 0.98},
+            {"offset": "0x34", "name": "MxCsr", "type": "DWORD", "size": 4, "confidence": 0.98},
+            {"offset": "0x38", "name": "SegCs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x3A", "name": "SegDs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x3C", "name": "SegEs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x3E", "name": "SegFs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x40", "name": "SegGs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x42", "name": "SegSs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x44", "name": "EFlags", "type": "DWORD", "size": 4, "confidence": 0.98},
+            {"offset": "0x48", "name": "Dr0", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x50", "name": "Dr1", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x58", "name": "Dr2", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x60", "name": "Dr3", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x68", "name": "Dr6", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x70", "name": "Dr7", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x78", "name": "Rax", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x80", "name": "Rcx", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x88", "name": "Rdx", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x90", "name": "Rbx", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x98", "name": "Rsp", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xA0", "name": "Rbp", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xA8", "name": "Rsi", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xB0", "name": "Rdi", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xB8", "name": "R8", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xC0", "name": "R9", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xC8", "name": "R10", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xD0", "name": "R11", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xD8", "name": "R12", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xE0", "name": "R13", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xE8", "name": "R14", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xF0", "name": "R15", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xF8", "name": "Rip", "type": "DWORD64", "size": 8, "confidence": 0.98},
+            {"offset": "0x4A0", "name": "VectorControl", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4A8", "name": "DebugControl", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4B0", "name": "LastBranchToRip", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4B8", "name": "LastBranchFromRip", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4C0", "name": "LastExceptionToRip", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4C8", "name": "LastExceptionFromRip", "type": "DWORD64", "size": 8, "confidence": 0.94}
+          ]
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "sourceContext",
+          "role": "sourceContext",
+          "structure": "CONTEXT",
+          "mode": "canonical-rewrite-eligible",
+          "confidence": 0.92,
+          "rename_confidence": 0.96,
+          "accepted_types": [
+            "__int64",
+            "CONTEXT *",
+            "PCONTEXT",
+            "PVOID"
+          ],
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned"
+          ],
+          "fields": [
+            {"offset": "0x30", "name": "ContextFlags", "type": "DWORD", "size": 4, "confidence": 0.98},
+            {"offset": "0x34", "name": "MxCsr", "type": "DWORD", "size": 4, "confidence": 0.98},
+            {"offset": "0x38", "name": "SegCs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x3A", "name": "SegDs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x3C", "name": "SegEs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x3E", "name": "SegFs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x40", "name": "SegGs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x42", "name": "SegSs", "type": "WORD", "size": 2, "confidence": 0.98},
+            {"offset": "0x44", "name": "EFlags", "type": "DWORD", "size": 4, "confidence": 0.98},
+            {"offset": "0x48", "name": "Dr0", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x50", "name": "Dr1", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x58", "name": "Dr2", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x60", "name": "Dr3", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x68", "name": "Dr6", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x70", "name": "Dr7", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x78", "name": "Rax", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x80", "name": "Rcx", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x88", "name": "Rdx", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x90", "name": "Rbx", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0x98", "name": "Rsp", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xA0", "name": "Rbp", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xA8", "name": "Rsi", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xB0", "name": "Rdi", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xB8", "name": "R8", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xC0", "name": "R9", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xC8", "name": "R10", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xD0", "name": "R11", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xD8", "name": "R12", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xE0", "name": "R13", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xE8", "name": "R14", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xF0", "name": "R15", "type": "DWORD64", "size": 8, "confidence": 0.97},
+            {"offset": "0xF8", "name": "Rip", "type": "DWORD64", "size": 8, "confidence": 0.98},
+            {"offset": "0x4A0", "name": "VectorControl", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4A8", "name": "DebugControl", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4B0", "name": "LastBranchToRip", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4B8", "name": "LastBranchFromRip", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4C0", "name": "LastExceptionToRip", "type": "DWORD64", "size": 8, "confidence": 0.94},
+            {"offset": "0x4C8", "name": "LastExceptionFromRip", "type": "DWORD64", "size": 8, "confidence": 0.94}
+          ]
+        }
+      ]
+    }
+  ]
 }

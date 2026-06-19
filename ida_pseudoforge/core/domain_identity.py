@@ -60,6 +60,18 @@ class DomainIdentityMatch:
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class DomainIdentityParameterRename:
+    profile_id: str
+    old: str
+    new: str
+    parameter_index: int
+    role: str
+    structure: str
+    confidence: float
+    evidence: str
+
+
 def domain_identity_match_for_base(
     text: str,
     base: str,
@@ -123,6 +135,27 @@ def domain_identity_profiles_available() -> bool:
     return bool(_domain_identity_profiles())
 
 
+def domain_identity_parameter_renames(text: str) -> list[DomainIdentityParameterRename]:
+    if not domain_identity_profiles_available():
+        return []
+    signature = extract_function_signature(text or "")
+    function_name = extract_function_name(signature)
+    full_name = _extract_full_function_name(signature)
+    parameters = extract_parameters_from_signature(signature)
+    candidates: list[DomainIdentityParameterRename] = []
+    for profile in _domain_identity_profiles():
+        if not _function_matches(profile, function_name, full_name, signature):
+            continue
+        if not _profile_parameter_shape_matches(profile, parameters):
+            continue
+        profile_id = _profile_id(profile)
+        for parameter in _profile_parameters(profile):
+            rename = _parameter_rename(profile_id, parameter, parameters)
+            if rename:
+                candidates.append(rename)
+    return _dedupe_parameter_renames(candidates)
+
+
 def _candidate_matches(
     text: str,
     base: str,
@@ -153,6 +186,13 @@ def _domain_identity_profiles() -> tuple[dict[str, Any], ...]:
     return tuple(item for item in profiles if isinstance(item, dict))
 
 
+def _profile_parameter_shape_matches(profile: dict[str, Any], parameters: list[tuple[str, str]]) -> bool:
+    expected_count = _int_value(profile.get("parameter_count", profile.get("expected_parameter_count")), -1)
+    if expected_count >= 0 and expected_count != len(parameters):
+        return False
+    return True
+
+
 def _function_matches(profile: dict[str, Any], function_name: str, full_name: str, signature: str) -> bool:
     names = _string_list(profile.get("function_names"))
     if names and function_name in names:
@@ -176,6 +216,75 @@ def _profile_parameters(profile: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(parameters, dict):
         return [parameters]
     return []
+
+
+def _parameter_rename(
+    profile_id: str,
+    parameter: dict[str, Any],
+    parameters: list[tuple[str, str]],
+) -> DomainIdentityParameterRename | None:
+    parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
+    if parameter_index < 0 or parameter_index >= len(parameters):
+        return None
+    old_name, type_text = parameters[parameter_index]
+    if not _parameter_type_matches(parameter, type_text):
+        return None
+    new_name = _safe_identifier_text(parameter.get("rename_to"), "")
+    if not new_name or new_name == old_name:
+        return None
+    role = _safe_identifier_text(parameter.get("role"), new_name)
+    structure = _safe_identifier_text(parameter.get("structure"), "DOMAIN_STRUCTURE")
+    confidence = _float_value(parameter.get("rename_confidence", parameter.get("confidence")), 0.88)
+    confidence = round(max(0.0, min(0.98, confidence)), 2)
+    return DomainIdentityParameterRename(
+        profile_id=profile_id,
+        old=old_name,
+        new=new_name,
+        parameter_index=parameter_index,
+        role=role,
+        structure=structure,
+        confidence=confidence,
+        evidence=(
+            "Domain identity profile %s parameter %d identifies %s %s"
+            % (profile_id, parameter_index, role, structure)
+        ),
+    )
+
+
+def _parameter_type_matches(parameter: dict[str, Any], type_text: str) -> bool:
+    accepted_types = _string_list(parameter.get("accepted_types"))
+    if not accepted_types:
+        return True
+    actual = _normalize_type_shape(type_text)
+    if not actual:
+        return False
+    return any(_normalize_type_shape(item) == actual for item in accepted_types)
+
+
+def _normalize_type_shape(type_text: str) -> str:
+    return re.sub(r"\s+", " ", str(type_text or "").strip()).lower()
+
+
+def _dedupe_parameter_renames(
+    candidates: list[DomainIdentityParameterRename],
+) -> list[DomainIdentityParameterRename]:
+    selected: dict[str, DomainIdentityParameterRename] = {}
+    conflicts: set[str] = set()
+    for item in sorted(candidates, key=lambda rename: (rename.old, rename.profile_id, rename.new)):
+        current = selected.get(item.old)
+        if current is None:
+            selected[item.old] = item
+            continue
+        if current.new != item.new:
+            conflicts.add(item.old)
+            continue
+        if item.confidence > current.confidence:
+            selected[item.old] = item
+    return [
+        item
+        for old, item in sorted(selected.items(), key=lambda pair: pair[1].parameter_index)
+        if old not in conflicts
+    ]
 
 
 def _parameter_match(
@@ -280,11 +389,11 @@ def _blocker_categories(blockers: list[str]) -> set[str]:
         lowered = str(blocker or "").lower()
         if "overlay" in lowered or "subfield" in lowered or "field access widths" in lowered:
             categories.add("overlay")
-        if "incompatible access type" in lowered or "type" in lowered:
+        if "incompatible access type" in lowered:
             categories.add("type_conflict")
         if "threshold" in lowered:
             categories.add("threshold")
-        if "unaligned" in lowered:
+        if "unaligned" in lowered or "not naturally aligned" in lowered:
             categories.add("unaligned")
         if "volatile" in lowered:
             categories.add("volatile")

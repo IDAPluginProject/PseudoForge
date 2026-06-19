@@ -256,6 +256,73 @@ __int64 __fastcall DomainOverlayBlockedLayout(__int64 argument0)
         self.assertIn("one or more offsets mix irregular field access widths", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_rtlp_copy_legacy_context_profile_renames_context_parameters(self) -> None:
+        capture = capture_from_pseudocode(_rtlp_copy_legacy_context_sample())
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+        identities = [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+        blockers = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        aliases = [item for item in plan.comments if item.get("kind") == "inferred_offset_field_aliases"]
+        unaligned = [item for item in plan.comments if item.get("kind") == "inferred_offset_unaligned_subfields"]
+
+        self.assertEqual("destinationContext", rename_map["a2"])
+        self.assertEqual("sourceContext", rename_map["a4"])
+        self.assertIn("RtlpCopyLegacyContext(__int64 argument0, __int64 destinationContext", rendered)
+        self.assertIn("__int64 sourceContext)", rendered)
+        self.assertEqual(
+            ["destinationContext", "sourceContext"],
+            [item.get("base") for item in identities],
+        )
+        self.assertTrue(all(item.get("structure") == "CONTEXT" for item in identities))
+        self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
+        self.assertTrue(all("unaligned" in item.get("forced_report_only_reasons", []) for item in identities))
+        self.assertTrue(any("ContextFlags=+0x30 DWORD" in item["text"] for item in aliases))
+        self.assertTrue(
+            any(
+                field.get("name") == "Rip" and field.get("offset") == 0xF8
+                for item in aliases
+                for field in item.get("fields", [])
+            )
+        )
+        self.assertEqual(2, len(unaligned))
+        self.assertTrue(all("CONTEXT subfield alignment evidence" in item["text"] for item in unaligned))
+        self.assertTrue(any("Rax uses _OWORD" in item["text"] for item in unaligned))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
+
+    def test_rtlp_copy_legacy_context_profile_can_be_canonical_when_layout_is_clean(self) -> None:
+        capture = capture_from_pseudocode(_rtlp_copy_legacy_context_aligned_sample())
+        plan = build_clean_plan(capture)
+        ready = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+        blockers = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertFalse(blockers)
+        self.assertEqual(2, len(ready))
+        self.assertTrue(all(item.get("source_provenance") == "domain_identity" for item in ready))
+        self.assertTrue(all(item.get("domain_profile_id") == "windows.x64_context.rtlp_copy_legacy_context" for item in ready))
+        self.assertEqual(2, len(previews))
+        self.assertTrue(any("ContextFlags" in item["text"] for item in previews))
+        self.assertIn("destinationContext + 48", rendered)
+        self.assertIn("sourceContext + 48", rendered)
+
+    def test_context_profile_does_not_apply_to_unrelated_function(self) -> None:
+        capture = capture_from_pseudocode(
+            _rtlp_copy_legacy_context_sample().replace(
+                "RtlpCopyLegacyContext",
+                "UnrelatedContextCopy",
+                1,
+            )
+        )
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertNotEqual("destinationContext", rename_map.get("a2"))
+        self.assertNotEqual("sourceContext", rename_map.get("a4"))
+        self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in plan.comments))
+
     def test_generic_temp_base_requires_stronger_layout_evidence(self) -> None:
         comments = field_layout_comments(
             """
@@ -2633,6 +2700,48 @@ __int64 __fastcall %s(__int64 argument0)
        + *(_QWORD *)(argument0 + 40);
 }
 """ % function_name
+
+
+def _rtlp_copy_legacy_context_sample() -> str:
+    return """
+void __fastcall RtlpCopyLegacyContext(__int64 a1, __int64 a2, __int64 a3, __int64 a4)
+{
+  *(_DWORD *)(a2 + 48) = a3 & 0x67FFFFFF;
+  *(_DWORD *)(a2 + 52) = *(_DWORD *)(a4 + 52);
+  *(_WORD *)(a2 + 56) = *(_WORD *)(a4 + 56);
+  *(_WORD *)(a2 + 58) = *(_WORD *)(a4 + 58);
+  *(_WORD *)(a2 + 60) = *(_WORD *)(a4 + 60);
+  *(_WORD *)(a2 + 62) = *(_WORD *)(a4 + 62);
+  *(_WORD *)(a2 + 64) = *(_WORD *)(a4 + 64);
+  *(_WORD *)(a2 + 66) = *(_WORD *)(a4 + 66);
+  *(_DWORD *)(a2 + 68) = *(_DWORD *)(a4 + 68);
+  *(_QWORD *)(a2 + 152) = *(_QWORD *)(a4 + 152);
+  *(_QWORD *)(a2 + 248) = *(_QWORD *)(a4 + 248);
+  *(_OWORD *)(a2 + 120) = *(_OWORD *)(a4 + 120);
+  *(_OWORD *)(a2 + 1200) = *(_OWORD *)(a4 + 1200);
+  *(_OWORD *)(a2 + 1216) = *(_OWORD *)(a4 + 1216);
+}
+"""
+
+
+def _rtlp_copy_legacy_context_aligned_sample() -> str:
+    return """
+void __fastcall RtlpCopyLegacyContext(__int64 a1, __int64 a2, __int64 a3, __int64 a4)
+{
+  *(_DWORD *)(a2 + 48) = *(_DWORD *)(a4 + 48);
+  *(_DWORD *)(a2 + 52) = *(_DWORD *)(a4 + 52);
+  *(_WORD *)(a2 + 56) = *(_WORD *)(a4 + 56);
+  *(_WORD *)(a2 + 58) = *(_WORD *)(a4 + 58);
+  *(_WORD *)(a2 + 60) = *(_WORD *)(a4 + 60);
+  *(_WORD *)(a2 + 62) = *(_WORD *)(a4 + 62);
+  *(_WORD *)(a2 + 64) = *(_WORD *)(a4 + 64);
+  *(_WORD *)(a2 + 66) = *(_WORD *)(a4 + 66);
+  *(_DWORD *)(a2 + 68) = *(_DWORD *)(a4 + 68);
+  *(_QWORD *)(a2 + 72) = *(_QWORD *)(a4 + 72);
+  *(_QWORD *)(a2 + 80) = *(_QWORD *)(a4 + 80);
+  *(_QWORD *)(a2 + 88) = *(_QWORD *)(a4 + 88);
+}
+"""
 
 
 if __name__ == "__main__":

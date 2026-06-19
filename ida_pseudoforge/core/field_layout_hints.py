@@ -188,15 +188,22 @@ def field_layout_comments(text: str, max_comments: int = 4) -> list[dict[str, An
                 trust_candidate = _field_generic_base_trust_candidate_comment_from_layout(text or "", item)
                 if trust_candidate:
                     comments.append(trust_candidate)
-                overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item)
+                overlay_preview = _field_subfield_overlay_comment_from_layout(text or "", item, domain_identity)
                 if overlay_preview:
                     comments.append(overlay_preview)
-                    narrow_preview = _field_narrow_subfield_comment_from_layout(text or "", item)
+                    narrow_preview = _field_narrow_subfield_comment_from_layout(text or "", item, domain_identity)
                     if narrow_preview:
                         comments.append(narrow_preview)
-                    bitfield_alias_preview = _field_bitfield_alias_comment_from_layout(text or "", item)
+                    bitfield_alias_preview = _field_bitfield_alias_comment_from_layout(
+                        text or "",
+                        item,
+                        domain_identity,
+                    )
                     if bitfield_alias_preview:
                         comments.append(bitfield_alias_preview)
+                unaligned_preview = _field_unaligned_subfield_comment_from_layout(item, domain_identity)
+                if unaligned_preview:
+                    comments.append(unaligned_preview)
                 blocker = _field_rewrite_blocker_comment(text or "", item)
                 if blocker:
                     comments.append(blocker)
@@ -509,8 +516,12 @@ def _field_hot_cluster_comment_from_layout(layout: _LayoutEvidence) -> dict[str,
     }
 
 
-def _field_subfield_overlay_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
-    overlays = _subfield_overlay_fields(layout, text)
+def _field_subfield_overlay_comment_from_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> dict[str, Any] | None:
+    overlays = _subfield_overlay_fields(layout, text, domain_identity)
     if not overlays:
         return None
     base_kind = _layout_base_kind(layout.base)
@@ -534,10 +545,14 @@ def _field_subfield_overlay_comment_from_layout(text: str, layout: _LayoutEviden
     }
 
 
-def _field_narrow_subfield_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _field_narrow_subfield_comment_from_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> dict[str, Any] | None:
     fields = [
         item
-        for item in _subfield_overlay_fields(layout, text)
+        for item in _subfield_overlay_fields(layout, text, domain_identity)
         if item.get("policy_class") == "narrow_subfield"
     ]
     if not fields:
@@ -563,9 +578,13 @@ def _field_narrow_subfield_comment_from_layout(text: str, layout: _LayoutEvidenc
     }
 
 
-def _field_bitfield_alias_comment_from_layout(text: str, layout: _LayoutEvidence) -> dict[str, Any] | None:
+def _field_bitfield_alias_comment_from_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> dict[str, Any] | None:
     fields = []
-    for item in _subfield_overlay_fields(layout, text):
+    for item in _subfield_overlay_fields(layout, text, domain_identity):
         if item.get("interpretation") != "bitfield_candidate":
             continue
         field_item = dict(item)
@@ -587,6 +606,37 @@ def _field_bitfield_alias_comment_from_layout(text: str, layout: _LayoutEvidence
     return {
         "kind": "inferred_offset_bitfield_aliases",
         "text": _field_bitfield_alias_text(layout.base, base_kind, alias_text),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": base_kind,
+        "fields": fields,
+    }
+
+
+def _field_unaligned_subfield_comment_from_layout(
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> dict[str, Any] | None:
+    fields = _unaligned_subfield_fields(layout, domain_identity)
+    if not fields:
+        return None
+    base_kind = _layout_base_kind(layout.base)
+    field_text = "; ".join(_unaligned_subfield_text(item) for item in fields[:6])
+    if len(fields) > 6:
+        field_text += "; ..."
+    confidence = min(
+        _field_narrow_subfield_confidence_cap_for_base_kind(base_kind),
+        0.62 + len(fields) * 0.035 + min(layout.access_count, 12) * 0.005,
+    )
+    structure_text = ""
+    if domain_identity:
+        structure_text = "%s " % domain_identity.structure
+    return {
+        "kind": "inferred_offset_unaligned_subfields",
+        "text": (
+            "%ssubfield alignment evidence for %s: %s. Review-only; body rewrite remains blocked for unaligned typed offsets."
+            % (structure_text, layout.base, field_text)
+        ),
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
@@ -1301,7 +1351,11 @@ def _offset_local_type_blockers(layout: _LayoutEvidence, offset: int) -> list[st
     return list(dict.fromkeys(blockers))
 
 
-def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[dict[str, Any]]:
+def _subfield_overlay_fields(
+    layout: _LayoutEvidence,
+    text: str = "",
+    domain_identity: DomainIdentityMatch | None = None,
+) -> list[dict[str, Any]]:
     fields = []
     for offset, type_names in sorted(layout.offsets.items()):
         sizes = sorted({
@@ -1316,10 +1370,11 @@ def _subfield_overlay_fields(layout: _LayoutEvidence, text: str = "") -> list[di
         size_class = _subfield_overlay_size_class(sizes)
         bitfield_evidence = _subfield_overlay_bitfield_evidence(text, layout.base, offset)
         interpretation = _subfield_overlay_interpretation(size_class, bitfield_evidence)
+        domain_field = domain_identity.field_for_offset(offset) if domain_identity else None
         fields.append(
             {
                 "offset": offset,
-                "name": "field_%X" % offset,
+                "name": domain_field.name if domain_field else "field_%X" % offset,
                 "sizes": sizes,
                 "size_class": size_class,
                 "policy_class": _subfield_overlay_policy_class(size_class),
@@ -1354,6 +1409,37 @@ def _subfield_overlay_field_text(item: dict[str, Any]) -> str:
             annotation_parts.append("families=%s" % ",".join(mask_families[:4]))
         text += " [%s]" % " ".join(annotation_parts)
     return text
+
+
+def _unaligned_subfield_fields(
+    layout: _LayoutEvidence,
+    domain_identity: DomainIdentityMatch | None = None,
+) -> list[dict[str, Any]]:
+    fields = []
+    for offset, type_names in sorted(layout.offsets.items()):
+        for type_name in sorted(type_names):
+            alignment = _natural_type_alignment(type_name)
+            if not alignment or offset % alignment == 0:
+                continue
+            domain_field = domain_identity.field_for_offset(offset) if domain_identity else None
+            fields.append(
+                {
+                    "offset": offset,
+                    "name": domain_field.name if domain_field else "field_%X" % offset,
+                    "type": type_name,
+                    "alignment": alignment,
+                }
+            )
+    return fields
+
+
+def _unaligned_subfield_text(item: dict[str, Any]) -> str:
+    return "+0x%X %s uses %s with %d-byte alignment" % (
+        item["offset"],
+        item["name"],
+        item["type"],
+        item["alignment"],
+    )
 
 
 def _bitfield_aliases_for_field(item: dict[str, Any]) -> list[str]:
