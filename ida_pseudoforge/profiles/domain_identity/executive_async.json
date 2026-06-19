@@ -178,6 +178,103 @@
       ]
     },
     {
+      "id": "windows.executive_async.ki_wake_pri_queue_waiter",
+      "source": "Reviewed KiWakePriQueueWaiter priority wait-list scan, KWAIT_BLOCK thread extraction, priority adjustment, and signal path.",
+      "function_names": [
+        "KiWakePriQueueWaiter"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "signalingThread",
+          "role": "signalingThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PKTHREAD",
+            "KTHREAD *",
+            "__int64"
+          ],
+          "source": "KiWakePriQueueWaiter signaling thread argument forwarded into thread signal handling"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "waitListHead",
+          "role": "waitListHead",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PLIST_ENTRY",
+            "LIST_ENTRY *",
+            "__int64"
+          ],
+          "source": "KiWakePriQueueWaiter priority queue wait-list head scanned for wait blocks"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "signalContext",
+          "role": "signalContext",
+          "structure": "WAIT_SIGNAL_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "KiWakePriQueueWaiter signal context argument passed while signaling the selected thread"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "targetPriority",
+          "role": "targetPriority",
+          "structure": "KPRIORITY",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "KPRIORITY",
+            "int",
+            "__int64"
+          ],
+          "source": "KiWakePriQueueWaiter target priority value applied to the awakened thread"
+        },
+        {
+          "local_names": [
+            "waitBlock",
+            "v9"
+          ],
+          "role": "waitBlock",
+          "structure": "KWAIT_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KiWakePriQueueWaiter wait block/list entry local whose embedded thread pointer is inspected"
+        },
+        {
+          "local_names": [
+            "waitThread",
+            "v13"
+          ],
+          "role": "waitThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KiWakePriQueueWaiter awakened thread local loaded from the wait block"
+        },
+        {
+          "local_names": [
+            "CurrentPrcb",
+            "currentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KiWakePriQueueWaiter PRCB local used for auto-boost DPC queueing"
+        }
+      ]
+    },
+    {
       "id": "windows.executive_async.exp_queue_work_item",
       "source": "Reviewed ExpQueueWorkItem priority queue insertion, ETW enqueue tracing, and waiter wake path.",
       "function_names": [

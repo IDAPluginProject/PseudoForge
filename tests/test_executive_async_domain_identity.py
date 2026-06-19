@@ -85,6 +85,23 @@ __int64 __fastcall ExpQueueWorkItem(__int64 queue_object_ptr, _QWORD *work_item_
 }
 """
         )
+        wake_pri_queue_plan = self._plan(
+            """
+__int64 __fastcall KiWakePriQueueWaiter(__int64 signalingThread, __int64 waitListHead, __int64 signalContext, int targetPriority)
+{
+  _QWORD *waitBlock;
+  __int64 waitThread;
+  struct _KPRCB *CurrentPrcb;
+
+  waitBlock = *(_QWORD **)(waitListHead + 8);
+  waitThread = *(_QWORD *)((char *)waitBlock + 24);
+  CurrentPrcb = KeGetCurrentPrcb();
+  KiSetPriorityThread(waitThread, 0, 0);
+  KiAbQueueAutoBoostDpc(CurrentPrcb);
+  return signalingThread + signalContext + targetPriority + waitThread;
+}
+"""
+        )
         exp_try_plan = self._plan(
             """
 char __fastcall ExpTryQueueWorkItem(__int64 queueObject, _QWORD *workItemEntry, int priority, int nodeIndex)
@@ -155,6 +172,7 @@ __int64 __fastcall ExpCreateWorkerThread(__int64 workerNode, int workerFlags)
         )
 
         exp_queue_roles = self._roles(exp_queue_plan, "windows.executive_async.exp_queue_work_item")
+        wake_pri_queue_roles = self._roles(wake_pri_queue_plan, "windows.executive_async.ki_wake_pri_queue_waiter")
         exp_try_roles = self._roles(exp_try_plan, "windows.executive_async.exp_try_queue_work_item")
         validate_roles = self._roles(validate_plan, "windows.executive_async.exp_validate_work_item")
         worker_roles = self._roles(worker_plan, "windows.executive_async.exp_worker_thread")
@@ -168,6 +186,13 @@ __int64 __fastcall ExpCreateWorkerThread(__int64 workerNode, int workerFlags)
         self.assertEqual("WORK_QUEUE_THREAD_SLOT_OFFSET", exp_queue_roles["threadSlotOffset"])
         self.assertEqual("DISPATCHER_HEADER", exp_queue_roles["targetDispatcherHeader"])
         self.assertEqual("LIST_ENTRY", exp_queue_roles["waitListHead"])
+        self.assertEqual("KTHREAD", wake_pri_queue_roles["signalingThread"])
+        self.assertEqual("LIST_ENTRY", wake_pri_queue_roles["waitListHead"])
+        self.assertEqual("WAIT_SIGNAL_CONTEXT", wake_pri_queue_roles["signalContext"])
+        self.assertEqual("KPRIORITY", wake_pri_queue_roles["targetPriority"])
+        self.assertEqual("KWAIT_BLOCK", wake_pri_queue_roles["waitBlock"])
+        self.assertEqual("KTHREAD", wake_pri_queue_roles["waitThread"])
+        self.assertEqual("KPRCB", wake_pri_queue_roles["currentPrcb"])
         self.assertEqual("KPRIQUEUE", exp_try_roles["queueObject"])
         self.assertEqual("WORK_QUEUE_ITEM", exp_try_roles["workItemEntry"])
         self.assertEqual("KIRQL", exp_try_roles["currentIrql"])

@@ -587,6 +587,79 @@
       ]
     },
     {
+      "id": "windows.dispatcher_synchronization.ki_wake_queue_waiter",
+      "source": "Reviewed KiWakeQueueWaiter wait-list scan, KWAIT_BLOCK thread extraction, LIST_ENTRY integrity checks, and ready-list handoff.",
+      "function_names": [
+        "KiWakeQueueWaiter"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "currentThread",
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PKTHREAD",
+            "KTHREAD *",
+            "__int64"
+          ],
+          "source": "KiWakeQueueWaiter current/signaling thread argument used while waking a queue waiter"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "waitListHead",
+          "role": "waitListHead",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PLIST_ENTRY",
+            "LIST_ENTRY *",
+            "__int64"
+          ],
+          "source": "KiWakeQueueWaiter queue wait-list head scanned for wait blocks"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "readyListEntry",
+          "role": "readyListEntry",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "PLIST_ENTRY",
+            "LIST_ENTRY *",
+            "__int64"
+          ],
+          "source": "KiWakeQueueWaiter target ready-list entry stored into the awakened thread"
+        },
+        {
+          "local_names": [
+            "waitBlock",
+            "v4"
+          ],
+          "role": "waitBlock",
+          "structure": "KWAIT_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "KiWakeQueueWaiter wait block/list entry local whose embedded thread pointer is inspected"
+        },
+        {
+          "local_names": [
+            "waitThread",
+            "v15"
+          ],
+          "role": "waitThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "KiWakeQueueWaiter awakened thread local loaded from the wait block"
+        }
+      ]
+    },
+    {
       "id": "windows.dispatcher_synchronization.ke_insert_queue",
       "source": "Reviewed KeInsertQueue KQUEUE list insertion, ETW work enqueue trace, and waiter wake path.",
       "function_names": [

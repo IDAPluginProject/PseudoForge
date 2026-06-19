@@ -16,6 +16,7 @@ def extract_identifiers(text: str) -> set[str]:
 
 
 def extract_calls(text: str) -> list[str]:
+    text = _remove_c_block_comments(text or "")
     keywords = {
         "if",
         "for",
@@ -133,7 +134,7 @@ def _trimmed_span(text: str, start: int, end: int) -> tuple[int, int]:
 
 
 def extract_function_signature(pseudocode: str) -> str:
-    lines = [line.strip() for line in (pseudocode or "").splitlines()]
+    lines = [line.strip() for line in _remove_c_block_comments(pseudocode or "").splitlines()]
     candidate = []
     collecting = False
     depth = 0
@@ -157,6 +158,13 @@ def extract_function_signature(pseudocode: str) -> str:
     if signature.endswith("{"):
         signature = signature[:-1].strip()
     return signature
+
+
+def _remove_c_block_comments(text: str) -> str:
+    def replacement(match: re.Match[str]) -> str:
+        return "\n" * match.group(0).count("\n")
+
+    return re.sub(r"/\*.*?\*/", replacement, text or "", flags=re.DOTALL)
 
 
 def extract_function_name(signature: str) -> str:

@@ -170,6 +170,20 @@ LONG __stdcall KeInsertQueue(PRKQUEUE Queue, PLIST_ENTRY Entry)
 }
 """
         )
+        wake_queue_plan = self._plan(
+            """
+char __fastcall KiWakeQueueWaiter(__int64 currentThread, __int64 waitListHead, __int64 readyListEntry, __int64 processorIndex)
+{
+  _QWORD *waitBlock;
+  __int64 waitThread;
+
+  waitBlock = *(_QWORD **)(waitListHead + 8);
+  waitThread = waitBlock[3];
+  *(_QWORD *)(waitThread + 200) = readyListEntry;
+  return currentThread != 0 && processorIndex != 0 && *(_BYTE *)(waitThread + 388) == 5;
+}
+"""
+        )
         remove_queue_plan = self._plan(
             """
 PLIST_ENTRY __stdcall KeRemoveQueue(PRKQUEUE Queue, KPROCESSOR_MODE WaitMode, PLARGE_INTEGER Timeout)
@@ -193,6 +207,7 @@ PLIST_ENTRY __stdcall KeRundownQueue(PRKQUEUE Queue)
         release_mutex_roles = self._roles(release_mutex_plan, "windows.dispatcher_synchronization.ke_release_mutex")
         init_queue_roles = self._roles(init_queue_plan, "windows.dispatcher_synchronization.ke_initialize_queue")
         insert_queue_roles = self._roles(insert_queue_plan, "windows.dispatcher_synchronization.ke_insert_queue")
+        wake_queue_roles = self._roles(wake_queue_plan, "windows.dispatcher_synchronization.ki_wake_queue_waiter")
         remove_queue_roles = self._roles(remove_queue_plan, "windows.dispatcher_synchronization.ke_remove_queue")
         rundown_queue_roles = self._roles(rundown_queue_plan, "windows.dispatcher_synchronization.ke_rundown_queue")
 
@@ -209,6 +224,11 @@ PLIST_ENTRY __stdcall KeRundownQueue(PRKQUEUE Queue)
         self.assertEqual("KQUEUE", insert_queue_roles["queue"])
         self.assertEqual("LIST_ENTRY", insert_queue_roles["entry"])
         self.assertEqual("KTHREAD", insert_queue_roles["currentThread"])
+        self.assertEqual("KTHREAD", wake_queue_roles["currentThread"])
+        self.assertEqual("LIST_ENTRY", wake_queue_roles["waitListHead"])
+        self.assertEqual("LIST_ENTRY", wake_queue_roles["readyListEntry"])
+        self.assertEqual("KWAIT_BLOCK", wake_queue_roles["waitBlock"])
+        self.assertEqual("KTHREAD", wake_queue_roles["waitThread"])
         self.assertEqual("KQUEUE", remove_queue_roles["queue"])
         self.assertEqual("KPROCESSOR_MODE", remove_queue_roles["waitMode"])
         self.assertEqual("LARGE_INTEGER", remove_queue_roles["timeout"])
