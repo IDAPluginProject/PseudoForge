@@ -922,7 +922,8 @@ def _field_generic_base_trust_candidate_comment_from_layout(text: str, layout: _
     base_kind = _layout_base_kind(layout.base)
     if base_kind != "generic":
         return None
-    if len(layout.offsets) < 10 or layout.access_count < 16:
+    threshold_policy = _generic_parameter_trust_threshold_policy(layout)
+    if not threshold_policy:
         return None
     blockers = _field_rewrite_blockers(text, layout, allow_generic_parameter_trust=False)
     if _generic_base_blocker_profile(blockers) != "generic_only":
@@ -947,6 +948,7 @@ def _field_generic_base_trust_candidate_comment_from_layout(text: str, layout: _
         "blocker_profile": "generic_only",
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
+        "threshold_policy": threshold_policy,
     }
 
 
@@ -1100,6 +1102,8 @@ def _field_rewrite_ready_comment(
             comment["source_call"] = identity["source_call"]
         if identity.get("source_alias"):
             comment["source_alias"] = identity["source_alias"]
+        if identity.get("source_threshold_policy"):
+            comment["source_threshold_policy"] = identity["source_threshold_policy"]
         if identity.get("domain_profile_id"):
             comment["domain_profile_id"] = identity["domain_profile_id"]
             comment["domain_role"] = identity.get("domain_role", "")
@@ -1386,7 +1390,8 @@ def _trusted_generic_parameter_identity(
 ) -> dict[str, str] | None:
     if _layout_base_kind(layout.base) != "generic":
         return None
-    if len(layout.offsets) < 10 or layout.access_count < 16:
+    threshold_policy = _generic_parameter_trust_threshold_policy(layout)
+    if not threshold_policy:
         return None
     if not _base_is_function_parameter(text, layout.base):
         return None
@@ -1401,7 +1406,18 @@ def _trusted_generic_parameter_identity(
         "source_kind": "generic",
         "source_provenance": "generic_parameter_trust",
         "source_rhs_kind": "parameter",
+        "source_threshold_policy": threshold_policy,
     }
+
+
+def _generic_parameter_trust_threshold_policy(layout: _LayoutEvidence) -> str:
+    if len(layout.offsets) >= 10 and layout.access_count >= 16:
+        return "standard"
+    if len(layout.offsets) >= 12 and layout.access_count >= 12:
+        return "generic_parameter_offset_grace"
+    if len(layout.offsets) >= 8 and layout.access_count >= 24:
+        return "generic_parameter_access_grace"
+    return ""
 
 
 def _trusted_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict[str, str]:

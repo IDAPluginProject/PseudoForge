@@ -1896,7 +1896,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual([], hot_clusters)
         self.assertEqual(1, len(previews))
 
-    def test_generic_named_context_requires_stronger_layout_evidence(self) -> None:
+    def test_generic_named_context_uses_grace_only_for_strong_layout_evidence(self) -> None:
         weak_comments = field_layout_comments(
             """
 __int64 __fastcall WeakContextLayout(__int64 context)
@@ -1931,7 +1931,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         )
 
         self.assertEqual([], weak_comments)
-        self.assertEqual(5, len(strong_comments))
+        self.assertEqual(6, len(strong_comments))
         self.assertEqual("generic", strong_comments[0]["base_kind"])
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
@@ -1950,32 +1950,24 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         self.assertEqual(0.7, aliases[0]["confidence"])
         self.assertIn("Review aliases for context (generic base)", aliases[0]["text"])
         self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
-        generic_evidence = [
+        candidates = [
             item
             for item in strong_comments
-            if item.get("kind") == "inferred_offset_generic_base_evidence"
+            if item.get("kind") == "inferred_offset_generic_base_trust_candidate"
         ]
-        self.assertEqual(1, len(generic_evidence))
-        self.assertEqual("context", generic_evidence[0]["base"])
-        self.assertEqual("generic", generic_evidence[0]["base_kind"])
-        self.assertEqual("generic_only", generic_evidence[0]["blocker_profile"])
-        self.assertEqual(12, generic_evidence[0]["offset_count"])
-        self.assertEqual(12, generic_evidence[0]["access_count"])
-        self.assertEqual(0.74, generic_evidence[0]["confidence"])
-        self.assertIn("Generic base evidence for context", generic_evidence[0]["text"])
-        self.assertIn("generic_only", generic_evidence[0]["text"])
-        self.assertIn("rewrite remains blocked", generic_evidence[0]["text"])
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("context", candidates[0]["base"])
+        self.assertEqual("generic", candidates[0]["base_kind"])
+        self.assertEqual("generic_only", candidates[0]["blocker_profile"])
+        self.assertEqual("generic_parameter_offset_grace", candidates[0]["threshold_policy"])
+        self.assertEqual(12, candidates[0]["offset_count"])
+        self.assertEqual(12, candidates[0]["access_count"])
         blockers = [item for item in strong_comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
-        self.assertEqual(1, len(blockers))
-        self.assertEqual("context", blockers[0]["base"])
-        self.assertEqual("generic", blockers[0]["base_kind"])
-        self.assertIn("base name is generic", blockers[0]["blockers"])
-        self.assertNotIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
-        self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
-        self.assertFalse(
-            any(item.get("kind") == "inferred_offset_generic_base_trust_candidate" for item in strong_comments)
-        )
-        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in strong_comments))
+        self.assertEqual([], blockers)
+        ready = [item for item in strong_comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        self.assertEqual(1, len(ready))
+        self.assertEqual("generic_parameter_trust", ready[0]["source_provenance"])
+        self.assertEqual("generic_parameter_offset_grace", ready[0]["source_threshold_policy"])
 
     def test_generic_parameter_base_with_generic_only_blocker_emits_trust_candidate(self) -> None:
         comments = field_layout_comments(
@@ -2029,9 +2021,98 @@ __int64 __fastcall StrongParameterContext(__int64 context)
         self.assertEqual(1, len(ready))
         self.assertEqual("generic_parameter_trust", ready[0]["source_provenance"])
         self.assertEqual("context", ready[0]["source"])
+        self.assertEqual("standard", ready[0]["source_threshold_policy"])
         self.assertEqual(1, len(previews))
         self.assertEqual("generic_parameter_trust", previews[0]["source_provenance"])
         self.assertIn("Source provenance generic_parameter_trust from context", previews[0]["text"])
+
+    def test_generic_parameter_trust_uses_offset_grace_for_many_offsets(self) -> None:
+        accesses = []
+        for index, offset in enumerate(range(16, 112, 8)):
+            prefix = "  return " if index == 0 else "       + "
+            accesses.append("%s*(_QWORD *)(context + %d)" % (prefix, offset))
+        comments = field_layout_comments(
+            """
+__int64 __fastcall OffsetGraceParameterContext(__int64 context)
+{
+%s;
+}
+"""
+            % "\n".join(accesses)
+        )
+
+        candidates = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_generic_base_trust_candidate"
+        ]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("generic_parameter_offset_grace", candidates[0]["threshold_policy"])
+        self.assertEqual(12, candidates[0]["offset_count"])
+        self.assertEqual(12, candidates[0]["access_count"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("generic_parameter_trust", ready[0]["source_provenance"])
+        self.assertEqual("generic_parameter_offset_grace", ready[0]["source_threshold_policy"])
+
+    def test_generic_parameter_trust_uses_access_grace_for_hot_base(self) -> None:
+        lines = []
+        for repeat_index in range(3):
+            for offset_index, offset in enumerate(range(16, 80, 8)):
+                prefix = "  return " if repeat_index == 0 and offset_index == 0 else "       + "
+                lines.append("%s*(_QWORD *)(context + %d)" % (prefix, offset))
+        comments = field_layout_comments(
+            """
+__int64 __fastcall AccessGraceParameterContext(__int64 context)
+{
+%s;
+}
+"""
+            % "\n".join(lines)
+        )
+
+        candidates = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_generic_base_trust_candidate"
+        ]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("generic_parameter_access_grace", candidates[0]["threshold_policy"])
+        self.assertEqual(8, candidates[0]["offset_count"])
+        self.assertEqual(24, candidates[0]["access_count"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("generic_parameter_access_grace", ready[0]["source_threshold_policy"])
+
+    def test_generic_parameter_trust_grace_rejects_medium_evidence(self) -> None:
+        lines = []
+        offsets = list(range(16, 96, 8))
+        for index, offset in enumerate(offsets + offsets[:3]):
+            prefix = "  return " if index == 0 else "       + "
+            lines.append("%s*(_QWORD *)(context + %d)" % (prefix, offset))
+        comments = field_layout_comments(
+            """
+__int64 __fastcall MediumEvidenceGenericContext(__int64 context)
+{
+%s;
+}
+"""
+            % "\n".join(lines)
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base name is generic", blockers[0]["blockers"])
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_generic_base_trust_candidate" for item in comments)
+        )
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_generic_base_evidence_profiles_other_blockers(self) -> None:
         comments = field_layout_comments(
