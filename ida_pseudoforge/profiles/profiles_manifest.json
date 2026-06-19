@@ -113,6 +113,16 @@
         "profiles": 10
       }
     },
+    "domain_identity/handle_table.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "1FC3F90A3F0BC81B7D9A25B79D27CB5B5E60342EA23B3AFD58F0AC7FC120D7BD",
+      "counts": {
+        "profiles": 16
+      }
+    },
     "domain_identity/process_thread.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl process/thread lifecycle role-only identity profiles",

@@ -1,0 +1,834 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "handle-table-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 handle table and CID role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.handle_table.lookup_handle_table_entry",
+      "source": "Reviewed ExpLookupHandleTableEntry handle table root/index decoding flow.",
+      "function_names": [
+        "ExpLookupHandleTableEntry"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "ExpLookupHandleTableEntry handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "handleValueOrIndex",
+          "structure": "HANDLE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64",
+            "unsigned __int64"
+          ],
+          "source": "ExpLookupHandleTableEntry masked handle value/index parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.map_handle_to_pointer",
+      "source": "Reviewed ExMapHandleToPointer lookup, lock acquisition, and returned entry pointer flow.",
+      "function_names": [
+        "ExMapHandleToPointer"
+      ],
+      "required_calls": [
+        "ExpLookupHandleTableEntry"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "__int64",
+            "unsigned int *"
+          ],
+          "source": "ExMapHandleToPointer handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "handleValue",
+          "structure": "HANDLE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "ExMapHandleToPointer handle value parameter"
+        },
+        {
+          "local_names": [
+            "v3",
+            "entryPtr",
+            "handleEntryPtr"
+          ],
+          "role": "lockedHandleEntry",
+          "structure": "HANDLE_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "ExMapHandleToPointer local returned from ExpLookupHandleTableEntry"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.map_handle_to_pointer_ex",
+      "source": "Reviewed ExMapHandleToPointerEx lookup, lock acquisition, bad-reference logging, and returned entry pointer flow.",
+      "function_names": [
+        "ExMapHandleToPointerEx"
+      ],
+      "required_calls": [
+        "ExpLookupHandleTableEntry",
+        "ExHandleLogBadReference"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "ExMapHandleToPointerEx handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "handleValue",
+          "structure": "HANDLE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "ExMapHandleToPointerEx handle value parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "mapFlags",
+          "structure": "HANDLE_MAP_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "ExMapHandleToPointerEx map/logging flags parameter"
+        },
+        {
+          "local_names": [
+            "v6",
+            "entryPtr",
+            "handleEntryPtr"
+          ],
+          "role": "lockedHandleEntry",
+          "structure": "HANDLE_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "ExMapHandleToPointerEx local returned from ExpLookupHandleTableEntry"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.lock_handle_table_entry",
+      "source": "Reviewed ExLockHandleTableEntry lock bit acquisition and block-on-locked-entry flow.",
+      "function_names": [
+        "ExLockHandleTableEntry"
+      ],
+      "required_calls": [
+        "ExpBlockOnLockedHandleEntry"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "ExLockHandleTableEntry handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "handleEntry",
+          "structure": "HANDLE_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE_TABLE_ENTRY",
+            "signed __int64 *",
+            "__int64 *"
+          ],
+          "source": "ExLockHandleTableEntry entry state pointer parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.unlock_handle_table_entry",
+      "source": "Reviewed ExUnlockHandleTableEntry lock release and push-lock wake flow.",
+      "function_names": [
+        "ExUnlockHandleTableEntry"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "ExUnlockHandleTableEntry handle table/base parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "handleEntry",
+          "structure": "HANDLE_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE_TABLE_ENTRY",
+            "volatile signed __int64 *",
+            "signed __int64 *",
+            "__int64 *"
+          ],
+          "source": "ExUnlockHandleTableEntry entry lock state parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.create_handle",
+      "source": "Reviewed ExCreateHandle wrapper around ExCreateHandleEx.",
+      "function_names": [
+        "ExCreateHandle"
+      ],
+      "required_calls": [
+        "ExCreateHandleEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "ExCreateHandle handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "objectOrHandleInfo",
+          "structure": "HANDLE_TABLE_ENTRY_PAYLOAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "ExCreateHandle object/entry payload parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.create_handle_ex",
+      "source": "Reviewed ExCreateHandleEx free-list allocation, optional extra info, debug info update, and handle value return flow.",
+      "function_names": [
+        "ExCreateHandleEx"
+      ],
+      "required_calls": [
+        "KeEnterCriticalRegion",
+        "KeLeaveCriticalRegionThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "ExCreateHandleEx handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "objectOrHandleInfo",
+          "structure": "HANDLE_TABLE_ENTRY_PAYLOAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "ExCreateHandleEx object/entry payload parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "grantedAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "int",
+            "unsigned int"
+          ],
+          "source": "ExCreateHandleEx granted access bits parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "handleAttributes",
+          "structure": "HANDLE_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "ExCreateHandleEx low attribute bits parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "extraInfo",
+          "structure": "HANDLE_EXTRA_INFO",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "ExCreateHandleEx optional extra info source parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "ExCreateHandleEx critical-region owner thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.destroy_handle",
+      "source": "Reviewed ExDestroyHandle extra-info clear, entry unlink, free-list requeue, and returned index flow.",
+      "function_names": [
+        "ExDestroyHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "__int64",
+            "unsigned int *"
+          ],
+          "source": "ExDestroyHandle handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "handleValue",
+          "structure": "HANDLE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "ExDestroyHandle handle value parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "destroyedHandleEntry",
+          "structure": "HANDLE_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE_TABLE_ENTRY",
+            "_QWORD *",
+            "__int64 *",
+            "void *"
+          ],
+          "source": "ExDestroyHandle entry/destruction context parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.enum_handle_table",
+      "source": "Reviewed ExEnumHandleTable entry walk, callback dispatch, and optional found-handle output flow.",
+      "function_names": [
+        "ExEnumHandleTable"
+      ],
+      "required_calls": [
+        "ExpLookupHandleTableEntry",
+        "KeLeaveCriticalRegionThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "handleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "unsigned int *",
+            "__int64"
+          ],
+          "source": "ExEnumHandleTable handle table parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "enumerationCallback",
+          "structure": "HANDLE_TABLE_ENUMERATE_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64 (__fastcall *)(_QWORD, _QWORD, _QWORD, _QWORD)",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "ExEnumHandleTable callback parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "callbackContext",
+          "structure": "HANDLE_ENUM_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "ExEnumHandleTable callback context parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "foundHandleOutput",
+          "structure": "HANDLE_VALUE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PHANDLE",
+            "__int64 *",
+            "_QWORD *"
+          ],
+          "source": "ExEnumHandleTable optional found handle output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.create_handle_table",
+      "source": "Reviewed ExCreateHandleTable allocation, list insertion, and current-thread critical-region flow.",
+      "function_names": [
+        "ExCreateHandleTable"
+      ],
+      "required_calls": [
+        "ExpAllocateHandleTable"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "quotaOrOwnerContext",
+          "structure": "HANDLE_TABLE_OWNER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExCreateHandleTable allocation owner/quota context parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "insertIntoGlobalList",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "int",
+            "char"
+          ],
+          "source": "ExCreateHandleTable global list insertion flag"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "ExCreateHandleTable critical-region owner thread local"
+        },
+        {
+          "local_names": [
+            "result",
+            "v5"
+          ],
+          "role": "createdHandleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "ExCreateHandleTable allocated table local/return value"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.destroy_handle_table",
+      "source": "Reviewed ExDestroyHandleTable wrapper around ExpRemoveHandleTable and ExpFreeHandleTable.",
+      "function_names": [
+        "ExDestroyHandleTable"
+      ],
+      "required_calls": [
+        "ExpFreeHandleTable"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "destroyedHandleTable",
+          "structure": "HANDLE_TABLE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE_TABLE",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "ExDestroyHandleTable handle table parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.assign_thread_id",
+      "source": "Reviewed PsAssignThreadId CID table handle creation and ETHREAD Cid field store flow.",
+      "function_names": [
+        "PsAssignThreadId"
+      ],
+      "required_calls": [
+        "ExCreateHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadObject",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PETHREAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsAssignThreadId thread object parameter stored into PspCidTable"
+        },
+        {
+          "local_names": [
+            "Handle",
+            "cidHandle",
+            "handle"
+          ],
+          "role": "assignedCidHandle",
+          "structure": "HANDLE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PsAssignThreadId handle returned by ExCreateHandle(PspCidTable, thread)"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.lookup_process_by_process_id",
+      "source": "Reviewed PsLookupProcessByProcessId PspCidTable lookup, handle entry lock, object type check, reference, silo validation, and output flow.",
+      "function_names": [
+        "PsLookupProcessByProcessId"
+      ],
+      "required_calls": [
+        "ExpLookupHandleTableEntry",
+        "ExGetHandlePointer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processId",
+          "structure": "CLIENT_ID_PROCESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsLookupProcessByProcessId process id/CID parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "processOutput",
+          "structure": "EPROCESS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEPROCESS *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PsLookupProcessByProcessId referenced process output parameter"
+        },
+        {
+          "local_names": [
+            "HandlePointer",
+            "processObject"
+          ],
+          "role": "referencedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PsLookupProcessByProcessId object pointer from CID handle entry"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.lookup_thread_by_thread_id",
+      "source": "Reviewed PsLookupThreadByThreadId PspCidTable lookup, handle entry lock, object type check, reference, process/silo validation, and output flow.",
+      "function_names": [
+        "PsLookupThreadByThreadId"
+      ],
+      "required_calls": [
+        "ExpLookupHandleTableEntry",
+        "ExGetHandlePointer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadId",
+          "structure": "CLIENT_ID_THREAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsLookupThreadByThreadId thread id/CID parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "threadOutput",
+          "structure": "ETHREAD_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PETHREAD *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PsLookupThreadByThreadId referenced thread output parameter"
+        },
+        {
+          "local_names": [
+            "HandlePointer",
+            "threadObject"
+          ],
+          "role": "referencedThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PsLookupThreadByThreadId object pointer from CID handle entry"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.lookup_process_thread_by_cid",
+      "source": "Reviewed PsLookupProcessThreadByCid client id, thread lookup, owning process reference, and thread output flow.",
+      "function_names": [
+        "PsLookupProcessThreadByCid"
+      ],
+      "required_calls": [
+        "PsLookupThreadByThreadId"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "clientId",
+          "structure": "CLIENT_ID",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PCLIENT_ID",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsLookupProcessThreadByCid client id input parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "processOutput",
+          "structure": "EPROCESS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PsLookupProcessThreadByCid optional process output parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "threadOutput",
+          "structure": "ETHREAD_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PETHREAD *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PsLookupProcessThreadByCid thread output parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "threadObject"
+          ],
+          "role": "referencedThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PsLookupProcessThreadByCid referenced thread local"
+        },
+        {
+          "local_names": [
+            "referenced_obj_ptr",
+            "processObject"
+          ],
+          "role": "referencedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "PsLookupProcessThreadByCid owning process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.handle_table.clear_process_thread_cid_refs",
+      "source": "Reviewed PspClearProcessThreadCidRefs CID handle map, entry clear, handle table unlock, and object dereference flow.",
+      "function_names": [
+        "PspClearProcessThreadCidRefs"
+      ],
+      "required_calls": [
+        "ExMapHandleToPointer",
+        "ObDereferenceObjectEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processOrThreadObject",
+          "structure": "EXECUTIVE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PEPROCESS",
+            "PETHREAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "PspClearProcessThreadCidRefs process/thread object parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "cidHandle",
+          "structure": "HANDLE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "HANDLE",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "PspClearProcessThreadCidRefs CID handle parameter passed to ExMapHandleToPointer"
+        },
+        {
+          "parameter_index": 2,
+          "role": "dereferenceTargetObject",
+          "structure": "EXECUTIVE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspClearProcessThreadCidRefs object pointer passed to ObDereferenceObjectEx"
+        },
+        {
+          "local_names": [
+            "result",
+            "mappedCidEntryPtr"
+          ],
+          "role": "mappedCidEntry",
+          "structure": "HANDLE_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PspClearProcessThreadCidRefs entry returned by ExMapHandleToPointer"
+        }
+      ]
+    }
+  ]
+}
