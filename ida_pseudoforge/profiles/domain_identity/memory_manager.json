@@ -1,0 +1,1105 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "memory-manager-vad-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 Memory Manager VAD/address-space role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.memory_manager.locate_address",
+      "source": "Reviewed MiLocateAddress current-process VAD cache/tree lookup by virtual address.",
+      "function_names": [
+        "MiLocateAddress"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "virtualAddress",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiLocateAddress target virtual address parameter"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiLocateAddress current process VAD root owner"
+        },
+        {
+          "local_names": [
+            "result",
+            "foundVad",
+            "foundVadNode"
+          ],
+          "role": "foundVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiLocateAddress located VAD return/local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.lock_vad_tree",
+      "source": "Reviewed MiLockVadTree current-process VAD tree spin lock acquisition flow.",
+      "function_names": [
+        "MiLockVadTree"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "lockMode",
+          "structure": "VAD_TREE_LOCK_MODE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "MiLockVadTree shared/exclusive and DPC lock mode flags"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "MiLockVadTree current process VAD tree owner"
+        },
+        {
+          "local_names": [
+            "currentIrql"
+          ],
+          "role": "previousIrql",
+          "structure": "KIRQL",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MiLockVadTree saved IRQL return value"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.unlock_vad_tree",
+      "source": "Reviewed MiUnlockVadTree VAD tree spin lock release and IRQL restore flow.",
+      "function_names": [
+        "MiUnlockVadTree"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "lockMode",
+          "structure": "VAD_TREE_LOCK_MODE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "MiUnlockVadTree shared/exclusive and DPC lock mode flags"
+        },
+        {
+          "parameter_index": 1,
+          "role": "previousIrql",
+          "structure": "KIRQL",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "KIRQL",
+            "unsigned __int8",
+            "char",
+            "unsigned char"
+          ],
+          "source": "MiUnlockVadTree saved IRQL parameter"
+        },
+        {
+          "local_names": [
+            "vad_tree_lock_ptr",
+            "vadTreeLock"
+          ],
+          "role": "vadTreeLock",
+          "structure": "VAD_TREE_LOCK",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MiUnlockVadTree current process VAD tree lock pointer"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.insert_vad",
+      "source": "Reviewed MiInsertVad process VAD tree insert, accounting update, AVL insert, and post-insert flow.",
+      "function_names": [
+        "MiInsertVad"
+      ],
+      "required_calls": [
+        "RtlAvlInsertNodeEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "insertedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiInsertVad inserted VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiInsertVad process/address-space owner parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "insertFlags",
+          "structure": "VAD_INSERT_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "MiInsertVad insert mode flags parameter"
+        },
+        {
+          "local_names": [
+            "startingAddress"
+          ],
+          "role": "startingVpn",
+          "structure": "VPN",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiInsertVad starting VPN derived from VAD fields"
+        },
+        {
+          "local_names": [
+            "endingAddress"
+          ],
+          "role": "endingVpn",
+          "structure": "VPN",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiInsertVad ending VPN derived from VAD fields"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.post_insert_vad",
+      "source": "Reviewed MiPostInsertVad post-insert subsection/list and locked VAD event publication flow.",
+      "function_names": [
+        "MiPostInsertVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "insertedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiPostInsertVad inserted VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiPostInsertVad process/address-space owner parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "lockedVadEvent",
+          "structure": "VAD_EVENT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiPostInsertVad optional locked VAD event pointer"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiPostInsertVad current thread lock owner"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.remove_vad",
+      "source": "Reviewed MiRemoveVad current-process VAD tree removal, neighboring VAD discovery, dereference, and optional replacement insert flow.",
+      "function_names": [
+        "MiRemoveVad"
+      ],
+      "required_calls": [
+        "RtlAvlRemoveNode",
+        "MiDereferenceVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "removedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiRemoveVad removed VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "removeAddressSpaceAccounting",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "int",
+            "char"
+          ],
+          "source": "MiRemoveVad flag controlling address-space/VAD bit cleanup"
+        },
+        {
+          "parameter_index": 2,
+          "role": "replacementVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiRemoveVad optional replacement VAD parameter"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "MiRemoveVad current process VAD tree owner"
+        },
+        {
+          "local_names": [
+            "PreviousVad"
+          ],
+          "role": "previousVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MiRemoveVad previous VAD local"
+        },
+        {
+          "local_names": [
+            "NextVad"
+          ],
+          "role": "nextVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MiRemoveVad next VAD local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.reference_vad",
+      "source": "Reviewed MiReferenceVad VAD reference count increment and fail-fast guard.",
+      "function_names": [
+        "MiReferenceVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "referencedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiReferenceVad VAD parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.dereference_vad",
+      "source": "Reviewed MiDereferenceVad VAD reference count decrement and zero-ref return flow.",
+      "function_names": [
+        "MiDereferenceVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "dereferencedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiDereferenceVad VAD parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.get_next_vad",
+      "source": "Reviewed MiGetNextVad in-order successor traversal from a VAD node.",
+      "function_names": [
+        "MiGetNextVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "startVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PMMVAD",
+            "unsigned __int64",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiGetNextVad starting VAD parameter"
+        },
+        {
+          "local_names": [
+            "nextVad"
+          ],
+          "role": "nextVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MiGetNextVad successor VAD local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.get_previous_vad",
+      "source": "Reviewed MiGetPreviousVad in-order predecessor traversal from a VAD node.",
+      "function_names": [
+        "MiGetPreviousVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "startVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PMMVAD",
+            "unsigned __int64 *",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiGetPreviousVad starting VAD parameter"
+        },
+        {
+          "local_names": [
+            "v1",
+            "prevVad"
+          ],
+          "role": "previousVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiGetPreviousVad predecessor VAD local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.get_first_vad",
+      "source": "Reviewed MiGetFirstVad process VAD tree first-node lookup.",
+      "function_names": [
+        "MiGetFirstVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiGetFirstVad process/address-space owner parameter"
+        },
+        {
+          "local_names": [
+            "v1",
+            "firstVad"
+          ],
+          "role": "firstVadCandidate",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "MiGetFirstVad tree traversal local; report-only due cleaned corpus ambiguity"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.obtain_referenced_vad_ex",
+      "source": "Reviewed MiObtainReferencedVadEx VAD tree lock, address lookup, VAD reference, lock mode selection, deletion wait, and status output flow.",
+      "function_names": [
+        "MiObtainReferencedVadEx"
+      ],
+      "required_calls": [
+        "MiLocateAddress",
+        "MiUnlockVadTree"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "virtualAddress",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiObtainReferencedVadEx virtual address parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "obtainFlags",
+          "structure": "VAD_OBTAIN_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "__int64",
+            "int"
+          ],
+          "source": "MiObtainReferencedVadEx shared/exclusive obtain flags parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "statusOutput",
+          "structure": "NTSTATUS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PNTSTATUS",
+            "int *",
+            "_DWORD *"
+          ],
+          "source": "MiObtainReferencedVadEx failure status output parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "callerContext",
+          "structure": "VAD_OBTAIN_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiObtainReferencedVadEx caller/context parameter"
+        },
+        {
+          "local_names": [
+            "Address"
+          ],
+          "role": "referencedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiObtainReferencedVadEx located and referenced VAD local"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "MiObtainReferencedVadEx current process address-space owner"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.check_virtual_address",
+      "source": "Reviewed MiCheckVirtualAddress current-process VAD tree lookup, status output, and found VAD output flow.",
+      "function_names": [
+        "MiCheckVirtualAddress"
+      ],
+      "required_calls": [
+        "MiCheckUserVirtualAddress"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "virtualAddress",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiCheckVirtualAddress virtual address parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "checkResultOutput",
+          "structure": "VAD_CHECK_RESULT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_DWORD *",
+            "int *",
+            "__int64"
+          ],
+          "source": "MiCheckVirtualAddress protection/status output parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "foundVadOutput",
+          "structure": "MMVAD_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PMMVAD *",
+            "struct _LIST_ENTRY **",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "MiCheckVirtualAddress found VAD output parameter"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "MiCheckVirtualAddress current process VAD tree owner"
+        },
+        {
+          "local_names": [
+            "Flink"
+          ],
+          "role": "foundVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MiCheckVirtualAddress located VAD local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.check_user_virtual_address",
+      "source": "Reviewed MiCheckUserVirtualAddress VAD state/protection inspection and status output flow.",
+      "function_names": [
+        "MiCheckUserVirtualAddress"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "virtualAddress",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiCheckUserVirtualAddress virtual address parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "foundVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiCheckUserVirtualAddress VAD parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiCheckUserVirtualAddress process/address-space context parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "checkResultOutput",
+          "structure": "VAD_CHECK_RESULT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PULONG",
+            "int *",
+            "_DWORD *"
+          ],
+          "source": "MiCheckUserVirtualAddress protection/status output parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.insert_vad_charges",
+      "source": "Reviewed MiInsertVadCharges VAD commit/pool/resident charge computation and process quota charge flow.",
+      "function_names": [
+        "MiInsertVadCharges"
+      ],
+      "required_calls": [
+        "MiComputeVadCharges"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "chargedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiInsertVadCharges VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "chargedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiInsertVadCharges process quota owner parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiInsertVadCharges page-table commitment lock owner"
+        },
+        {
+          "local_names": [
+            "vadChargesStruct"
+          ],
+          "role": "computedCharges",
+          "structure": "VAD_CHARGES",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiInsertVadCharges local charge accumulator"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.remove_vad_charges",
+      "source": "Reviewed MiRemoveVadCharges VAD commit/resident charge return and VAD event block release flow.",
+      "function_names": [
+        "MiRemoveVadCharges"
+      ],
+      "required_calls": [
+        "MiReleaseVadEventBlocks"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "chargedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiRemoveVadCharges VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "chargedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiRemoveVadCharges process quota owner parameter"
+        },
+        {
+          "local_names": [
+            "ProcessPartition"
+          ],
+          "role": "processPartition",
+          "structure": "MI_PARTITION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiRemoveVadCharges process partition local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.lock_vad_range",
+      "source": "Reviewed MiLockVadRange address-space lock, first/next VAD traversal, and per-VAD lock acquisition flow.",
+      "function_names": [
+        "MiLockVadRange"
+      ],
+      "required_calls": [
+        "MiLocateAddress",
+        "MiGetNextVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiLockVadRange process/address-space owner parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "rangeStart",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiLockVadRange range start virtual address parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "rangeEnd",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PVOID",
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "MiLockVadRange range end virtual address parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "exclusiveLock",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "BOOLEAN",
+            "int",
+            "char"
+          ],
+          "source": "MiLockVadRange exclusive/shared address-space lock flag"
+        },
+        {
+          "local_names": [
+            "FirstVad"
+          ],
+          "role": "firstVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiLockVadRange starting VAD local"
+        },
+        {
+          "local_names": [
+            "NextVad"
+          ],
+          "role": "nextVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiLockVadRange next VAD local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.lock_vad_core",
+      "source": "Reviewed MiLockVadCore per-VAD core lock acquisition flow.",
+      "function_names": [
+        "MiLockVadCore"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "lockedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiLockVadCore VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "lockFlags",
+          "structure": "VAD_LOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "char",
+            "unsigned char",
+            "int"
+          ],
+          "source": "MiLockVadCore DPC/normal lock flags parameter"
+        },
+        {
+          "local_names": [
+            "currentIrql"
+          ],
+          "role": "previousIrql",
+          "structure": "KIRQL",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiLockVadCore saved IRQL local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.lock_vad_shared",
+      "source": "Reviewed MiLockVadShared shared per-VAD push lock and thread APC disable flow.",
+      "function_names": [
+        "MiLockVadShared"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "lockedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiLockVadShared VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "vadLockBase",
+          "structure": "MMVAD_LOCK",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiLockVadShared push-lock base/VAD pointer parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.unlock_vad_shared",
+      "source": "Reviewed MiUnlockVadShared shared per-VAD push lock release and APC delivery flow.",
+      "function_names": [
+        "MiUnlockVadShared"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "unlockedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiUnlockVadShared VAD parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "vadLockBase",
+          "structure": "MMVAD_LOCK",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiUnlockVadShared push-lock base/VAD pointer parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiUnlockVadShared current thread APC delivery local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.unlock_and_dereference_vad",
+      "source": "Reviewed MiUnlockAndDereferenceVad exclusive VAD unlock, reference decrement, APC restore, and zero-ref free flow.",
+      "function_names": [
+        "MiUnlockAndDereferenceVad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "unlockedAndDereferencedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PMMVAD",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "MiUnlockAndDereferenceVad VAD parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiUnlockAndDereferenceVad current thread APC delivery local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.unlock_and_dereference_vad_shared",
+      "source": "Reviewed MiUnlockAndDereferenceVadShared shared VAD unlock, reference decrement, APC restore, and zero-ref free flow.",
+      "function_names": [
+        "MiUnlockAndDereferenceVadShared"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "unlockedAndDereferencedVad",
+          "structure": "MMVAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PMMVAD",
+            "__int64",
+            "void *"
+          ],
+          "source": "MiUnlockAndDereferenceVadShared VAD parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiUnlockAndDereferenceVadShared current thread APC delivery local"
+        }
+      ]
+    }
+  ]
+}

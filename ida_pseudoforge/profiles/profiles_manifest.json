@@ -123,6 +123,16 @@
         "profiles": 16
       }
     },
+    "domain_identity/memory_manager.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl Memory Manager VAD/address-space role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "C8509F4191C5CD59D7A34C4CB04FDE33DCF4EF10E68089BAF777577917952189",
+      "counts": {
+        "profiles": 22
+      }
+    },
     "domain_identity/process_thread.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl process/thread lifecycle role-only identity profiles",
