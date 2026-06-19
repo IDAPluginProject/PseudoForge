@@ -985,6 +985,125 @@ __int64 __fastcall LocalIndirectSourceLayout(__int64 input)
         self.assertFalse(any(item.get("kind") == "inferred_offset_stable_base_source" for item in comments))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_temp_base_with_indexed_expression_source_reports_review_evidence(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall IndexedExpressionSourceLayout(__int64 input)
+{
+  _QWORD *holder;
+  __int64 v4;
+
+  holder = (_QWORD *)input;
+  v4 = holder[3];
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        expression_sources = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_stable_expression_source"
+        ]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(expression_sources))
+        self.assertEqual("v4", expression_sources[0]["base"])
+        self.assertEqual("holder[3]", expression_sources[0]["source"])
+        self.assertEqual("indexed_pointer", expression_sources[0]["source_expression_kind"])
+        self.assertEqual("holder", expression_sources[0]["source_parent"])
+        self.assertEqual(3, expression_sources[0]["source_index"])
+        self.assertEqual("temporary_only", expression_sources[0]["blocker_profile"])
+        self.assertEqual("standard", expression_sources[0]["threshold_policy"])
+        self.assertIn("rewrite remains blocked", expression_sources[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_temp_base_with_field_expression_source_reports_review_evidence(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall FieldExpressionSourceLayout(__int64 input)
+{
+  __int64 node;
+  __int64 v4;
+
+  node = input;
+  v4 = *(_QWORD *)(node + 24);
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        expression_sources = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_stable_expression_source"
+        ]
+
+        self.assertEqual(1, len(expression_sources))
+        self.assertEqual("*(_QWORD *)(node + 24)", expression_sources[0]["source"])
+        self.assertEqual("field_pointer_deref", expression_sources[0]["source_expression_kind"])
+        self.assertEqual("node", expression_sources[0]["source_parent"])
+        self.assertEqual("0x18", expression_sources[0]["source_offset"])
+        self.assertEqual("_QWORD", expression_sources[0]["source_type"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_temp_base_expression_source_with_extra_blockers_stays_hidden(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall UnalignedExpressionSourceLayout(__int64 input)
+{
+  _QWORD *holder;
+  __int64 v4;
+
+  holder = (_QWORD *)input;
+  v4 = holder[3];
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 18)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 18)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertIn("one or more typed offsets are not naturally aligned", blockers[0]["blockers"])
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_stable_expression_source" for item in comments)
+        )
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_temp_base_with_named_call_result_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """

@@ -226,6 +226,9 @@ def field_layout_comments(
             stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
             if stability:
                 comments.append(stability)
+            expression_source = _field_stable_expression_source_comment_from_layout(text or "", item, blocker)
+            if expression_source:
+                comments.append(expression_source)
             near_ready = _field_rewrite_near_ready_comment(item, blocker)
             if near_ready:
                 comments.append(near_ready)
@@ -885,6 +888,63 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         comment["source_call_names"] = list(identity["source_call_names"])
     if identity.get("source_alias"):
         comment["source_alias"] = identity["source_alias"]
+    return comment
+
+
+def _field_stable_expression_source_comment_from_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+) -> dict[str, Any] | None:
+    if _layout_base_kind(layout.base) != "temp":
+        return None
+    blockers = {
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    }
+    if blockers != {"base is a decompiler temporary"}:
+        return None
+    threshold_policy = _field_rewrite_threshold_policy(layout)
+    if not threshold_policy:
+        return None
+    identity = _stable_base_source_identity(text, layout.base)
+    if identity.get("source_provenance") != "unknown_source_alias":
+        return None
+    source = str(identity.get("source", "") or "")
+    source_profile = _stable_expression_source_profile(source)
+    if not source_profile:
+        return None
+    source_kind = str(identity.get("source_kind", "") or _layout_source_kind(source))
+    confidence = min(
+        0.66,
+        0.52 + len(layout.offsets) * 0.012 + min(layout.access_count, 16) * 0.004,
+    )
+    comment = {
+        "kind": "inferred_offset_stable_expression_source",
+        "text": _field_stable_expression_source_text(
+            layout.base,
+            source,
+            str(source_profile["source_expression_kind"]),
+            layout.access_count,
+            len(layout.offsets),
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": "temp",
+        "source": source,
+        "source_kind": source_kind,
+        "source_provenance": identity["source_provenance"],
+        "source_rhs_kind": identity["source_rhs_kind"],
+        "source_expression_kind": source_profile["source_expression_kind"],
+        "threshold_policy": threshold_policy,
+        "blocker_profile": "temporary_only",
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
+    }
+    for key in ("source_parent", "source_offset", "source_index", "source_type"):
+        if source_profile.get(key) not in {None, ""}:
+            comment[key] = source_profile[key]
     return comment
 
 
@@ -2318,6 +2378,20 @@ def _field_stable_base_source_text(
     )
 
 
+def _field_stable_expression_source_text(
+    base: str,
+    source: str,
+    source_expression_kind: str,
+    access_count: int,
+    offset_count: int,
+) -> str:
+    return (
+        "Stable expression source for %s: %s (%s), %d typed dereference(s) across %d offset(s). "
+        "Review-only; rewrite remains blocked until the parent source identity is trusted."
+        % (base, source, source_expression_kind, access_count, offset_count)
+    )
+
+
 def _field_generic_base_evidence_text(
     base: str,
     access_count: int,
@@ -2992,6 +3066,41 @@ def _parameter_source_identity(
     if "index" in match:
         identity["source_index"] = int(match["index"])
     return identity
+
+
+def _stable_expression_source_profile(source: str) -> dict[str, Any]:
+    indexed = _parse_parameter_indexed_source(source)
+    if indexed:
+        return {
+            "source_expression_kind": "indexed_pointer",
+            "source_parent": str(indexed["parent"]),
+            "source_index": int(indexed["index"]),
+        }
+    field_pointer = _parse_field_pointer_source(source)
+    if field_pointer:
+        return {
+            "source_expression_kind": "field_pointer_deref",
+            "source_parent": str(field_pointer["parent"]),
+            "source_offset": "0x%X" % int(field_pointer["offset"]),
+            "source_type": str(field_pointer["type"]),
+        }
+    indirect = _parse_parameter_indirect_pointer_source(source)
+    if indirect:
+        profile: dict[str, Any] = {
+            "source_expression_kind": "pointer_deref",
+            "source_parent": str(indirect["parent"]),
+        }
+        if indirect.get("type"):
+            profile["source_type"] = str(indirect["type"])
+        return profile
+    subobject = _parse_parameter_subobject_source(source)
+    if subobject:
+        return {
+            "source_expression_kind": "pointer_arithmetic",
+            "source_parent": str(subobject["parent"]),
+            "source_offset": "0x%X" % int(subobject["offset"]),
+        }
+    return {}
 
 
 def _named_parameter_direct_source_identity(
