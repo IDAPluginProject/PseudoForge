@@ -82,6 +82,7 @@ SIMPLE_OFFSET_DEREF_BASE_RE = re.compile(
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
+REGISTRY_DOMAIN_ROLE_RE = re.compile(r"\bregistry_domain_role_evidence\b")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -574,6 +575,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_base_stability = len(FIELD_BASE_STABILITY_RE.findall(cleaned_text))
     layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(cleaned_text))
     layout_hot_field_clusters = len(FIELD_HOT_CLUSTER_RE.findall(cleaned_text))
+    registry_domain_profile_hits = len(REGISTRY_DOMAIN_ROLE_RE.findall(cleaned_text))
     projected_hot_field_cluster_accesses = sum(projected_hot_field_cluster_base_counts.values())
     layout_actionability_signals = (
         layout_rewrite_blockers
@@ -645,6 +647,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "layout_base_stability": layout_base_stability,
         "layout_stable_base_sources": layout_stable_base_sources,
         "layout_hot_field_clusters": layout_hot_field_clusters,
+        "registry_domain_profile_hits": registry_domain_profile_hits,
         "projected_layout_hot_field_clusters": len(projected_hot_field_clusters),
         "projected_layout_hot_field_cluster_bases": len(projected_hot_field_cluster_base_counts),
         "projected_layout_hot_field_cluster_accesses": projected_hot_field_cluster_accesses,
@@ -819,6 +822,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_base_stability"] * 8.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["layout_hot_field_clusters"] * 4.0
+    score += metrics["registry_domain_profile_hits"] * 3.0
     score += metrics["projected_layout_hot_field_clusters"] * 6.0
     score += min(metrics["projected_layout_hot_field_cluster_accesses"], 120) * 0.25
     score += metrics["llm_fallback"] * 25.0
@@ -874,6 +878,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_base_stability")
     if metrics["layout_hot_field_clusters"]:
         reasons.append("layout_hot_field_cluster")
+    if metrics["registry_domain_profile_hits"]:
+        reasons.append("registry_domain_profile_hit")
     if metrics["projected_layout_hot_field_clusters"]:
         reasons.append("projected_layout_hot_field_cluster")
     if metrics["llm_fallback"]:
@@ -922,6 +928,7 @@ def _score_model() -> dict[str, Any]:
                 "layout_base_stability",
                 "layout_stable_base_sources",
                 "layout_hot_field_clusters",
+                "registry_domain_profile_hits",
             ],
             "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
             "unannotated_base_metric": "body_offset_deref_non_layout_base_patterns",

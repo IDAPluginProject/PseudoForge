@@ -444,6 +444,56 @@ __int64 __fastcall DomainOverlayBlockedLayout(__int64 argument0)
         self.assertNotIn("SMST_ETW_EVENT_BUILDER", rendered)
         self.assertNotIn("eventBuilder is SMST_ETW_EVENT_BUILDER", rendered)
 
+    def test_registry_delete_value_profile_reports_roles_without_field_rewrite(self) -> None:
+        capture = capture_from_pseudocode(_cm_delete_value_key_registry_sample())
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+        roles = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "registry_domain_role_evidence"
+        ]
+        by_role = {str(item.get("role")): item for item in roles}
+
+        self.assertEqual("keyBody", rename_map["a1"])
+        self.assertEqual("status", rename_map["started"])
+        self.assertEqual("kcb", rename_map["v7"])
+        self.assertEqual("transactionUow", rename_map["v6"])
+        self.assertEqual(
+            {
+                "hiveCellLikePointer",
+                "kcbLikePointer",
+                "keyBodyLikePointer",
+                "statusCarrier",
+                "transactionUnitOfWork",
+            },
+            set(by_role),
+        )
+        self.assertTrue(all(item.get("mode") == "report-only" for item in roles))
+        self.assertTrue(all("no registry structure field rewrite is enabled by this profile" in item["blockers"] for item in roles))
+        self.assertIn("boolean-like source name is weaker than NTSTATUS evidence", by_role["statusCarrier"]["blockers"])
+        self.assertIn("KCB field names remain unresolved", by_role["kcbLikePointer"]["blockers"])
+        self.assertIn("hive/cell role is expression-level only", by_role["hiveCellLikePointer"]["blockers"])
+        self.assertIn("UoW structure fields are not recovered", by_role["transactionUnitOfWork"]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
+        self.assertIn("CmDeleteValueKey(__int64 keyBody", rendered)
+        self.assertIn("status = CmpStartKcbStackForTopLayerKcb", rendered)
+        self.assertIn("transactionUow is transactionUnitOfWork", rendered)
+        self.assertIn("CmpTransEnlistUowInCmTrans(UnitOfWork", rendered)
+        self.assertIn("Registry domain role for CmDeleteValueKey", rendered)
+
+    def test_registry_delete_value_profile_does_not_apply_to_unrelated_cm_helper(self) -> None:
+        capture = capture_from_pseudocode(
+            _cm_delete_value_key_registry_sample().replace("CmDeleteValueKey", "CmOtherValueHelper", 1)
+        )
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertNotEqual("keyBody", rename_map.get("a1"))
+        self.assertNotEqual("transactionUow", rename_map.get("v6"))
+        self.assertFalse(any(item.get("kind") == "registry_domain_role_evidence" for item in plan.comments))
+
     def test_generic_temp_base_requires_stronger_layout_evidence(self) -> None:
         comments = field_layout_comments(
             """
@@ -2934,6 +2984,63 @@ _QWORD *__fastcall SMKM_STORE<SM_TRAITS>::SmStEtwFillStoreEvent(__int64 a1, __in
   ++*(_DWORD *)(a2 + 16);
   *(_DWORD *)(a2 + 24) += 8;
   return v5;
+}
+"""
+
+
+def _cm_delete_value_key_registry_sample() -> str:
+    return """
+__int64 __fastcall CmDeleteValueKey(__int64 a1, unsigned __int16 *a2, __int64 a3, char a4)
+{
+  int started;
+  __int64 v5;
+  ULONG_PTR v7;
+  _QWORD *v6;
+  _QWORD *UnitOfWork;
+  _QWORD *v75;
+  __int64 v13;
+  __int64 v81;
+  __int64 v86;
+  unsigned int v76;
+  char v70;
+
+  v5 = a1;
+  v7 = 0LL;
+  v7 = *(_QWORD *)(v5 + 8);
+  if ( (*(_DWORD *)(*(_QWORD *)(v7 + 32) + 160LL) & 0x100000) != 0 )
+  {
+    started = STATUS_ACCESS_DENIED;
+  }
+  started = CmpStartKcbStackForTopLayerKcb(&v81, v7);
+  if ( started < 0 )
+  {
+    return (unsigned int)started;
+  }
+  if ( (unsigned __int8)CmpIsKeyDeletedForKeyBody(v5, 0LL) )
+  {
+    return (unsigned int)started;
+  }
+  started = CmpTransSearchAddTransFromKeyBody(v5, &v13);
+  UnitOfWork = (_QWORD *)CmpAllocateUnitOfWork(v13);
+  v75 = UnitOfWork;
+  v6 = UnitOfWork;
+  CmpTransEnlistUowInKcb(UnitOfWork, v7);
+  started = CmpTransEnlistUowInCmTrans(v6, v13);
+  CmpLockIXLockIntent(v7 + 248, v6);
+  CmpLockIXLockExclusive(v7 + 264, v6, 1LL);
+  started = CmpCloneKCBValueListForTrans(v7, v13, &v70);
+  HvLockHiveFlusherShared(*(_QWORD *)(v7 + 32));
+  HvpGetCellFlat(*(_QWORD *)(v7 + 32), v76);
+  HvpReleaseCellFlat(*(_QWORD *)(v7 + 32), &v86);
+  HvFreeCell(*(_QWORD *)(v7 + 32), v76);
+  if ( (*(_DWORD *)(v7 + 8) & 8) != 0 )
+  {
+    *(_WORD *)(v7 + 8) &= ~8u;
+  }
+  CmpRundownUnitOfWork((ULONG_PTR)v6);
+  ExFreePoolWithTag(v6, POOL_TAG('C', 'M', 'U', 'w'));
+  SeAdtRegistryValueChangedAuditAlarm(0LL, 0LL, 0LL, a2, v5, a3, 0LL, 2);
+  return (unsigned int)started;
 }
 """
 

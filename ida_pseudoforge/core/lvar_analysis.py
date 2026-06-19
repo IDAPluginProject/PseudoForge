@@ -34,6 +34,7 @@ from ida_pseudoforge.core.pattern_renames import pattern_renames
 from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
 from ida_pseudoforge.core.rename_normalization import normalize_rename_suggestions
+from ida_pseudoforge.core.registry_domain import registry_domain_renames
 from ida_pseudoforge.core.validation import validate_renames
 
 
@@ -52,6 +53,7 @@ def build_clean_plan(
     suggestions = []
     suggestions.extend(_parameter_renames(capture, include_generic=rename_provider is None))
     suggestions.extend(_local_rule_renames(capture))
+    suggestions.extend(registry_domain_renames(capture))
     suggestions.extend(pattern_renames(capture, api_semantic_diagnostics=api_semantic_diagnostics))
     suggestions.extend(kernel_rename_suggestions(capture))
     suggestions.extend(_rule_rename_suggestions(capture, rule_engine, rule_report))
@@ -424,6 +426,7 @@ def _source_priority(source: str) -> int:
         "kernel-list": 95,
         "kernel-pool": 94,
         "domain-profile": 98,
+        "registry-domain": 92,
         "api-out-param": 89,
         "runtime-memory": 93,
         "semantic-rule": 90,

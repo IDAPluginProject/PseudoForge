@@ -1,0 +1,218 @@
+{
+  "schema": "registry_domain_profiles_v1",
+  "profiles": [
+    {
+      "id": "windows.registry.cm_delete_value_key.triage",
+      "source": "Reviewed ntoskrnl 10.0.26200.8457 CmDeleteValueKey replay; report-only CM role triage",
+      "function_names": [
+        "CmDeleteValueKey"
+      ],
+      "mode": "report-only",
+      "roles": [
+        {
+          "role": "statusCarrier",
+          "structure": "NTSTATUS",
+          "target_kind": "local",
+          "target": "started",
+          "rename_to": "status",
+          "confidence": 0.9,
+          "rename_confidence": 0.93,
+          "min_evidence": 3,
+          "evidence": [
+            {
+              "id": "assigned_status_constant",
+              "pattern": "\\b{target}\\s*=\\s*(?:STATUS_[A-Z0-9_]+|-10737[0-9]+|322122[0-9]+|0x[8C][0-9A-Fa-f]{7})\\s*;",
+              "text": "assigned NTSTATUS constants or literals"
+            },
+            {
+              "id": "assigned_registry_status_result",
+              "pattern": "\\b{target}\\s*=\\s*(?:CmpStartKcbStackForTopLayerKcb|CmpTransSearchAddTransFromKeyBody|CmpSnapshotTxOwnerArray|CmpRollbackTransactionArray|CmpCloneKCBValueListForTrans|CmpTransEnlistUowInCmTrans|HvpMarkCellDirty|CmpMarkValueDataDirty)\\s*\\(",
+              "text": "receives registry helper status results"
+            },
+            {
+              "id": "signed_status_branch",
+              "pattern": "\\bif\\s*\\([^;\\n]*(?:{target}\\s*(?:<|>=)\\s*0|0\\s*(?:>|<=)\\s*{target})",
+              "text": "used in signed NTSTATUS success/failure branches"
+            },
+            {
+              "id": "returned_status_value",
+              "pattern": "\\breturn\\s*\\(\\s*unsigned\\s+int\\s*\\)\\s*{target}\\s*;",
+              "text": "returned as function status"
+            }
+          ],
+          "blockers": [
+            "boolean-like source name is weaker than NTSTATUS evidence",
+            "status role does not identify registry object fields"
+          ]
+        },
+        {
+          "role": "keyBodyLikePointer",
+          "structure": "CM_KEY_BODY",
+          "parameter_index": 0,
+          "rename_to": "keyBody",
+          "aliases": [
+            "v5",
+            "v73"
+          ],
+          "confidence": 0.86,
+          "rename_confidence": 0.91,
+          "min_evidence": 3,
+          "evidence": [
+            {
+              "id": "saved_key_body_alias",
+              "pattern": "\\bv5\\s*=\\s*{target}\\s*;",
+              "text": "parameter is saved into key-body working local"
+            },
+            {
+              "id": "key_body_deleted_query",
+              "pattern": "\\bCmpIsKeyDeletedForKeyBody\\s*\\(\\s*v5\\b",
+              "text": "passed to CmpIsKeyDeletedForKeyBody"
+            },
+            {
+              "id": "key_body_transaction_lookup",
+              "pattern": "\\bCmpTransSearchAddTransFromKeyBody\\s*\\(\\s*v5\\b",
+              "text": "passed to CmpTransSearchAddTransFromKeyBody"
+            },
+            {
+              "id": "key_body_audit",
+              "pattern": "\\bSeAdtRegistryValueChangedAuditAlarm\\s*\\([^;\\n]*\\bv5\\b",
+              "text": "used on registry value change audit path"
+            }
+          ],
+          "blockers": [
+            "CM_KEY_BODY field offsets are not recovered by this role",
+            "saved aliases still need control-flow dominance review"
+          ]
+        },
+        {
+          "role": "kcbLikePointer",
+          "structure": "CM_KEY_CONTROL_BLOCK",
+          "target_kind": "local",
+          "target": "v7",
+          "rename_to": "kcb",
+          "confidence": 0.87,
+          "rename_confidence": 0.91,
+          "min_evidence": 3,
+          "evidence": [
+            {
+              "id": "key_body_kcb_field_load",
+              "pattern": "\\b{target}\\s*=\\s*\\*\\s*\\(\\s*_QWORD\\s*\\*\\s*\\)\\s*\\(\\s*v5\\s*\\+\\s*8\\s*\\)\\s*;",
+              "text": "loaded from key body offset +0x8"
+            },
+            {
+              "id": "kcb_stack_start",
+              "pattern": "\\bCmpStartKcbStackForTopLayerKcb\\s*\\([^;\\n]*\\b{target}\\b",
+              "text": "passed to CmpStartKcbStackForTopLayerKcb"
+            },
+            {
+              "id": "uow_enlisted_in_kcb",
+              "pattern": "\\bCmpTransEnlistUowInKcb\\s*\\([^;\\n]*\\b{target}\\b",
+              "text": "passed to CmpTransEnlistUowInKcb"
+            },
+            {
+              "id": "kcb_value_list_clone",
+              "pattern": "\\bCmpCloneKCBValueListForTrans\\s*\\(\\s*{target}\\b",
+              "text": "passed to CmpCloneKCBValueListForTrans"
+            },
+            {
+              "id": "kcb_lock_fields",
+              "pattern": "\\bCmpLockIXLock(?:Intent|Exclusive)\\s*\\(\\s*{target}\\s*\\+\\s*(?:248|264)\\b",
+              "text": "used with KCB transaction lock fields"
+            }
+          ],
+          "blockers": [
+            "KCB field names remain unresolved",
+            "mixed-width KCB offset evidence blocks canonical rewrite",
+            "base has multiple initializers before layout access"
+          ]
+        },
+        {
+          "role": "hiveCellLikePointer",
+          "structure": "HHIVE_OR_CELL_CONTEXT",
+          "target_kind": "expression",
+          "target": "v7",
+          "display": "{target}+0x20 hive/cell expression",
+          "confidence": 0.82,
+          "min_evidence": 3,
+          "evidence": [
+            {
+              "id": "hive_pointer_from_kcb",
+              "pattern": "\\*\\s*\\(\\s*_QWORD\\s*\\*\\s*\\)\\s*\\(\\s*{target}\\s*\\+\\s*32\\s*\\)",
+              "text": "hive pointer repeatedly reached through KCB offset +0x20"
+            },
+            {
+              "id": "hive_flusher_lock",
+              "pattern": "\\bHv(?:Lock|Unlock)HiveFlusherShared\\s*\\(\\s*\\*\\s*\\(\\s*_QWORD\\s*\\*\\s*\\)\\s*\\(\\s*{target}\\s*\\+\\s*32\\s*\\)",
+              "text": "used by hive flusher lock/unlock calls"
+            },
+            {
+              "id": "cell_accessors",
+              "pattern": "\\bHvp(?:Get|Release)Cell(?:Flat|Paged)\\s*\\(",
+              "text": "Hvp cell get/release helpers are present"
+            },
+            {
+              "id": "cell_free",
+              "pattern": "\\bHvFreeCell\\s*\\(\\s*\\*\\s*\\(\\s*_QWORD\\s*\\*\\s*\\)\\s*\\(\\s*{target}\\s*\\+\\s*32\\s*\\)",
+              "text": "cell free uses the same KCB-derived hive expression"
+            }
+          ],
+          "blockers": [
+            "hive/cell role is expression-level only",
+            "KCB +0x20 field identity is not validated",
+            "cell context locals remain unresolved"
+          ]
+        },
+        {
+          "role": "transactionUnitOfWork",
+          "structure": "CM_TRANS_UOW",
+          "target_kind": "local",
+          "target": "v6",
+          "rename_to": "transactionUow",
+          "aliases": [
+            "UnitOfWork",
+            "v75"
+          ],
+          "confidence": 0.88,
+          "rename_confidence": 0.92,
+          "min_evidence": 3,
+          "evidence": [
+            {
+              "id": "allocated_uow",
+              "pattern": "\\bUnitOfWork\\s*=\\s*\\(\\s*_QWORD\\s*\\*\\s*\\)\\s*CmpAllocateUnitOfWork\\s*\\(",
+              "text": "allocated by CmpAllocateUnitOfWork"
+            },
+            {
+              "id": "working_uow_alias",
+              "pattern": "\\b{target}\\s*=\\s*UnitOfWork\\s*;",
+              "text": "working local aliases allocated unit of work"
+            },
+            {
+              "id": "cmtrans_enlist",
+              "pattern": "\\bCmpTransEnlistUowInCmTrans\\s*\\(\\s*{target}\\b",
+              "text": "passed to CmpTransEnlistUowInCmTrans"
+            },
+            {
+              "id": "ix_lock_state",
+              "pattern": "\\bCmpLockIXLock(?:Intent|Exclusive)\\s*\\([^;\\n]*,\\s*{target}\\b",
+              "text": "used as transaction lock owner/state"
+            },
+            {
+              "id": "uow_rundown",
+              "pattern": "\\bCmpRundownUnitOfWork\\s*\\(\\s*\\(\\s*ULONG_PTR\\s*\\)\\s*{target}\\s*\\)",
+              "text": "rundown path treats it as unit of work"
+            },
+            {
+              "id": "uow_pool_tag",
+              "pattern": "\\bExFreePoolWithTag\\s*\\(\\s*{target}\\s*,\\s*POOL_TAG\\s*\\(\\s*'C'\\s*,\\s*'M'\\s*,\\s*'U'\\s*,\\s*'w'\\s*\\)\\s*\\)",
+              "text": "freed with CMUw unit-of-work pool tag"
+            }
+          ],
+          "blockers": [
+            "UoW structure fields are not recovered",
+            "pool free evidence is lifecycle evidence, not a generic pool-buffer role"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -97,6 +97,37 @@ __int64 __fastcall Quiet(__int64 status)
             payload = json.loads((out_dir / "replay-plan.json").read_text(encoding="utf-8"))
             self.assertIn(str(out_dir / "replay-eas.txt"), payload["recommended_commands"][0])
 
+    def test_replay_plan_exposes_registry_domain_profile_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_function(
+                root,
+                ea="0x1408704E8",
+                name="CmDeleteValueKey",
+                warnings=0,
+                rename_candidates=4,
+                renames=4,
+                cleaned_body="""
+/*
+    Kernel insights:
+      - registry_domain_role_evidence: Registry domain role for CmDeleteValueKey: status is statusCarrier/NTSTATUS, mode report-only. Evidence: assigned named NTSTATUS constants. Blockers: report-only registry-domain triage; no registry structure field rewrite is enabled by this profile. confidence=0.90
+      - registry_domain_role_evidence: Registry domain role for CmDeleteValueKey: transactionUow is transactionUnitOfWork/CM_TRANS_UOW, mode report-only. Evidence: allocated by CmpAllocateUnitOfWork. Blockers: report-only registry-domain triage; no registry structure field rewrite is enabled by this profile. confidence=0.88
+*/
+__int64 __fastcall CmDeleteValueKey(__int64 keyBody)
+{
+  return keyBody;
+}
+""",
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(2, item["metrics"]["registry_domain_profile_hits"])
+            self.assertIn("registry_domain_profile_hit", item["reasons"])
+            self.assertEqual(1, plan["reason_counts"]["registry_domain_profile_hit"])
+            self.assertIn("registry_domain_profile_hit", render_replay_plan_markdown(plan))
+
     def test_replay_plan_scores_only_review_only_partial_opportunities(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

@@ -526,6 +526,41 @@ void __fastcall ObjectPointerRenameSample(PVOID source)
 """
 
 
+REGISTRY_STARTED_STATUS_SAMPLE = r"""
+__int64 __fastcall CmDeleteValueKey(__int64 a1, unsigned __int16 *a2, __int64 a3, char a4)
+{
+  int started;
+  __int64 v5;
+  ULONG_PTR v7;
+
+  v5 = a1;
+  v7 = *(_QWORD *)(v5 + 8);
+  started = STATUS_ACCESS_DENIED;
+  started = CmpStartKcbStackForTopLayerKcb(&v81, v7);
+  if ( started < 0 )
+  {
+    return (unsigned int)started;
+  }
+  return (unsigned int)started;
+}
+"""
+
+
+REGISTRY_STARTED_BOOLEAN_SAMPLE = r"""
+__int64 __fastcall CmDeleteValueKey(__int64 a1, unsigned __int16 *a2, __int64 a3, char a4)
+{
+  int started;
+
+  started = 1;
+  if ( started )
+  {
+    return 1;
+  }
+  return 0;
+}
+"""
+
+
 class RenameHeuristicTests(unittest.TestCase):
     def test_identifier_renames_do_not_touch_struct_members(self) -> None:
         class FakeProvider:
@@ -1010,6 +1045,24 @@ __int64 __fastcall TextLvarMergeSample()
         self.assertIn("PVOID referencedObject;", rendered)
         self.assertIn("ObfDereferenceObject(referencedObject);", rendered)
         self.assertNotIn("status/object semantic conflict", "\n".join(plan.warnings))
+
+    def test_registry_started_status_role_beats_boolean_name(self) -> None:
+        capture = capture_from_pseudocode(REGISTRY_STARTED_STATUS_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual("status", rename_map["started"])
+        self.assertIn("status = STATUS_ACCESS_DENIED;", rendered)
+        self.assertIn("if ( status < 0 )", rendered)
+        self.assertNotIn("started = STATUS_ACCESS_DENIED;", rendered)
+
+    def test_registry_started_boolean_without_status_evidence_is_not_renamed(self) -> None:
+        capture = capture_from_pseudocode(REGISTRY_STARTED_BOOLEAN_SAMPLE)
+        plan = build_clean_plan(capture)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertNotIn("started", rename_map)
 
 
 if __name__ == "__main__":

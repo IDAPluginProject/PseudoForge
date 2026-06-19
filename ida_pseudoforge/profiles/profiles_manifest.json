@@ -103,6 +103,15 @@
         "profiles": 3
       }
     },
+    "registry_domain.json": {
+      "profile_kind": "registry_domain",
+      "source": "PseudoForge curated report-only registry domain triage profiles",
+      "schema": "registry_domain_profiles_v1",
+      "sha256": "38E59CCCDAAD10D48C2E566E5591FD801C57E6C53C881DD203C567A7976B09DD",
+      "counts": {
+        "profiles": 1
+      }
+    },
     "status_codes.json": {
       "profile_kind": "ntstatus",
       "source": "WDK ntstatus.h",

@@ -12,6 +12,7 @@ from ida_pseudoforge.core.normalize import (
 )
 
 from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.registry_domain import registry_domain_comments
 
 
 _LIST_HEAD_RE = re.compile(r"\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\([^)]*\*\)\((?P<head>[A-Za-z_][A-Za-z0-9_]*ListHead)\s*-\s*(?P<offset>\d+)")
@@ -344,6 +345,7 @@ def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> lis
             )
         )
 
+    comments.extend(registry_domain_comments(capture, rename_map))
     comments.extend(field_layout_comments(text))
 
     if "previousMode" in text and "STATUS_PRIVILEGE_NOT_HELD" in text:
