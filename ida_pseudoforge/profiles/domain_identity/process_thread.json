@@ -1,0 +1,1172 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "process-thread-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 process/thread lifecycle role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.process_thread.psp_create_process",
+      "source": "Reviewed PspCreateProcess corpus signature and handle/token/create-info flow; report-only because private EPROCESS offsets are not asserted.",
+      "function_names": [
+        "PspCreateProcess"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processHandleOutput",
+          "structure": "PROCESS_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PspCreateProcess output process handle parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "processCreateInfo",
+          "structure": "PS_CREATE_INFO",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PPS_CREATE_INFO",
+            "struct _PS_CREATE_INFO *",
+            "__int64"
+          ],
+          "source": "PspCreateProcess create-info-like parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "previousMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "KPROCESSOR_MODE",
+            "char",
+            "int"
+          ],
+          "source": "PspCreateProcess caller previous mode parameter"
+        },
+        {
+          "parameter_index": 5,
+          "role": "processCreateFlags",
+          "structure": "PROCESS_CREATE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int",
+            "__int64"
+          ],
+          "source": "PspCreateProcess process creation flags parameter"
+        },
+        {
+          "parameter_index": 6,
+          "role": "sectionHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "PspCreateProcess optional section handle-like parameter"
+        },
+        {
+          "parameter_index": 7,
+          "role": "tokenHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "PspCreateProcess token handle-like parameter"
+        },
+        {
+          "parameter_index": 8,
+          "role": "tokenObject",
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "PACCESS_TOKEN",
+            "__int64",
+            "void *"
+          ],
+          "source": "PspCreateProcess token object-like parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.nt_create_user_process",
+      "source": "Reviewed NtCreateUserProcess syscall wrapper roles before it builds process/thread creation context.",
+      "function_names": [
+        "NtCreateUserProcess"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processHandleOutput",
+          "structure": "PROCESS_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtCreateUserProcess process handle output"
+        },
+        {
+          "parameter_index": 1,
+          "role": "threadHandleOutput",
+          "structure": "THREAD_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "NtCreateUserProcess thread handle output"
+        },
+        {
+          "parameter_index": 2,
+          "role": "processDesiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateUserProcess process desired access parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "threadDesiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtCreateUserProcess thread desired access parameter"
+        },
+        {
+          "parameter_index": 8,
+          "role": "processParameters",
+          "structure": "RTL_USER_PROCESS_PARAMETERS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PRTL_USER_PROCESS_PARAMETERS",
+            "__int64",
+            "void *"
+          ],
+          "source": "NtCreateUserProcess process parameters pointer"
+        },
+        {
+          "parameter_index": 9,
+          "role": "createInfo",
+          "structure": "PS_CREATE_INFO",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PPS_CREATE_INFO",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "NtCreateUserProcess create information pointer"
+        },
+        {
+          "parameter_index": 10,
+          "role": "attributeList",
+          "structure": "PS_ATTRIBUTE_LIST",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "PPS_ATTRIBUTE_LIST",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "NtCreateUserProcess attribute list pointer"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_create_thread",
+      "source": "Reviewed PspCreateThread corpus roles for thread handle creation, target process selection, and referenced process local.",
+      "function_names": [
+        "PspCreateThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadHandleOutput",
+          "structure": "THREAD_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "__int64"
+          ],
+          "source": "PspCreateThread output thread handle parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "ULONG",
+            "int"
+          ],
+          "source": "PspCreateThread desired access parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "targetProcessHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspCreateThread optional target process handle"
+        },
+        {
+          "parameter_index": 4,
+          "role": "targetProcessObject",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "_KPROCESS *",
+            "struct _KPROCESS *",
+            "__int64"
+          ],
+          "source": "PspCreateThread direct target process object parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject",
+            "pProcessObject",
+            "pTargetEprocess"
+          ],
+          "role": "referencedProcessObject",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "PspCreateThread local process object referenced from handle"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspCreateThread current thread local from KeGetCurrentThread"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspCreateThread current process local from current thread ApcState"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.nt_create_thread_ex",
+      "source": "Reviewed NtCreateThreadEx syscall wrapper roles and referenced target process local.",
+      "function_names": [
+        "NtCreateThreadEx"
+      ],
+      "required_calls": [
+        "PspCreateThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadHandleOutput",
+          "structure": "THREAD_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "unsigned __int64",
+            "__int64"
+          ],
+          "source": "NtCreateThreadEx thread handle output parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "targetProcessHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "NtCreateThreadEx process handle parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "startRoutine",
+          "structure": "USER_THREAD_START_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "NtCreateThreadEx user start routine parameter"
+        },
+        {
+          "parameter_index": 6,
+          "role": "threadCreateFlags",
+          "structure": "THREAD_CREATE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "ULONG",
+            "int",
+            "__int64"
+          ],
+          "source": "NtCreateThreadEx creation flags parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedProcessObject",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "NtCreateThreadEx local process object referenced by handle"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.ps_create_system_thread",
+      "source": "Public PsCreateSystemThread wrapper roles from WDK-compatible signature.",
+      "function_names": [
+        "PsCreateSystemThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadHandleOutput",
+          "structure": "THREAD_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *"
+          ],
+          "source": "PsCreateSystemThread output thread handle"
+        },
+        {
+          "parameter_index": 3,
+          "role": "targetProcessHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "PsCreateSystemThread optional process handle"
+        },
+        {
+          "parameter_index": 4,
+          "role": "clientIdOutput",
+          "structure": "CLIENT_ID_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PCLIENT_ID",
+            "CLIENT_ID *",
+            "__int64"
+          ],
+          "source": "PsCreateSystemThread client id output parameter"
+        },
+        {
+          "parameter_index": 5,
+          "role": "startRoutine",
+          "structure": "KSTART_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PKSTART_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsCreateSystemThread kernel start routine"
+        },
+        {
+          "parameter_index": 6,
+          "role": "startContext",
+          "structure": "START_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "PsCreateSystemThread start context parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_insert_process",
+      "source": "Reviewed PspInsertProcess active process insertion and handle creation roles.",
+      "function_names": [
+        "PspInsertProcess"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "insertedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "char *",
+            "__int64"
+          ],
+          "source": "PspInsertProcess inserted process object parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "parentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64",
+            "void *"
+          ],
+          "source": "PspInsertProcess parent process-like parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "parentProcessHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "HANDLE",
+            "void *",
+            "__int64"
+          ],
+          "source": "PspInsertProcess parent process handle-like parameter"
+        },
+        {
+          "parameter_index": 7,
+          "role": "accessState",
+          "structure": "ACCESS_STATE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PACCESS_STATE",
+            "struct _ACCESS_STATE *",
+            "__int64"
+          ],
+          "source": "PspInsertProcess access state parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspInsertProcess current thread local"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspInsertProcess current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_insert_thread",
+      "source": "Reviewed PspInsertThread thread insertion, target process, output handle, and client-id roles.",
+      "function_names": [
+        "PspInsertThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "insertedThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "char *",
+            "__int64"
+          ],
+          "source": "PspInsertThread inserted thread object parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "targetProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspInsertThread target process object parameter"
+        },
+        {
+          "parameter_index": 4,
+          "role": "desiredAccess",
+          "structure": "ACCESS_MASK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ACCESS_MASK",
+            "ULONG",
+            "int"
+          ],
+          "source": "PspInsertThread desired access parameter"
+        },
+        {
+          "parameter_index": 9,
+          "role": "threadHandleOutput",
+          "structure": "THREAD_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PHANDLE",
+            "HANDLE *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PspInsertThread output handle-like parameter"
+        },
+        {
+          "parameter_index": 10,
+          "role": "clientIdOutput",
+          "structure": "CLIENT_ID_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PCLIENT_ID",
+            "_OWORD *",
+            "__int64"
+          ],
+          "source": "PspInsertThread client id output-like parameter"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspInsertThread current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_exit_process",
+      "source": "Reviewed PspExitProcess teardown sequence, notification, image section dereference, and process exit cleanup roles.",
+      "function_names": [
+        "PspExitProcess"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "fullCleanupFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "BOOLEAN",
+            "char",
+            "int"
+          ],
+          "source": "PspExitProcess full cleanup flag"
+        },
+        {
+          "parameter_index": 1,
+          "role": "exitingProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64",
+            "ULONG_PTR",
+            "void *"
+          ],
+          "source": "PspExitProcess exiting process object parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspExitProcess current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_process_delete",
+      "source": "Reviewed PspProcessDelete final process object teardown role.",
+      "function_names": [
+        "PspProcessDelete"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deletedProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspProcessDelete process object parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PspProcessDelete current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_terminate_process",
+      "source": "Reviewed PspTerminateProcess target process, exit status, and terminate-all-threads transition.",
+      "function_names": [
+        "PspTerminateProcess"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "terminatingProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "volatile signed __int32 *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PspTerminateProcess target process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "terminatingThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspTerminateProcess initiating thread-like parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "NTSTATUS",
+            "unsigned int",
+            "int",
+            "__int64"
+          ],
+          "source": "PspTerminateProcess exit status parameter"
+        },
+        {
+          "parameter_index": 3,
+          "role": "terminationFlags",
+          "structure": "PROCESS_TERMINATION_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int",
+            "__int64"
+          ],
+          "source": "PspTerminateProcess termination flags parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.nt_terminate_process",
+      "source": "Reviewed NtTerminateProcess handle-reference path and local referenced process object.",
+      "function_names": [
+        "NtTerminateProcess"
+      ],
+      "required_calls": [
+        "ObpReferenceObjectByHandleWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "NtTerminateProcess process handle parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "NTSTATUS",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtTerminateProcess exit status parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedProcessObject",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "NtTerminateProcess local process object referenced from handle"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtTerminateProcess current thread local"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "NtTerminateProcess current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_terminate_all_threads",
+      "source": "Reviewed PspTerminateAllThreads process-wide thread termination loop.",
+      "function_names": [
+        "PspTerminateAllThreads"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "terminatingProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PEPROCESS",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PspTerminateAllThreads target process parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "initiatingThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspTerminateAllThreads initiating thread parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "NTSTATUS",
+            "unsigned int",
+            "int"
+          ],
+          "source": "PspTerminateAllThreads exit status parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedThreadObject",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspTerminateAllThreads thread object referenced during iteration"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_exit_thread",
+      "source": "Reviewed PspExitThread current-thread exit path, current process validation, and teardown flow.",
+      "function_names": [
+        "PspExitThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "NTSTATUS",
+            "int",
+            "unsigned int"
+          ],
+          "source": "PspExitThread exit status parameter"
+        },
+        {
+          "local_names": [
+            "currentThread",
+            "BugCheckParameter4"
+          ],
+          "role": "exitingThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "PspExitThread current/exiting thread local"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "PspExitThread current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_thread_delete",
+      "source": "Reviewed PspThreadDelete final ETHREAD teardown and CID cleanup role.",
+      "function_names": [
+        "PspThreadDelete"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "deletedThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspThreadDelete target thread parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PspThreadDelete current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_terminate_thread_by_pointer",
+      "source": "Reviewed PspTerminateThreadByPointer target ETHREAD and parent process usage.",
+      "function_names": [
+        "PspTerminateThreadByPointer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "terminatingThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "PspTerminateThreadByPointer target thread parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "NTSTATUS",
+            "__int64",
+            "unsigned int",
+            "int"
+          ],
+          "source": "PspTerminateThreadByPointer exit status parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "selfExitWaitFlag",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "BOOLEAN",
+            "__int64",
+            "char",
+            "int"
+          ],
+          "source": "PspTerminateThreadByPointer self-exit wait flag"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.nt_terminate_thread",
+      "source": "Reviewed NtTerminateThread handle-reference path and target ETHREAD local.",
+      "function_names": [
+        "NtTerminateThread"
+      ],
+      "required_calls": [
+        "ObpReferenceObjectByHandleWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "HANDLE",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "NtTerminateThread thread handle parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "exitStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "NTSTATUS",
+            "unsigned int",
+            "int"
+          ],
+          "source": "NtTerminateThread exit status parameter"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedThreadObject",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "NtTerminateThread local thread object referenced from handle"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "NtTerminateThread current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_call_process_notify_routines",
+      "source": "Reviewed PspCallProcessNotifyRoutines callback dispatch role; report-only callback path evidence.",
+      "function_names": [
+        "PspCallProcessNotifyRoutines"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processNotifyHost",
+          "structure": "PROCESS_NOTIFY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "struct _EX_RUNDOWN_REF *",
+            "PEX_RUNDOWN_REF",
+            "__int64"
+          ],
+          "source": "PspCallProcessNotifyRoutines callback context host"
+        },
+        {
+          "parameter_index": 1,
+          "role": "processObject",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PEPROCESS",
+            "PRKPROCESS",
+            "__int64"
+          ],
+          "source": "PspCallProcessNotifyRoutines process object parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "isCreateEvent",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "BOOLEAN",
+            "char",
+            "int"
+          ],
+          "source": "PspCallProcessNotifyRoutines create-vs-exit event selector"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread.psp_call_thread_notify_routines",
+      "source": "Reviewed PspCallThreadNotifyRoutines callback dispatch role; report-only callback path evidence.",
+      "function_names": [
+        "PspCallThreadNotifyRoutines"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadObject",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "PspCallThreadNotifyRoutines thread object parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "isCreateEvent",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "BOOLEAN",
+            "__int64",
+            "char",
+            "int"
+          ],
+          "source": "PspCallThreadNotifyRoutines create-vs-exit selector"
+        }
+      ]
+    }
+  ]
+}

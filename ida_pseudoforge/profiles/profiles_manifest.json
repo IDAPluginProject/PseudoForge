@@ -113,6 +113,16 @@
         "profiles": 10
       }
     },
+    "domain_identity/process_thread.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl process/thread lifecycle role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "2354BA7F8D78FE0820F41B953916EF6184F969F9C7A5745F5796ACC223BB778D",
+      "counts": {
+        "profiles": 18
+      }
+    },
     "registry_domain.json": {
       "profile_kind": "registry_domain",
       "source": "PseudoForge curated report-only registry domain triage profiles",
