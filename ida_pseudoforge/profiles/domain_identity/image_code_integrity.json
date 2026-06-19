@@ -1,0 +1,1375 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "image-code-integrity-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 image load, loaded module, image notification, code integrity, and driver block role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.image_code_integrity.mm_load_system_image",
+      "source": "Reviewed MmLoadSystemImage wrapper into MmLoadSystemImageEx.",
+      "function_names": [
+        "MmLoadSystemImage"
+      ],
+      "required_calls": [
+        "MmLoadSystemImageEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "imageFileName",
+          "role": "imageFileName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "__int64",
+            "int"
+          ],
+          "source": "MmLoadSystemImage image file name argument forwarded to MmLoadSystemImageEx"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "loadFlags",
+          "role": "loadFlags",
+          "structure": "SYSTEM_IMAGE_LOAD_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "MmLoadSystemImage flags argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "sectionPointer",
+          "role": "sectionPointer",
+          "structure": "SECTION_OBJECT_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "__int64",
+            "PVOID *",
+            "void **"
+          ],
+          "source": "MmLoadSystemImage output-like fifth argument forwarded to MmLoadSystemImageEx"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "imageBaseAddress",
+          "role": "imageBaseAddress",
+          "structure": "IMAGE_BASE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PVOID *",
+            "void **"
+          ],
+          "source": "MmLoadSystemImage output-like image base argument forwarded to MmLoadSystemImageEx"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_load_system_image_ex",
+      "source": "Reviewed MmLoadSystemImageEx driver section acquisition, system image mapping, PE header parse, and strong-code validation path.",
+      "function_names": [
+        "MmLoadSystemImageEx"
+      ],
+      "required_calls": [
+        "MiObtainSectionForDriver",
+        "MiMapSystemImage",
+        "MiValidateStrongCodeDriverImage"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "imageFileName",
+          "role": "imageFileName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PUNICODE_STRING",
+            "UNICODE_STRING *"
+          ],
+          "source": "MmLoadSystemImageEx image file name or path argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "loadFlags",
+          "role": "loadFlags",
+          "structure": "SYSTEM_IMAGE_LOAD_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "MmLoadSystemImageEx unsigned load flags argument"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "imageBaseAddress",
+          "role": "imageBaseAddress",
+          "structure": "IMAGE_BASE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64 *",
+            "PVOID *",
+            "_QWORD *"
+          ],
+          "source": "MmLoadSystemImageEx image base output argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "loaderEntry",
+          "role": "loaderEntry",
+          "structure": "LDR_DATA_TABLE_ENTRY_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_QWORD *",
+            "__int64 *",
+            "PLDR_DATA_TABLE_ENTRY *"
+          ],
+          "source": "MmLoadSystemImageEx loaded module entry output argument"
+        },
+        {
+          "local_names": [
+            "BaseLoaderPortion"
+          ],
+          "role": "baseLoaderPortion",
+          "structure": "LDR_DATA_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "MmLoadSystemImageEx base loader portion local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_unload_system_image",
+      "source": "Reviewed MmUnloadSystemImage wrapper that attaches to the silo and dispatches to MiUnloadSystemImage.",
+      "function_names": [
+        "MmUnloadSystemImage"
+      ],
+      "required_calls": [
+        "MiUnloadSystemImage"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "imageBaseAddress",
+          "role": "imageBaseAddress",
+          "structure": "IMAGE_BASE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MmUnloadSystemImage image base argument forwarded to MiUnloadSystemImage"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mi_unload_system_image",
+      "source": "Reviewed MiUnloadSystemImage loader entry lookup, image CFG/retpoline bit cleanup, driver table clear, and image unmap path.",
+      "function_names": [
+        "MiUnloadSystemImage"
+      ],
+      "required_calls": [
+        "MiGetBaseLoaderPortion",
+        "MiClearDriverTablePtes"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "imageBaseAddress",
+          "role": "imageBaseAddress",
+          "structure": "IMAGE_BASE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MiUnloadSystemImage image base argument"
+        },
+        {
+          "local_names": [
+            "BaseLoaderPortion"
+          ],
+          "role": "baseLoaderPortion",
+          "structure": "LDR_DATA_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "MiUnloadSystemImage loader entry local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_find_data_table_entry_by_address",
+      "source": "Reviewed MmFindDataTableEntryByAddress loaded module list walk and image containment test.",
+      "function_names": [
+        "MmFindDataTableEntryByAddress"
+      ],
+      "required_calls": [
+        "MiImageContainsVa"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "targetVa",
+          "role": "targetVa",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MmFindDataTableEntryByAddress target virtual address argument"
+        },
+        {
+          "local_names": [
+            "moduleEntry",
+            "loaderModuleEntry",
+            "nextEntryPtr"
+          ],
+          "role": "loaderEntry",
+          "structure": "LDR_DATA_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MmFindDataTableEntryByAddress loader module entry locals"
+        },
+        {
+          "local_names": [
+            "imageBase"
+          ],
+          "role": "imageBase",
+          "structure": "IMAGE_BASE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "MmFindDataTableEntryByAddress image base local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_get_image_information",
+      "source": "Reviewed MmGetImageInformation VAD reference and image information output path.",
+      "function_names": [
+        "MmGetImageInformation"
+      ],
+      "required_calls": [
+        "MiObtainReferencedVadEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "imageBaseAddress",
+          "role": "imageBaseAddress",
+          "structure": "IMAGE_BASE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MmGetImageInformation image base address argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "imageInformation",
+          "role": "imageInformation",
+          "structure": "SECTION_IMAGE_INFORMATION_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_QWORD *",
+            "PSECTION_IMAGE_INFORMATION",
+            "__int64"
+          ],
+          "source": "MmGetImageInformation image information output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_get_image_file_signature_information",
+      "source": "Reviewed MmGetImageFileSignatureInformation section control area lock and signature state query path.",
+      "function_names": [
+        "MmGetImageFileSignatureInformation"
+      ],
+      "required_calls": [
+        "MiLockSectionControlArea"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sectionObject",
+          "role": "sectionObject",
+          "structure": "SECTION_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "MmGetImageFileSignatureInformation section object or control area context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_lock_loaded_data_table_entry",
+      "source": "Reviewed MmLockLoadedDataTableEntry wrapper into MiLockLoadedDataTableEntry.",
+      "function_names": [
+        "MmLockLoadedDataTableEntry"
+      ],
+      "required_calls": [
+        "MiLockLoadedDataTableEntry"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "loaderEntry",
+          "role": "loaderEntry",
+          "structure": "LDR_DATA_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PLDR_DATA_TABLE_ENTRY",
+            "LDR_DATA_TABLE_ENTRY *"
+          ],
+          "source": "MmLockLoadedDataTableEntry loader entry argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_unlock_loaded_data_table_entry",
+      "source": "Reviewed MmUnlockLoadedDataTableEntry loader entry unlock and load lock release path.",
+      "function_names": [
+        "MmUnlockLoadedDataTableEntry"
+      ],
+      "required_calls": [
+        "MiUnlockLoaderEntry",
+        "MiReleaseLoadLock"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "loaderEntry",
+          "role": "loaderEntry",
+          "structure": "LDR_DATA_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PLDR_DATA_TABLE_ENTRY",
+            "LDR_DATA_TABLE_ENTRY *"
+          ],
+          "source": "MmUnlockLoadedDataTableEntry loader entry argument"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "MmUnlockLoadedDataTableEntry current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.mm_enumerate_system_images",
+      "source": "Reviewed MmEnumerateSystemImages wrapper into MiEnumerateSystemImages.",
+      "function_names": [
+        "MmEnumerateSystemImages"
+      ],
+      "required_calls": [
+        "MiEnumerateSystemImages"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "informationClass",
+          "role": "informationClass",
+          "structure": "SYSTEM_MODULE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "int",
+            "ULONG"
+          ],
+          "source": "MmEnumerateSystemImages information class argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "buffer",
+          "role": "buffer",
+          "structure": "SYSTEM_MODULE_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "MmEnumerateSystemImages output buffer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.exp_query_module_information",
+      "source": "Reviewed ExpQueryModuleInformation system module information query and MmEnumerateSystemImagesShared callback context path.",
+      "function_names": [
+        "ExpQueryModuleInformation"
+      ],
+      "required_calls": [
+        "MmEnumerateSystemImagesShared"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "informationClass",
+          "role": "informationClass",
+          "structure": "SYSTEM_MODULE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "ULONG"
+          ],
+          "source": "ExpQueryModuleInformation information class argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "moduleInformation",
+          "role": "moduleInformation",
+          "structure": "SYSTEM_MODULE_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_DWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "ExpQueryModuleInformation module information output buffer"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "bufferLength",
+          "role": "bufferLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "ExpQueryModuleInformation buffer length argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "returnLength",
+          "role": "returnLength",
+          "structure": "BUFFER_LENGTH_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int *",
+            "ULONG *",
+            "_DWORD *"
+          ],
+          "source": "ExpQueryModuleInformation return length output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.exp_convert_ldr_entry_to_module_info",
+      "source": "Reviewed ExpConvertLdrEntryToModuleInfo conversion from LDR_DATA_TABLE_ENTRY to system module information output.",
+      "function_names": [
+        "ExpConvertLdrEntryToModuleInfo"
+      ],
+      "required_calls": [
+        "RtlUnicodeStringToAnsiString"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "informationClass",
+          "role": "informationClass",
+          "structure": "SYSTEM_MODULE_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "ULONG"
+          ],
+          "source": "ExpConvertLdrEntryToModuleInfo information class argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "loaderEntry",
+          "role": "loaderEntry",
+          "structure": "LDR_DATA_TABLE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PLDR_DATA_TABLE_ENTRY",
+            "LDR_DATA_TABLE_ENTRY *"
+          ],
+          "source": "ExpConvertLdrEntryToModuleInfo loader entry argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "moduleInformation",
+          "role": "moduleInformation",
+          "structure": "SYSTEM_MODULE_INFORMATION_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "ExpConvertLdrEntryToModuleInfo module information output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.ps_set_load_image_notify_routine",
+      "source": "Reviewed PsSetLoadImageNotifyRoutine wrapper into PsSetLoadImageNotifyRoutineEx.",
+      "function_names": [
+        "PsSetLoadImageNotifyRoutine"
+      ],
+      "required_calls": [
+        "PsSetLoadImageNotifyRoutineEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "notifyRoutine",
+          "role": "notifyRoutine",
+          "structure": "PLOAD_IMAGE_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PLOAD_IMAGE_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsSetLoadImageNotifyRoutine callback routine argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.ps_set_load_image_notify_routine_ex",
+      "source": "Reviewed PsSetLoadImageNotifyRoutineEx callback allocation, registration slot, flags, and audit log path.",
+      "function_names": [
+        "PsSetLoadImageNotifyRoutineEx"
+      ],
+      "required_calls": [
+        "ExAllocateCallBack",
+        "PspLogAuditSetLoadImageNotifyRoutineEvent"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "notifyRoutine",
+          "role": "notifyRoutine",
+          "structure": "PLOAD_IMAGE_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "__int64",
+            "PLOAD_IMAGE_NOTIFY_ROUTINE",
+            "void *"
+          ],
+          "source": "PsSetLoadImageNotifyRoutineEx callback routine argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "flags",
+          "role": "flags",
+          "structure": "IMAGE_NOTIFY_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "PsSetLoadImageNotifyRoutineEx flags argument"
+        },
+        {
+          "local_names": [
+            "routineIndex"
+          ],
+          "role": "routineIndex",
+          "structure": "IMAGE_NOTIFY_ROUTINE_INDEX",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "PsSetLoadImageNotifyRoutineEx callback slot index local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.ps_remove_load_image_notify_routine",
+      "source": "Reviewed PsRemoveLoadImageNotifyRoutine callback table search, rundown wait, and callback block free path.",
+      "function_names": [
+        "PsRemoveLoadImageNotifyRoutine"
+      ],
+      "required_calls": [
+        "ExWaitForRundownProtectionRelease",
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "notifyRoutine",
+          "role": "notifyRoutine",
+          "structure": "PLOAD_IMAGE_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PLOAD_IMAGE_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsRemoveLoadImageNotifyRoutine callback routine argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.ps_call_image_notify_routines",
+      "source": "Reviewed PsCallImageNotifyRoutines load image callback dispatch, ETW/perf logging, and callback block reference path.",
+      "function_names": [
+        "PsCallImageNotifyRoutines"
+      ],
+      "required_calls": [
+        "guard_dispatch_icall_no_overrides",
+        "PerfLogImageLoad"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "fullImageName",
+          "role": "fullImageName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "__int64"
+          ],
+          "source": "PsCallImageNotifyRoutines full image name argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "processId",
+          "role": "processId",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "HANDLE",
+            "PVOID"
+          ],
+          "source": "PsCallImageNotifyRoutines process ID argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "imageInfo",
+          "role": "imageInfo",
+          "structure": "IMAGE_INFO",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "_QWORD *",
+            "PIMAGE_INFO",
+            "__int64"
+          ],
+          "source": "PsCallImageNotifyRoutines image information argument"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "PsCallImageNotifyRoutines current thread local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.se_validate_image_data",
+      "source": "Reviewed SeValidateImageData dispatch through registered code integrity validation provider.",
+      "function_names": [
+        "SeValidateImageData"
+      ],
+      "required_calls": [
+        "guard_dispatch_icall_no_overrides"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "informationClass",
+          "role": "informationClass",
+          "structure": "IMAGE_VALIDATION_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "int",
+            "ULONG"
+          ],
+          "source": "SeValidateImageData information class argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "objectInformation",
+          "role": "objectInformation",
+          "structure": "IMAGE_VALIDATION_DATA",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "SeValidateImageData validation data argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.se_validate_file_as_image_type",
+      "source": "Reviewed SeValidateFileAsImageType file object validation dispatch through code integrity provider.",
+      "function_names": [
+        "SeValidateFileAsImageType"
+      ],
+      "required_calls": [
+        "guard_dispatch_icall_no_overrides"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "fileObject",
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PFILE_OBJECT",
+            "void *"
+          ],
+          "source": "SeValidateFileAsImageType file object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "imageType",
+          "role": "imageType",
+          "structure": "IMAGE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "int",
+            "ULONG"
+          ],
+          "source": "SeValidateFileAsImageType image type or information class argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.se_get_image_required_signing_level",
+      "source": "Reviewed SeGetImageRequiredSigningLevel signing level provider dispatch, current process context, and trust comparison path.",
+      "function_names": [
+        "SeGetImageRequiredSigningLevel"
+      ],
+      "required_calls": [
+        "guard_dispatch_icall_no_overrides",
+        "SeCompareSigningLevels"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "fileObject",
+          "role": "fileObject",
+          "structure": "FILE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PFILE_OBJECT",
+            "void *"
+          ],
+          "source": "SeGetImageRequiredSigningLevel first image/file context argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "signingLevel",
+          "role": "signingLevel",
+          "structure": "SIGNING_LEVEL_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "char *",
+            "unsigned __int8 *",
+            "__int64"
+          ],
+          "source": "SeGetImageRequiredSigningLevel output signing level byte argument"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "SeGetImageRequiredSigningLevel current process local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.se_release_image_validation_context",
+      "source": "Reviewed SeReleaseImageValidationContext provider release callback and context pool free path.",
+      "function_names": [
+        "SeReleaseImageValidationContext"
+      ],
+      "required_calls": [
+        "guard_dispatch_icall_no_overrides",
+        "ExFreePoolWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "validationContext",
+          "role": "validationContext",
+          "structure": "IMAGE_VALIDATION_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "void *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "SeReleaseImageValidationContext context pointer argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.se_register_image_verification_callback",
+      "source": "Reviewed SeRegisterImageVerificationCallback callback object registration for image verification notifications.",
+      "function_names": [
+        "SeRegisterImageVerificationCallback"
+      ],
+      "required_calls": [
+        "ExRegisterCallback"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "informationClass",
+          "role": "informationClass",
+          "structure": "IMAGE_VERIFICATION_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "SeRegisterImageVerificationCallback information class argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "callbackRoutine",
+          "role": "callbackRoutine",
+          "structure": "IMAGE_VERIFICATION_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "CALLBACK_FUNCTION *",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeRegisterImageVerificationCallback callback routine argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "callbackContext",
+          "role": "callbackContext",
+          "structure": "CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "void *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "SeRegisterImageVerificationCallback callback context argument"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "callbackHandle",
+          "role": "callbackHandle",
+          "structure": "CALLBACK_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_QWORD *",
+            "PVOID *",
+            "__int64"
+          ],
+          "source": "SeRegisterImageVerificationCallback callback handle output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.se_unregister_image_verification_callback",
+      "source": "Reviewed SeUnregisterImageVerificationCallback callback object unregister path.",
+      "function_names": [
+        "SeUnregisterImageVerificationCallback"
+      ],
+      "required_calls": [
+        "ExUnregisterCallback"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "callbackHandle",
+          "role": "callbackHandle",
+          "structure": "CALLBACK_HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "void *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "SeUnregisterImageVerificationCallback callback handle argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.sep_initialize_code_integrity",
+      "source": "Reviewed SepInitializeCodeIntegrity boot options, CI context, and CiInitialize dispatch path.",
+      "function_names": [
+        "SepInitializeCodeIntegrity"
+      ],
+      "required_calls": [
+        "CiInitialize"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "ciInfoClass"
+          ],
+          "role": "ciInfoClass",
+          "structure": "CI_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "SepInitializeCodeIntegrity CI information class local"
+        },
+        {
+          "local_names": [
+            "ciContextPtr"
+          ],
+          "role": "ciContext",
+          "structure": "CI_INITIALIZATION_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SepInitializeCodeIntegrity CI initialization context local"
+        },
+        {
+          "local_names": [
+            "bootOptionsPtr",
+            "bootCommandLine"
+          ],
+          "role": "bootOptions",
+          "structure": "LOADER_PARAMETER_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "SepInitializeCodeIntegrity boot options and command line locals"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.sep_image_verification_callback_worker",
+      "source": "Reviewed SepImageVerificationCallbackWorker callback notification block processing and ExNotifyWithProcessing dispatch.",
+      "function_names": [
+        "SepImageVerificationCallbackWorker"
+      ],
+      "required_calls": [
+        "ExNotifyWithProcessing"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "parameterBlock",
+          "role": "parameterBlock",
+          "structure": "IMAGE_VERIFICATION_CALLBACK_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int *",
+            "_DWORD *",
+            "__int64"
+          ],
+          "source": "SepImageVerificationCallbackWorker parameter block argument"
+        },
+        {
+          "local_names": [
+            "callbackObj"
+          ],
+          "role": "callbackObject",
+          "structure": "CALLBACK_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "SepImageVerificationCallbackWorker callback object local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.sep_schedule_image_verification_callbacks",
+      "source": "Reviewed SepScheduleImageVerificationCallbacks work item allocation and queueing for image verification callbacks.",
+      "function_names": [
+        "SepScheduleImageVerificationCallbacks"
+      ],
+      "required_calls": [
+        "ExAllocatePool2",
+        "ExQueueWorkItem"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "callbackData",
+          "role": "callbackData",
+          "structure": "IMAGE_VERIFICATION_CALLBACK_DATA",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "SepScheduleImageVerificationCallbacks callback data argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "informationClass",
+          "role": "informationClass",
+          "structure": "IMAGE_VERIFICATION_INFORMATION_CLASS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "SepScheduleImageVerificationCallbacks information class argument"
+        },
+        {
+          "local_names": [
+            "newProviderRecord"
+          ],
+          "role": "workItem",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "SepScheduleImageVerificationCallbacks allocated work item local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.sep_is_image_in_min_tcb_list",
+      "source": "Reviewed SepIsImageInMinTcbList protected image list scan, signing level, and output flag update path.",
+      "function_names": [
+        "SepIsImageInMinTcbList"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "minTcbList",
+          "role": "minTcbList",
+          "structure": "MIN_TCB_IMAGE_LIST",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "SepIsImageInMinTcbList list base argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "entryCount",
+          "role": "entryCount",
+          "structure": "IMAGE_LIST_ENTRY_COUNT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "SepIsImageInMinTcbList entry count argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "targetImagePath",
+          "role": "targetImagePath",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "const UNICODE_STRING *",
+            "PUNICODE_STRING",
+            "__int64"
+          ],
+          "source": "SepIsImageInMinTcbList target image path argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "signingLevel",
+          "role": "signingLevel",
+          "structure": "SIGNING_LEVEL_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "char *",
+            "unsigned __int8 *",
+            "__int64"
+          ],
+          "source": "SepIsImageInMinTcbList first output byte argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.psp_get_process_protection_requirements_from_image",
+      "source": "Reviewed PspGetProcessProtectionRequirementsFromImage section control area lookup and protected access test.",
+      "function_names": [
+        "PspGetProcessProtectionRequirementsFromImage"
+      ],
+      "required_calls": [
+        "MiSectionControlArea",
+        "RtlTestProtectedAccess"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "sectionObject",
+          "role": "sectionObject",
+          "structure": "SECTION_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "PspGetProcessProtectionRequirementsFromImage section object argument"
+        },
+        {
+          "local_names": [
+            "protectionFlag"
+          ],
+          "role": "protectionFlag",
+          "structure": "PS_PROTECTION",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "PspGetProcessProtectionRequirementsFromImage protection flag local"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.ps_query_section_signature_information",
+      "source": "Reviewed PsQuerySectionSignatureInformation section/control area signature query under process rundown protection.",
+      "function_names": [
+        "PsQuerySectionSignatureInformation"
+      ],
+      "required_calls": [
+        "MiSectionControlArea",
+        "ExAcquireRundownProtection_0"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "process",
+          "role": "process",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_KPROCESS *",
+            "PEPROCESS",
+            "__int64"
+          ],
+          "source": "PsQuerySectionSignatureInformation process argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "signatureInformation",
+          "role": "signatureInformation",
+          "structure": "SECTION_SIGNATURE_INFORMATION_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_BYTE *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PsQuerySectionSignatureInformation signature information output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.pi_is_driver_blocked",
+      "source": "Reviewed PiIsDriverBlocked driver database, HVCI, CET, block policy, and CI notification path.",
+      "function_names": [
+        "PiIsDriverBlocked"
+      ],
+      "required_calls": [
+        "PiNotifyCiDriverBlocked",
+        "PiIsHVCIEnabled"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "driverName",
+          "role": "driverName",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PUNICODE_STRING",
+            "void *"
+          ],
+          "source": "PiIsDriverBlocked driver identity/path argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "driverFlags",
+          "role": "driverFlags",
+          "structure": "DRIVER_BLOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "PiIsDriverBlocked driver policy flags argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "driverBlockInfo",
+          "role": "driverBlockInfo",
+          "structure": "CI_BLOCKED_DRIVER_INFO",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int128 *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PiIsDriverBlocked CI driver block information output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.image_code_integrity.pi_notify_ci_driver_blocked",
+      "source": "Reviewed PiNotifyCiDriverBlocked WNF notification payload allocation and blocked-driver data copy path.",
+      "function_names": [
+        "PiNotifyCiDriverBlocked"
+      ],
+      "required_calls": [
+        "ZwUpdateWnfStateData"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "driverInfo",
+          "role": "driverInfo",
+          "structure": "CI_BLOCKED_DRIVER_INFO",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int128 *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "PiNotifyCiDriverBlocked CI blocked driver info argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "driverStatus",
+          "role": "driverStatus",
+          "structure": "NTSTATUS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "NTSTATUS",
+            "unsigned int"
+          ],
+          "source": "PiNotifyCiDriverBlocked driver status argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "payloadPointers",
+          "role": "payloadPointers",
+          "structure": "WNF_PAYLOAD_POINTER_ARRAY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "const void **",
+            "PVOID *",
+            "__int64"
+          ],
+          "source": "PiNotifyCiDriverBlocked WNF payload pointer array argument"
+        },
+        {
+          "local_names": [
+            "ciDataBlock"
+          ],
+          "role": "ciDataBlock",
+          "structure": "CI_BLOCKED_DRIVER_INFO",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "PiNotifyCiDriverBlocked CI data block local"
+        }
+      ]
+    }
+  ]
+}

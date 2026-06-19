@@ -163,6 +163,16 @@
         "profiles": 24
       }
     },
+    "domain_identity/image_code_integrity.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl image load, loaded module, image notification, code integrity, and driver block role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "CB54DFC8F8E2FCF90DA67CED8CB24CA0CA0CE40F1B8CAFC94A63E66436663DAE",
+      "counts": {
+        "profiles": 30
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",
