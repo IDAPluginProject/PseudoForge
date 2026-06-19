@@ -1,0 +1,440 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "process-thread-notify-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 process/thread notify callback role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.process_thread_notify.ps_set_create_process_notify",
+      "source": "Reviewed PsSetCreateProcessNotifyRoutine public wrapper role and remove flag forwarding.",
+      "function_names": [
+        "PsSetCreateProcessNotifyRoutine"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processNotifyCallback",
+          "structure": "PCREATE_PROCESS_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PCREATE_PROCESS_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutine callback parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "removeRegistration",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "BOOLEAN",
+            "char",
+            "int"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutine remove flag"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.ps_set_create_process_notify_ex",
+      "source": "Reviewed PsSetCreateProcessNotifyRoutineEx public wrapper role and extended callback forwarding.",
+      "function_names": [
+        "PsSetCreateProcessNotifyRoutineEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processNotifyCallbackEx",
+          "structure": "PCREATE_PROCESS_NOTIFY_ROUTINE_EX",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PCREATE_PROCESS_NOTIFY_ROUTINE_EX",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutineEx extended callback parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "removeRegistration",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "BOOLEAN",
+            "char",
+            "int"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutineEx remove flag"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.ps_set_create_process_notify_ex2",
+      "source": "Reviewed PsSetCreateProcessNotifyRoutineEx2 callback class, callback pointer, and kernel-filter flag forwarding.",
+      "function_names": [
+        "PsSetCreateProcessNotifyRoutineEx2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "notifyType",
+          "structure": "PSCREATEPROCESSNOTIFYTYPE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PSCREATEPROCESSNOTIFYTYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutineEx2 notify type selector"
+        },
+        {
+          "parameter_index": 1,
+          "role": "processNotifyCallbackEx2",
+          "structure": "PCREATE_PROCESS_NOTIFY_ROUTINE_EX2",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PCREATE_PROCESS_NOTIFY_ROUTINE_EX2",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutineEx2 callback pointer parameter"
+        },
+        {
+          "parameter_index": 2,
+          "role": "removeRegistration",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "BOOLEAN",
+            "char",
+            "int"
+          ],
+          "source": "PsSetCreateProcessNotifyRoutineEx2 remove/exclude-kernel flag-like parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.psp_set_create_process_notify",
+      "source": "Reviewed PspSetCreateProcessNotifyRoutine callback block allocation, registration, removal, and counter update flow.",
+      "function_names": [
+        "PspSetCreateProcessNotifyRoutine"
+      ],
+      "required_calls": [
+        "ExAllocateCallBack"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processNotifyCallback",
+          "structure": "PROCESS_NOTIFY_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PCREATE_PROCESS_NOTIFY_ROUTINE",
+            "PCREATE_PROCESS_NOTIFY_ROUTINE_EX",
+            "PCREATE_PROCESS_NOTIFY_ROUTINE_EX2",
+            "__int64",
+            "void *"
+          ],
+          "source": "PspSetCreateProcessNotifyRoutine callback routine parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "setRoutineFlags",
+          "structure": "PROCESS_NOTIFY_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64",
+            "int"
+          ],
+          "source": "PspSetCreateProcessNotifyRoutine registration flags"
+        },
+        {
+          "parameter_index": 2,
+          "role": "callbackContext",
+          "structure": "PROCESS_NOTIFY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "PspSetCreateProcessNotifyRoutine callback context-like parameter"
+        },
+        {
+          "local_names": [
+            "allocatedCallbackBlock",
+            "referencedCallbackBlock"
+          ],
+          "role": "callbackBlock",
+          "structure": "EX_CALLBACK_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "source": "PspSetCreateProcessNotifyRoutine EX callback block local"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PspSetCreateProcessNotifyRoutine current thread local used during unregister"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.ps_set_create_thread_notify",
+      "source": "Reviewed PsSetCreateThreadNotifyRoutine public wrapper role.",
+      "function_names": [
+        "PsSetCreateThreadNotifyRoutine"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadNotifyCallback",
+          "structure": "PCREATE_THREAD_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PCREATE_THREAD_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsSetCreateThreadNotifyRoutine callback parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.ps_set_create_thread_notify_ex",
+      "source": "Reviewed PsSetCreateThreadNotifyRoutineEx information class selector and verified callback forwarding.",
+      "function_names": [
+        "PsSetCreateThreadNotifyRoutineEx"
+      ],
+      "required_calls": [
+        "MmVerifyCallbackFunctionCheckFlags"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "notifyInformationClass",
+          "structure": "PSCREATEPROCESSNOTIFYTYPE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "PsSetCreateThreadNotifyRoutineEx information class selector"
+        },
+        {
+          "parameter_index": 1,
+          "role": "threadNotifyCallbackEx",
+          "structure": "PCREATE_THREAD_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PCREATE_THREAD_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsSetCreateThreadNotifyRoutineEx callback pointer parameter"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.psp_set_create_thread_notify",
+      "source": "Reviewed PspSetCreateThreadNotifyRoutine callback block allocation and notify-mask update flow.",
+      "function_names": [
+        "PspSetCreateThreadNotifyRoutine"
+      ],
+      "required_calls": [
+        "ExAllocateCallBack"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadNotifyCallback",
+          "structure": "THREAD_NOTIFY_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PCREATE_THREAD_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PspSetCreateThreadNotifyRoutine callback pointer parameter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "setRoutineFlags",
+          "structure": "THREAD_NOTIFY_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "__int64",
+            "int"
+          ],
+          "source": "PspSetCreateThreadNotifyRoutine registration flags"
+        },
+        {
+          "local_names": [
+            "callbackEntryPtr"
+          ],
+          "role": "callbackBlock",
+          "structure": "EX_CALLBACK_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "source": "PspSetCreateThreadNotifyRoutine EX callback block local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.ps_remove_create_thread_notify",
+      "source": "Reviewed PsRemoveCreateThreadNotifyRoutine callback lookup, compare-exchange removal, rundown wait, and free flow.",
+      "function_names": [
+        "PsRemoveCreateThreadNotifyRoutine"
+      ],
+      "required_calls": [
+        "ExReferenceCallBackBlock"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "threadNotifyCallback",
+          "structure": "PCREATE_THREAD_NOTIFY_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PCREATE_THREAD_NOTIFY_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "PsRemoveCreateThreadNotifyRoutine callback parameter"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PsRemoveCreateThreadNotifyRoutine current thread local"
+        },
+        {
+          "local_names": [
+            "v7",
+            "ReferencedCallbackBlock"
+          ],
+          "role": "callbackBlock",
+          "structure": "EX_CALLBACK_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PsRemoveCreateThreadNotifyRoutine referenced callback block local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.psp_notify_thread_creation",
+      "source": "Reviewed PspNotifyThreadCreation bridge from ETHREAD to process create/thread debug and prefetch notifications.",
+      "function_names": [
+        "PspNotifyThreadCreation"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "createdThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PETHREAD",
+            "PKTHREAD",
+            "__int64",
+            "ULONG_PTR"
+          ],
+          "source": "PspNotifyThreadCreation created thread parameter"
+        },
+        {
+          "local_names": [
+            "v1"
+          ],
+          "role": "owningProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "PspNotifyThreadCreation process object loaded from thread"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.psp_call_process_notify_callback_block",
+      "source": "Reviewed PspCallProcessNotifyRoutines callback-block locals without duplicating lifecycle process/thread roles.",
+      "function_names": [
+        "PspCallProcessNotifyRoutines"
+      ],
+      "required_calls": [
+        "ExReferenceCallBackBlock"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "v18",
+            "referencedCallbackBlock"
+          ],
+          "role": "callbackBlock",
+          "structure": "EX_CALLBACK_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspCallProcessNotifyRoutines referenced callback block local"
+        }
+      ]
+    },
+    {
+      "id": "windows.process_thread_notify.psp_call_thread_notify_callback_block",
+      "source": "Reviewed PspCallThreadNotifyRoutines callback-block locals without duplicating lifecycle thread roles.",
+      "function_names": [
+        "PspCallThreadNotifyRoutines"
+      ],
+      "required_calls": [
+        "ExReferenceCallBackBlock"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "v8",
+            "v13",
+            "v17"
+          ],
+          "role": "callbackBlock",
+          "structure": "EX_CALLBACK_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspCallThreadNotifyRoutines referenced callback block locals"
+        }
+      ]
+    }
+  ]
+}

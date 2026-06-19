@@ -123,6 +123,16 @@
         "profiles": 18
       }
     },
+    "domain_identity/process_thread_notify.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl process/thread notify callback role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "1B7F9A3EF98FFACD690FA0C4125C9FD8603C58F4E5DDB139540384B635A16BA6",
+      "counts": {
+        "profiles": 11
+      }
+    },
     "registry_domain.json": {
       "profile_kind": "registry_domain",
       "source": "PseudoForge curated report-only registry domain triage profiles",
