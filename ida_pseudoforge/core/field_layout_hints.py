@@ -1039,6 +1039,8 @@ def _field_rewrite_ready_comment(
     base_kind = _layout_base_kind(layout.base)
     identity = _trusted_stable_base_source_identity(text, layout.base)
     if not identity:
+        identity = _trusted_decompiler_parameter_layout_identity(text, layout)
+    if not identity:
         identity = _trusted_generic_parameter_layout_identity(text, layout)
     if not identity:
         non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
@@ -1343,7 +1345,10 @@ def _field_rewrite_blockers(
         elif domain_identity.effective_mode != MODE_CANONICAL_REWRITE_ELIGIBLE:
             blockers.append("domain identity profile mode is unsupported")
     elif base_kind == "temp":
-        if not _trusted_stable_base_source_identity(text, layout.base):
+        if (
+            not _trusted_stable_base_source_identity(text, layout.base)
+            and not _trusted_decompiler_parameter_layout_identity(text, layout)
+        ):
             blockers.append("base is a decompiler temporary")
     elif base_kind == "generic":
         identity = _trusted_generic_parameter_layout_identity(text, layout)
@@ -1381,6 +1386,41 @@ def _trusted_generic_parameter_layout_identity(text: str, layout: _LayoutEvidenc
         layout,
         allow_offset_local_type_blockers=False,
     )
+
+
+def _trusted_decompiler_parameter_layout_identity(text: str, layout: _LayoutEvidence) -> dict[str, str] | None:
+    return _trusted_decompiler_parameter_identity(
+        text,
+        layout,
+        allow_offset_local_type_blockers=False,
+    )
+
+
+def _trusted_decompiler_parameter_identity(
+    text: str,
+    layout: _LayoutEvidence,
+    allow_offset_local_type_blockers: bool = False,
+) -> dict[str, str] | None:
+    if not _is_decompiler_argument_base(layout.base):
+        return None
+    if not _base_is_function_parameter(text, layout.base):
+        return None
+    threshold_policy = _generic_parameter_trust_threshold_policy(layout)
+    if not threshold_policy:
+        return None
+    blockers = _non_identity_layout_rewrite_blockers(text, layout)
+    if blockers:
+        if not allow_offset_local_type_blockers:
+            return None
+        if any(item not in _OFFSET_LOCAL_TYPE_BLOCKERS for item in blockers):
+            return None
+    return {
+        "source": layout.base,
+        "source_kind": "argument",
+        "source_provenance": "decompiler_parameter_trust",
+        "source_rhs_kind": "parameter",
+        "source_threshold_policy": threshold_policy,
+    }
 
 
 def _trusted_generic_parameter_identity(
@@ -1424,6 +1464,9 @@ def _trusted_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict
     identity = _trusted_stable_base_source_identity(text, layout.base)
     if identity:
         return identity
+    identity = _trusted_decompiler_parameter_layout_identity(text, layout)
+    if identity:
+        return identity
     identity = _trusted_generic_parameter_layout_identity(text, layout)
     if identity:
         return identity
@@ -1432,6 +1475,13 @@ def _trusted_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict
 
 def _trusted_partial_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict[str, str]:
     identity = _trusted_stable_base_source_identity(text, layout.base)
+    if identity:
+        return identity
+    identity = _trusted_decompiler_parameter_identity(
+        text,
+        layout,
+        allow_offset_local_type_blockers=True,
+    )
     if identity:
         return identity
     identity = _trusted_generic_parameter_identity(
@@ -1951,6 +2001,10 @@ def _is_scalar_like_base(name: str) -> bool:
 
 def _is_decompiler_temp_base(name: str) -> bool:
     return re.fullmatch(r"[av]\d+", str(name or "")) is not None
+
+
+def _is_decompiler_argument_base(name: str) -> bool:
+    return re.fullmatch(r"a\d+", str(name or "")) is not None
 
 
 def _is_generic_named_base(name: str) -> bool:

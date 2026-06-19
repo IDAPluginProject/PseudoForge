@@ -721,6 +721,102 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertNotIn("rewrite access threshold requires at least 12 accesses", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_decompiler_argument_parameter_base_with_strong_layout_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall DirectArgumentLayout(__int64 a1)
+{
+  return *(_QWORD *)(a1 + 16)
+       + *(_QWORD *)(a1 + 24)
+       + *(_QWORD *)(a1 + 32)
+       + *(_QWORD *)(a1 + 40)
+       + *(_QWORD *)(a1 + 48)
+       + *(_QWORD *)(a1 + 56)
+       + *(_QWORD *)(a1 + 64)
+       + *(_QWORD *)(a1 + 72)
+       + *(_QWORD *)(a1 + 80)
+       + *(_QWORD *)(a1 + 88)
+       + *(_QWORD *)(a1 + 16)
+       + *(_QWORD *)(a1 + 24)
+       + *(_QWORD *)(a1 + 32)
+       + *(_QWORD *)(a1 + 40)
+       + *(_QWORD *)(a1 + 48)
+       + *(_QWORD *)(a1 + 56);
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("a1", ready[0]["base"])
+        self.assertEqual("temp", ready[0]["base_kind"])
+        self.assertEqual("a1", ready[0]["source"])
+        self.assertEqual("argument", ready[0]["source_kind"])
+        self.assertEqual("decompiler_parameter_trust", ready[0]["source_provenance"])
+        self.assertEqual("parameter", ready[0]["source_rhs_kind"])
+        self.assertEqual("standard", ready[0]["source_threshold_policy"])
+        self.assertIn("Source provenance decompiler_parameter_trust from a1", ready[0]["text"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("decompiler_parameter_trust", previews[0]["source_provenance"])
+
+    def test_decompiler_argument_parameter_trust_rejects_medium_evidence(self) -> None:
+        lines = []
+        offsets = list(range(16, 96, 8))
+        for index, offset in enumerate(offsets + offsets[:3]):
+            prefix = "  return " if index == 0 else "       + "
+            lines.append("%s*(_QWORD *)(a1 + %d)" % (prefix, offset))
+        comments = field_layout_comments(
+            """
+__int64 __fastcall MediumArgumentLayout(__int64 a1)
+{
+%s;
+}
+"""
+            % "\n".join(lines)
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_decompiler_argument_parameter_trust_requires_signature_parameter(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall LocalArgumentLikeLayout(__int64 input)
+{
+  __int64 a1;
+
+  a1 = input ^ 8;
+  return *(_QWORD *)(a1 + 16)
+       + *(_QWORD *)(a1 + 24)
+       + *(_QWORD *)(a1 + 32)
+       + *(_QWORD *)(a1 + 40)
+       + *(_QWORD *)(a1 + 48)
+       + *(_QWORD *)(a1 + 56)
+       + *(_QWORD *)(a1 + 64)
+       + *(_QWORD *)(a1 + 72)
+       + *(_QWORD *)(a1 + 80)
+       + *(_QWORD *)(a1 + 88)
+       + *(_QWORD *)(a1 + 16)
+       + *(_QWORD *)(a1 + 24)
+       + *(_QWORD *)(a1 + 32)
+       + *(_QWORD *)(a1 + 40)
+       + *(_QWORD *)(a1 + 48)
+       + *(_QWORD *)(a1 + 56);
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_temp_base_with_stable_argument_source_reports_source_hint(self) -> None:
         comments = field_layout_comments(
             """
