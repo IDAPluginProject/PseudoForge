@@ -133,6 +133,16 @@
         "profiles": 24
       }
     },
+    "domain_identity/executive_async.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl executive work item, DPC, APC, and timer role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "15FD64BFC9A908DE2E96BE3101C6BF8B4368A844315B0098F8D124B78304F3D3",
+      "counts": {
+        "profiles": 28
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",

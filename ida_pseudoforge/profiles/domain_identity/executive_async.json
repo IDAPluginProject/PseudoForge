@@ -1,0 +1,1705 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "executive-async-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 executive work item, DPC, APC, and timer role-only identity pack; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.executive_async.ex_queue_work_item",
+      "source": "Reviewed ExQueueWorkItem public worker queue enqueue wrapper and priority queue wake path.",
+      "function_names": [
+        "ExQueueWorkItem"
+      ],
+      "required_calls": [
+        "EtwTracePriQEnqueueWork",
+        "KeSetEvent"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "workItem",
+          "role": "workItem",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PWORK_QUEUE_ITEM",
+            "WORK_QUEUE_ITEM *",
+            "__int64"
+          ],
+          "source": "ExQueueWorkItem WorkItem argument queued through the executive worker queue"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "queueType",
+          "role": "queueType",
+          "structure": "WORK_QUEUE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "WORK_QUEUE_TYPE",
+            "unsigned int",
+            "int",
+            "ULONG_PTR"
+          ],
+          "source": "ExQueueWorkItem QueueType controls target executive work queue"
+        },
+        {
+          "local_names": [
+            "originalQueueType"
+          ],
+          "role": "originalQueueType",
+          "structure": "WORK_QUEUE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "ExQueueWorkItem preserved queue type local used while selecting the queue"
+        },
+        {
+          "local_names": [
+            "currentPrcb",
+            "CurrentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "ExQueueWorkItem PRCB local used in queue wake and scheduling path"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ex_queue_work_item_ex",
+      "source": "Reviewed ExQueueWorkItemEx validation, type-to-priority, and ExpQueueWorkItem dispatch path.",
+      "function_names": [
+        "ExQueueWorkItemEx"
+      ],
+      "required_calls": [
+        "ExpValidateWorkItem",
+        "ExpQueueWorkItem"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "workItem",
+          "role": "workItem",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "_QWORD *",
+            "PWORK_QUEUE_ITEM",
+            "WORK_QUEUE_ITEM *",
+            "__int64"
+          ],
+          "source": "ExQueueWorkItemEx work item pointer validated before queueing"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "workItemType",
+          "role": "workItemType",
+          "structure": "WORK_QUEUE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "WORK_QUEUE_TYPE"
+          ],
+          "source": "ExQueueWorkItemEx work item type converted to executive priority"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "queueFlags",
+          "role": "queueFlags",
+          "structure": "WORK_QUEUE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "ULONG"
+          ],
+          "source": "ExQueueWorkItemEx third argument forwarded to ExpQueueWorkItem"
+        },
+        {
+          "local_names": [
+            "priority"
+          ],
+          "role": "priority",
+          "structure": "WORK_QUEUE_PRIORITY",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "ExQueueWorkItemEx ExpTypeToPriority result"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ex_try_queue_work_item",
+      "source": "Reviewed ExTryQueueWorkItem thin wrapper into ExpTryQueueWorkItem.",
+      "function_names": [
+        "ExTryQueueWorkItem"
+      ],
+      "required_calls": [
+        "ExpTryQueueWorkItem"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "workItem",
+          "role": "workItem",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PWORK_QUEUE_ITEM",
+            "WORK_QUEUE_ITEM *"
+          ],
+          "source": "ExTryQueueWorkItem work item pointer forwarded to ExpTryQueueWorkItem"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "queueType",
+          "role": "queueType",
+          "structure": "WORK_QUEUE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "WORK_QUEUE_TYPE"
+          ],
+          "source": "ExTryQueueWorkItem queue type forwarded to ExpTryQueueWorkItem"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_queue_work_item",
+      "source": "Reviewed ExpQueueWorkItem priority queue insertion, ETW enqueue tracing, and waiter wake path.",
+      "function_names": [
+        "ExpQueueWorkItem"
+      ],
+      "required_calls": [
+        "EtwTracePriQEnqueueWork",
+        "KiWakePriQueueWaiter"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "queueObject",
+          "role": "queueObject",
+          "structure": "KPRIQUEUE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "KPRIQUEUE *",
+            "PKPRIQUEUE"
+          ],
+          "source": "ExpQueueWorkItem queue object pointer used for executive priority queue insertion"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "workItemEntry",
+          "role": "workItemEntry",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "_QWORD *",
+            "PWORK_QUEUE_ITEM",
+            "WORK_QUEUE_ITEM *"
+          ],
+          "source": "ExpQueueWorkItem work item entry inserted in the target queue"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "priority",
+          "role": "priority",
+          "structure": "WORK_QUEUE_PRIORITY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "ULONG"
+          ],
+          "source": "ExpQueueWorkItem priority-like argument used while selecting the queue slot"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "startingNodeIndex",
+          "role": "startingNodeIndex",
+          "structure": "WORK_QUEUE_NODE_INDEX",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "ULONG"
+          ],
+          "source": "ExpQueueWorkItem starting node index argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "threadSlotOffset",
+          "role": "threadSlotOffset",
+          "structure": "WORK_QUEUE_THREAD_SLOT_OFFSET",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "int",
+            "LONG"
+          ],
+          "source": "ExpQueueWorkItem thread slot offset argument"
+        },
+        {
+          "local_names": [
+            "target_dispatcher_header"
+          ],
+          "role": "targetDispatcherHeader",
+          "structure": "DISPATCHER_HEADER",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "ExpQueueWorkItem target dispatcher header local in queue wake path"
+        },
+        {
+          "local_names": [
+            "wait_list_head_ptr"
+          ],
+          "role": "waitListHead",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "ExpQueueWorkItem wait list head local used by KiWakePriQueueWaiter"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_try_queue_work_item",
+      "source": "Reviewed ExpTryQueueWorkItem queue insertion attempt with partition worker creation fallback.",
+      "function_names": [
+        "ExpTryQueueWorkItem"
+      ],
+      "required_calls": [
+        "EtwTracePriQEnqueueWork",
+        "ExpPartitionCreateThreadIfNecessary"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "queueObject",
+          "role": "queueObject",
+          "structure": "KPRIQUEUE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "KPRIQUEUE *",
+            "PKPRIQUEUE"
+          ],
+          "source": "ExpTryQueueWorkItem target queue object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "workItemEntry",
+          "role": "workItemEntry",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_QWORD *",
+            "PWORK_QUEUE_ITEM",
+            "WORK_QUEUE_ITEM *"
+          ],
+          "source": "ExpTryQueueWorkItem work item entry argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "priority",
+          "role": "priority",
+          "structure": "WORK_QUEUE_PRIORITY",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "ULONG"
+          ],
+          "source": "ExpTryQueueWorkItem priority-like argument"
+        },
+        {
+          "local_names": [
+            "currentIrql"
+          ],
+          "role": "currentIrql",
+          "structure": "KIRQL",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "ExpTryQueueWorkItem IRQL local around queue lock acquisition"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_validate_work_item",
+      "source": "Reviewed ExpValidateWorkItem verifier/bugcheck guard for queued work item inputs.",
+      "function_names": [
+        "ExpValidateWorkItem"
+      ],
+      "required_calls": [
+        "KeBugCheckEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "workItem",
+          "role": "workItem",
+          "structure": "WORK_QUEUE_ITEM",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "_QWORD *",
+            "PWORK_QUEUE_ITEM",
+            "WORK_QUEUE_ITEM *"
+          ],
+          "source": "ExpValidateWorkItem first argument is the work item being checked"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "queueType",
+          "role": "queueType",
+          "structure": "WORK_QUEUE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "WORK_QUEUE_TYPE"
+          ],
+          "source": "ExpValidateWorkItem second argument participates in work item validation"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_worker_thread",
+      "source": "Reviewed ExpWorkerThread worker loop, priority queue removal, ETW work item trace, and indirect worker callback dispatch.",
+      "function_names": [
+        "ExpWorkerThread"
+      ],
+      "required_calls": [
+        "KeRemovePriQueue",
+        "guard_dispatch_icall_no_overrides"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "workerContext",
+          "role": "workerContext",
+          "structure": "WORK_QUEUE_THREAD_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpWorkerThread start parameter used as the worker queue context"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "ExpWorkerThread current thread local"
+        },
+        {
+          "local_names": [
+            "v16"
+          ],
+          "role": "ioWorkItem",
+          "structure": "IO_WORKITEM",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "ExpWorkerThread local typed as struct _IO_WORKITEM in corpus output"
+        },
+        {
+          "local_names": [
+            "BugCheckParameter4"
+          ],
+          "role": "workerRoutineContext",
+          "structure": "WORK_QUEUE_ITEM_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.66,
+          "source": "ExpWorkerThread local carried into bugcheck and callback dispatch paths"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_check_for_worker",
+      "source": "Reviewed ExpCheckForWorker partition scanning and priority queue lock acquisition before deciding worker availability.",
+      "function_names": [
+        "ExpCheckForWorker"
+      ],
+      "required_calls": [
+        "PsGetNextPartition",
+        "KiAcquireKobjectLockSafe"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "partition",
+          "role": "partition",
+          "structure": "EPARTITION",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpCheckForWorker scans worker availability by partition"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "queueContext",
+          "role": "queueContext",
+          "structure": "WORK_QUEUE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpCheckForWorker second argument participates in queue context selection"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_create_worker_thread",
+      "source": "Reviewed ExpCreateWorkerThread system thread creation, object reference, priority boost, and handle close path.",
+      "function_names": [
+        "ExpCreateWorkerThread"
+      ],
+      "required_calls": [
+        "ExpNodeCreateSystemThread",
+        "ObReferenceObjectByHandle"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "workerNode",
+          "role": "workerNode",
+          "structure": "WORK_QUEUE_NODE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpCreateWorkerThread node or queue context argument for system worker thread creation"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "workerFlags",
+          "role": "workerFlags",
+          "structure": "WORK_QUEUE_THREAD_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.66,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "ULONG"
+          ],
+          "source": "ExpCreateWorkerThread second argument influences worker thread creation"
+        },
+        {
+          "local_names": [
+            "Handle"
+          ],
+          "role": "threadHandle",
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "ExpCreateWorkerThread thread handle local closed after object reference"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "threadObject",
+          "structure": "ETHREAD",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "ExpCreateWorkerThread referenced system worker thread object"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_initialize_dpc",
+      "source": "Reviewed KeInitializeDpc initialization of KDPC deferred routine and context fields.",
+      "function_names": [
+        "KeInitializeDpc"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "dpc",
+          "role": "dpc",
+          "structure": "KDPC",
+          "mode": "report-only",
+          "confidence": 0.96,
+          "accepted_types": [
+            "PRKDPC",
+            "PKDPC",
+            "KDPC *",
+            "__int64"
+          ],
+          "source": "KeInitializeDpc Dpc argument initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "deferredRoutine",
+          "role": "deferredRoutine",
+          "structure": "KDEFERRED_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PKDEFERRED_ROUTINE",
+            "__int64",
+            "void *"
+          ],
+          "source": "KeInitializeDpc deferred routine callback argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "deferredContext",
+          "role": "deferredContext",
+          "structure": "DPC_DEFERRED_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "KeInitializeDpc deferred context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_insert_queue_dpc",
+      "source": "Reviewed KeInsertQueueDpc public wrapper into KiInsertQueueDpc.",
+      "function_names": [
+        "KeInsertQueueDpc"
+      ],
+      "required_calls": [
+        "KiInsertQueueDpc"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "dpc",
+          "role": "dpc",
+          "structure": "KDPC",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PRKDPC",
+            "PKDPC",
+            "KDPC *",
+            "__int64"
+          ],
+          "source": "KeInsertQueueDpc KDPC argument inserted into a DPC queue"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "systemArgument1",
+          "role": "systemArgument1",
+          "structure": "DPC_SYSTEM_ARGUMENT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "KeInsertQueueDpc first system argument delivered to the DPC routine"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "systemArgument2",
+          "role": "systemArgument2",
+          "structure": "DPC_SYSTEM_ARGUMENT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "KeInsertQueueDpc second system argument delivered to the DPC routine"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_remove_queue_dpc",
+      "source": "Reviewed KeRemoveQueueDpc public wrapper into KeRemoveQueueDpcEx.",
+      "function_names": [
+        "KeRemoveQueueDpc"
+      ],
+      "required_calls": [
+        "KeRemoveQueueDpcEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "dpc",
+          "role": "dpc",
+          "structure": "KDPC",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PRKDPC",
+            "PKDPC",
+            "KDPC *",
+            "__int64"
+          ],
+          "source": "KeRemoveQueueDpc KDPC argument removed from pending DPC queue"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_initialize_apc",
+      "source": "Reviewed KeInitializeApc initialization of KAPC thread, environment, routine, context, and system arguments.",
+      "function_names": [
+        "KeInitializeApc"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "apc",
+          "role": "apc",
+          "structure": "KAPC",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "__int64",
+            "PKAPC",
+            "KAPC *"
+          ],
+          "source": "KeInitializeApc APC object initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "thread",
+          "role": "thread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "__int64",
+            "PKTHREAD",
+            "KTHREAD *"
+          ],
+          "source": "KeInitializeApc target thread argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "environment",
+          "role": "environment",
+          "structure": "KAPC_ENVIRONMENT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "int",
+            "KAPC_ENVIRONMENT"
+          ],
+          "source": "KeInitializeApc APC environment argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "kernelRoutine",
+          "role": "kernelRoutine",
+          "structure": "KERNEL_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKKERNEL_ROUTINE",
+            "void *"
+          ],
+          "source": "KeInitializeApc kernel routine callback argument"
+        },
+        {
+          "parameter_index": 4,
+          "rename_to": "normalRoutine",
+          "role": "normalRoutine",
+          "structure": "NORMAL_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PKNORMAL_ROUTINE",
+            "void *"
+          ],
+          "source": "KeInitializeApc normal routine callback argument"
+        },
+        {
+          "parameter_index": 5,
+          "rename_to": "normalContext",
+          "role": "normalContext",
+          "structure": "APC_NORMAL_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "KeInitializeApc normal context argument"
+        },
+        {
+          "parameter_index": 6,
+          "rename_to": "processorMode",
+          "role": "processorMode",
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned __int8",
+            "char",
+            "KPROCESSOR_MODE"
+          ],
+          "source": "KeInitializeApc processor mode or state index byte argument"
+        },
+        {
+          "parameter_index": 7,
+          "rename_to": "normalRoutineContext",
+          "role": "normalRoutineContext",
+          "structure": "APC_ROUTINE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "KeInitializeApc final routine context argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_insert_queue_apc",
+      "source": "Reviewed KeInsertQueueApc reference, target process check, thread lock, and KiInsertQueueApc dispatch path.",
+      "function_names": [
+        "KeInsertQueueApc"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread",
+        "KiInsertQueueApc"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "apc",
+          "role": "apc",
+          "structure": "KAPC",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PKAPC",
+            "KAPC *"
+          ],
+          "source": "KeInsertQueueApc APC object queued to the target thread"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "systemArgument1",
+          "role": "systemArgument1",
+          "structure": "APC_SYSTEM_ARGUMENT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "KeInsertQueueApc first APC system argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "systemArgument2",
+          "role": "systemArgument2",
+          "structure": "APC_SYSTEM_ARGUMENT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "KeInsertQueueApc second APC system argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "priorityBoost",
+          "role": "priorityBoost",
+          "structure": "KPRIORITY_INCREMENT",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "__int64",
+            "int",
+            "KPRIORITY"
+          ],
+          "source": "KeInsertQueueApc fourth argument participates in APC queue/priority handling"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KeInsertQueueApc current thread local used for process comparison"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ki_insert_queue_apc",
+      "source": "Reviewed KiInsertQueueApc internal KAPC list insertion and list corruption failfast path.",
+      "function_names": [
+        "KiInsertQueueApc"
+      ],
+      "required_calls": [
+        "__fastfail"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "apc",
+          "role": "apc",
+          "structure": "KAPC",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PKAPC",
+            "KAPC *"
+          ],
+          "source": "KiInsertQueueApc argument is the APC object whose embedded thread pointer and queue links are used"
+        },
+        {
+          "local_names": [
+            "apcStatePtr"
+          ],
+          "role": "apcState",
+          "structure": "KAPC_STATE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "KiInsertQueueApc APC state pointer local derived from the APC target thread"
+        },
+        {
+          "local_names": [
+            "queueHeadPtr",
+            "specialListHeadPtr"
+          ],
+          "role": "queueHead",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "source": "KiInsertQueueApc list head locals for normal and special APC queues"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ki_deliver_apc",
+      "source": "Reviewed KiDeliverApc current thread/APC state delivery loop, list removal, and callback dispatch path.",
+      "function_names": [
+        "KiDeliverApc"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread",
+        "guard_dispatch_icall_no_overrides"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "deliveryMode",
+          "role": "deliveryMode",
+          "structure": "APC_DELIVERY_MODE",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "char",
+            "unsigned __int8",
+            "KPROCESSOR_MODE"
+          ],
+          "source": "KiDeliverApc delivery mode byte argument"
+        },
+        {
+          "parameter_names": [
+            "KernelApcRoutine",
+            "a2"
+          ],
+          "rename_to": "kernelApcRoutine",
+          "role": "kernelApcRoutine",
+          "structure": "KERNEL_ROUTINE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "KiDeliverApc kernel APC routine-like argument from the corpus signature"
+        },
+        {
+          "parameter_names": [
+            "TrapFrame",
+            "a3"
+          ],
+          "rename_to": "trapFrame",
+          "role": "trapFrame",
+          "structure": "KTRAP_FRAME",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "_KTRAP_FRAME *"
+          ],
+          "source": "KiDeliverApc trap frame argument used to restore user APC delivery context"
+        },
+        {
+          "parameter_names": [
+            "ApcContext",
+            "a4"
+          ],
+          "rename_to": "apcContext",
+          "role": "apcContext",
+          "structure": "APC_ROUTINE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "KiDeliverApc fourth argument is carried through APC dispatch logic"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "KiDeliverApc current thread local"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "KPROCESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "KiDeliverApc current process local from currentThread->ApcState.Process"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_initialize_timer",
+      "source": "Reviewed KeInitializeTimer KTIMER initialization wrapper.",
+      "function_names": [
+        "KeInitializeTimer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "KTIMER",
+          "mode": "report-only",
+          "confidence": 0.96,
+          "accepted_types": [
+            "PKTIMER",
+            "KTIMER *",
+            "__int64"
+          ],
+          "source": "KeInitializeTimer Timer object initialized in place"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_initialize_timer_ex",
+      "source": "Reviewed KeInitializeTimerEx KTIMER initialization with timer type.",
+      "function_names": [
+        "KeInitializeTimerEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "KTIMER",
+          "mode": "report-only",
+          "confidence": 0.96,
+          "accepted_types": [
+            "PKTIMER",
+            "KTIMER *",
+            "__int64"
+          ],
+          "source": "KeInitializeTimerEx Timer object initialized in place"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "timerType",
+          "role": "timerType",
+          "structure": "TIMER_TYPE",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "TIMER_TYPE",
+            "int",
+            "unsigned int"
+          ],
+          "source": "KeInitializeTimerEx Type argument controls notification versus synchronization timer behavior"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_set_timer",
+      "source": "Reviewed KeSetTimer KTIMER insertion with due time, optional DPC, timer table lock, and corruption failfast path.",
+      "function_names": [
+        "KeSetTimer"
+      ],
+      "required_calls": [
+        "KeGetCurrentIrql",
+        "KeGetCurrentPrcb"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "KTIMER",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PKTIMER",
+            "KTIMER *",
+            "__int64"
+          ],
+          "source": "KeSetTimer Timer argument inserted into the kernel timer table"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "dueTime",
+          "role": "dueTime",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "LARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "KeSetTimer DueTime argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "dpc",
+          "role": "dpc",
+          "structure": "KDPC",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PKDPC",
+            "PRKDPC",
+            "KDPC *",
+            "__int64"
+          ],
+          "source": "KeSetTimer optional DPC argument associated with timer expiration"
+        },
+        {
+          "local_names": [
+            "CurrentPrcb"
+          ],
+          "role": "currentPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "KeSetTimer PRCB local used during timer table lock handling"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_set_timer_ex",
+      "source": "Reviewed KeSetTimerEx wrapper into KiSetTimerEx with period and optional DPC.",
+      "function_names": [
+        "KeSetTimerEx"
+      ],
+      "required_calls": [
+        "KiSetTimerEx"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "KTIMER",
+          "mode": "report-only",
+          "confidence": 0.94,
+          "accepted_types": [
+            "PKTIMER",
+            "KTIMER *",
+            "__int64"
+          ],
+          "source": "KeSetTimerEx Timer argument forwarded to KiSetTimerEx"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "dueTime",
+          "role": "dueTime",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "LARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "KeSetTimerEx DueTime argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "period",
+          "role": "period",
+          "structure": "TIMER_PERIOD",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "LONG",
+            "int"
+          ],
+          "source": "KeSetTimerEx Period argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "dpc",
+          "role": "dpc",
+          "structure": "KDPC",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PKDPC",
+            "PRKDPC",
+            "KDPC *",
+            "__int64"
+          ],
+          "source": "KeSetTimerEx optional DPC argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ke_cancel_timer",
+      "source": "Reviewed KeCancelTimer KTIMER cancellation and ETW kernel event trace path.",
+      "function_names": [
+        "KeCancelTimer"
+      ],
+      "required_calls": [
+        "EtwTraceKernelEvent"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "KTIMER",
+          "mode": "report-only",
+          "confidence": 0.92,
+          "accepted_types": [
+            "PKTIMER",
+            "KTIMER *",
+            "__int64"
+          ],
+          "source": "KeCancelTimer Timer argument removed from kernel timer table when active"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ex_allocate_timer",
+      "source": "Reviewed ExAllocateTimer executive enhanced timer allocation wrapper and flags bugcheck guard.",
+      "function_names": [
+        "ExAllocateTimer"
+      ],
+      "required_calls": [
+        "ExAllocateTimerInternal2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "callback",
+          "role": "callback",
+          "structure": "EXTIMER_CALLBACK",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PEX_TIMER_CALLBACK",
+            "void *"
+          ],
+          "source": "ExAllocateTimer first argument forwarded to ExAllocateTimerInternal2 as timer callback/event context"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "callbackContext",
+          "role": "callbackContext",
+          "structure": "EXTIMER_CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "ExAllocateTimer second argument forwarded to ExAllocateTimerInternal2"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "attributes",
+          "role": "attributes",
+          "structure": "EXTIMER_ATTRIBUTES",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "ExAllocateTimer flags argument checked before enhanced timer allocation"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ex_set_timer",
+      "source": "Reviewed ExSetTimer enhanced timer setup wrapper into KeSetTimer2.",
+      "function_names": [
+        "ExSetTimer"
+      ],
+      "required_calls": [
+        "KeSetTimer2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "EXTIMER",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PEX_TIMER",
+            "PVOID"
+          ],
+          "source": "ExSetTimer enhanced timer object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "dueTime",
+          "role": "dueTime",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "signed __int64",
+            "__int64",
+            "LARGE_INTEGER"
+          ],
+          "source": "ExSetTimer due time argument forwarded into KeSetTimer2 path"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "period",
+          "role": "period",
+          "structure": "TIMER_PERIOD",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "signed __int64",
+            "__int64",
+            "LONG"
+          ],
+          "source": "ExSetTimer period-like argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "parameters",
+          "role": "parameters",
+          "structure": "EXTIMER_SET_PARAMETERS",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExSetTimer fourth argument carried into enhanced timer setup"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ex_cancel_timer",
+      "source": "Reviewed ExCancelTimer enhanced timer cancellation wrapper and freed timer guard.",
+      "function_names": [
+        "ExCancelTimer"
+      ],
+      "required_calls": [
+        "ExpCheckForFreedEnhancedTimer",
+        "KeCancelTimer2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "EXTIMER",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PEX_TIMER",
+            "PVOID"
+          ],
+          "source": "ExCancelTimer enhanced timer object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "cancelFlags",
+          "role": "cancelFlags",
+          "structure": "EXTIMER_CANCEL_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ExCancelTimer cancellation flags argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.ex_delete_timer",
+      "source": "Reviewed ExDeleteTimer enhanced timer deletion, freed timer guard, and disable path.",
+      "function_names": [
+        "ExDeleteTimer"
+      ],
+      "required_calls": [
+        "ExpCheckForFreedEnhancedTimer",
+        "KeDisableTimer2"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timer",
+          "role": "timer",
+          "structure": "EXTIMER",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PEX_TIMER",
+            "PVOID"
+          ],
+          "source": "ExDeleteTimer enhanced timer object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "timerType",
+          "role": "timerType",
+          "structure": "EXTIMER_DELETE_TYPE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "char",
+            "unsigned __int8",
+            "int"
+          ],
+          "source": "ExDeleteTimer deletion type byte argument"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "cancelPending",
+          "role": "cancelPending",
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "unsigned __int8"
+          ],
+          "source": "ExDeleteTimer cancel pending byte argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "statusOut",
+          "role": "statusOut",
+          "structure": "NTSTATUS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned int *",
+            "NTSTATUS *",
+            "ULONG *"
+          ],
+          "source": "ExDeleteTimer output status pointer"
+        },
+        {
+          "local_names": [
+            "disableCtx"
+          ],
+          "role": "disableContext",
+          "structure": "EXTIMER_DISABLE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "source": "ExDeleteTimer local disable context used by KeDisableTimer2"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_set_timer_object",
+      "source": "Reviewed ExpSetTimerObject object manager handle path, wake timer access checks, and enhanced timer setup.",
+      "function_names": [
+        "ExpSetTimerObject"
+      ],
+      "required_calls": [
+        "ExpCheckWakeTimerAccess",
+        "KeGetCurrentThread"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "timerObject",
+          "role": "timerObject",
+          "structure": "KTIMER",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpSetTimerObject first argument is the timer object handle/body context"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "dueTime",
+          "role": "dueTime",
+          "structure": "LARGE_INTEGER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "LARGE_INTEGER *",
+            "PLARGE_INTEGER",
+            "__int64"
+          ],
+          "source": "ExpSetTimerObject due time pointer argument"
+        },
+        {
+          "parameter_index": 7,
+          "rename_to": "inputLength",
+          "role": "inputLength",
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "ExpSetTimerObject input length argument"
+        },
+        {
+          "parameter_index": 8,
+          "rename_to": "tolerableDelay",
+          "role": "tolerableDelay",
+          "structure": "TIMER_TOLERABLE_DELAY",
+          "mode": "report-only",
+          "confidence": 0.70,
+          "accepted_types": [
+            "ULONG",
+            "unsigned int",
+            "int"
+          ],
+          "source": "ExpSetTimerObject TolerableDelay argument"
+        },
+        {
+          "parameter_index": 9,
+          "rename_to": "previousState",
+          "role": "previousState",
+          "structure": "BOOLEAN_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.68,
+          "accepted_types": [
+            "_BYTE *",
+            "BOOLEAN *",
+            "unsigned __int8 *"
+          ],
+          "source": "ExpSetTimerObject output byte argument"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "ExpSetTimerObject current thread local"
+        },
+        {
+          "local_names": [
+            "referencedObject"
+          ],
+          "role": "referencedObject",
+          "structure": "OBJECT_BODY",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "ExpSetTimerObject referenced object local"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_timer_dpc_routine",
+      "source": "Reviewed ExpTimerDpcRoutine executive timer DPC callback, APC queueing, coalescable timer rearm, and object reference handling.",
+      "function_names": [
+        "ExpTimerDpcRoutine"
+      ],
+      "required_calls": [
+        "KeInsertQueueApc",
+        "KeSetCoalescableTimer"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "dpc",
+          "role": "dpc",
+          "structure": "KDPC",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "struct _KDPC *",
+            "PKDPC",
+            "PRKDPC",
+            "__int64"
+          ],
+          "source": "ExpTimerDpcRoutine DPC object argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "deferredContext",
+          "role": "deferredContext",
+          "structure": "EXTIMER",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "ExpTimerDpcRoutine DeferredContext carries the executive timer object/context"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "systemArgument1",
+          "role": "systemArgument1",
+          "structure": "DPC_SYSTEM_ARGUMENT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpTimerDpcRoutine first system argument"
+        },
+        {
+          "parameter_index": 3,
+          "rename_to": "systemArgument2",
+          "role": "systemArgument2",
+          "structure": "DPC_SYSTEM_ARGUMENT",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ExpTimerDpcRoutine second system argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.executive_async.exp_timer_apc_routine",
+      "source": "Reviewed ExpTimerApcRoutine executive timer APC callback and object dereference path.",
+      "function_names": [
+        "ExpTimerApcRoutine"
+      ],
+      "required_calls": [
+        "KeGetCurrentThread",
+        "ObfDereferenceObjectWithTag"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "normalContext",
+          "role": "normalContext",
+          "structure": "EXTIMER",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "ExpTimerApcRoutine first argument carries executive timer APC context"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "systemArguments",
+          "role": "systemArguments",
+          "structure": "APC_SYSTEM_ARGUMENTS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "_QWORD *",
+            "PVOID *",
+            "__int64"
+          ],
+          "source": "ExpTimerApcRoutine second argument points at APC system argument storage"
+        },
+        {
+          "local_names": [
+            "currentThread"
+          ],
+          "role": "currentThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "ExpTimerApcRoutine current thread local"
+        }
+      ]
+    }
+  ]
+}
