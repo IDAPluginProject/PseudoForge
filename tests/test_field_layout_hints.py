@@ -300,6 +300,106 @@ __int64 __fastcall DomainOverlayBlockedLayout(__int64 argument0)
         self.assertIn("one or more offsets mix irregular field access widths", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_report_only_named_domain_with_overlay_reports_partial_opportunity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.report_only_overlay_named",
+                        "DomainReportOnlyNamedOverlayLayout",
+                        "report-only",
+                    )
+                ],
+            )
+            comments = field_layout_comments(
+                """
+__int64 __fastcall DomainReportOnlyNamedOverlayLayout(__int64 resource)
+{
+  return *(_DWORD *)(resource + 16)
+       + *(_QWORD *)(resource + 16)
+       + *(_QWORD *)(resource + 24)
+       + *(_QWORD *)(resource + 32)
+       + *(_QWORD *)(resource + 40)
+       + *(_QWORD *)(resource + 48)
+       + *(_QWORD *)(resource + 56)
+       + *(_QWORD *)(resource + 64)
+       + *(_QWORD *)(resource + 72)
+       + *(_QWORD *)(resource + 80)
+       + *(_QWORD *)(resource + 88)
+       + *(_QWORD *)(resource + 24)
+       + *(_QWORD *)(resource + 32)
+       + *(_QWORD *)(resource + 40);
+}
+"""
+            )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        partial = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_partial_opportunity"
+        ]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("domain identity profile is report-only", blockers[0]["blockers"])
+        self.assertIn("one or more offsets mix wide overlay access widths", blockers[0]["blockers"])
+        self.assertEqual(1, len(partial))
+        self.assertEqual("resource", partial[0]["base"])
+        self.assertEqual("named", partial[0]["base_kind"])
+        self.assertEqual(9, partial[0]["safe_offset_count"])
+        self.assertEqual(12, partial[0]["safe_access_count"])
+        self.assertEqual([0x10], partial[0]["excluded_offsets"])
+        self.assertIn("Review-only", partial[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_low_confidence_report_only_domain_with_overlay_does_not_report_partial_opportunity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.low_confidence_overlay_named",
+                        "DomainLowConfidenceNamedOverlayLayout",
+                        "canonical-rewrite-eligible",
+                        confidence=0.70,
+                    )
+                ],
+            )
+            comments = field_layout_comments(
+                """
+__int64 __fastcall DomainLowConfidenceNamedOverlayLayout(__int64 resource)
+{
+  return *(_DWORD *)(resource + 16)
+       + *(_QWORD *)(resource + 16)
+       + *(_QWORD *)(resource + 24)
+       + *(_QWORD *)(resource + 32)
+       + *(_QWORD *)(resource + 40)
+       + *(_QWORD *)(resource + 48)
+       + *(_QWORD *)(resource + 56)
+       + *(_QWORD *)(resource + 64)
+       + *(_QWORD *)(resource + 72)
+       + *(_QWORD *)(resource + 80)
+       + *(_QWORD *)(resource + 88)
+       + *(_QWORD *)(resource + 24)
+       + *(_QWORD *)(resource + 32)
+       + *(_QWORD *)(resource + 40);
+}
+"""
+            )
+
+        identities = [item for item in comments if item.get("kind") == "domain_structure_identity"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual(1, len(identities))
+        self.assertIn("low_confidence", identities[0]["blockers"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("low_confidence", blockers[0]["domain_profile_blockers"])
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_rewrite_partial_opportunity" for item in comments)
+        )
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_rtlp_copy_legacy_context_profile_renames_context_parameters(self) -> None:
         capture = capture_from_pseudocode(_rtlp_copy_legacy_context_sample())
         plan = build_clean_plan(capture)
@@ -3790,6 +3890,7 @@ def _domain_identity_profile(
     mode: str,
     force_report_only_on: list[str] | None = None,
     suppress_layout_inference: bool = False,
+    confidence: float = 0.88,
 ) -> dict[str, object]:
     return {
         "id": profile_id,
@@ -3800,7 +3901,7 @@ def _domain_identity_profile(
                 "role": "domainContext",
                 "structure": "TEST_DOMAIN_CONTEXT",
                 "mode": mode,
-                "confidence": 0.88,
+                "confidence": confidence,
                 "force_report_only_on": force_report_only_on or [],
                 "suppress_layout_inference": suppress_layout_inference,
                 "fields": [

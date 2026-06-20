@@ -1095,7 +1095,7 @@ def _field_rewrite_blocker_comment(
         _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind),
         0.64 + min(len(blockers), 4) * 0.03 + min(layout.access_count, 12) * 0.005,
     )
-    return {
+    comment = {
         "kind": "inferred_offset_rewrite_blockers",
         "text": (
             "Offset field rewrite blocked for %s: %s. Review-only aliases remain available."
@@ -1106,6 +1106,17 @@ def _field_rewrite_blocker_comment(
         "base_kind": base_kind,
         "blockers": blockers,
     }
+    domain_identity = _domain_identity_for_layout(
+        text,
+        layout,
+        _non_identity_layout_rewrite_blockers(text, layout),
+        profile_context=profile_context,
+    )
+    if domain_identity:
+        comment["domain_effective_mode"] = domain_identity.effective_mode
+        comment["domain_profile_id"] = domain_identity.profile_id
+        comment["domain_profile_blockers"] = _domain_identity_structured_blockers(domain_identity)
+    return comment
 
 
 def _field_base_stability_comment_from_layout(
@@ -1341,6 +1352,8 @@ def _field_rewrite_partial_opportunity_comment(
         "base is a decompiler temporary",
         "base name is generic",
     }
+    if _report_only_domain_partial_rewrite_allowed(blocker):
+        identity_blockers.add("domain identity profile is report-only")
     non_identity_blockers = [
         item
         for item in blockers
@@ -1433,6 +1446,25 @@ def _field_rewrite_partial_opportunity_comment(
     if source:
         comment["source"] = source
     return comment
+
+
+def _report_only_domain_partial_rewrite_allowed(blocker: dict[str, Any]) -> bool:
+    blockers = {
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    }
+    if "domain identity profile is report-only" not in blockers:
+        return False
+    domain_blockers = {
+        str(item)
+        for item in blocker.get("domain_profile_blockers", []) or []
+        if str(item)
+    }
+    if not domain_blockers:
+        return False
+    allowed = {"profile_report_only", "overlay", "type_conflict"}
+    return domain_blockers.issubset(allowed)
 
 
 def _partial_rewrite_threshold_policy(
