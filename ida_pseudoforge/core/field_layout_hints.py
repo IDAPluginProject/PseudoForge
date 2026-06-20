@@ -953,6 +953,10 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
         comment["source_call_names"] = list(identity["source_call_names"])
     if identity.get("source_alias"):
         comment["source_alias"] = identity["source_alias"]
+    if identity.get("base_alias_assignments") is not None:
+        comment["base_alias_assignments"] = int(identity["base_alias_assignments"])
+    if identity.get("source_assignments") is not None:
+        comment["source_assignments"] = int(identity["source_assignments"])
     return comment
 
 
@@ -3531,7 +3535,7 @@ def _temporary_call_result_source_identity(
     source: str,
     base_alias_assignment_count: int,
 ) -> dict[str, Any]:
-    if base_alias_assignment_count != 1:
+    if base_alias_assignment_count <= 0:
         return {}
     if _layout_base_kind(base) != "temp":
         return {}
@@ -3547,19 +3551,32 @@ def _temporary_call_result_source_identity(
         and item.group("op") == "="
         and _normalize_assignment_rhs(item.group("rhs")) == source
     ]
-    if len(base_alias_assignments) != 1:
+    if len(base_alias_assignments) != base_alias_assignment_count:
         return {}
+    base_alias_assignments.sort(key=lambda item: item.start())
+    first_base_alias = base_alias_assignments[0]
     source_assignments = [
         item
         for item in _base_direct_assignments(text, source)
         if item.start() < first_access
     ]
-    if len(source_assignments) != 1:
+    source_assignments.sort(key=lambda item: item.start())
+    source_assignments_before_alias = [
+        item for item in source_assignments if item.start() < first_base_alias.start()
+    ]
+    source_assignments_after_alias = [
+        item for item in source_assignments if item.start() >= first_base_alias.start()
+    ]
+    if not source_assignments_before_alias or source_assignments_after_alias:
         return {}
-    source_assignment = source_assignments[0]
+    source_assignment = source_assignments_before_alias[-1]
     if source_assignment.group("op") != "=":
         return {}
-    if source_assignment.start() >= base_alias_assignments[0].start():
+    if _brace_depth_at(text, source_assignment.start()) != 1:
+        return {}
+    if _brace_depth_at(text, first_base_alias.start()) != 1:
+        return {}
+    if not _only_trivia_between(text, source_assignment.end(), first_base_alias.start()):
         return {}
     rhs = _normalize_assignment_rhs(source_assignment.group("rhs"))
     if _layout_rhs_kind(rhs) != "call_result":
@@ -3576,6 +3593,66 @@ def _temporary_call_result_source_identity(
         "base_alias_assignments": base_alias_assignment_count,
         "source_assignments": len(source_assignments),
     }
+
+
+def _only_trivia_between(text: str, start: int, end: int) -> bool:
+    if start > end:
+        return False
+    segment = str(text or "")[max(0, start) : max(0, end)]
+    segment = re.sub(r"//[^\n]*", "", segment)
+    segment = re.sub(r"/\*.*?\*/", "", segment, flags=re.S)
+    return not segment.strip()
+
+
+def _brace_depth_at(text: str, offset: int) -> int:
+    value = str(text or "")
+    limit = max(0, min(int(offset), len(value)))
+    depth = 0
+    quote = ""
+    escaped = False
+    line_comment = False
+    block_comment = False
+    index = 0
+    while index < limit:
+        char = value[index]
+        next_char = value[index + 1] if index + 1 < limit else ""
+        if line_comment:
+            if char == "\n":
+                line_comment = False
+            index += 1
+            continue
+        if block_comment:
+            if char == "*" and next_char == "/":
+                block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            line_comment = True
+            index += 2
+            continue
+        if char == "/" and next_char == "*":
+            block_comment = True
+            index += 2
+            continue
+        if char in {'"', "'"}:
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth = max(0, depth - 1)
+        index += 1
+    return depth
 
 
 def _parse_direct_call_result_name(source: str) -> str:

@@ -2019,10 +2019,10 @@ __int64 __fastcall StableTemporaryCallResultSourceLayout(__int64 context)
         self.assertEqual(1, len(previews))
         self.assertEqual("temporary_call_result_alias", previews[0]["source_provenance"])
 
-    def test_temp_base_with_multi_assignment_temporary_call_result_source_remains_blocked(self) -> None:
+    def test_temp_base_with_final_temporary_call_result_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """
-__int64 __fastcall MultiAssignmentTemporaryCallResultSourceLayout(__int64 context)
+__int64 __fastcall FinalTemporaryCallResultSourceLayout(__int64 context, int reload)
 {
   __int64 v3;
   __int64 v4;
@@ -2030,6 +2030,92 @@ __int64 __fastcall MultiAssignmentTemporaryCallResultSourceLayout(__int64 contex
   v3 = 0LL;
   v3 = CreateStableContext(context);
   v4 = v3;
+  if ( reload )
+  {
+    v4 = v3;
+  }
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("v3", sources[0]["source"])
+        self.assertEqual("temporary_call_result_alias", sources[0]["source_provenance"])
+        self.assertEqual("CreateStableContext(context)", sources[0]["source_call"])
+        self.assertEqual(2, sources[0]["base_alias_assignments"])
+        self.assertEqual(2, sources[0]["source_assignments"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("temporary_call_result_alias", ready[0]["source_provenance"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("temporary_call_result_alias", previews[0]["source_provenance"])
+
+    def test_temp_base_with_branch_only_temporary_call_result_source_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall BranchOnlyTemporaryCallResultSourceLayout(__int64 context, int reload)
+{
+  __int64 v3;
+  __int64 v4;
+
+  v3 = 0LL;
+  if ( reload )
+  {
+    v3 = CreateStableContext(context);
+    v4 = v3;
+  }
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertEqual([], sources)
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_temp_base_with_post_alias_temporary_call_result_source_remains_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PostAliasTemporaryCallResultSourceLayout(__int64 context)
+{
+  __int64 v3;
+  __int64 v4;
+
+  v3 = 0LL;
+  v3 = CreateStableContext(context);
+  v4 = v3;
+  v3 = CreateOtherContext(context);
   return *(_QWORD *)(v4 + 16)
        + *(_QWORD *)(v4 + 24)
        + *(_QWORD *)(v4 + 32)
