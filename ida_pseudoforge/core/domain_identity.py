@@ -57,6 +57,7 @@ class DomainIdentityMatch:
     profile_source: str = ""
     profile_version: str = ""
     profile_metadata: tuple[tuple[str, str], ...] = ()
+    suppress_layout_inference: bool = False
 
     @property
     def ambiguous(self) -> bool:
@@ -121,6 +122,7 @@ def domain_identity_match_for_base(
         profile_source=first.profile_source,
         profile_version=first.profile_version,
         profile_metadata=first.profile_metadata,
+        suppress_layout_inference=all(item.suppress_layout_inference for item in matches),
     )
 
 
@@ -430,6 +432,7 @@ def _dedupe_role_matches(matches: list[DomainIdentityMatch]) -> list[DomainIdent
                 profile_source=first.profile_source,
                 profile_version=first.profile_version,
                 profile_metadata=first.profile_metadata,
+                suppress_layout_inference=all(item.suppress_layout_inference for item in ambiguous),
             )
         )
     result.sort(key=lambda item: (item.base.lower(), item.structure, item.role, item.profile_id))
@@ -568,6 +571,13 @@ def _parameter_match(
         profile_source=_profile_source(profile, parameter),
         profile_version=_profile_version(profile),
         profile_metadata=_profile_metadata_tuple(profile),
+        suppress_layout_inference=_bool_value(
+            parameter.get(
+                "suppress_layout_inference",
+                profile.get("suppress_layout_inference"),
+            ),
+            False,
+        ),
     )
 
 
@@ -914,6 +924,19 @@ def _float_value(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _bool_value(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def _safe_identifier_text(value: Any, default: str) -> str:

@@ -59,6 +59,7 @@ __int64 __fastcall RtlpxVirtualUnwind(
         self.assertEqual("VIRTUAL_ADDRESS", identity["structure_name"])
         self.assertEqual("report-only", identity["effective_mode"])
         self.assertIn("profile_report_only", identity["blockers"])
+        self.assertTrue(identity["suppress_layout_inference"])
         self.assertEqual([], identity["fields"])
         self.assertEqual("26200.8457", identity["profile_metadata"]["build"])
         self.assertFalse(

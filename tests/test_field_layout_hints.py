@@ -153,6 +153,50 @@ __int64 __fastcall DomainNoProfileLayout(__int64 argument0)
         self.assertIn("domain identity profile is report-only", blockers[0]["blockers"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_domain_identity_can_suppress_role_only_layout_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _domain_identity_profile(
+                        "test.role_only_suppressed",
+                        "DomainRoleOnlySuppressedLayout",
+                        "report-only",
+                        suppress_layout_inference=True,
+                    )
+                ],
+            )
+            capture = capture_from_pseudocode(_domain_identity_sample("DomainRoleOnlySuppressedLayout"))
+            plan = build_clean_plan(capture)
+
+        identities = [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+        layout_comments = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_layout"
+            and item.get("base") == "argument0"
+        ]
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "argument0"
+        ]
+        aliases = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_field_aliases"
+            and item.get("base") == "argument0"
+        ]
+
+        self.assertEqual(1, len(identities))
+        self.assertEqual("test.role_only_suppressed", identities[0]["profile_id"])
+        self.assertEqual("domainContext", identities[0]["role"])
+        self.assertTrue(identities[0]["suppress_layout_inference"])
+        self.assertEqual([], layout_comments)
+        self.assertEqual([], blockers)
+        self.assertEqual([], aliases)
+
     def test_domain_identity_canonical_profile_can_satisfy_argument_identity_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             self._configure_domain_profiles(
@@ -3314,6 +3358,7 @@ def _domain_identity_profile(
     function_name: str,
     mode: str,
     force_report_only_on: list[str] | None = None,
+    suppress_layout_inference: bool = False,
 ) -> dict[str, object]:
     return {
         "id": profile_id,
@@ -3326,6 +3371,7 @@ def _domain_identity_profile(
                 "mode": mode,
                 "confidence": 0.88,
                 "force_report_only_on": force_report_only_on or [],
+                "suppress_layout_inference": suppress_layout_inference,
                 "fields": [
                     {"offset": "0x10", "name": "flags", "type": "ULONG", "size": 4, "confidence": 0.90},
                     {"offset": "0x18", "name": "objectPointer", "type": "PVOID", "size": 8, "confidence": 0.86},

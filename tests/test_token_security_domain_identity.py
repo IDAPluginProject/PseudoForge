@@ -138,6 +138,65 @@ BOOLEAN __fastcall SeAccessCheckFromState(PSECURITY_DESCRIPTOR SecurityDescripto
         self.assertEqual("ACCESS_MASK_OUTPUT", roles["grantedAccessOutput"])
         self.assertEqual("NTSTATUS_OUTPUT", roles["accessStatusOutput"])
 
+    def test_access_check_with_hint_identifies_security_descriptor(self) -> None:
+        plan = self._plan(
+            """
+BOOLEAN __fastcall SeAccessCheckWithHint(__int64 a1, unsigned int a2, int *a3, char a4, unsigned int a5, int a6, _QWORD *a7, _DWORD *a8, char a9, unsigned int *a10, int *a11)
+{
+  int localStatus;
+  __int128 mandatoryState;
+
+  if ( !a1 )
+  {
+    *a11 = STATUS_ACCESS_DENIED;
+    return FALSE;
+  }
+  if ( !a4 )
+  {
+    SeLockSubjectContext((PSECURITY_SUBJECT_CONTEXT)a3);
+  }
+  localStatus = 0;
+  if ( *(_BYTE *)(a1 + 1) )
+  {
+    localStatus = *(_DWORD *)(a1 + 4);
+  }
+  localStatus |= SepFilterCheck(a1, (unsigned int)&mandatoryState, *(_QWORD *)a3, 0, (__int64)&mandatoryState);
+  *a11 = SepMandatoryIntegrityCheck(a8, a1, (__int64)a10, *(_QWORD *)a3, 0, (__int64)&mandatoryState);
+  if ( !a4 )
+  {
+    SeUnlockSubjectContext((PSECURITY_SUBJECT_CONTEXT)a3);
+  }
+  *a10 = a5 | a6 | localStatus;
+  return *a11 >= 0;
+}
+"""
+        )
+
+        identity = self._single_identity(
+            plan,
+            "windows.token_security.access_check_with_hint",
+            role="securityDescriptor",
+        )
+
+        self.assertEqual("SECURITY_DESCRIPTOR", identity["structure_name"])
+        self.assertEqual("securityDescriptor", self._rename_map(plan).get("a1"))
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertTrue(identity["suppress_layout_inference"])
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_layout"
+                and item.get("base") == "securityDescriptor"
+                for item in plan.comments
+            )
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_blockers"
+                and item.get("base") == "securityDescriptor"
+                for item in plan.comments
+            )
+        )
+
     def test_sep_common_access_check_ex_roles_and_output_bundle_fields(self) -> None:
         without_callees = self._plan(
             """
@@ -438,6 +497,9 @@ void __fastcall SeCaptureSubjectContext(PSECURITY_SUBJECT_CONTEXT SubjectContext
             str(item["trusted_role"]): str(item["structure_name"])
             for item in self._profile_identities(plan, profile_id)
         }
+
+    def _rename_map(self, plan) -> dict[str, str]:
+        return {item.old: item.new for item in plan.renames if item.apply}
 
     def _single_identity(
         self,

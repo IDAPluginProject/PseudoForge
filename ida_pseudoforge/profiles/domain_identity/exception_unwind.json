@@ -24,6 +24,7 @@
           "role": "controlPc",
           "structure": "VIRTUAL_ADDRESS",
           "mode": "report-only",
+          "suppress_layout_inference": true,
           "confidence": 0.86,
           "rename_confidence": 0.92,
           "accepted_types": [

@@ -188,7 +188,7 @@
       "source": "PseudoForge curated ntoskrnl exception and unwind role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "537399EB2D9133DAE7936DDA81E6253AB89FA062EA488B11C4D64E79606C8E26",
+      "sha256": "DBC97E34580D2AA7FE041AC15EE176CDAED092DFCB06E96BD8EF06118E1F5078",
       "counts": {
         "profiles": 1
       }
@@ -278,9 +278,9 @@
       "source": "PseudoForge curated ntoskrnl token/security/audit role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "68CA823A9FD98FBC44F92E469213537C29BA3676167511DDFA01428472357134",
+      "sha256": "13F8D7A9EA1BAC057FE51B936AEEE62C88CB3037D355A74BBF40CC20D3C40579",
       "counts": {
-        "profiles": 20
+        "profiles": 22
       }
     },
     "registry_domain.json": {

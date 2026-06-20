@@ -879,6 +879,36 @@
       ]
     },
     {
+      "id": "windows.token_security.access_check_with_hint",
+      "source": "Reviewed SeAccessCheckWithHint security descriptor validation and Sep access-check helper flow.",
+      "function_names": [
+        "SeAccessCheckWithHint"
+      ],
+      "required_calls": [
+        "SepFilterCheck",
+        "SepMandatoryIntegrityCheck"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "securityDescriptor",
+          "role": "securityDescriptor",
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "suppress_layout_inference": true,
+          "confidence": 0.88,
+          "rename_confidence": 0.91,
+          "accepted_types": [
+            "PSECURITY_DESCRIPTOR",
+            "SECURITY_DESCRIPTOR *",
+            "__int64",
+            "void *"
+          ],
+          "source": "SeAccessCheckWithHint security descriptor parameter"
+        }
+      ]
+    },
+    {
       "id": "windows.token_security.sep_common_access_check_ex",
       "source": "Reviewed SepCommonAccessCheckEx subject-context validation, access-state consumption, granted/status output bundle updates, and SepAccessCheckEx forwarding path.",
       "function_names": [

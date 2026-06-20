@@ -377,9 +377,7 @@ def _domain_identity_for_layout(
 
 
 def _domain_identity_suppresses_layout_inference(domain_identity: DomainIdentityMatch) -> bool:
-    role = str(domain_identity.role or "").strip().lower()
-    structure = str(domain_identity.structure or "").strip().upper()
-    return role == "controlpc" and structure == "VIRTUAL_ADDRESS"
+    return domain_identity.suppress_layout_inference
 
 
 def _domain_identity_comment_from_match(
@@ -434,6 +432,7 @@ def _domain_identity_comment_from_match(
         "profile_source": domain_identity.profile_source,
         "profile_version": domain_identity.profile_version,
         "profile_metadata": dict(domain_identity.profile_metadata),
+        "suppress_layout_inference": domain_identity.suppress_layout_inference,
     }
 
 
@@ -494,6 +493,7 @@ def _domain_identity_role_comment_from_match(domain_identity: DomainIdentityMatc
         "profile_source": domain_identity.profile_source,
         "profile_version": domain_identity.profile_version,
         "profile_metadata": dict(domain_identity.profile_metadata),
+        "suppress_layout_inference": domain_identity.suppress_layout_inference,
         "role_only": True,
     }
 
