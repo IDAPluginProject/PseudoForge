@@ -707,6 +707,58 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("Source Identity Review Queues", markdown)
             self.assertIn("source_identity_recovery_review", markdown)
 
+    def test_replay_plan_marks_merge_evidence_source_identity_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            merge_blocked_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v47: base is a decompiler temporary; base has multiple initializers before layout access; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_stability: Base stability evidence for v47: 5 initializer(s) before first layout access across 3 distinct RHS (v386; v111; sub_140BD6AF8(v111, v139, *((_DWORD *)v111 + 593))); 5 post-access assignment(s), 4 followed by later layout access. Post-access assignment samples: risky RHS v395; v396. Review initializer dominance before enabling canonical rewrite. confidence=0.76",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v47: 5 initializer(s) before first layout access across 3 source candidate(s): v386; v111; sub_140BD6AF8(v111, v139, *((_DWORD *)v111 + 593)). Candidate classes call_result=1, identifier=2. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.71",
+                    "*/",
+                    "__int64 __fastcall MergeBlocked(__int64 source)",
+                    "{",
+                    "  v47 = source;",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v47 + %d);" % (index, 1536 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140BD2A04",
+                name="MergeBlocked",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=merge_blocked_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_base_merge_evidence"])
+            self.assertIn("layout_base_merge_evidence", item["reasons"])
+            self.assertEqual(12, item["metrics"]["body_offset_deref_source_identity_blocked_base_patterns"])
+            self.assertEqual("v47", item["offset_base_counts"]["base_merge_evidence"][0]["base"])
+            self.assertEqual("v47", item["offset_base_counts"]["source_identity_blocked"][0]["base"])
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("MergeBlocked", source_queue[0]["function"])
+            self.assertEqual("v47", source_queue[0]["base"])
+            self.assertEqual(1, source_queue[0]["layout_base_merge_evidence"])
+            self.assertEqual("path_sensitive_merge_review", source_queue[0]["disposition"])
+            self.assertIn("branch/call-result source dominance", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "path_sensitive_merge_review",
+                plan["score_model"]["source_identity_review_queues"]["merge_evidence_disposition"],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("path_sensitive_merge_review", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

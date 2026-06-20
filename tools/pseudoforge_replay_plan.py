@@ -17,6 +17,7 @@ from ida_pseudoforge.core.field_layout_hints import field_layout_comments
 from ida_pseudoforge.version import VERSION, plugin_title
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
+    FIELD_BASE_MERGE_EVIDENCE_RE,
     FIELD_BASE_STABILITY_DETAIL_RE,
     FIELD_BASE_STABILITY_RE,
     FIELD_HOT_CLUSTER_DETAIL_RE,
@@ -92,6 +93,10 @@ DOMAIN_STRUCTURE_IDENTITY_RE = re.compile(
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*):\s+"
     r"role\s+(?P<role>[A-Za-z_][A-Za-z0-9_]*)"
     r".*?\bstructure\s+(?P<structure>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
+FIELD_BASE_MERGE_EVIDENCE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_base_merge_evidence:\s+Base merge evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
 )
 SCALAR_OFFSET_DOMAIN_STRUCTURES = {
     "VIRTUAL_ADDRESS",
@@ -479,6 +484,11 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 continue
             metrics = _coerce_dict(item.get("metrics", {}))
             offset_base_counts = _coerce_dict(item.get("offset_base_counts", {}))
+            base_merge_evidence_bases = {
+                str(entry.get("base", "") or "")
+                for entry in offset_base_counts.get("base_merge_evidence", []) or []
+                if isinstance(entry, dict)
+            }
             projected_hot_cluster_accesses = {
                 str(entry.get("base", "") or ""): int(entry.get("count", 0) or 0)
                 for entry in offset_base_counts.get("projected_hot_cluster", []) or []
@@ -494,6 +504,18 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 count = int(entry.get("count", 0) or 0)
                 if not base or count < SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS:
                     continue
+                has_base_merge_evidence = (
+                    source_kind == "source_identity_blocked"
+                    and base in base_merge_evidence_bases
+                )
+                effective_disposition = disposition
+                effective_recommended_next = recommended_next
+                if has_base_merge_evidence:
+                    effective_disposition = "path_sensitive_merge_review"
+                    effective_recommended_next = (
+                        "Review branch/call-result source dominance before promoting this "
+                        "merged layout base."
+                    )
                 rows.append(
                     {
                         "function": str(item.get("name", "") or ""),
@@ -516,12 +538,14 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         "layout_base_stability": int(
                             metrics.get("layout_base_stability", 0) or 0
                         ),
-                        "disposition": disposition,
-                        "recommended_next": recommended_next,
+                        "layout_base_merge_evidence": 1 if has_base_merge_evidence else 0,
+                        "disposition": effective_disposition,
+                        "recommended_next": effective_recommended_next,
                     }
                 )
         rows.sort(
             key=lambda row: (
+                -int(row.get("layout_base_merge_evidence", 0) or 0),
                 -int(row["offset_derefs"]),
                 -int(row["layout_actionable_offset_derefs"]),
                 -int(row["layout_blockers"]),
@@ -559,6 +583,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     body_label_tokens = len(LABEL_RE.findall(body_text))
     source_identity_blocked_bases = _source_identity_blocked_bases(analysis_text)
     layout_actionable_bases = _layout_actionable_bases(analysis_text)
+    base_merge_evidence_bases = _base_merge_evidence_bases(analysis_text)
     domain_identified_bases = _domain_identified_offset_bases(analysis_text)
     annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
     domain_identified_residual_bases = (
@@ -605,6 +630,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 and base not in annotated_scalar_bases
             )
         }
+    )
+    base_merge_evidence_base_counts = Counter(
+        {base: 1 for base in base_merge_evidence_bases}
     )
     unannotated_base_counts = Counter(
         {
@@ -673,6 +701,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_rewrite_near_ready = len(FIELD_REWRITE_NEAR_READY_RE.findall(analysis_text))
     layout_rewrite_partial_review_only = int(partial_opportunities.get("review_only", 0))
     layout_base_stability = len(FIELD_BASE_STABILITY_RE.findall(analysis_text))
+    layout_base_merge_evidence = len(FIELD_BASE_MERGE_EVIDENCE_RE.findall(analysis_text))
     layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(analysis_text))
     layout_hot_field_clusters = len(FIELD_HOT_CLUSTER_RE.findall(analysis_text))
     registry_domain_profile_hits = len(REGISTRY_DOMAIN_ROLE_RE.findall(analysis_text))
@@ -682,6 +711,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         + layout_rewrite_near_ready
         + layout_rewrite_partial_review_only
         + layout_base_stability
+        + layout_base_merge_evidence
         + layout_stable_base_sources
         + layout_hot_field_clusters
     )
@@ -760,6 +790,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             partial_opportunities.get("validated_partial_applied", 0)
         ),
         "layout_base_stability": layout_base_stability,
+        "layout_base_merge_evidence": layout_base_merge_evidence,
         "layout_stable_base_sources": layout_stable_base_sources,
         "layout_hot_field_clusters": layout_hot_field_clusters,
         "registry_domain_profile_hits": registry_domain_profile_hits,
@@ -788,6 +819,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "source_identity_blocked": _top_counter_items(
                 source_identity_blocked_base_counts,
                 len(source_identity_blocked_base_counts),
+            ),
+            "base_merge_evidence": _top_counter_items(
+                base_merge_evidence_base_counts,
+                len(base_merge_evidence_base_counts),
             ),
             "unannotated": _top_counter_items(
                 unannotated_base_counts,
@@ -943,6 +978,15 @@ def _source_identity_blocked_bases(text: str) -> set[str]:
     return bases
 
 
+def _base_merge_evidence_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_BASE_MERGE_EVIDENCE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
 def _trusted_source_identity_alias_bases(text: str) -> set[str]:
     bases: set[str] = set()
     for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
@@ -1062,6 +1106,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_rewrite_near_ready"] * 8.0
     score += metrics["layout_rewrite_partial_review_only"] * 12.0
     score += metrics["layout_base_stability"] * 8.0
+    score += metrics["layout_base_merge_evidence"] * 6.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["layout_hot_field_clusters"] * 4.0
     score += metrics["registry_domain_profile_hits"] * 3.0
@@ -1122,6 +1167,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_near_ready")
     if metrics["layout_base_stability"]:
         reasons.append("layout_base_stability")
+    if metrics["layout_base_merge_evidence"]:
+        reasons.append("layout_base_merge_evidence")
     if metrics["layout_hot_field_clusters"]:
         reasons.append("layout_hot_field_cluster")
     if metrics["registry_domain_profile_hits"]:
@@ -1200,6 +1247,7 @@ def _score_model() -> dict[str, Any]:
                 "layout_rewrite_near_ready",
                 "layout_rewrite_partial_review_only",
                 "layout_base_stability",
+                "layout_base_merge_evidence",
                 "layout_stable_base_sources",
                 "layout_hot_field_clusters",
                 "registry_domain_profile_hits",
@@ -1260,13 +1308,17 @@ def _score_model() -> dict[str, Any]:
         "source_identity_review_queues": {
             "queue_limit": SOURCE_IDENTITY_QUEUE_LIMIT,
             "min_offset_derefs": SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS,
+            "merge_evidence_disposition": "path_sensitive_merge_review",
             "source_kinds": [
                 "source_identity_blocked",
                 "context",
                 "argument",
                 "bugcheck",
             ],
-            "purpose": "Rank unannotated parameter-like bases before enabling promotion rules.",
+            "purpose": (
+                "Rank unannotated parameter-like bases before enabling promotion rules; "
+                "split branch/call-result merged layout bases into path-sensitive review."
+            ),
         },
     }
 
