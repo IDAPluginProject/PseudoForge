@@ -3970,6 +3970,7 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
         stability = [item for item in comments if item.get("kind") == "inferred_offset_base_stability"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
@@ -3984,6 +3985,11 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
         self.assertEqual([], stability[0]["stable_post_access_reload_rhs"])
         self.assertEqual([], stability[0]["risky_post_access_rhs"])
         self.assertIn("a1; a2", stability[0]["text"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual("sessionSpace", merge[0]["base"])
+        self.assertEqual(["a1", "a2"], merge[0]["source_candidates"])
+        self.assertEqual({"identifier": 2}, merge[0]["candidate_classes"])
+        self.assertIn("branch-merged layout base", merge[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_cast_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:

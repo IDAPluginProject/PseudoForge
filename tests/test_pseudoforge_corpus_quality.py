@@ -37,6 +37,7 @@ CLEANED = r"""
       - inferred_offset_layout: Offset layout hint: v14 has 13 typed dereference(s) across 8 offset(s) +0x8, +0x10, +0x18, +0x20, +0x28, +0x30, +0x38, +0x40; observed types: _BYTE, _DWORD, .... Review as a high-evidence temporary base before inferring a structure. confidence=0.74
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
       - inferred_offset_base_stability: Base stability evidence for v14: 2 initializer(s) before first layout access across 2 distinct RHS (argument2; argument3); 1 post-access assignment(s), 1 followed by later layout access. Post-access assignment samples: relocation-sensitive RHS argument3. Review initializer dominance before enabling canonical rewrite. confidence=0.70
+      - inferred_offset_base_merge_evidence: Base merge evidence for v14: 2 initializer(s) before first layout access across 2 source candidate(s): argument2; argument3. Candidate classes identifier=2. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.70
       - inferred_offset_base_relocation_evidence: Base relocation evidence for v14: trusted source argument2 (direct_argument_alias), 1 post-access assignment(s), 0 stable reload(s), 1 relocation-sensitive assignment(s). relocation-sensitive RHS argument3. Treat as a moving logical layout; keep canonical rewrite blocked until segment or relocation validation is available. confidence=0.70
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v14: base is a decompiler temporary. Review-only aliases remain available. confidence=0.73
       - inferred_offset_generic_base_evidence: Generic base evidence for context: 20 typed dereference(s) across 10 offset(s), blocker profile generic_only. Review-only; rewrite remains blocked until the base identity is trusted. confidence=0.74
@@ -1355,6 +1356,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, report["text_stats"]["inferred_offset_bitfield_aliases"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_stable_base_sources"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_base_stability"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_base_merge_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_base_relocation_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])

@@ -240,6 +240,9 @@ def field_layout_comments(
             stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
             if stability:
                 comments.append(stability)
+                merge = _field_base_merge_evidence_comment(item, blocker, stability)
+                if merge:
+                    comments.append(merge)
                 relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
                 if relocation:
                     comments.append(relocation)
@@ -1264,6 +1267,68 @@ def _field_base_relocation_evidence_comment(
     if identity.get("source_alias"):
         comment["source_alias"] = identity["source_alias"]
     return comment
+
+
+def _field_base_merge_evidence_comment(
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+    stability: dict[str, Any],
+) -> dict[str, Any] | None:
+    blockers = {
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    }
+    if "base has multiple initializers before layout access" not in blockers:
+        return None
+    rhs_values = _trace_rhs_samples(stability.get("distinct_pre_access_rhs", []))
+    if len(rhs_values) < 2:
+        return None
+    rhs_classes = Counter(_base_merge_rhs_class(item) for item in rhs_values)
+    class_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(rhs_classes.items())
+    )
+    source_text = "; ".join(rhs_values)
+    confidence = min(
+        0.76,
+        0.63
+        + min(len(rhs_values), 4) * 0.018
+        + min(int(stability.get("pre_access_assignment_count", 0) or 0), 6) * 0.006,
+    )
+    return {
+        "kind": "inferred_offset_base_merge_evidence",
+        "text": (
+            "Base merge evidence for %s: %d initializer(s) before first layout access across "
+            "%d source candidate(s): %s. Candidate classes %s. "
+            "Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available."
+            % (
+                layout.base,
+                int(stability.get("pre_access_assignment_count", 0) or 0),
+                int(stability.get("distinct_pre_access_rhs_count", 0) or 0),
+                source_text,
+                class_text,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "pre_access_assignment_count": int(stability.get("pre_access_assignment_count", 0) or 0),
+        "distinct_pre_access_rhs_count": int(stability.get("distinct_pre_access_rhs_count", 0) or 0),
+        "source_candidates": rhs_values,
+        "candidate_classes": dict(sorted(rhs_classes.items())),
+    }
+
+
+def _base_merge_rhs_class(value: str) -> str:
+    rhs = _normalize_assignment_rhs(value)
+    if _is_identifier_expression(rhs):
+        return "identifier"
+    if re.match(r"[A-Za-z_][A-Za-z0-9_:]*\s*\(", rhs):
+        return "call_result"
+    if _parse_parameter_subobject_source(rhs) or _parse_parameter_indexed_source(rhs):
+        return "pointer_expression"
+    return "expression"
 
 
 def _trace_rhs_samples(values: Any, limit: int = _MAX_BASE_STABILITY_RHS_SAMPLES) -> list[str]:
