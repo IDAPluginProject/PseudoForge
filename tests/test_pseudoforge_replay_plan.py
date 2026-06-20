@@ -707,6 +707,49 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("Source Identity Review Queues", markdown)
             self.assertIn("source_identity_recovery_review", markdown)
 
+    def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            allocation_sourced_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_stable_base_source: Stable base source for v22: Pool2 (allocation source, allocation_subobject_pointer_alias), 1835 typed dereference(s) across 100 offset(s). Review-only source identity evidence for temp/generic base promotion. confidence=0.68",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v22: base is a decompiler temporary; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
+                    "*/",
+                    "__int64 __fastcall AllocationSourcedTemp(__int64 source)",
+                    "{",
+                    "  Pool2 = ExAllocatePool2(0x100uLL, 4096uLL, 0x746E494Bu);",
+                    "  v18 = (_QWORD *)Pool2;",
+                    "  v22 = (__int64)(v18 + 4);",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v22 + %d);" % (index, 512 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140506ED0",
+                name="AllocationSourcedTemp",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=allocation_sourced_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(0, item["metrics"]["body_offset_deref_source_identity_blocked_base_patterns"])
+            self.assertEqual(12, item["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertNotIn("source_identity_blocked_offset_residue", item["reasons"])
+            self.assertIn("layout_actionable_offset_residue", item["reasons"])
+            self.assertFalse(item["offset_base_counts"]["source_identity_blocked"])
+            self.assertEqual("v22", item["offset_base_counts"]["layout_actionable"][0]["base"])
+            self.assertEqual([], plan["source_identity_review_queues"]["source_identity_blocked"])
+
     def test_replay_plan_treats_hot_field_cluster_as_layout_actionable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
