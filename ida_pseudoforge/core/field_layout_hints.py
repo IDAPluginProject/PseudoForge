@@ -1143,6 +1143,16 @@ def _field_base_stability_comment_from_layout(
         rhs_text = "; ".join(rhs_samples)
         if int(trace.get("distinct_pre_access_rhs_count", 0) or 0) > len(rhs_samples):
             rhs_text += "; ..."
+    stable_reload_rhs_samples = _trace_rhs_samples(trace.get("stable_post_access_reload_rhs", []))
+    risky_rhs_samples = _trace_rhs_samples(trace.get("risky_post_access_rhs", []))
+    reload_text = ""
+    if stable_reload_rhs_samples or risky_rhs_samples:
+        reload_parts = []
+        if stable_reload_rhs_samples:
+            reload_parts.append("stable reload RHS %s" % "; ".join(stable_reload_rhs_samples))
+        if risky_rhs_samples:
+            reload_parts.append("risky RHS %s" % "; ".join(risky_rhs_samples))
+        reload_text = "Post-access assignment samples: %s. " % "; ".join(reload_parts)
     confidence = min(
         0.76,
         0.62
@@ -1154,7 +1164,7 @@ def _field_base_stability_comment_from_layout(
         "text": (
             "Base stability evidence for %s: %d initializer(s) before first layout access across "
             "%d distinct RHS (%s); %d post-access assignment(s), %d followed by later layout access. "
-            "Review initializer dominance before enabling canonical rewrite."
+            "%sReview initializer dominance before enabling canonical rewrite."
             % (
                 layout.base,
                 int(trace.get("pre_access_assignment_count", 0) or 0),
@@ -1162,6 +1172,7 @@ def _field_base_stability_comment_from_layout(
                 rhs_text,
                 int(trace.get("post_access_assignment_count", 0) or 0),
                 int(trace.get("risky_post_access_assignment_count", 0) or 0),
+                reload_text,
             )
         ),
         "confidence": round(confidence, 2),
@@ -1173,7 +1184,18 @@ def _field_base_stability_comment_from_layout(
         "post_access_assignment_count": int(trace.get("post_access_assignment_count", 0) or 0),
         "stable_post_access_reload_count": int(trace.get("stable_post_access_reload_count", 0) or 0),
         "risky_post_access_assignment_count": int(trace.get("risky_post_access_assignment_count", 0) or 0),
+        "stable_post_access_reload_rhs": stable_reload_rhs_samples,
+        "risky_post_access_rhs": risky_rhs_samples,
     }
+
+
+def _trace_rhs_samples(values: Any, limit: int = 4) -> list[str]:
+    samples = [
+        str(item)
+        for item in values or []
+        if str(item)
+    ]
+    return list(dict.fromkeys(samples))[:limit]
 
 
 def _field_rewrite_ready_comment(
@@ -2809,9 +2831,12 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
     stable_rhs = effective_pre_rhs[-1] if effective_pre_rhs else ""
     risky_post_access_count = 0
     stable_post_access_reload_count = 0
+    stable_post_access_reload_rhs: list[str] = []
+    risky_post_access_rhs: list[str] = []
     for assignment in post_access:
         if assignment.group("op") != "=":
             risky_post_access_count += 1
+            risky_post_access_rhs.append(str(assignment.group("op")))
             continue
         rhs = _normalize_assignment_rhs(assignment.group("rhs"))
         if _is_stable_base_reload_rhs(
@@ -2823,9 +2848,11 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
             assignment.start(),
         ):
             stable_post_access_reload_count += 1
+            stable_post_access_reload_rhs.append(rhs)
             continue
         if _next_layout_access_start(text, base, assignment.end()) >= 0:
             risky_post_access_count += 1
+            risky_post_access_rhs.append(rhs)
     return {
         "pre_access_assignment_count": len(pre_access),
         "distinct_pre_access_rhs_count": len(distinct_pre_rhs),
@@ -2833,6 +2860,8 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
         "post_access_assignment_count": len(post_access),
         "stable_post_access_reload_count": stable_post_access_reload_count,
         "risky_post_access_assignment_count": risky_post_access_count,
+        "stable_post_access_reload_rhs": list(dict.fromkeys(stable_post_access_reload_rhs)),
+        "risky_post_access_rhs": list(dict.fromkeys(risky_post_access_rhs)),
     }
 
 
