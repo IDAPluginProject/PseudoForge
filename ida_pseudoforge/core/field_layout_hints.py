@@ -1115,6 +1115,8 @@ def _field_rewrite_blocker_comment(
     if domain_identity:
         comment["domain_effective_mode"] = domain_identity.effective_mode
         comment["domain_profile_id"] = domain_identity.profile_id
+        comment["domain_role"] = domain_identity.role
+        comment["domain_structure"] = domain_identity.structure
         comment["domain_profile_blockers"] = _domain_identity_structured_blockers(domain_identity)
     return comment
 
@@ -1352,7 +1354,8 @@ def _field_rewrite_partial_opportunity_comment(
         "base is a decompiler temporary",
         "base name is generic",
     }
-    if _report_only_domain_partial_rewrite_allowed(blocker):
+    report_only_domain_partial_allowed = _report_only_domain_partial_rewrite_allowed(blocker)
+    if report_only_domain_partial_allowed:
         identity_blockers.add("domain identity profile is report-only")
     non_identity_blockers = [
         item
@@ -1364,6 +1367,8 @@ def _field_rewrite_partial_opportunity_comment(
     if any(item not in _OFFSET_LOCAL_TYPE_BLOCKERS for item in non_identity_blockers):
         return None
     identity = _trusted_partial_layout_rewrite_identity(text, layout)
+    if not identity and report_only_domain_partial_allowed:
+        identity = _report_only_domain_partial_rewrite_identity(layout, blocker)
     if _layout_base_kind(layout.base) != "named" and not identity:
         return None
     partition = _partial_rewrite_offset_partition(layout)
@@ -1445,7 +1450,25 @@ def _field_rewrite_partial_opportunity_comment(
     }
     if source:
         comment["source"] = source
+    for key in ("domain_profile_id", "domain_role", "domain_structure"):
+        if identity.get(key):
+            comment[key] = identity[key]
     return comment
+
+
+def _report_only_domain_partial_rewrite_identity(
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+) -> dict[str, str]:
+    return {
+        "source": layout.base,
+        "source_kind": "domain",
+        "source_provenance": "domain_identity_report_only",
+        "source_rhs_kind": "profile_report_only",
+        "domain_profile_id": str(blocker.get("domain_profile_id", "") or ""),
+        "domain_role": str(blocker.get("domain_role", "") or ""),
+        "domain_structure": str(blocker.get("domain_structure", "") or ""),
+    }
 
 
 def _report_only_domain_partial_rewrite_allowed(blocker: dict[str, Any]) -> bool:
