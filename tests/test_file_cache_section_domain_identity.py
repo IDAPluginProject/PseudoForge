@@ -185,12 +185,75 @@ NTSTATUS __fastcall IopParseDevice(unsigned int *ParseObject, POBJECT_TYPE *Obje
 
         self.assertEqual("ACCESS_STATE", roles["accessState"])
         self.assertEqual("UNICODE_STRING", roles["remainingName"])
+        self.assertEqual("OPEN_PACKET", roles["parseContext"])
         self.assertEqual("IO_PARSE_INFORMATION_OUTPUT", roles["parseInformationOutput"])
         self.assertEqual("FILE_OBJECT", roles["relatedFileObject"])
         self.assertEqual("DEVICE_OBJECT", roles["relatedDeviceObject"])
         self.assertEqual("DRIVER_OBJECT", roles["driverObject"])
         self.assertEqual("FAST_IO_DISPATCH", roles["fastIoDispatch"])
         self.assertEqual("IRP", roles["parseIrp"])
+
+    def test_iop_parse_device_parse_context_open_packet_fields(self) -> None:
+        plan = self._plan(
+            """
+NTSTATUS __fastcall IopParseDevice(unsigned int *ParseObject, POBJECT_TYPE *ObjectType, struct _ACCESS_STATE *AccessState, unsigned __int8 ParseMode, unsigned int Attributes, UNICODE_STRING *RemainingName, const UNICODE_STRING *CompleteName, __int64 a8, __int64 SecurityQos, _QWORD *ParseInformation, _QWORD *ExtensionData)
+{
+  PFILE_OBJECT relatedFileObject;
+  PDEVICE_OBJECT relatedDeviceObject;
+
+  if ( !a8 || *(_WORD *)a8 != 8 || *(_WORD *)(a8 + 2) != 224 )
+    return STATUS_INVALID_PARAMETER;
+  relatedFileObject = *(PFILE_OBJECT *)(a8 + 8);
+  relatedDeviceObject = IoGetRelatedDeviceObject(relatedFileObject);
+  *(_DWORD *)(a8 + 16) = STATUS_SUCCESS;
+  *(_QWORD *)(a8 + 24) = ParseInformation[0];
+  *(_DWORD *)(a8 + 32) = 0;
+  *(_QWORD *)(a8 + 40) = relatedFileObject;
+  *(_DWORD *)(a8 + 64) |= Attributes;
+  *(_WORD *)(a8 + 68) = 0x80;
+  *(_WORD *)(a8 + 70) = 7;
+  *(_DWORD *)(a8 + 84) |= 1;
+  *(_DWORD *)(a8 + 88) = 1;
+  *(_BYTE *)(a8 + 136) = 1;
+  *(_BYTE *)(a8 + 137) = 0;
+  *(_BYTE *)(a8 + 138) = 0;
+  *(_BYTE *)(a8 + 139) = 1;
+  *(_DWORD *)(a8 + 152) |= 0x10;
+  *(_QWORD *)(a8 + 168) = SecurityQos;
+  return (NTSTATUS)relatedDeviceObject;
+}
+"""
+        )
+
+        identity = self._single_identity(
+            plan,
+            "windows.file_cache_section.iop_parse_device",
+            "parseContext",
+        )
+        fields = {item["name"]: item["offset"] for item in identity["fields"]}
+        aliases = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_field_aliases"
+            and item.get("base") == identity["base"]
+        ]
+
+        self.assertEqual("OPEN_PACKET", identity["structure"])
+        self.assertIn(identity["effective_mode"], {"preview-rewrite", "report-only"})
+        self.assertEqual(0x0, fields["Type"])
+        self.assertEqual(0x2, fields["Size"])
+        self.assertEqual(0x8, fields["FileObject"])
+        self.assertEqual(0x10, fields["FinalStatus"])
+        self.assertEqual(0x98, fields["InternalFlags"])
+        self.assertEqual(0xA8, fields["DriverCreateContext"])
+        self.assertTrue(any("FinalStatus=+0x10 NTSTATUS" in item["text"] for item in aliases))
+        self.assertTrue(
+            any(
+                field.get("name") == "DriverCreateContext"
+                for item in aliases
+                for field in item.get("fields", [])
+            )
+        )
 
     def test_section_create_and_map_roles(self) -> None:
         nt_create_plan = self._plan(

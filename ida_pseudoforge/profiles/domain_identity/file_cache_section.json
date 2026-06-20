@@ -562,6 +562,55 @@
           "source": "IopParseDevice remaining name argument"
         },
         {
+          "parameter_index": 7,
+          "rename_to": "parseContext",
+          "role": "parseContext",
+          "structure": "OPEN_PACKET",
+          "mode": "preview-rewrite",
+          "confidence": 0.84,
+          "rename_confidence": 0.92,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "OPEN_PACKET *",
+            "struct _OPEN_PACKET *"
+          ],
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "base_stability",
+            "base_escape"
+          ],
+          "source": "IopParseDevice object manager ParseContext open packet argument guarded by IO_TYPE_OPEN_PACKET and size 0xE0 in ntoskrnl 10.0.26200.8457",
+          "fields": [
+            {"offset": "0x0", "name": "Type", "type": "CSHORT", "size": 2, "confidence": 0.92, "note": "IO_TYPE_OPEN_PACKET discriminator"},
+            {"offset": "0x2", "name": "Size", "type": "CSHORT", "size": 2, "confidence": 0.92, "note": "observed size guard 0xE0"},
+            {"offset": "0x8", "name": "FileObject", "type": "PFILE_OBJECT", "size": 8, "confidence": 0.90},
+            {"offset": "0x10", "name": "FinalStatus", "type": "NTSTATUS", "size": 4, "confidence": 0.90},
+            {"offset": "0x18", "name": "Information", "type": "ULONG_PTR", "size": 8, "confidence": 0.88},
+            {"offset": "0x20", "name": "ParseCheck", "type": "ULONG", "size": 4, "confidence": 0.86},
+            {"offset": "0x28", "name": "RelatedFileObject", "type": "PFILE_OBJECT", "size": 8, "confidence": 0.88},
+            {"offset": "0x38", "name": "AllocationSize", "type": "LARGE_INTEGER", "size": 8, "confidence": 0.82},
+            {"offset": "0x40", "name": "CreateOptions", "type": "ULONG", "size": 4, "confidence": 0.86},
+            {"offset": "0x44", "name": "FileAttributes", "type": "USHORT", "size": 2, "confidence": 0.84},
+            {"offset": "0x46", "name": "ShareAccess", "type": "USHORT", "size": 2, "confidence": 0.84},
+            {"offset": "0x48", "name": "EaBuffer", "type": "PVOID", "size": 8, "confidence": 0.84},
+            {"offset": "0x50", "name": "EaLength", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x54", "name": "Options", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x58", "name": "Disposition", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x78", "name": "CreateFileType", "type": "CREATE_FILE_TYPE", "size": 4, "confidence": 0.82},
+            {"offset": "0x80", "name": "MailslotOrPipeParameters", "type": "PVOID", "size": 8, "confidence": 0.80},
+            {"offset": "0x88", "name": "Override", "type": "BOOLEAN", "size": 1, "confidence": 0.82},
+            {"offset": "0x89", "name": "QueryOnly", "type": "BOOLEAN", "size": 1, "confidence": 0.82},
+            {"offset": "0x8A", "name": "DeleteOnly", "type": "BOOLEAN", "size": 1, "confidence": 0.82},
+            {"offset": "0x8B", "name": "FullAttributes", "type": "BOOLEAN", "size": 1, "confidence": 0.82},
+            {"offset": "0x90", "name": "LocalFileObject", "type": "PVOID", "size": 8, "confidence": 0.78},
+            {"offset": "0x98", "name": "InternalFlags", "type": "ULONG", "size": 4, "confidence": 0.78},
+            {"offset": "0xA8", "name": "DriverCreateContext", "type": "PIO_DRIVER_CREATE_CONTEXT", "size": 8, "confidence": 0.80}
+          ]
+        },
+        {
           "parameter_index": 9,
           "role": "parseInformationOutput",
           "structure": "IO_PARSE_INFORMATION_OUTPUT",
