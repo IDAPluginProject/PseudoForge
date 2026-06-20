@@ -254,6 +254,67 @@ void __noreturn KiIdleLoop()
         self.assertEqual("KTHREAD", idle_roles["idleThread"])
         self.assertEqual("KTHREAD", idle_roles["nextThread"])
 
+    def test_search_for_new_threads_on_target_roles(self) -> None:
+        plan = self._plan(
+            """
+void __fastcall KiSearchForNewThreadsOnTarget(
+        struct _KPRCB *argument0,
+        __int64 argument1,
+        __int64 affinityMask,
+        __int64 rescheduleInput,
+        unsigned __int64 targetProcessor,
+        __int64 flags)
+{
+  _KI_RESCHEDULE_CONTEXT *staticRescheduleContext;
+  unsigned __int64 idleSet;
+  __int64 candidateThread;
+
+  if ( argument0 == (struct _KPRCB *)targetProcessor )
+  {
+    KiSearchForNewThreadsInStandby((__int64)argument0, targetProcessor, argument1, rescheduleInput);
+  }
+  idleSet = affinityMask & *(_QWORD *)(argument1 + 8);
+  candidateThread = *(_QWORD *)(argument1 + 192) + (*(unsigned __int16 *)(argument1 + 136) << 6);
+  KiFindRankBiasedIdleSmtSet(argument1, &idleSet);
+  staticRescheduleContext = argument0->StaticRescheduleContext;
+  KiScheduleThreadToRescheduleContext(&staticRescheduleContext->ProcessorCount, candidateThread, argument1, 0, flags);
+  KiCommitRescheduleContext(&staticRescheduleContext->ProcessorCount, argument0, 0, flags);
+}
+"""
+        )
+
+        roles = self._roles(
+            plan,
+            "windows.trap_processor_state.ki_search_for_new_threads_on_target",
+        )
+        rename_map = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("KPRCB", roles["targetPrcb"])
+        self.assertEqual("KSCHEDULER_SUBNODE", roles["schedulerSubNode"])
+        self.assertEqual("targetPrcb", rename_map["argument0"])
+        self.assertEqual("schedulerSubNode", rename_map["argument1"])
+
+    def test_search_for_new_threads_on_target_requires_reschedule_flow(self) -> None:
+        plan = self._plan(
+            """
+void __fastcall KiSearchForNewThreadsOnTarget(struct _KPRCB *argument0, __int64 argument1)
+{
+  unsigned __int64 idleSet;
+
+  idleSet = *(_QWORD *)(argument1 + 8);
+  KiFindRankBiasedIdleSmtSet(argument1, &idleSet);
+}
+"""
+        )
+
+        self.assertEqual(
+            [],
+            self._profile_identities(
+                plan,
+                "windows.trap_processor_state.ki_search_for_new_threads_on_target",
+            ),
+        )
+
     def test_thread_cycle_accumulation_context_swap_roles(self) -> None:
         plan = self._plan(
             """

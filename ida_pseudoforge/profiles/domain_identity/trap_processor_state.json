@@ -585,6 +585,51 @@
       ]
     },
     {
+      "id": "windows.trap_processor_state.ki_search_for_new_threads_on_target",
+      "source": "Reviewed KiSearchForNewThreadsOnTarget scheduler search path where the target PRCB and scheduler subnode drive standby scanning, rank-biased SMT filtering, and reschedule-context commits.",
+      "function_names": [
+        "KiSearchForNewThreadsOnTarget"
+      ],
+      "required_calls": [
+        "KiSearchForNewThreadsInStandby",
+        "KiFindRankBiasedIdleSmtSet",
+        "KiScheduleThreadToRescheduleContext",
+        "KiCommitRescheduleContext"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "targetPrcb",
+          "role": "targetPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "struct _KPRCB *",
+            "_KPRCB *",
+            "PKPRCB",
+            "__int64"
+          ],
+          "source": "KiSearchForNewThreadsOnTarget target PRCB argument used for deferred dispatch and reschedule context state"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "schedulerSubNode",
+          "role": "schedulerSubNode",
+          "structure": "KSCHEDULER_SUBNODE",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PKSCHEDULER_SUBNODE",
+            "KSCHEDULER_SUBNODE *",
+            "struct _KSCHEDULER_SUBNODE *"
+          ],
+          "source": "KiSearchForNewThreadsOnTarget scheduler subnode argument used for affinity sets and ready queue selection"
+        }
+      ]
+    },
+    {
       "id": "windows.trap_processor_state.ki_start_thread_cycle_accumulation_context_swap",
       "source": "Reviewed KiStartThreadCycleAccumulationContextSwap processor accounting path where the target PRCB and switched thread are used for cycle accumulation, scheduler assist, and deferred preemption APC handling.",
       "function_names": [
