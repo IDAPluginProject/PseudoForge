@@ -183,6 +183,16 @@
         "profiles": 12
       }
     },
+    "domain_identity/exception_unwind.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl exception and unwind role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "537399EB2D9133DAE7936DDA81E6253AB89FA062EA488B11C4D64E79606C8E26",
+      "counts": {
+        "profiles": 1
+      }
+    },
     "domain_identity/handle_table.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl handle table and CID role-only identity profiles",

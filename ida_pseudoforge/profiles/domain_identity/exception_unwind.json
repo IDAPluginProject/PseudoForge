@@ -1,0 +1,40 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "exception-unwind-v1",
+  "source": "PseudoForge reviewed ntoskrnl 10.0.26200.8457 exception and unwind role-only identity profiles; no private field offsets.",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "profiles": [
+    {
+      "id": "windows.exception_unwind.rtlpx_virtual_unwind",
+      "source": "Reviewed RtlpxVirtualUnwind x64 unwind flow where parameter 2 is the control PC/instruction pointer, not a structure context base.",
+      "function_names": [
+        "RtlpxVirtualUnwind"
+      ],
+      "required_call_regex": [
+        "\\bRtl(?:pUnwindOpSlots|pUnwindEpilogue|pUnwindPrologue|LocateExtendedFeature|RaiseStatus)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 2,
+          "rename_to": "controlPc",
+          "role": "controlPc",
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "rename_confidence": 0.92,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "RtlpxVirtualUnwind control PC argument used for image-relative unwind and epilogue instruction-byte checks"
+        }
+      ]
+    }
+  ]
+}

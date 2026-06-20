@@ -166,10 +166,16 @@ def field_layout_comments(
 ) -> list[dict[str, Any]]:
     layouts = _collect_layouts(text or "")
     profile_matches = _domain_identity_matches_for_layouts(text or "", layouts, profile_context)
+    suppressed_layout_bases = {
+        base
+        for base, match in profile_matches.items()
+        if _domain_identity_suppresses_layout_inference(match)
+    }
     candidates = [
         item
         for item in layouts.values()
-        if _has_enough_layout_evidence(item) or item.base in profile_matches
+        if item.base not in suppressed_layout_bases
+        and (_has_enough_layout_evidence(item) or item.base in profile_matches)
     ]
     candidates.sort(key=lambda item: (-len(item.offsets), -item.access_count, item.base.lower()))
     comments = []
@@ -245,7 +251,9 @@ def field_layout_comments(
     hot_clusters = [
         item
         for item in layouts.values()
-        if item.base not in selected_bases and _has_hot_field_cluster_evidence(item)
+        if item.base not in selected_bases
+        and item.base not in suppressed_layout_bases
+        and _has_hot_field_cluster_evidence(item)
     ]
     hot_clusters.sort(
         key=lambda item: (
@@ -366,6 +374,12 @@ def _domain_identity_for_layout(
         non_identity_blockers=blockers,
         profile_context=profile_context,
     )
+
+
+def _domain_identity_suppresses_layout_inference(domain_identity: DomainIdentityMatch) -> bool:
+    role = str(domain_identity.role or "").strip().lower()
+    structure = str(domain_identity.structure or "").strip().upper()
+    return role == "controlpc" and structure == "VIRTUAL_ADDRESS"
 
 
 def _domain_identity_comment_from_match(
