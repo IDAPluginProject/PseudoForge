@@ -504,6 +504,9 @@ def _filter_shadowed_rename_warnings(
         duplicate_target = _skipped_duplicate_target_warning(warning)
         if duplicate_target and duplicate_target in accepted_targets:
             continue
+        builtin_shadowed_old = _builtin_shadowed_rename_warning_old(warning)
+        if builtin_shadowed_old and builtin_shadowed_old in accepted_olds:
+            continue
         result.append(warning)
     return result
 
@@ -523,3 +526,18 @@ def _skipped_duplicate_target_warning(warning: str) -> str:
     if not match:
         return ""
     return match.group("new")
+
+
+def _builtin_shadowed_rename_warning_old(warning: str) -> str:
+    match = re.match(
+        r"^Deterministic rule emission rejected:\s+"
+        r"(?P<rule_id>builtin\.[A-Za-z0-9_.-]+):\s+"
+        r"rename conflict on\s+"
+        r"(?P<old>[A-Za-z_][A-Za-z0-9_]*)\s+"
+        r"won by\s+"
+        r"(?P<winner_rule_id>builtin\.[A-Za-z0-9_.-]+)$",
+        str(warning),
+    )
+    if not match:
+        return ""
+    return match.group("old")

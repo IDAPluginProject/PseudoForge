@@ -168,6 +168,64 @@ __int64 __fastcall BuiltinCallArgReportSample(void *NotifyRoutine)
         self.assertIn("PspSetCreateProcessNotifyRoutine(NotifyRoutine, FALSE);", rendered)
         self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
 
+    def test_builtin_shadowed_rename_conflicts_do_not_emit_plan_warnings(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall BuiltinShadowedRenameConflictSample()
+{
+  struct _EPROCESS *Process;
+  char PreviousMode;
+
+  Process = KeGetCurrentThread()->ApcState.Process;
+  PreviousMode = KeGetCurrentThread()->PreviousMode;
+  return Process != 0 && PreviousMode == 0;
+}
+"""
+        )
+        plan = build_clean_plan(capture)
+        applied = {(item.old, item.new) for item in plan.renames if item.apply}
+
+        self.assertIn(("Process", "currentProcess"), applied)
+        self.assertIn(("PreviousMode", "previousMode"), applied)
+        self.assertTrue(plan.rule_report["rejected_emissions"])
+        self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
+
+    def test_project_rename_conflicts_still_emit_plan_warnings(self) -> None:
+        sample = """
+__int64 __fastcall ProjectRenameConflictSample(int a1)
+{
+  int v1;
+
+  v1 = a1;
+  return v1;
+}
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            rules_dir = temp_path / "pseudoforge_rules"
+            rules_dir.mkdir()
+            (rules_dir / "rename_conflict.json").write_text(
+                json.dumps(
+                    _rule_pack(
+                        [
+                            _rename_rule(
+                                rule_id="test.rename.low",
+                                new_name="lowName",
+                            ),
+                            _rename_rule(
+                                rule_id="test.rename.high",
+                                new_name="highName",
+                            ),
+                        ]
+                    )
+                ),
+                encoding="utf-8",
+            )
+            capture = capture_from_pseudocode(sample, source_path=str(temp_path / "sample.cpp"))
+            plan = build_clean_plan(capture, rule_dirs=[rules_dir])
+
+        self.assertTrue(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
+
     def test_rule_rename_source_cannot_spoof_kernel_status(self) -> None:
         sample = """
 __int64 __fastcall RuleSourceSpoofSample()
