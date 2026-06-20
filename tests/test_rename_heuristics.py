@@ -5,8 +5,9 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import LocalVariable
+from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable, RenameSuggestion
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.core.validation import validate_renames
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 
 
@@ -1106,6 +1107,71 @@ __int64 __fastcall TextLvarMergeSample()
         rename_map = {item.old: item.new for item in plan.renames if item.apply}
 
         self.assertNotIn("started", rename_map)
+
+    def test_trusted_duplicate_local_rename_targets_get_stable_suffixes(self) -> None:
+        capture = FunctionCapture(
+            ea=0x140001000,
+            name="DuplicateRenameSuffixSample",
+            prototype="__int64 __fastcall DuplicateRenameSuffixSample()",
+            pseudocode="""
+__int64 __fastcall DuplicateRenameSuffixSample()
+{
+  __int64 v5;
+  __int64 v6;
+
+  return v5 + v6;
+}
+""",
+            lvars=[
+                LocalVariable("v5", "__int64", False, 0),
+                LocalVariable("v6", "__int64", False, 1),
+            ],
+        )
+        suggestions = [
+            RenameSuggestion("lvar", "v5", "previousLink", 0.88, "kernel-list", "first blink"),
+            RenameSuggestion("lvar", "v6", "previousLink", 0.88, "kernel-list", "second blink"),
+        ]
+
+        accepted, warnings = validate_renames(capture, suggestions)
+        rename_map = {item.old: item.new for item in accepted if item.apply}
+        suffixed = next(item for item in accepted if item.old == "v6")
+
+        self.assertEqual({"v5": "previousLink", "v6": "previousLink2"}, rename_map)
+        self.assertLessEqual(suffixed.confidence, 0.86)
+        self.assertIn("duplicate target disambiguated from previousLink", suffixed.evidence)
+        self.assertNotIn("Skipped duplicate target previousLink", warnings)
+
+    def test_untrusted_duplicate_local_rename_targets_remain_blocked(self) -> None:
+        capture = FunctionCapture(
+            ea=0x140001000,
+            name="DuplicateRenameBlockSample",
+            prototype="__int64 __fastcall DuplicateRenameBlockSample()",
+            pseudocode="""
+__int64 __fastcall DuplicateRenameBlockSample()
+{
+  __int64 v5;
+  __int64 v6;
+
+  return v5 + v6;
+}
+""",
+            lvars=[
+                LocalVariable("v5", "__int64", False, 0),
+                LocalVariable("v6", "__int64", False, 1),
+            ],
+        )
+        suggestions = [
+            RenameSuggestion("lvar", "v5", "semanticValue", 0.88, "rule", "first candidate"),
+            RenameSuggestion("lvar", "v6", "semanticValue", 0.88, "rule", "second candidate"),
+        ]
+
+        accepted, warnings = validate_renames(capture, suggestions)
+        applied = {item.old: item.new for item in accepted if item.apply}
+        blocked = next(item for item in accepted if item.old == "v6")
+
+        self.assertEqual({"v5": "semanticValue"}, applied)
+        self.assertFalse(blocked.apply)
+        self.assertIn("Skipped duplicate target semanticValue", warnings)
 
 
 if __name__ == "__main__":

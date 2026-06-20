@@ -146,6 +146,11 @@ OBJECT_STYLE_RENAME_EXACT_NAMES = {
     "threadobject",
 }
 NTSTATUS_RETURN_KEYS = {str(key) for key in NTSTATUS_RETURN_MAP}
+DISAMBIGUATED_DUPLICATE_TARGET_SOURCES = {
+    "kernel-list",
+    "kernel-pool",
+    "pattern",
+}
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -261,8 +266,18 @@ def validate_renames(
             item.apply = False
             warnings.append(f"Skipped reused dispatcher rename {item.old}->{item.new}")
         elif item.new in used_new_names:
-            item.apply = False
-            warnings.append(f"Skipped duplicate target {item.new}")
+            replacement = _duplicate_target_replacement(item, known_names, used_new_names)
+            if replacement:
+                original_new = item.new
+                item.new = replacement
+                item.confidence = min(item.confidence, 0.86)
+                item.evidence = _append_evidence(
+                    item.evidence,
+                    "duplicate target disambiguated from %s" % original_new,
+                )
+            else:
+                item.apply = False
+                warnings.append(f"Skipped duplicate target {item.new}")
 
         if item.apply:
             used_new_names.add(item.new)
@@ -442,6 +457,28 @@ def _rename_target_available(
     used_new_names: set[str],
 ) -> bool:
     return bool(name) and name not in known_names and name not in used_new_names
+
+
+def _duplicate_target_replacement(
+    item: RenameSuggestion,
+    known_names: set[str],
+    used_new_names: set[str],
+) -> str:
+    if not item.apply:
+        return ""
+    if (item.kind or "").lower() not in LLM_LOCAL_RENAME_KINDS:
+        return ""
+    if (item.source or "").lower() not in DISAMBIGUATED_DUPLICATE_TARGET_SOURCES:
+        return ""
+    if item.confidence < 0.84:
+        return ""
+    if not is_valid_c_identifier(item.new):
+        return ""
+    for index in range(2, 100):
+        candidate = "%s%d" % (item.new, index)
+        if is_valid_c_identifier(candidate) and _rename_target_available(candidate, known_names, used_new_names):
+            return candidate
+    return ""
 
 
 def _format_status_carrier_evidence(evidence: list[str]) -> str:
