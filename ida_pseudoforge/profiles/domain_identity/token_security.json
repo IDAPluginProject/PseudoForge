@@ -1010,19 +1010,19 @@
             },
             {
               "offset": "0x18",
-              "name": "privilegeSetOutput",
-              "type": "PPRIVILEGE_SET",
+              "name": "accessReasonOutput",
+              "type": "PACCESS_REASONS",
               "size": 8,
-              "confidence": 0.70,
-              "source": "SepCommonAccessCheckEx forwards this output slot into SepAccessCheckEx"
+              "confidence": 0.74,
+              "source": "SepCommonAccessCheckEx forwards this access-reason buffer into AuthzBasepMergeAccessReasons"
             },
             {
               "offset": "0x20",
-              "name": "accessReasonOutput",
-              "type": "PVOID",
+              "name": "privilegeSetOutput",
+              "type": "PPRIVILEGE_SET *",
               "size": 8,
-              "confidence": 0.66,
-              "source": "SepCommonAccessCheckEx forwards this auxiliary output slot into SepAccessCheckEx"
+              "confidence": 0.72,
+              "source": "SepCommonAccessCheckEx initializes this optional privilege-set output pointer slot"
             }
           ]
         },

@@ -158,8 +158,8 @@ BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectConte
   __int64 genericMapping;
   __int64 grantedAccessOutput;
   __int64 accessStatusOutput;
-  __int64 privilegeSetOutput;
   __int64 accessReasonOutput;
+  __int64 privilegeSetOutput;
 
   if ( !SubjectContext || !a3 || !a4 )
   {
@@ -172,11 +172,12 @@ BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectConte
   }
   grantedAccessOutput = *(_QWORD *)(a4 + 8);
   accessStatusOutput = *(_QWORD *)(a4 + 16);
-  privilegeSetOutput = *(_QWORD *)(a4 + 24);
-  accessReasonOutput = *(_QWORD *)(a4 + 32);
+  accessReasonOutput = *(_QWORD *)(a4 + 24);
+  privilegeSetOutput = *(_QWORD *)(a4 + 32);
   genericMapping = *(_QWORD *)(a3 + 32);
   *(_DWORD *)grantedAccessOutput = *(_DWORD *)(a3 + 16) | *(_DWORD *)(a3 + 20);
   *(_DWORD *)accessStatusOutput = STATUS_ACCESS_DENIED;
+  AuthzBasepMergeAccessReasons(accessReasonOutput, 0, 0);
   SepAccessCheckEx(
       *(_QWORD *)(*(_QWORD *)(a3 + 8) + 8),
       0,
@@ -189,7 +190,7 @@ BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectConte
       *(_DWORD *)(a3 + 20),
       a6,
       grantedAccessOutput,
-      accessReasonOutput,
+      0,
       accessStatusOutput,
       privilegeSetOutput,
       0,
@@ -228,6 +229,7 @@ BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectConte
             if item.get("kind") == "inferred_offset_rewrite_blockers"
             and item.get("base") in {"accessState", "accessCheckOutputs"}
         ]
+        blocker_bases = {str(item["base"]) for item in blockers}
 
         self.assertEqual("SECURITY_SUBJECT_CONTEXT", roles["subjectContext"])
         self.assertEqual("BOOLEAN", roles["subjectContextLocked"])
@@ -246,9 +248,11 @@ BOOLEAN __fastcall SepCommonAccessCheckEx(PSECURITY_SUBJECT_CONTEXT SubjectConte
         self.assertEqual("PGENERIC_MAPPING", access_state_fields["genericMapping"]["type"])
         self.assertEqual("PACCESS_MASK", output_fields["grantedAccessOutput"]["type"])
         self.assertEqual("PNTSTATUS", output_fields["accessStatusOutput"]["type"])
-        self.assertEqual("PPRIVILEGE_SET", output_fields["privilegeSetOutput"]["type"])
+        self.assertEqual("PACCESS_REASONS", output_fields["accessReasonOutput"]["type"])
+        self.assertEqual("PPRIVILEGE_SET *", output_fields["privilegeSetOutput"]["type"])
         self.assertEqual("report-only", access_state_identity["effective_mode"])
         self.assertEqual("report-only", outputs_identity["effective_mode"])
+        self.assertEqual({"accessState", "accessCheckOutputs"}, blocker_bases)
         self.assertTrue(
             all("domain identity profile is report-only" in item["blockers"] for item in blockers)
         )
