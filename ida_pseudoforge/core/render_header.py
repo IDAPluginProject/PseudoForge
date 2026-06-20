@@ -13,6 +13,7 @@ from ida_pseudoforge.core.render_warnings import format_warning
 
 MAX_KERNEL_INSIGHT_COMMENTS = 20
 CRITICAL_KERNEL_INSIGHT_KINDS = {
+    "inferred_offset_bitfield_aliases",
     "inferred_offset_rewrite_partial_opportunity",
     "inferred_offset_rewrite_preview",
     "inferred_offset_rewrite_ready",

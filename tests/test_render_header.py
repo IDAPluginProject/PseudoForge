@@ -141,6 +141,48 @@ class RenderHeaderTests(unittest.TestCase):
         self.assertIn("inferred_offset_rewrite_ready", header)
         self.assertIn("inferred_offset_rewrite_preview", header)
 
+    def test_render_header_preserves_bitfield_alias_comments_after_limit(self) -> None:
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="Sample",
+            input_fingerprint="fp",
+        )
+        for index in range(MAX_KERNEL_INSIGHT_COMMENTS + 3):
+            plan.comments.append(
+                {
+                    "kind": "test_comment_%d" % index,
+                    "text": "comment %d" % index,
+                    "confidence": 0.5,
+                }
+            )
+        plan.comments.append(
+            {
+                "kind": "inferred_offset_bitfield_aliases",
+                "text": (
+                    "Bitfield aliases for parseContext: InternalFlags=+0x98 "
+                    "bitfield_single_bit masks=0x8."
+                ),
+                "confidence": 0.74,
+            }
+        )
+        capture = FunctionCapture(ea=0x140001000, name="Sample", pseudocode="")
+
+        header = "\n".join(
+            render_header_lines(
+                capture,
+                plan,
+                {},
+                [],
+                set(),
+                "0.1.0",
+            )
+        )
+
+        self.assertIn("test_comment_19", header)
+        self.assertNotIn("test_comment_20", header)
+        self.assertIn("inferred_offset_bitfield_aliases", header)
+        self.assertIn("InternalFlags=+0x98", header)
+
 
 if __name__ == "__main__":
     unittest.main()
