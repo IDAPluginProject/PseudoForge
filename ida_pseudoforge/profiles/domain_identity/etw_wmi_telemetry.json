@@ -574,6 +574,50 @@
       ]
     },
     {
+      "id": "windows.etw_wmi_telemetry.etwp_log_context_swap_event",
+      "source": "Reviewed EtwpLogContextSwapEvent context-switch trace packing where the previous and next thread arguments feed EtwpCCSwapTrace and KTHREAD-based stack/LBR dispatch.",
+      "function_names": [
+        "EtwpLogContextSwapEvent"
+      ],
+      "required_calls": [
+        "EtwpCCSwapTrace",
+        "EtwpStackTraceDispatcher",
+        "EtwpTraceLastBranchRecord"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 1,
+          "rename_to": "oldThread",
+          "role": "oldThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKTHREAD",
+            "struct _KTHREAD *",
+            "_KTHREAD *"
+          ],
+          "source": "EtwpLogContextSwapEvent previous thread argument used for context-switch event fields"
+        },
+        {
+          "parameter_index": 2,
+          "rename_to": "newThread",
+          "role": "newThread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PKTHREAD",
+            "struct _KTHREAD *",
+            "_KTHREAD *"
+          ],
+          "source": "EtwpLogContextSwapEvent next thread argument forwarded to stack, context-register, and last-branch trace dispatchers"
+        }
+      ]
+    },
+    {
       "id": "windows.etw_wmi_telemetry.nt_trace_event",
       "source": "Reviewed NtTraceEvent user/system trace dispatch, logger handle/object reference, trace message, and logger open flow.",
       "function_names": [

@@ -193,6 +193,65 @@ NTSTATUS __fastcall EtwpTraceMessageVa(unsigned __int64 traceHandle, __int64 mes
         self.assertEqual("ETHREAD", trace_va_roles["currentThread"])
         self.assertEqual("NTSTATUS", trace_va_roles["status"])
 
+    def test_log_context_swap_event_thread_roles(self) -> None:
+        plan = self._plan(
+            """
+char __fastcall EtwpLogContextSwapEvent(__int64 loggerSet, __int64 argument1, __int64 argument2)
+{
+  LARGE_INTEGER LoggerTimeStamp;
+  __int64 loggerContext;
+  __int64 eventBuffer;
+
+  loggerContext = *(_QWORD *)(loggerSet + 712);
+  LoggerTimeStamp.QuadPart = 0;
+  eventBuffer = 0;
+  if ( argument1 )
+  {
+    *(_DWORD *)(eventBuffer + 4) = *(_DWORD *)(argument1 + 1296);
+    *(_BYTE *)(eventBuffer + 9) = *(_BYTE *)(argument1 + 195);
+    *(_BYTE *)(eventBuffer + 13) ^= (*(_BYTE *)(argument1 + 391) ^ *(_BYTE *)(eventBuffer + 13)) & 1;
+  }
+  if ( argument2 )
+  {
+    *(_DWORD *)eventBuffer = *(_DWORD *)(argument2 + 1296);
+    *(_BYTE *)(eventBuffer + 8) = *(_BYTE *)(argument2 + 195);
+    *(_BYTE *)(eventBuffer + 11) = *(_BYTE *)(argument2 + 518);
+    EtwpStackTraceDispatcher(loggerContext, (unsigned int *)&LoggerTimeStamp, (_KTHREAD *)argument2, 0x505A05u);
+    EtwpTraceLastBranchRecord(loggerContext, &LoggerTimeStamp, (struct _KTHREAD *)argument2, 5265925);
+  }
+  return EtwpCCSwapTrace(argument1, argument2, *(unsigned int *)(loggerContext + 200), &LoggerTimeStamp);
+}
+"""
+        )
+
+        roles = self._roles(plan, "windows.etw_wmi_telemetry.etwp_log_context_swap_event")
+        rename_map = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("KTHREAD", roles["oldThread"])
+        self.assertEqual("KTHREAD", roles["newThread"])
+        self.assertEqual("oldThread", rename_map["argument1"])
+        self.assertEqual("newThread", rename_map["argument2"])
+
+    def test_log_context_swap_event_requires_thread_trace_dispatch(self) -> None:
+        plan = self._plan(
+            """
+char __fastcall EtwpLogContextSwapEvent(__int64 loggerSet, __int64 argument1, __int64 argument2)
+{
+  LARGE_INTEGER LoggerTimeStamp;
+  __int64 loggerContext;
+
+  loggerContext = *(_QWORD *)(loggerSet + 712);
+  LoggerTimeStamp.QuadPart = 0;
+  return EtwpCCSwapTrace(argument1, argument2, *(unsigned int *)(loggerContext + 200), &LoggerTimeStamp);
+}
+"""
+        )
+
+        self.assertEqual(
+            [],
+            self._profile_identities(plan, "windows.etw_wmi_telemetry.etwp_log_context_swap_event"),
+        )
+
     def test_trace_event_control_and_callback_roles(self) -> None:
         trace_event_plan = self._plan(
             """
