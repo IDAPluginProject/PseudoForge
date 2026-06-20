@@ -9,6 +9,35 @@
   },
   "profiles": [
     {
+      "id": "windows.memory_manager.resolve_page_file_fault",
+      "source": "Reviewed MiResolvePageFileFault page-file fault context flow through MiComputeFaultNode, MiAllocateInPageSupport, and fault charge return paths.",
+      "function_names": [
+        "MiResolvePageFileFault"
+      ],
+      "required_calls": [
+        "MiComputeFaultNode",
+        "MiAllocateInPageSupport",
+        "MiReturnFaultCharges"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "pageFileFaultContext",
+          "role": "pageFileFaultContext",
+          "structure": "MI_PAGE_FILE_FAULT_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "rename_confidence": 0.90,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "MiResolvePageFileFault first parameter carries page-file fault state across MiComputeFaultNode and in-page support allocation"
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.locate_address",
       "source": "Reviewed MiLocateAddress current-process VAD cache/tree lookup by virtual address.",
       "function_names": [

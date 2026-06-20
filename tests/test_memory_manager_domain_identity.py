@@ -308,6 +308,50 @@ __int64 __fastcall MiLockVadRange(__int64 targetProcess, unsigned __int64 rangeS
         self.assertEqual("MMVAD", range_roles["firstVad"])
         self.assertEqual("MMVAD", range_roles["nextVad"])
 
+    def test_resolve_page_file_fault_context_role_requires_fault_callees(self) -> None:
+        without_callees = self._plan(
+            """
+__int64 MiResolvePageFileFault(__int64 a1, unsigned __int64 a2)
+{
+  return *(_QWORD *)a1 + a2;
+}
+"""
+        )
+        with_callees = self._plan(
+            """
+__int64 MiResolvePageFileFault(__int64 a1, unsigned __int64 a2)
+{
+  __int64 address;
+  __int64 support;
+
+  address = *(_QWORD *)(a1 + 88);
+  MiComputeFaultNode(a1, 0, &address, 0);
+  support = MiAllocateInPageSupport(a2, 0, 0, 0, a1);
+  MiReturnFaultCharges(0, 0, 0);
+  return support + address;
+}
+"""
+        )
+
+        self.assertFalse(
+            any(
+                item["profile_id"] == "windows.memory_manager.resolve_page_file_fault"
+                for item in self._identities(without_callees)
+            )
+        )
+
+        rename_map = {item.old: item.new for item in with_callees.renames if item.apply}
+        identity = self._single_identity(
+            with_callees,
+            "windows.memory_manager.resolve_page_file_fault",
+            role="pageFileFaultContext",
+        )
+
+        self.assertEqual("pageFileFaultContext", rename_map["a1"])
+        self.assertEqual("MI_PAGE_FILE_FAULT_CONTEXT", identity["structure_name"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual([], identity["fields"])
+
     def test_report_only_vad_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """
