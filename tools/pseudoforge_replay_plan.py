@@ -50,6 +50,8 @@ GENERIC_RESIDUE_OVERFLOW_WEIGHT = 0.002
 OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT = 120
 OFFSET_DEREF_LAYOUT_WEIGHT = 2.0
 OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT = 0.25
+OFFSET_DEREF_DOMAIN_IDENTITY_WEIGHT = 1.5
+OFFSET_DEREF_DOMAIN_IDENTITY_OVERFLOW_WEIGHT = 0.15
 OFFSET_DEREF_NO_LAYOUT_WEIGHT = 1.0
 OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
@@ -247,6 +249,7 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
     lines = ["", "## Offset Base Breakdown", ""]
     for title, key in (
         ("Top layout-actionable bases", "top_layout_actionable_bases"),
+        ("Top domain-identified residual bases", "top_domain_identified_bases"),
         ("Top unannotated bases", "top_unannotated_bases"),
         ("Top unannotated argument-identity bases", "top_unannotated_argument_identity_bases"),
         ("Top unannotated context bases", "top_unannotated_context_bases"),
@@ -340,6 +343,7 @@ def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str
 
 def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     layout_actionable: Counter[str] = Counter()
+    domain_identified: Counter[str] = Counter()
     unannotated: Counter[str] = Counter()
     unannotated_argument_identity: Counter[str] = Counter()
     unannotated_context: Counter[str] = Counter()
@@ -355,6 +359,7 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         offset_base_counts = _coerce_dict(item.get("offset_base_counts", {}))
         for key, counter in (
             ("layout_actionable", layout_actionable),
+            ("domain_identified", domain_identified),
             ("unannotated", unannotated),
             ("unannotated_argument_identity", unannotated_argument_identity),
             ("unannotated_context", unannotated_context),
@@ -378,6 +383,10 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "top_layout_actionable_bases": _top_counter_items(
             layout_actionable,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_domain_identified_bases": _top_counter_items(
+            domain_identified,
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
         "top_unannotated_bases": _top_counter_items(
@@ -515,16 +524,27 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     artifacts = _coerce_dict(summary.get("artifacts", {}))
     warnings = _read_warnings(_artifact_path(summary_path, artifacts, "warnings"))
     cleaned_text = _read_text(_artifact_path(summary_path, artifacts, "cleaned_pseudocode"))
+    analysis_text = _analysis_text_with_rename_map_comments(
+        cleaned_text,
+        _artifact_path(summary_path, artifacts, "rename_map"),
+    )
     body_text = _strip_pseudoforge_header(cleaned_text)
     warning_classes = Counter(_classify_warning(item) for item in warnings)
     rename_candidates = _int_value(summary.get("rename_candidates"), 0)
     applied_renames = _int_value(summary.get("renames"), 0)
-    partial_opportunities = _layout_partial_opportunity_counts(cleaned_text)
+    partial_opportunities = _layout_partial_opportunity_counts(analysis_text)
     body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
     body_label_tokens = len(LABEL_RE.findall(body_text))
-    layout_actionable_bases = _layout_actionable_bases(cleaned_text)
-    annotated_scalar_bases = _annotated_scalar_offset_bases(cleaned_text)
-    projected_hot_field_clusters = _projected_hot_field_clusters(body_text, layout_actionable_bases)
+    layout_actionable_bases = _layout_actionable_bases(analysis_text)
+    domain_identified_bases = _domain_identified_offset_bases(analysis_text)
+    annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
+    domain_identified_residual_bases = (
+        domain_identified_bases - layout_actionable_bases - annotated_scalar_bases
+    )
+    projected_hot_field_clusters = _projected_hot_field_clusters(
+        analysis_text,
+        layout_actionable_bases,
+    )
     projected_hot_field_cluster_base_counts = Counter(
         {
             str(item.get("base", "") or "unknown"): _int_value(item.get("access_count"), 0)
@@ -544,14 +564,26 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     annotated_scalar_base_counts = Counter(
         {base: count for base, count in offset_base_counts.items() if base in annotated_scalar_bases}
     )
+    domain_identified_base_counts = Counter(
+        {
+            base: count
+            for base, count in offset_base_counts.items()
+            if base in domain_identified_residual_bases
+        }
+    )
     unannotated_base_counts = Counter(
         {
             base: count
             for base, count in offset_base_counts.items()
-            if base not in layout_actionable_bases and base not in annotated_scalar_bases
+            if (
+                base not in layout_actionable_bases
+                and base not in annotated_scalar_bases
+                and base not in domain_identified_residual_bases
+            )
         }
     )
     annotated_scalar_base_offset_derefs = sum(annotated_scalar_base_counts.values())
+    domain_identified_base_offset_derefs = sum(domain_identified_base_counts.values())
     non_layout_base_offset_derefs = sum(unannotated_base_counts.values())
     unannotated_temp_base_counts = Counter(
         {base: count for base, count in unannotated_base_counts.items() if _is_temp_offset_base(base)}
@@ -594,14 +626,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     )
     unmatched_base_offset_derefs = max(0, body_offset_derefs - simple_base_offset_derefs)
     bulk_noise_offset_derefs = non_layout_base_offset_derefs + unmatched_base_offset_derefs
-    actionable_offset_derefs = layout_actionable_base_offset_derefs + bulk_noise_offset_derefs
-    layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text))
-    layout_rewrite_near_ready = len(FIELD_REWRITE_NEAR_READY_RE.findall(cleaned_text))
+    actionable_offset_derefs = (
+        layout_actionable_base_offset_derefs
+        + domain_identified_base_offset_derefs
+        + bulk_noise_offset_derefs
+    )
+    layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(analysis_text))
+    layout_rewrite_near_ready = len(FIELD_REWRITE_NEAR_READY_RE.findall(analysis_text))
     layout_rewrite_partial_review_only = int(partial_opportunities.get("review_only", 0))
-    layout_base_stability = len(FIELD_BASE_STABILITY_RE.findall(cleaned_text))
-    layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(cleaned_text))
-    layout_hot_field_clusters = len(FIELD_HOT_CLUSTER_RE.findall(cleaned_text))
-    registry_domain_profile_hits = len(REGISTRY_DOMAIN_ROLE_RE.findall(cleaned_text))
+    layout_base_stability = len(FIELD_BASE_STABILITY_RE.findall(analysis_text))
+    layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(analysis_text))
+    layout_hot_field_clusters = len(FIELD_HOT_CLUSTER_RE.findall(analysis_text))
+    registry_domain_profile_hits = len(REGISTRY_DOMAIN_ROLE_RE.findall(analysis_text))
     projected_hot_field_cluster_accesses = sum(projected_hot_field_cluster_base_counts.values())
     layout_actionability_signals = (
         layout_rewrite_blockers
@@ -639,6 +675,8 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             layout_actionable_base_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
         ),
         "body_offset_deref_layout_actionable_bases": len(layout_actionable_base_counts),
+        "body_offset_deref_domain_identified_base_patterns": domain_identified_base_offset_derefs,
+        "body_offset_deref_domain_identified_bases": len(domain_identified_base_counts),
         "body_offset_deref_annotated_scalar_base_patterns": annotated_scalar_base_offset_derefs,
         "body_offset_deref_annotated_scalar_bases": len(annotated_scalar_base_counts),
         "body_offset_deref_non_layout_base_patterns": non_layout_base_offset_derefs,
@@ -699,6 +737,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 layout_actionable_base_counts,
                 len(layout_actionable_base_counts),
             ),
+            "domain_identified": _top_counter_items(
+                domain_identified_base_counts,
+                len(domain_identified_base_counts),
+            ),
             "unannotated": _top_counter_items(
                 unannotated_base_counts,
                 len(unannotated_base_counts),
@@ -738,6 +780,36 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         },
         "summary_path": str(summary_path),
     }
+
+
+def _analysis_text_with_rename_map_comments(cleaned_text: str, rename_map_path: Path) -> str:
+    rename_map = _coerce_dict(_read_json(rename_map_path))
+    comments = rename_map.get("comments", [])
+    if not isinstance(comments, list) or not comments:
+        return cleaned_text
+    merged_lines: list[str] = []
+    existing_text = cleaned_text or ""
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        kind = str(comment.get("kind", "") or "").strip()
+        text = str(comment.get("text", "") or "").strip()
+        if not kind or not text or text in existing_text:
+            continue
+        confidence_text = _comment_confidence_suffix(comment.get("confidence"))
+        merged_lines.append("      - %s: %s%s" % (kind, text, confidence_text))
+    if not merged_lines:
+        return cleaned_text
+    return "%s\n%s\n" % (cleaned_text or "", "\n".join(merged_lines))
+
+
+def _comment_confidence_suffix(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        return " confidence=%.2f" % float(value)
+    except (TypeError, ValueError):
+        return ""
 
 
 def _layout_partial_opportunity_counts(text: str) -> Counter[str]:
@@ -800,6 +872,15 @@ def _simple_offset_deref_base_counts(text: str) -> Counter[str]:
         if base:
             counts[base] += 1
     return counts
+
+
+def _domain_identified_offset_bases(cleaned_text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in DOMAIN_STRUCTURE_IDENTITY_RE.finditer(cleaned_text or ""):
+        base = str(match.group("base") or "")
+        if base:
+            bases.add(base)
+    return bases
 
 
 def _annotated_scalar_offset_bases(cleaned_text: str) -> set[str]:
@@ -887,6 +968,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("offset_deref_residue")
         if metrics["body_offset_deref_layout_actionable_patterns"] >= 10:
             reasons.append("layout_actionable_offset_residue")
+        if metrics["body_offset_deref_domain_identified_base_patterns"] >= 10:
+            reasons.append("domain_identified_offset_residue")
         if metrics["body_offset_deref_bulk_noise_patterns"] >= 10:
             reasons.append("non_layout_offset_residue")
             if metrics["body_offset_deref_non_layout_base_patterns"] >= 10:
@@ -945,15 +1028,29 @@ def _residue_score(value: int, weight: float, full_score_limit: int, overflow_we
 
 def _offset_deref_residue_score(metrics: dict[str, int]) -> float:
     layout_count = int(metrics["body_offset_deref_layout_actionable_patterns"] or 0)
+    domain_identified_count = int(
+        metrics["body_offset_deref_domain_identified_base_patterns"] or 0
+    )
     bulk_count = int(metrics["body_offset_deref_bulk_noise_patterns"] or 0)
     layout_full_score_count = min(layout_count, OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT)
     layout_overflow_count = max(0, layout_count - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT)
     remaining_full_score_capacity = max(0, OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT - layout_count)
+    domain_identified_full_score_count = min(domain_identified_count, remaining_full_score_capacity)
+    domain_identified_overflow_count = max(
+        0,
+        domain_identified_count - domain_identified_full_score_count,
+    )
+    remaining_full_score_capacity = max(
+        0,
+        remaining_full_score_capacity - domain_identified_full_score_count,
+    )
     bulk_full_score_count = min(bulk_count, remaining_full_score_capacity)
     bulk_overflow_count = max(0, bulk_count - bulk_full_score_count)
     return (
         (layout_full_score_count * OFFSET_DEREF_LAYOUT_WEIGHT)
         + (layout_overflow_count * OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT)
+        + (domain_identified_full_score_count * OFFSET_DEREF_DOMAIN_IDENTITY_WEIGHT)
+        + (domain_identified_overflow_count * OFFSET_DEREF_DOMAIN_IDENTITY_OVERFLOW_WEIGHT)
         + (bulk_full_score_count * OFFSET_DEREF_NO_LAYOUT_WEIGHT)
         + (bulk_overflow_count * OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT)
     )
@@ -980,6 +1077,9 @@ def _score_model() -> dict[str, Any]:
                 "registry_domain_profile_hits",
             ],
             "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
+            "domain_identified_base_metric": (
+                "body_offset_deref_domain_identified_base_patterns"
+            ),
             "annotated_scalar_base_metric": "body_offset_deref_annotated_scalar_base_patterns",
             "annotated_scalar_domain_structures": sorted(SCALAR_OFFSET_DOMAIN_STRUCTURES),
             "unannotated_base_metric": "body_offset_deref_non_layout_base_patterns",
@@ -1010,6 +1110,8 @@ def _score_model() -> dict[str, Any]:
             "bulk_noise_metric": "body_offset_deref_bulk_noise_patterns",
             "full_score_limit_is_shared": True,
             "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
+            "domain_identity_weight": OFFSET_DEREF_DOMAIN_IDENTITY_WEIGHT,
+            "domain_identity_overflow_weight": OFFSET_DEREF_DOMAIN_IDENTITY_OVERFLOW_WEIGHT,
             "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,
             "no_layout_overflow_weight": OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
         },
