@@ -144,9 +144,11 @@ FIELD_BASE_STABILITY_DETAIL_RE = re.compile(
     r"(?P<distinct_pre_access_rhs_count>\d+)\s+distinct RHS\s+\((?P<rhs>.*?)\);\s+"
     r"(?P<post_access_assignment_count>\d+)\s+post-access assignment\(s\),\s+"
     r"(?P<risky_post_access_assignment_count>\d+)\s+followed by later layout access\.\s+"
+    r"(?:Post-access assignment samples:\s+.*?\.\s+)?"
     r"Review initializer dominance before enabling canonical rewrite\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_BASE_RELOCATION_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_base_relocation_evidence:")
 FIELD_GENERIC_BASE_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_generic_base_evidence:")
 FIELD_GENERIC_BASE_EVIDENCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_generic_base_evidence:\s+Generic base evidence for\s+"
@@ -3537,6 +3539,13 @@ def _update_text_metrics(
         FIELD_BASE_STABILITY_RE,
         "inferred_offset_base_stability",
         "functions_with_inferred_offset_base_stability",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_BASE_RELOCATION_EVIDENCE_RE,
+        "inferred_offset_base_relocation_evidence",
+        "functions_with_inferred_offset_base_relocation_evidence",
     )
     _count_pattern(
         text_totals,
