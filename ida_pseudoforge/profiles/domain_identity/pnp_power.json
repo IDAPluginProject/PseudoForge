@@ -341,6 +341,36 @@
       ]
     },
     {
+      "id": "windows.pnp_power.pi_devcfg_configure_device",
+      "source": "Reviewed PiDevCfgConfigureDevice device-configuration context flow through indirect-string construction, driver configuration, and device property updates.",
+      "function_names": [
+        "PiDevCfgConfigureDevice"
+      ],
+      "required_calls": [
+        "PiDevCfgBuildIndirectString",
+        "PiDevCfgConfigureDeviceDriver",
+        "PiDevCfgQueryDriverConfiguration"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 2,
+          "rename_to": "devCfgContext",
+          "role": "devCfgContext",
+          "structure": "PI_DEVCFG_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "rename_confidence": 0.92,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *",
+            "PI_DEVCFG_CONTEXT *"
+          ],
+          "source": "PiDevCfgConfigureDevice context argument passed through PiDevCfgBuildIndirectString, PiDevCfgConfigureDeviceDriver, and PiDevCfgQueryDriverConfiguration"
+        }
+      ]
+    },
+    {
       "id": "windows.pnp_power.start_device",
       "source": "Reviewed PnpStartDevice PoFx preparation and PnpSendIrp start-device request flow.",
       "function_names": [

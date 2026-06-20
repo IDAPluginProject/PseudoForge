@@ -238,6 +238,44 @@ NTSTATUS __fastcall PiProcessQueryDeviceState(PDEVICE_OBJECT DeviceObject, PVOID
         self.assertEqual("DEVICE_NODE", query_state_roles["deviceNode"])
         self.assertEqual("IO_STACK_LOCATION", query_state_roles["pnpIrpStackTemplate"])
 
+    def test_pi_devcfg_configure_device_context_role(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall PiDevCfgConfigureDevice(__int64 DeviceNode, __int64 DeviceInfo, __int64 a3, int *Result, _DWORD *Flags)
+{
+  __int64 listHead;
+  __int64 entry;
+  PCWSTR devicePath;
+
+  if ( !a3 )
+    return STATUS_INVALID_PARAMETER;
+  devicePath = *(PCWSTR *)(a3 + 48);
+  if ( devicePath && *(unsigned __int16 *)(a3 + 40) )
+    PiDevCfgSetObjectProperty(PiPnpRtlCtx, DeviceInfo, devicePath, 1, DeviceNode);
+  PiDevCfgBuildIndirectString(a3, 0, 0, 0);
+  PiDevCfgConfigureDeviceDriver(DeviceNode, DeviceInfo, a3, Result, Flags);
+  PiDevCfgQueryDriverConfiguration(a3);
+  listHead = a3 + 208;
+  for ( entry = *(_QWORD *)(a3 + 208); entry != listHead; entry = *(_QWORD *)entry )
+    PiDevCfgSetObjectProperty(PiPnpRtlCtx, DeviceInfo, *(PCWSTR *)(a3 + 48), 1, entry);
+  return STATUS_SUCCESS;
+}
+"""
+        )
+
+        identity = self._single_identity(
+            plan,
+            "windows.pnp_power.pi_devcfg_configure_device",
+            role="devCfgContext",
+        )
+        rename_map = self._rename_map(plan)
+
+        self.assertEqual("PI_DEVCFG_CONTEXT", identity["structure_name"])
+        self.assertEqual("devCfgContext", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertIn("profile_report_only", identity["blockers"])
+        self.assertEqual("devCfgContext", rename_map.get("a3"))
+
     def test_request_device_eject_roles(self) -> None:
         wrapper_plan = self._plan(
             """
@@ -547,6 +585,9 @@ void __fastcall PipSetDevNodeState(__int64 deviceNode, int newDevNodeState)
 
     def _profile_identities(self, plan, profile_id: str) -> list[dict[str, object]]:
         return [item for item in self._identities(plan) if item.get("profile_id") == profile_id]
+
+    def _rename_map(self, plan) -> dict[str, str]:
+        return {item.old: item.new for item in plan.renames if item.apply}
 
     def _single_identity(
         self,
