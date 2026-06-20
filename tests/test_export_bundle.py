@@ -312,6 +312,70 @@ __int64 __fastcall LayoutPreviewApply(__int64 argument2)
             self.assertEqual([], preview_metadata["canonical_rewrite_errors"])
             self.assertEqual("passed", preview_metadata["validation"]["status"])
 
+    def test_validated_layout_rewrite_survives_header_insight_limit(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall HeaderLimitLayout(__int64 argument2)
+{
+  __int64 v4;
+
+  v4 = argument2;
+  return *(_DWORD *)(v4 + 16) + *(_QWORD *)(v4 + 24);
+}
+""",
+            name="HeaderLimitLayout",
+            ea=0x140002280,
+            source_path="sample.bin",
+        )
+        plan = build_clean_plan(capture)
+        plan.comments = [
+            {
+                "kind": "filler_%d" % index,
+                "text": "filler %d" % index,
+                "confidence": 0.5,
+            }
+            for index in range(24)
+        ]
+        plan.comments.extend(
+            [
+                {
+                    "kind": "inferred_offset_rewrite_ready",
+                    "text": (
+                        "Offset field rewrite candidate for v4: 2 typed dereference(s) across 2 offset(s), "
+                        "no rewrite blockers found. Source provenance direct_argument_alias from argument2. "
+                        "Audit only; body rewrite was not applied."
+                    ),
+                    "confidence": 0.78,
+                },
+                {
+                    "kind": "inferred_offset_rewrite_preview",
+                    "text": (
+                        "Offset field rewrite preview for v4: 2 dereference(s) can map to 2 field alias(es) "
+                        "field_10, field_18. Source provenance direct_argument_alias from argument2. "
+                        "Preview artifact only; body rewrite was not applied."
+                    ),
+                    "confidence": 0.78,
+                },
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+
+        self.assertIn("layout_rewrite_preview", artifacts)
+        self.assertIn("v4->field_10 /* _DWORD +0x10 */", cleaned_output)
+        self.assertIn("v4->field_18 /* _QWORD +0x18 */", cleaned_output)
+        self.assertEqual("applied", preview_metadata["canonical_rewrite_status"])
+
     def test_validated_layout_rewrite_handles_advertised_address_casts(self) -> None:
         cleaned_text = """
 /*

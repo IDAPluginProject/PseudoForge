@@ -1182,6 +1182,119 @@
       ]
     },
     {
+      "id": "windows.io_manager.connect_interrupt_ex_context",
+      "source": "Reviewed ntoskrnl 10.0.26200.8457 interrupt connection context validation path: DDI version, group affinity, and KInt interrupt allocation evidence.",
+      "allow_body_identity_match": true,
+      "required_calls": [
+        "KiGetNtDdiVersion",
+        "KeVerifyGroupAffinity",
+        "ExAllocatePool2"
+      ],
+      "required_body_regex": [
+        "\\*\\s*\\(_QWORD \\*\\)(?:a1|argument0|context|connectInterruptParameters|Parameters)\\s*<\\s*0x40",
+        "\\*\\s*\\(_DWORD \\*\\)\\((?:a1|argument0|context|connectInterruptParameters|Parameters) \\+ 8\\)\\s*!=\\s*\\(unsigned int\\)KiGetNtDdiVersion\\s*\\(",
+        "\\*\\s*\\(_DWORD \\*\\)\\((?:a1|argument0|context|connectInterruptParameters|Parameters) \\+ 20\\)\\s*&\\s*0x7FFFFFFE",
+        "KeVerifyGroupAffinity\\s*\\(\\s*\\*\\s*\\(_QWORD \\*\\)\\((?:a1|argument0|context|connectInterruptParameters|Parameters) \\+ 56\\)\\s*,\\s*0\\s*\\)",
+        "(?:0[xX]746[Ee]494[Bb]|POOL_TAG\\s*\\(\\s*'K'\\s*,\\s*'I'\\s*,\\s*'n'\\s*,\\s*'t'\\s*\\))"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "connectInterruptParameters",
+          "role": "connectInterruptParameters",
+          "structure": "IO_CONNECT_INTERRUPT_PARAMETERS",
+          "mode": "canonical-rewrite-eligible",
+          "confidence": 0.86,
+          "rename_confidence": 0.92,
+          "accepted_types": [
+            "PIO_CONNECT_INTERRUPT_PARAMETERS",
+            "IO_CONNECT_INTERRUPT_PARAMETERS *",
+            "__int64"
+          ],
+          "source": "Interrupt connection context verified by DDI version, group affinity, and KInt allocation markers; generic field aliases intentionally avoid undocumented field names.",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "field_0",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.76
+            },
+            {
+              "offset": "0x8",
+              "name": "field_8",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0xC",
+              "name": "field_C",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x14",
+              "name": "field_14",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x18",
+              "name": "field_18",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x30",
+              "name": "field_30",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x34",
+              "name": "field_34",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.78
+            },
+            {
+              "offset": "0x38",
+              "name": "field_38",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.76
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.io_manager.create_symbolic_link",
       "source": "Reviewed IoCreateSymbolicLink name packaging into IoCreateSymbolicLink2.",
       "function_names": [

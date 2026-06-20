@@ -89,6 +89,58 @@ class RenderHeaderTests(unittest.TestCase):
         self.assertIn("test_comment_19", header)
         self.assertNotIn("test_comment_20", header)
 
+    def test_render_header_preserves_critical_layout_rewrite_comments_after_limit(self) -> None:
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="Sample",
+            input_fingerprint="fp",
+        )
+        for index in range(MAX_KERNEL_INSIGHT_COMMENTS + 3):
+            plan.comments.append(
+                {
+                    "kind": "test_comment_%d" % index,
+                    "text": "comment %d" % index,
+                    "confidence": 0.5,
+                }
+            )
+        plan.comments.append(
+            {
+                "kind": "inferred_offset_rewrite_ready",
+                "text": (
+                    "Offset field rewrite candidate for context: 12 typed dereference(s) across "
+                    "8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied."
+                ),
+                "confidence": 0.8,
+            }
+        )
+        plan.comments.append(
+            {
+                "kind": "inferred_offset_rewrite_preview",
+                "text": (
+                    "Offset field rewrite preview for context: 12 dereference(s) can map to "
+                    "8 field alias(es) field_10, field_18. Preview artifact only; body rewrite was not applied."
+                ),
+                "confidence": 0.78,
+            }
+        )
+        capture = FunctionCapture(ea=0x140001000, name="Sample", pseudocode="")
+
+        header = "\n".join(
+            render_header_lines(
+                capture,
+                plan,
+                {},
+                [],
+                set(),
+                "0.1.0",
+            )
+        )
+
+        self.assertIn("test_comment_19", header)
+        self.assertNotIn("test_comment_20", header)
+        self.assertIn("inferred_offset_rewrite_ready", header)
+        self.assertIn("inferred_offset_rewrite_preview", header)
+
 
 if __name__ == "__main__":
     unittest.main()

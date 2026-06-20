@@ -327,8 +327,51 @@ def _function_matches(
                 matched = True
                 break
     if not matched:
+        if not _body_identity_match_allowed(profile):
+            return False
+        if not _has_body_hints(profile):
+            return False
+    if not matched and not _body_hints_match(profile, text):
+        return False
+    if matched and not _body_hints_match(profile, text):
         return False
     return _callee_hints_match(profile, text)
+
+
+def _body_identity_match_allowed(profile: dict[str, Any]) -> bool:
+    return _bool_value(
+        profile.get(
+            "allow_body_identity_match",
+            profile.get("match_body_only", False),
+        ),
+        False,
+    )
+
+
+def _has_body_hints(profile: dict[str, Any]) -> bool:
+    return bool(
+        _string_list(profile.get("body_contains"))
+        or _string_list(profile.get("required_body_contains"))
+        or _string_list(profile.get("body_regex"))
+        or _string_list(profile.get("required_body_regex"))
+    )
+
+
+def _body_hints_match(profile: dict[str, Any], text: str) -> bool:
+    body_text = text or ""
+    for literal in (
+        _string_list(profile.get("body_contains"))
+        + _string_list(profile.get("required_body_contains"))
+    ):
+        if literal not in body_text:
+            return False
+    for pattern in (
+        _string_list(profile.get("body_regex"))
+        + _string_list(profile.get("required_body_regex"))
+    ):
+        if not _safe_regex_search(pattern, body_text):
+            return False
+    return True
 
 
 def _callee_hints_match(profile: dict[str, Any], text: str) -> bool:

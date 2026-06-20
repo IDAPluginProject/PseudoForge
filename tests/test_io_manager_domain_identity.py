@@ -543,6 +543,76 @@ void __stdcall IoRegisterDriverReinitialization(PDRIVER_OBJECT DriverObject, PDR
         self.assertEqual("DRIVER_REINIT_CONTEXT", reinit_roles["driverReinitContext"])
         self.assertEqual("IO_DRIVER_REINIT_ENTRY", reinit_roles["driverReinitQueueEntry"])
 
+    def test_connect_interrupt_context_body_identity_promotes_internal_helper(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall sub_140506ED0(__int64 a1, __int64 a2)
+{
+  ULONG_PTR numberOfBytes;
+  char *Pool2;
+  __int64 v2;
+
+  if ( *(_QWORD *)a1 < 0x40uLL
+    || *(_DWORD *)(a1 + 8) != (unsigned int)KiGetNtDdiVersion()
+    || *(_DWORD *)(a1 + 12)
+    || (*(_DWORD *)(a1 + 20) & 0x7FFFFFFE) != 0
+    || *(_QWORD *)(a1 + 24)
+    || *(_QWORD *)(a1 + 32)
+    || *(_QWORD *)(a1 + 40) )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  numberOfBytes = *(unsigned int *)(a1 + 16);
+  v2 = *(unsigned int *)(a1 + 48) + *(unsigned int *)(a1 + 52);
+  if ( (_DWORD)v2 == 16 && KeVerifyGroupAffinity(*(_QWORD *)(a1 + 56), 0) )
+  {
+    Pool2 = (char *)ExAllocatePool2(POOL_FLAG_NON_PAGED, numberOfBytes, POOL_TAG('K', 'I', 'n', 't'));
+    return *(_DWORD *)(a1 + 20) + *(_QWORD *)(a1 + 56) + (unsigned __int64)Pool2;
+  }
+  return *(_DWORD *)(a1 + 16);
+}
+"""
+        )
+
+        rename_map = self._rename_map(plan)
+        identity = self._single_identity(
+            plan,
+            "windows.io_manager.connect_interrupt_ex_context",
+            role="connectInterruptParameters",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "connectInterruptParameters"
+        ]
+        ready = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_ready"
+            and item.get("base") == "connectInterruptParameters"
+        ]
+        previews = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_preview"
+            and item.get("base") == "connectInterruptParameters"
+        ]
+
+        self.assertEqual("connectInterruptParameters", rename_map["a1"])
+        self.assertEqual("connectInterruptParameters", identity["base"])
+        self.assertEqual("IO_CONNECT_INTERRUPT_PARAMETERS", identity["structure_name"])
+        self.assertEqual("canonical-rewrite-eligible", identity["effective_mode"])
+        self.assertTrue(
+            any(field.get("name") == "field_38" and field.get("offset") == 0x38 for field in identity["fields"])
+        )
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("domain_identity", ready[0]["source_provenance"])
+        self.assertEqual("windows.io_manager.connect_interrupt_ex_context", ready[0]["domain_profile_id"])
+        self.assertEqual(1, len(previews))
+        self.assertIn("field_8", previews[0]["text"])
+
     def test_report_only_device_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """

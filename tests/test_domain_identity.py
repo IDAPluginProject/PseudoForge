@@ -134,6 +134,42 @@ class DomainIdentityProfileFrameworkTests(unittest.TestCase):
         self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in without_callee))
         self.assertEqual("test.domain_profile", self._single_identity(with_callee)["profile_id"])
 
+    def test_body_identity_match_requires_explicit_allow_and_body_evidence(self) -> None:
+        no_body_match_profile = _pack_payload(function_names=[])
+        no_body_match_profile["profiles"][0]["required_body_regex"] = [
+            r"\bRequiredBodyEvidence\s*\(",
+        ]
+        allowed_profile = _pack_payload(function_names=[])
+        allowed_profile["profiles"][0]["allow_body_identity_match"] = True
+        allowed_profile["profiles"][0]["required_body_regex"] = [
+            r"\bRequiredBodyEvidence\s*\(",
+        ]
+        with tempfile.TemporaryDirectory() as blocked_dir:
+            self._write_isolated_pack(blocked_dir, no_body_match_profile)
+            profile_loader.configure_profile_dir(blocked_dir)
+
+            blocked_comments = field_layout_comments(
+                _domain_layout_sample("UnexpectedBodyTarget", body_call="RequiredBodyEvidence();"),
+                profile_context=_matching_context(),
+            )
+
+        with tempfile.TemporaryDirectory() as allowed_dir:
+            self._write_isolated_pack(allowed_dir, allowed_profile)
+            profile_loader.configure_profile_dir(allowed_dir)
+
+            missing_body_comments = field_layout_comments(
+                _domain_layout_sample("UnexpectedBodyTarget"),
+                profile_context=_matching_context(),
+            )
+            matched_comments = field_layout_comments(
+                _domain_layout_sample("UnexpectedBodyTarget", body_call="RequiredBodyEvidence();"),
+                profile_context=_matching_context(),
+            )
+
+        self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in blocked_comments))
+        self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in missing_body_comments))
+        self.assertEqual("test.domain_profile", self._single_identity(matched_comments)["profile_id"])
+
     def test_local_name_hint_can_match_non_parameter_base(self) -> None:
         profile = _pack_payload(function_names=["DomainLocalHintTarget"])
         profile["profiles"][0]["parameters"][0].pop("parameter_index")

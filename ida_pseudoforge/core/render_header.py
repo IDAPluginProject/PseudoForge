@@ -12,6 +12,11 @@ from ida_pseudoforge.core.render_warnings import format_warning
 
 
 MAX_KERNEL_INSIGHT_COMMENTS = 20
+CRITICAL_KERNEL_INSIGHT_KINDS = {
+    "inferred_offset_rewrite_partial_opportunity",
+    "inferred_offset_rewrite_preview",
+    "inferred_offset_rewrite_ready",
+}
 
 
 def render_header_lines(
@@ -50,7 +55,7 @@ def render_header_lines(
 
     if plan.comments:
         header.append("    Kernel insights:")
-        for comment in plan.comments[:MAX_KERNEL_INSIGHT_COMMENTS]:
+        for comment in _kernel_insight_comments(plan):
             kind = _ascii_comment_text(str(comment.get("kind", "kernel")))
             confidence = float(comment.get("confidence", 0.0))
             text_value = _ascii_comment_text(str(comment.get("text", "")))
@@ -89,6 +94,19 @@ def render_header_lines(
 
     header.append("*/")
     return header
+
+
+def _kernel_insight_comments(plan: CleanPlan) -> list[dict[str, object]]:
+    selected = list(plan.comments[:MAX_KERNEL_INSIGHT_COMMENTS])
+    selected_ids = {id(comment) for comment in selected}
+    for comment in plan.comments[MAX_KERNEL_INSIGHT_COMMENTS:]:
+        if id(comment) in selected_ids:
+            continue
+        if str(comment.get("kind", "")) not in CRITICAL_KERNEL_INSIGHT_KINDS:
+            continue
+        selected.append(comment)
+        selected_ids.add(id(comment))
+    return selected
 
 
 def kernel_semantic_rewrite_count(plan: CleanPlan) -> int:
