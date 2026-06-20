@@ -1580,6 +1580,37 @@
           "source": "CmpParseKey local parse context allocated by CmpAllocateParseContext"
         }
       ]
+    },
+    {
+      "id": "windows.registry_config.cmp_do_parse_key",
+      "source": "Reviewed CmpDoParseKey registry parse implementation where parameter 6 carries the CM_PARSE_CONTEXT and owns path-info/APC-state subobjects.",
+      "function_names": [
+        "CmpDoParseKey"
+      ],
+      "required_calls": [
+        "CmpInitializeDelayDerefContext",
+        "CmpRecordParseFailure",
+        "CmpCleanupPathInfo"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 6,
+          "rename_to": "parseContext",
+          "role": "parseContext",
+          "structure": "CM_PARSE_CONTEXT",
+          "mode": "report-only",
+          "suppress_layout_inference": true,
+          "confidence": 0.88,
+          "rename_confidence": 0.91,
+          "accepted_types": [
+            "CM_PARSE_CONTEXT *",
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "CmpDoParseKey parse context parameter owns parse failure tracking, path info, and registry process attach state"
+        }
+      ]
     }
   ]
 }

@@ -248,9 +248,9 @@
       "source": "PseudoForge curated ntoskrnl Configuration Manager registry role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "BD861EC1C55C51CB31191E1C31AF0BDE7D598933E2A55C705AC109BAC406CF15",
+      "sha256": "65E5556EC615E6B21FAA63A584E3A784DA7D5430FF2901A0D9701857E551F11D",
       "counts": {
-        "profiles": 23
+        "profiles": 24
       }
     },
     "domain_identity/process_thread.json": {

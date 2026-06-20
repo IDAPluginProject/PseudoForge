@@ -320,6 +320,69 @@ __int64 __fastcall CmpParseKey(__int64 RegistryNamespaceRootForSilo, POBJECT_TYP
         self.assertEqual("CM_KEY_BODY_OUTPUT", parse_roles["resultObjectOutput"])
         self.assertEqual("CM_PARSE_CONTEXT", parse_roles["parseContext"])
 
+    def test_cmp_do_parse_key_identifies_parse_context_without_layout_inference(self) -> None:
+        without_callees = self._plan(
+            """
+NTSTATUS __fastcall CmpDoParseKey(__int64 a1, struct _ACCESS_STATE *a2, unsigned __int8 a3, __int16 a4, const UNICODE_STRING *a5, __m128i *a6, __int64 a7, int a8, _QWORD *a9)
+{
+  *(_OWORD *)(a7 + 160) = 0LL;
+  *(_QWORD *)(a7 + 208) = 0LL;
+  return STATUS_SUCCESS;
+}
+"""
+        )
+        with_callees = self._plan(
+            """
+NTSTATUS __fastcall CmpDoParseKey(__int64 a1, struct _ACCESS_STATE *a2, unsigned __int8 a3, __int16 a4, const UNICODE_STRING *a5, __m128i *a6, __int64 a7, int a8, _QWORD *a9)
+{
+  __int64 delayDerefContext;
+
+  CmpInitializeDelayDerefContext(&delayDerefContext);
+  *(_OWORD *)(a7 + 160) = 0LL;
+  *(_OWORD *)(a7 + 176) = 0LL;
+  *(_OWORD *)(a7 + 192) = 0LL;
+  *(_QWORD *)(a7 + 208) = 0LL;
+  memset_0((void *)(a7 + 216), 0, 0xA8uLL);
+  if ( (*(_DWORD *)a7 & 2) != 0 )
+  {
+    CmpRecordParseFailure(a7, 256, STATUS_INVALID_PARAMETER);
+  }
+  CmpCleanupPathInfo(a7 + 216);
+  return STATUS_SUCCESS;
+}
+"""
+        )
+
+        identity = self._single_identity(
+            with_callees,
+            "windows.registry_config.cmp_do_parse_key",
+            role="parseContext",
+        )
+
+        self.assertFalse(
+            any(
+                item["profile_id"] == "windows.registry_config.cmp_do_parse_key"
+                for item in self._identities(without_callees)
+            )
+        )
+        self.assertEqual("CM_PARSE_CONTEXT", identity["structure_name"])
+        self.assertEqual("parseContext", self._rename_map(with_callees).get("a7"))
+        self.assertTrue(identity["suppress_layout_inference"])
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_layout"
+                and item.get("base") == "parseContext"
+                for item in with_callees.comments
+            )
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_blockers"
+                and item.get("base") == "parseContext"
+                for item in with_callees.comments
+            )
+        )
+
     def test_report_only_registry_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """
@@ -435,6 +498,9 @@ __int64 __fastcall CmQueryValueKey(__int64 keyObject, unsigned __int16 *valueNam
 
     def _profile_identities(self, plan, profile_id: str) -> list[dict[str, object]]:
         return [item for item in self._identities(plan) if item.get("profile_id") == profile_id]
+
+    def _rename_map(self, plan) -> dict[str, str]:
+        return {item.old: item.new for item in plan.renames if item.apply}
 
     def _single_identity(
         self,
