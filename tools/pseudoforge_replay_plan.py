@@ -98,6 +98,12 @@ FIELD_BASE_MERGE_EVIDENCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_base_merge_evidence:\s+Base merge evidence for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
 )
+FIELD_BASE_MERGE_FAMILY_DISPOSITION_RE = re.compile(
+    r"-\s+inferred_offset_base_merge_evidence:\s+Base merge evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*?"
+    r"\bSource families\s+[^\n]*?;\s+disposition\s+"
+    r"(?P<disposition>[a-z_]+)\."
+)
 SCALAR_OFFSET_DOMAIN_STRUCTURES = {
     "VIRTUAL_ADDRESS",
 }
@@ -489,6 +495,11 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 for entry in offset_base_counts.get("base_merge_evidence", []) or []
                 if isinstance(entry, dict)
             }
+            same_source_family_merge_bases = {
+                str(entry.get("base", "") or "")
+                for entry in offset_base_counts.get("base_merge_same_source_family", []) or []
+                if isinstance(entry, dict)
+            }
             projected_hot_cluster_accesses = {
                 str(entry.get("base", "") or ""): int(entry.get("count", 0) or 0)
                 for entry in offset_base_counts.get("projected_hot_cluster", []) or []
@@ -516,6 +527,12 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         "Review branch/call-result source dominance before promoting this "
                         "merged layout base."
                     )
+                    if base in same_source_family_merge_bases:
+                        effective_disposition = "same_source_family_merge_review"
+                        effective_recommended_next = (
+                            "Review same-source-family branch shapes before promoting this "
+                            "merged layout base."
+                        )
                 rows.append(
                     {
                         "function": str(item.get("name", "") or ""),
@@ -584,6 +601,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     source_identity_blocked_bases = _source_identity_blocked_bases(analysis_text)
     layout_actionable_bases = _layout_actionable_bases(analysis_text)
     base_merge_evidence_bases = _base_merge_evidence_bases(analysis_text)
+    base_merge_family_dispositions = _base_merge_family_dispositions(analysis_text)
     domain_identified_bases = _domain_identified_offset_bases(analysis_text)
     annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
     domain_identified_residual_bases = (
@@ -633,6 +651,13 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     )
     base_merge_evidence_base_counts = Counter(
         {base: 1 for base in base_merge_evidence_bases}
+    )
+    base_merge_same_source_family_base_counts = Counter(
+        {
+            base: 1
+            for base, disposition in base_merge_family_dispositions.items()
+            if disposition == "same_source_family_review"
+        }
     )
     unannotated_base_counts = Counter(
         {
@@ -824,6 +849,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 base_merge_evidence_base_counts,
                 len(base_merge_evidence_base_counts),
             ),
+            "base_merge_same_source_family": _top_counter_items(
+                base_merge_same_source_family_base_counts,
+                len(base_merge_same_source_family_base_counts),
+            ),
             "unannotated": _top_counter_items(
                 unannotated_base_counts,
                 len(unannotated_base_counts),
@@ -985,6 +1014,16 @@ def _base_merge_evidence_bases(text: str) -> set[str]:
         if base:
             bases.add(base)
     return bases
+
+
+def _base_merge_family_dispositions(text: str) -> dict[str, str]:
+    dispositions: dict[str, str] = {}
+    for match in FIELD_BASE_MERGE_FAMILY_DISPOSITION_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        disposition = str(match.groupdict().get("disposition") or "")
+        if base and disposition:
+            dispositions[base] = disposition
+    return dispositions
 
 
 def _trusted_source_identity_alias_bases(text: str) -> set[str]:
@@ -1309,6 +1348,7 @@ def _score_model() -> dict[str, Any]:
             "queue_limit": SOURCE_IDENTITY_QUEUE_LIMIT,
             "min_offset_derefs": SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS,
             "merge_evidence_disposition": "path_sensitive_merge_review",
+            "same_source_family_merge_disposition": "same_source_family_merge_review",
             "source_kinds": [
                 "source_identity_blocked",
                 "context",

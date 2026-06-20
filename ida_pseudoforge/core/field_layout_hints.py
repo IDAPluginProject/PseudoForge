@@ -240,7 +240,7 @@ def field_layout_comments(
             stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
             if stability:
                 comments.append(stability)
-                merge = _field_base_merge_evidence_comment(item, blocker, stability)
+                merge = _field_base_merge_evidence_comment(text or "", item, blocker, stability)
                 if merge:
                     comments.append(merge)
                 relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
@@ -1270,6 +1270,7 @@ def _field_base_relocation_evidence_comment(
 
 
 def _field_base_merge_evidence_comment(
+    text: str,
     layout: _LayoutEvidence,
     blocker: dict[str, Any],
     stability: dict[str, Any],
@@ -1289,6 +1290,15 @@ def _field_base_merge_evidence_comment(
         "%s=%d" % (key, int(value))
         for key, value in sorted(rhs_classes.items())
     )
+    source_families = [_base_merge_source_family(text, item) for item in rhs_values]
+    source_family_counts = Counter(source_families)
+    source_family_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(source_family_counts.items())
+    )
+    source_family_disposition = "distinct_source_family_review"
+    if len(source_family_counts) == 1:
+        source_family_disposition = "same_source_family_review"
     source_text = "; ".join(rhs_values)
     confidence = min(
         0.76,
@@ -1301,6 +1311,7 @@ def _field_base_merge_evidence_comment(
         "text": (
             "Base merge evidence for %s: %d initializer(s) before first layout access across "
             "%d source candidate(s): %s. Candidate classes %s. "
+            "Source families %s; disposition %s. "
             "Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available."
             % (
                 layout.base,
@@ -1308,6 +1319,8 @@ def _field_base_merge_evidence_comment(
                 int(stability.get("distinct_pre_access_rhs_count", 0) or 0),
                 source_text,
                 class_text,
+                source_family_text,
+                source_family_disposition,
             )
         ),
         "confidence": round(confidence, 2),
@@ -1317,6 +1330,9 @@ def _field_base_merge_evidence_comment(
         "distinct_pre_access_rhs_count": int(stability.get("distinct_pre_access_rhs_count", 0) or 0),
         "source_candidates": rhs_values,
         "candidate_classes": dict(sorted(rhs_classes.items())),
+        "source_families": source_families,
+        "source_family_counts": dict(sorted(source_family_counts.items())),
+        "source_family_disposition": source_family_disposition,
     }
 
 
@@ -1329,6 +1345,37 @@ def _base_merge_rhs_class(value: str) -> str:
     if _parse_parameter_subobject_source(rhs) or _parse_parameter_indexed_source(rhs):
         return "pointer_expression"
     return "expression"
+
+
+def _base_merge_source_family(text: str, value: str) -> str:
+    rhs = _normalize_assignment_rhs(value)
+    root = _base_merge_source_family_root(rhs)
+    if root:
+        root_kind = _layout_source_kind(root)
+        if _base_is_function_parameter(text, root):
+            root_kind = "parameter"
+        return "%s:%s" % (root_kind, root)
+    call_name = _parse_direct_call_result_name(rhs)
+    if call_name:
+        return "call_result:%s" % call_name
+    return "%s:%s" % (_base_merge_rhs_class(rhs), rhs[:64])
+
+
+def _base_merge_source_family_root(value: str) -> str:
+    rhs = _normalize_assignment_rhs(value)
+    if _is_identifier_expression(rhs):
+        return rhs
+    for parser in (
+        _parse_parameter_indexed_source,
+        _parse_parameter_back_container_source,
+        _parse_parameter_subobject_source,
+        _parse_field_pointer_source,
+        _parse_parameter_indirect_pointer_source,
+    ):
+        match = parser(rhs)
+        if match and match.get("parent"):
+            return str(match["parent"])
+    return ""
 
 
 def _trace_rhs_samples(values: Any, limit: int = _MAX_BASE_STABILITY_RHS_SAMPLES) -> list[str]:

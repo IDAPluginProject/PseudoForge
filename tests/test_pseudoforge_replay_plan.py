@@ -759,6 +759,59 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             markdown = render_replay_plan_markdown(plan)
             self.assertIn("path_sensitive_merge_review", markdown)
 
+    def test_replay_plan_marks_same_source_family_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            merge_blocked_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v22: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_stability: Base stability evidence for v22: 2 initializer(s) before first layout access across 2 distinct RHS (eaBuffer; *(_QWORD *)(eaBuffer + 8)); 0 post-access assignment(s), 0 followed by later layout access. Review initializer dominance before enabling canonical rewrite. confidence=0.67",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v22: 2 initializer(s) before first layout access across 2 source candidate(s): eaBuffer; *(_QWORD *)(eaBuffer + 8). Candidate classes expression=1, identifier=1. Source families parameter:eaBuffer=2; disposition same_source_family_review. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.68",
+                    "*/",
+                    "__int64 __fastcall SameFamilyMerge(__int64 eaBuffer)",
+                    "{",
+                    "  v22 = eaBuffer;",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v22 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140BD2A04",
+                name="SameFamilyMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=merge_blocked_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual("v22", item["offset_base_counts"]["base_merge_evidence"][0]["base"])
+            self.assertEqual(
+                "v22",
+                item["offset_base_counts"]["base_merge_same_source_family"][0]["base"],
+            )
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("SameFamilyMerge", source_queue[0]["function"])
+            self.assertEqual("v22", source_queue[0]["base"])
+            self.assertEqual("same_source_family_merge_review", source_queue[0]["disposition"])
+            self.assertIn("same-source-family branch shapes", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "same_source_family_merge_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "same_source_family_merge_disposition"
+                ],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("same_source_family_merge_review", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
