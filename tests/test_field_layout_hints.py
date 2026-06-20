@@ -2484,6 +2484,60 @@ __int64 __fastcall StableAllocationSubobjectSourceLayout(unsigned int size)
         self.assertEqual(1, len(previews))
         self.assertEqual("allocation_subobject_pointer_alias", previews[0]["source_provenance"])
 
+    def test_allocation_subobject_relocation_evidence_reports_rhs_samples(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall AllocationSubobjectRelocationLayout(unsigned int size)
+{
+  char *allocatedBlock;
+  char *relocatedBlock;
+  _QWORD *allocationWords;
+  __int64 savedLayoutBase;
+  __int64 v22;
+  __int64 result;
+
+  allocatedBlock = (char *)ExAllocatePool2(0x100uLL, size, 0x746E494Bu);
+  allocationWords = (_QWORD *)allocatedBlock;
+  savedLayoutBase = (__int64)(allocationWords + 4);
+  v22 = (__int64)(allocationWords + 4);
+  result = *(_QWORD *)(v22 + 512)
+       + *(_QWORD *)(v22 + 520)
+       + *(_QWORD *)(v22 + 528)
+       + *(_QWORD *)(v22 + 536)
+       + *(_QWORD *)(v22 + 544)
+       + *(_QWORD *)(v22 + 552)
+       + *(_QWORD *)(v22 + 560)
+       + *(_QWORD *)(v22 + 568)
+       + *(_QWORD *)(v22 + 512)
+       + *(_QWORD *)(v22 + 520)
+       + *(_QWORD *)(v22 + 528)
+       + *(_QWORD *)(v22 + 536);
+  v22 = savedLayoutBase;
+  result += *(_QWORD *)(v22 + 544);
+  relocatedBlock = (char *)ExAllocatePool2(0x100uLL, size + 128, 0x746E494Bu);
+  v22 = (__int64)(relocatedBlock + 32);
+  return result + *(_QWORD *)(v22 + 552);
+}
+"""
+        )
+        relocation = [
+            item for item in comments if item.get("kind") == "inferred_offset_base_relocation_evidence"
+        ]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(relocation))
+        self.assertEqual("v22", relocation[0]["base"])
+        self.assertEqual("allocatedBlock", relocation[0]["source"])
+        self.assertEqual("allocation_subobject_pointer_alias", relocation[0]["source_provenance"])
+        self.assertEqual("0x20", relocation[0]["source_offset"])
+        self.assertEqual(["savedLayoutBase"], relocation[0]["stable_post_access_reload_rhs"])
+        self.assertEqual(["relocatedBlock + 32"], relocation[0]["relocation_sensitive_rhs"])
+        self.assertIn("moving logical layout", relocation[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
+        self.assertEqual([], ready)
+
     def test_temp_base_with_parameter_indexed_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """

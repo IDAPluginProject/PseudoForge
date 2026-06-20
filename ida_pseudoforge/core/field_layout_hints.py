@@ -240,6 +240,9 @@ def field_layout_comments(
             stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
             if stability:
                 comments.append(stability)
+                relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
+                if relocation:
+                    comments.append(relocation)
             expression_source = _field_stable_expression_source_comment_from_layout(text or "", item, blocker)
             if expression_source:
                 comments.append(expression_source)
@@ -1189,7 +1192,81 @@ def _field_base_stability_comment_from_layout(
     }
 
 
-def _trace_rhs_samples(values: Any, limit: int = 4) -> list[str]:
+def _field_base_relocation_evidence_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+    stability: dict[str, Any],
+) -> dict[str, Any] | None:
+    blockers = {
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    }
+    if "base is reassigned after layout access" not in blockers:
+        return None
+    identity = _trusted_stable_base_source_identity(text, layout.base)
+    if not identity:
+        return None
+    stable_rhs = _trace_rhs_samples(stability.get("stable_post_access_reload_rhs", []))
+    relocation_rhs = _trace_rhs_samples(stability.get("risky_post_access_rhs", []))
+    if not stable_rhs and not relocation_rhs:
+        return None
+    source = str(identity.get("source", "") or "")
+    source_provenance = str(identity.get("source_provenance", "") or "")
+    source_offset = str(identity.get("source_offset", "") or "")
+    source_text = source
+    if source_offset:
+        source_text = "%s+%s" % (source, source_offset)
+    rhs_parts = []
+    if stable_rhs:
+        rhs_parts.append("Stable reload RHS %s" % "; ".join(stable_rhs))
+    if relocation_rhs:
+        rhs_parts.append("relocation-sensitive RHS %s" % "; ".join(relocation_rhs))
+    rhs_text = "; ".join(rhs_parts)
+    confidence = min(
+        0.74,
+        0.62
+        + min(int(stability.get("stable_post_access_reload_count", 0) or 0), 8) * 0.006
+        + min(int(stability.get("risky_post_access_assignment_count", 0) or 0), 4) * 0.012,
+    )
+    comment = {
+        "kind": "inferred_offset_base_relocation_evidence",
+        "text": (
+            "Base relocation evidence for %s: trusted source %s (%s), %d post-access assignment(s), "
+            "%d stable reload(s), %d relocation-sensitive assignment(s). %s. "
+            "Treat as a moving logical layout; keep canonical rewrite blocked until segment or relocation validation is available."
+            % (
+                layout.base,
+                source_text,
+                source_provenance,
+                int(stability.get("post_access_assignment_count", 0) or 0),
+                int(stability.get("stable_post_access_reload_count", 0) or 0),
+                int(stability.get("risky_post_access_assignment_count", 0) or 0),
+                rhs_text,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "source": source,
+        "source_kind": str(identity.get("source_kind", "") or ""),
+        "source_provenance": source_provenance,
+        "source_rhs_kind": str(identity.get("source_rhs_kind", "") or ""),
+        "post_access_assignment_count": int(stability.get("post_access_assignment_count", 0) or 0),
+        "stable_post_access_reload_count": int(stability.get("stable_post_access_reload_count", 0) or 0),
+        "relocation_sensitive_assignment_count": int(stability.get("risky_post_access_assignment_count", 0) or 0),
+        "stable_post_access_reload_rhs": stable_rhs,
+        "relocation_sensitive_rhs": relocation_rhs,
+    }
+    if source_offset:
+        comment["source_offset"] = source_offset
+    if identity.get("source_alias"):
+        comment["source_alias"] = identity["source_alias"]
+    return comment
+
+
+def _trace_rhs_samples(values: Any, limit: int = _MAX_BASE_STABILITY_RHS_SAMPLES) -> list[str]:
     samples = [
         str(item)
         for item in values or []
