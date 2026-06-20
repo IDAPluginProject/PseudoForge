@@ -2437,6 +2437,53 @@ __int64 __fastcall StableParameterSubobjectSourceLayout(__int64 context)
         self.assertEqual(1, len(ready))
         self.assertEqual("parameter_subobject_pointer_alias", ready[0]["source_provenance"])
 
+    def test_temp_base_with_allocation_subobject_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableAllocationSubobjectSourceLayout(unsigned int size)
+{
+  char *allocatedBlock;
+  _QWORD *allocationWords;
+  __int64 v22;
+
+  allocatedBlock = (char *)ExAllocatePool2(0x100uLL, size, 0x746E494Bu);
+  allocationWords = (_QWORD *)allocatedBlock;
+  v22 = (__int64)(allocationWords + 4);
+  return *(_QWORD *)(v22 + 512)
+       + *(_QWORD *)(v22 + 520)
+       + *(_QWORD *)(v22 + 528)
+       + *(_QWORD *)(v22 + 536)
+       + *(_QWORD *)(v22 + 544)
+       + *(_QWORD *)(v22 + 552)
+       + *(_QWORD *)(v22 + 560)
+       + *(_QWORD *)(v22 + 568)
+       + *(_QWORD *)(v22 + 512)
+       + *(_QWORD *)(v22 + 520)
+       + *(_QWORD *)(v22 + 528)
+       + *(_QWORD *)(v22 + 536);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v22", sources[0]["base"])
+        self.assertEqual("allocatedBlock", sources[0]["source"])
+        self.assertEqual("allocationWords", sources[0]["source_alias"])
+        self.assertEqual("allocation", sources[0]["source_kind"])
+        self.assertEqual("allocation_subobject_pointer_alias", sources[0]["source_provenance"])
+        self.assertEqual("allocation_pointer_arithmetic", sources[0]["source_rhs_kind"])
+        self.assertEqual("0x20", sources[0]["source_offset"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("allocation_subobject_pointer_alias", ready[0]["source_provenance"])
+        self.assertEqual("0x20", ready[0]["source_offset"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("allocation_subobject_pointer_alias", previews[0]["source_provenance"])
+
     def test_temp_base_with_parameter_indexed_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
             """

@@ -67,6 +67,7 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
     "parameter_subobject_pointer_alias",
+    "allocation_subobject_pointer_alias",
     "temporary_parameter_direct_alias",
     "temporary_call_result_alias",
 }
@@ -1248,6 +1249,14 @@ def _field_rewrite_ready_comment(
             comment["source_call"] = identity["source_call"]
         if identity.get("source_alias"):
             comment["source_alias"] = identity["source_alias"]
+        if identity.get("source_offset"):
+            comment["source_offset"] = identity["source_offset"]
+        if identity.get("source_container_offset"):
+            comment["source_container_offset"] = identity["source_container_offset"]
+        if identity.get("source_index"):
+            comment["source_index"] = identity["source_index"]
+        if identity.get("source_type"):
+            comment["source_type"] = identity["source_type"]
         if identity.get("source_threshold_policy"):
             comment["source_threshold_policy"] = identity["source_threshold_policy"]
         if identity.get("domain_profile_id"):
@@ -2997,6 +3006,14 @@ def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     )
     if parameter_derived_identity:
         return parameter_derived_identity
+    allocation_subobject_identity = _allocation_subobject_source_identity(
+        text,
+        base,
+        source,
+        len(base_assignments),
+    )
+    if allocation_subobject_identity:
+        return allocation_subobject_identity
     named_parameter_identity = _named_parameter_direct_source_identity(
         text,
         base,
@@ -3291,6 +3308,124 @@ def _parameter_source_identity(
     if "index" in match:
         identity["source_index"] = int(match["index"])
     return identity
+
+
+def _allocation_subobject_source_identity(
+    text: str,
+    base: str,
+    source: str,
+    base_alias_assignment_count: int,
+) -> dict[str, Any]:
+    if base_alias_assignment_count <= 0:
+        return {}
+    if _layout_base_kind(base) != "temp":
+        return {}
+    subobject = _parse_parameter_subobject_source(source)
+    if not subobject:
+        return {}
+    parent = str(subobject["parent"])
+    first_access = _first_layout_access_start(text, base)
+    if first_access < 0:
+        return {}
+    base_alias_assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < first_access
+        and item.group("op") == "="
+        and _normalize_assignment_rhs(item.group("rhs")) == source
+    ]
+    if not base_alias_assignments:
+        return {}
+    allocation_root = _allocation_source_root_before(
+        text,
+        parent,
+        base_alias_assignments[0].start(),
+        set(),
+    )
+    if not allocation_root:
+        return {}
+    source_offset = _scaled_pointer_arithmetic_offset(text, parent, int(subobject["offset"]))
+    identity: dict[str, Any] = {
+        "source": allocation_root,
+        "source_kind": "allocation",
+        "source_provenance": "allocation_subobject_pointer_alias",
+        "source_rhs_kind": "allocation_pointer_arithmetic",
+        "source_offset": "0x%X" % source_offset,
+        "base_alias_assignments": base_alias_assignment_count,
+        "source_assignments": 0,
+    }
+    if parent != allocation_root:
+        identity["source_alias"] = parent
+    return identity
+
+
+def _allocation_source_root_before(
+    text: str,
+    name: str,
+    before: int,
+    seen: set[str],
+) -> str:
+    if not name or name in seen:
+        return ""
+    seen.add(name)
+    assignments = [
+        item
+        for item in _base_direct_assignments(text, name)
+        if item.start() < before and item.group("op") == "="
+    ]
+    if not assignments:
+        return ""
+    roots: list[str] = []
+    for assignment in assignments:
+        rhs = _normalize_assignment_rhs(assignment.group("rhs"))
+        if not rhs or _is_null_initializer(rhs):
+            continue
+        if _is_allocation_result_rhs(rhs):
+            roots.append(name)
+            continue
+        if _is_identifier_expression(rhs):
+            root = _allocation_source_root_before(text, rhs, assignment.start(), seen)
+            if root:
+                roots.append(root)
+                continue
+        return ""
+    unique_roots = list(dict.fromkeys(roots))
+    if len(unique_roots) != 1:
+        return ""
+    return unique_roots[0]
+
+
+def _is_allocation_result_rhs(rhs: str) -> bool:
+    value = _normalize_assignment_rhs(rhs)
+    return bool(
+        re.match(
+            r"(?:ExAllocatePool2|ExAllocateFromNPagedLookasideList)\s*\(",
+            value,
+        )
+    )
+
+
+def _scaled_pointer_arithmetic_offset(text: str, parent: str, offset: int) -> int:
+    element_size = _local_pointer_element_size(text, parent)
+    if element_size <= 0:
+        return offset
+    return offset * element_size
+
+
+def _local_pointer_element_size(text: str, name: str) -> int:
+    match = re.search(
+        r"(?m)^\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+        r"(?P<stars>\*+)\s*%s\b\s*(?:[;=,])" % re.escape(name),
+        text or "",
+    )
+    if not match:
+        return 0
+    if len(match.group("stars") or "") != 1:
+        return 8
+    type_name = _normalize_type_name(match.group("type"))
+    if type_name.lower() == "void":
+        return 1
+    return _field_type_storage_size(type_name)
 
 
 def _stable_expression_source_profile(source: str) -> dict[str, Any]:
