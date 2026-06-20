@@ -63,6 +63,7 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "named_parameter_direct_alias",
     "parameter_field_pointer_alias",
     "parameter_indirect_pointer_alias",
+    "parameter_back_container_alias",
     "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
     "parameter_subobject_pointer_alias",
@@ -890,6 +891,8 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
     }
     if identity.get("source_offset"):
         comment["source_offset"] = identity["source_offset"]
+    if identity.get("source_container_offset"):
+        comment["source_container_offset"] = identity["source_container_offset"]
     if identity.get("source_type"):
         comment["source_type"] = identity["source_type"]
     if identity.get("source_index"):
@@ -956,7 +959,7 @@ def _field_stable_expression_source_comment_from_layout(
         "offset_count": len(layout.offsets),
         "access_count": layout.access_count,
     }
-    for key in ("source_parent", "source_offset", "source_index", "source_type"):
+    for key in ("source_parent", "source_offset", "source_container_offset", "source_index", "source_type"):
         if source_profile.get(key) not in {None, ""}:
             comment[key] = source_profile[key]
     return comment
@@ -3046,6 +3049,14 @@ def _parameter_derived_source_identity(
             "parameter_indexed_pointer",
             base_alias_assignment_count,
         )
+    back_container = _parse_parameter_back_container_source(source)
+    if back_container and _base_is_function_parameter(text, str(back_container["parent"])):
+        return _parameter_source_identity(
+            back_container,
+            "parameter_back_container_alias",
+            "parameter_back_container",
+            base_alias_assignment_count,
+        )
     subobject = _parse_parameter_subobject_source(source)
     if subobject and _base_is_function_parameter(text, str(subobject["parent"])):
         return _parameter_source_identity(
@@ -3067,6 +3078,8 @@ def _parameter_source_identity(
     source_kind = _layout_source_kind(parent)
     if source_kind == "temporary":
         source_kind = "argument"
+    elif source_kind == "named":
+        source_kind = "parameter"
     identity: dict[str, Any] = {
         "source": parent,
         "source_kind": source_kind,
@@ -3076,7 +3089,11 @@ def _parameter_source_identity(
         "source_assignments": 0,
     }
     if "offset" in match:
-        identity["source_offset"] = "0x%X" % int(match["offset"])
+        if match.get("offset_direction") == "negative":
+            identity["source_offset"] = "-0x%X" % int(match["offset"])
+            identity["source_container_offset"] = "0x%X" % int(match["offset"])
+        else:
+            identity["source_offset"] = "0x%X" % int(match["offset"])
     if "index" in match:
         identity["source_index"] = int(match["index"])
     return identity
@@ -3113,6 +3130,14 @@ def _stable_expression_source_profile(source: str) -> dict[str, Any]:
             "source_expression_kind": "pointer_arithmetic",
             "source_parent": str(subobject["parent"]),
             "source_offset": "0x%X" % int(subobject["offset"]),
+        }
+    back_container = _parse_parameter_back_container_source(source)
+    if back_container:
+        return {
+            "source_expression_kind": "back_container_pointer_arithmetic",
+            "source_parent": str(back_container["parent"]),
+            "source_offset": "-0x%X" % int(back_container["offset"]),
+            "source_container_offset": "0x%X" % int(back_container["offset"]),
         }
     return {}
 
@@ -3201,6 +3226,30 @@ def _parse_parameter_subobject_source(source: str) -> dict[str, Any]:
     return {
         "parent": match.group("parent"),
         "offset": offset,
+    }
+
+
+def _parse_parameter_back_container_source(source: str) -> dict[str, Any]:
+    match = re.fullmatch(
+        r"(?P<parent>[A-Za-z_][A-Za-z0-9_]*)\s*-\s*"
+        r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?",
+        str(source or ""),
+    )
+    if not match:
+        return {}
+    try:
+        offset = int(
+            match.group("offset"),
+            16 if match.group("offset").lower().startswith("0x") else 10,
+        )
+    except ValueError:
+        return {}
+    if offset <= 0:
+        return {}
+    return {
+        "parent": match.group("parent"),
+        "offset": offset,
+        "offset_direction": "negative",
     }
 
 

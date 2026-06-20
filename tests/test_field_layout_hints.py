@@ -920,6 +920,51 @@ __int64 __fastcall StableTempSourceLayout(__int64 argument2)
         self.assertIn("field_10", previews[0]["text"])
         self.assertIn("Preview artifact only", previews[0]["text"])
 
+    def test_temp_base_with_back_container_parameter_source_reports_source_hint(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall BackContainerSourceLayout(__int64 completionApc)
+{
+  __int64 v6;
+
+  v6 = completionApc - 120;
+  return *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40)
+       + *(_QWORD *)(v6 + 48)
+       + *(_QWORD *)(v6 + 56)
+       + *(_QWORD *)(v6 + 64)
+       + *(_QWORD *)(v6 + 72)
+       + *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v6", sources[0]["base"])
+        self.assertEqual("completionApc", sources[0]["source"])
+        self.assertEqual("parameter", sources[0]["source_kind"])
+        self.assertEqual("parameter_back_container_alias", sources[0]["source_provenance"])
+        self.assertEqual("parameter_back_container", sources[0]["source_rhs_kind"])
+        self.assertEqual("-0x78", sources[0]["source_offset"])
+        self.assertEqual("0x78", sources[0]["source_container_offset"])
+        self.assertIn("parameter_back_container_alias", sources[0]["text"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("completionApc", ready[0]["source"])
+        self.assertEqual("parameter_back_container_alias", ready[0]["source_provenance"])
+        self.assertEqual("parameter_back_container", ready[0]["source_rhs_kind"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("parameter_back_container_alias", previews[0]["source_provenance"])
+
     def test_temp_base_with_parameter_indirect_source_reports_source_hint(self) -> None:
         comments = field_layout_comments(
             """
