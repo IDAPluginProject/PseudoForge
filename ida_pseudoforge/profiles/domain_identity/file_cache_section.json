@@ -1063,6 +1063,36 @@
       ]
     },
     {
+      "id": "windows.file_cache_section.mi_map_view_of_data_section",
+      "source": "Reviewed MiMapViewOfDataSection data-section map path where the first argument is the control area used for AWE checks, PTE accounting, subsection lookup, shared commit, and final dereference.",
+      "function_names": [
+        "MiMapViewOfDataSection"
+      ],
+      "required_calls": [
+        "MiAweControlArea",
+        "MiGetControlAreaPtes",
+        "MiDereferenceControlArea",
+        "MiLocateSubsectionNode"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "controlArea",
+          "role": "controlArea",
+          "structure": "CONTROL_AREA",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "__int64",
+            "PCONTROL_AREA",
+            "CONTROL_AREA *",
+            "struct _CONTROL_AREA *"
+          ],
+          "source": "MiMapViewOfDataSection control area argument used throughout data-section view mapping"
+        }
+      ]
+    },
+    {
       "id": "windows.file_cache_section.cc_initialize_cache_map",
       "source": "Reviewed CcInitializeCacheMap wrapper into CcInitializeCacheMapInternal.",
       "function_names": [

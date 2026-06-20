@@ -358,6 +358,61 @@ __int64 __fastcall MiMapViewOfSection(__int64 SectionObject, __int64 Vad, unsign
         self.assertEqual("EPROCESS", mi_map_roles["associatedProcess"])
         self.assertEqual("CONTROL_AREA", mi_map_roles["sectionControlArea"])
 
+    def test_mi_map_view_of_data_section_identifies_control_area(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall MiMapViewOfDataSection(__int64 argument0, __int64 viewContext, unsigned __int64 *baseAddress, unsigned __int64 *sectionOffset)
+{
+  unsigned __int64 controlAreaPtes;
+  unsigned int *subsectionNode;
+
+  if ( MiAweControlArea(argument0) )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  controlAreaPtes = MiGetControlAreaPtes(argument0, 0, 0, 0);
+  if ( *sectionOffset >= controlAreaPtes )
+  {
+    MiDereferenceControlArea(argument0);
+    return STATUS_INVALID_VIEW_SIZE;
+  }
+  subsectionNode = MiLocateSubsectionNode(argument0, *sectionOffset, 0, 0);
+  MiInsertSharedCommitNode(argument0, *baseAddress, 0);
+  return subsectionNode[9];
+}
+"""
+        )
+
+        identity = self._single_identity(
+            plan,
+            "windows.file_cache_section.mi_map_view_of_data_section",
+            role="controlArea",
+        )
+        rename_map = self._rename_map(plan)
+
+        self.assertEqual("CONTROL_AREA", identity["structure_name"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual("controlArea", rename_map["argument0"])
+
+    def test_mi_map_view_of_data_section_requires_control_area_flow(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall MiMapViewOfDataSection(__int64 argument0, __int64 viewContext)
+{
+  if ( MiAweControlArea(argument0) )
+  {
+    return STATUS_INVALID_PARAMETER;
+  }
+  return viewContext;
+}
+"""
+        )
+
+        self.assertEqual(
+            [],
+            self._profile_identities(plan, "windows.file_cache_section.mi_map_view_of_data_section"),
+        )
+
     def test_cache_map_initialize_uninitialize_and_sizes_roles(self) -> None:
         init_plan = self._plan(
             """
