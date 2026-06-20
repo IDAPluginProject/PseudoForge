@@ -236,6 +236,64 @@ void __fastcall IopfCompleteRequest(PIRP Irp, char PriorityBoost)
         self.assertEqual("IO_STACK_LOCATION", private_complete_roles["currentStackLocation"])
         self.assertEqual("DEVICE_OBJECT", private_complete_roles["completionDeviceObject"])
 
+    def test_iop_complete_request_identifies_completion_apc(self) -> None:
+        without_callees = self._plan(
+            """
+void __fastcall IopCompleteRequest(__int64 a1, __int64 a2, _QWORD *a3, ULONG_PTR *a4, _QWORD *a5)
+{
+  *(_BYTE *)a1 = 18;
+  *(_QWORD *)(a1 + 32) = IopUserRundown;
+}
+"""
+        )
+        with_callees = self._plan(
+            """
+void __fastcall IopCompleteRequest(__int64 a1, __int64 a2, _QWORD *a3, ULONG_PTR *a4, _QWORD *a5)
+{
+  __int64 irp;
+
+  irp = a1 - 120;
+  IopProcessBufferedIoCompletion(irp);
+  *(_BYTE *)a1 = 18;
+  *(_BYTE *)(a1 + 2) = 88;
+  *(_QWORD *)(a1 + 8) = KeGetCurrentThread();
+  *(_QWORD *)(a1 + 32) = IopUserRundown;
+  *(_QWORD *)(a1 + 40) = IopUserRundown;
+  KeInsertQueueApc(a1, *(_QWORD *)(irp + 72), 0LL, 2LL, 0);
+}
+"""
+        )
+
+        identity = self._single_identity(
+            with_callees,
+            "windows.io_manager.iop_complete_request_apc",
+            role="completionApc",
+        )
+
+        self.assertFalse(
+            any(
+                item["profile_id"] == "windows.io_manager.iop_complete_request_apc"
+                for item in self._identities(without_callees)
+            )
+        )
+        self.assertEqual("KAPC", identity["structure_name"])
+        self.assertEqual("completionApc", self._rename_map(with_callees).get("a1"))
+        self.assertTrue(identity["suppress_layout_inference"])
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_layout"
+                and item.get("base") == "completionApc"
+                for item in with_callees.comments
+            )
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_blockers"
+                and item.get("base") == "completionApc"
+                for item in with_callees.comments
+            )
+        )
+
     def test_irp_lifecycle_and_device_ioctl_roles(self) -> None:
         allocate_plan = self._plan(
             """
@@ -600,6 +658,9 @@ void __stdcall IoDeleteDevice(PDEVICE_OBJECT DeviceObject)
 
     def _profile_identities(self, plan, profile_id: str) -> list[dict[str, object]]:
         return [item for item in self._identities(plan) if item.get("profile_id") == profile_id]
+
+    def _rename_map(self, plan) -> dict[str, str]:
+        return {item.old: item.new for item in plan.renames if item.apply}
 
     def _single_identity(
         self,

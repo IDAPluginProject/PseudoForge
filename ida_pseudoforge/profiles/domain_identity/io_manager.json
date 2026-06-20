@@ -881,6 +881,37 @@
       ]
     },
     {
+      "id": "windows.io_manager.iop_complete_request_apc",
+      "source": "Reviewed IopCompleteRequest APC normal routine where parameter 0 is the embedded IRP completion KAPC and the IRP base is recovered by subtracting the APC offset.",
+      "function_names": [
+        "IopCompleteRequest"
+      ],
+      "required_calls": [
+        "IopProcessBufferedIoCompletion",
+        "KeInsertQueueApc"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "completionApc",
+          "role": "completionApc",
+          "structure": "KAPC",
+          "mode": "report-only",
+          "suppress_layout_inference": true,
+          "confidence": 0.88,
+          "rename_confidence": 0.91,
+          "accepted_types": [
+            "PKAPC",
+            "KAPC *",
+            "PRKAPC",
+            "__int64",
+            "void *"
+          ],
+          "source": "IopCompleteRequest completion APC parameter later queued with KeInsertQueueApc"
+        }
+      ]
+    },
+    {
       "id": "windows.io_manager.allocate_irp",
       "source": "Reviewed IoAllocateIrp stack-size and quota wrapper around private/verifier allocation paths.",
       "function_names": [
