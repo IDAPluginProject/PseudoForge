@@ -130,6 +130,26 @@ class RenderKernelHintTests(unittest.TestCase):
         self.assertIn("// PseudoForge: validated RemoveEntryList(providerLink).", annotated)
         self.assertIn("// PseudoForge: validated InsertTailList(providerListHead, newProviderLink).", annotated)
 
+    def test_suspicious_ps_reference_silo_context_variable_operand_is_annotated(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall SuspiciousReferenceTargetSample(PFILE_OBJECT fileObject)
+{
+  PsReferenceSiloContext(fileObject);
+  ObfDereferenceObject(fileObject);
+  return 0;
+}
+"""
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertTrue(any("Potential bad call target PsReferenceSiloContext" in warning for warning in plan.warnings))
+        self.assertTrue(any("object pointer" in warning for warning in plan.warnings))
+        self.assertIn("likely object reference paired with ObfDereferenceObject", rendered)
+        self.assertIn("original recovered call target was PsReferenceSiloContext", rendered)
+        self.assertIn("PsReferenceSiloContext(fileObject);", rendered)
+
     def test_kernel_driver_semantics(self) -> None:
         class FakeProvider:
             def suggest_renames(self, capture):

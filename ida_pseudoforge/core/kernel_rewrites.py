@@ -9,7 +9,10 @@ from ida_pseudoforge.core.kernel_api import (
     kernel_structure_metadata,
     kernel_type_alias_metadata,
 )
-from ida_pseudoforge.core.kernel_semantics import looks_like_driver_entry
+from ida_pseudoforge.core.kernel_semantics import (
+    looks_like_driver_entry,
+    suspicious_ps_reference_silo_context_operands,
+)
 from ida_pseudoforge.core.normalize import extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 
@@ -1583,13 +1586,23 @@ def _annotate_suspicious_call_targets(text: str, plan: CleanPlan) -> str:
         return text
     if "likely object reference paired with ObfDereferenceObject" in text:
         return text
+    suspicious_operands = set(suspicious_ps_reference_silo_context_operands(text))
+    if not suspicious_operands:
+        return text
+
+    def replace_call(match: re.Match[str]) -> str:
+        operand = re.sub(r"\s+", " ", match.group("operand").strip())
+        if operand not in suspicious_operands:
+            return match.group(0)
+        indent = match.group("indent")
+        return (
+            f"{indent}// PseudoForge: likely object reference paired with ObfDereferenceObject.\n"
+            f"{indent}// PseudoForge: original recovered call target was PsReferenceSiloContext.\n"
+            f"{match.group(0)}"
+        )
+
     return re.sub(
-        r"(?m)^(?P<indent>\s*)PsReferenceSiloContext\(newProviderRecord->DriverObject\);",
-        (
-            r"\g<indent>// PseudoForge: likely object reference paired with ObfDereferenceObject.\n"
-            r"\g<indent>// PseudoForge: original recovered call target was PsReferenceSiloContext.\n"
-            r"\g<indent>PsReferenceSiloContext(newProviderRecord->DriverObject);"
-        ),
+        r"(?m)^(?P<indent>\s*)PsReferenceSiloContext\((?P<operand>[^;\n]+)\);",
+        replace_call,
         text,
-        count=1,
     )

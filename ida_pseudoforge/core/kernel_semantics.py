@@ -376,10 +376,14 @@ def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> lis
 def kernel_warnings(capture: FunctionCapture) -> list[str]:
     text = capture.pseudocode or ""
     warnings = []
-    if _has_bad_driver_object_reference_name(text):
+    suspicious_operands = suspicious_ps_reference_silo_context_operands(text)
+    if suspicious_operands:
+        if any(_operand_looks_like_driver_object(operand) for operand in suspicious_operands):
+            reason = "operand is DriverObject and removal path uses ObfDereferenceObject"
+        else:
+            reason = "operand looks like an object pointer and object release path uses ObfDereferenceObject"
         warnings.append(
-            "Potential bad call target PsReferenceSiloContext: operand is DriverObject "
-            "and removal path uses ObfDereferenceObject."
+            "Potential bad call target PsReferenceSiloContext: %s." % reason
         )
     return warnings
 
@@ -1587,13 +1591,54 @@ def _has_list_insert_tail_pattern(text: str) -> bool:
 
 
 def _has_bad_driver_object_reference_name(text: str) -> bool:
+    return bool(suspicious_ps_reference_silo_context_operands(text))
+
+
+def suspicious_ps_reference_silo_context_operands(text: str) -> tuple[str, ...]:
+    if "PsReferenceSiloContext" not in text or "Ob" not in text:
+        return ()
+
+    suspicious: list[str] = []
+    for match in re.finditer(r"\bPsReferenceSiloContext\((?P<operand>[^;\n]+)\);", text):
+        operand = _normalize_call_operand(match.group("operand"))
+        if not operand:
+            continue
+        if _operand_looks_like_driver_object(operand):
+            suspicious.append(operand)
+            continue
+        if _operand_looks_like_object_pointer(text, operand):
+            suspicious.append(operand)
+
+    return tuple(dict.fromkeys(suspicious))
+
+
+def _normalize_call_operand(operand: str) -> str:
+    return re.sub(r"\s+", " ", operand.strip())
+
+
+def _operand_looks_like_driver_object(operand: str) -> bool:
     return (
-        "PsReferenceSiloContext" in text
-        and "ObfDereferenceObject" in text
-        and (
-            "DriverObject" in text
-            or re.search(r"PsReferenceSiloContext\(\*\(_QWORD \*\)\([^)]+\+\s*16\)\)", text) is not None
+        "DriverObject" in operand
+        or re.search(r"\+\s*16\)", operand) is not None
+    )
+
+
+def _operand_looks_like_object_pointer(text: str, operand: str) -> bool:
+    if re.search(r"^[A-Za-z_][A-Za-z0-9_]*$", operand) is None:
+        return False
+    escaped = re.escape(operand)
+    if (
+        re.search(r"\bObf?DereferenceObject(?:WithTag|DeferDelete)?\(\s*%s\s*[,)]" % escaped, text)
+        is not None
+    ):
+        return True
+    return (
+        re.search(
+            r"(?m)^\s*(?:P[A-Z0-9_]*OBJECT|PFILE_OBJECT|PDEVICE_OBJECT|PDRIVER_OBJECT|PACCESS_TOKEN|"
+            r"struct\s+_[A-Za-z0-9_]*OBJECT\s*\*)\s+%s\b" % escaped,
+            text,
         )
+        is not None
     )
 
 
