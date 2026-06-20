@@ -13,6 +13,13 @@ _OFFSET_DEREF_RE = re.compile(
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
 
+_OFFSET_ADDRESS_CAST_RE = re.compile(
+    r"(?<!\*)\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
+    r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
+
 _PREVIEW_ONLY_COMMENT = "Preview artifact only; body rewrite was not applied."
 _AUDIT_ONLY_NOT_APPLIED_COMMENT = "Audit only; body rewrite was not applied."
 _PARTIAL_REVIEW_ONLY_COMMENT = "Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented."
@@ -158,6 +165,7 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
                 "source_provenance": match.groupdict().get("source_provenance") or "none",
                 "advertised_access_count": _int_value(match.group("access_count")),
                 "advertised_field_count": _int_value(match.group("field_count")),
+                "advertised_offsets": _parse_field_alias_offsets(match.group("fields")),
                 "confidence": _float_value(match.group("confidence")),
             }
         )
@@ -200,8 +208,20 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         for base in sorted(bases)
     }
 
-    def replace(match: re.Match[str]) -> str:
+    def record_rewrite(base: str, offset: int) -> str:
         nonlocal rewritten_accesses
+        field_name = "field_%X" % offset
+        rewritten_accesses += 1
+        rewritten_fields.add("%s.%s" % (base, field_name))
+        rewritten_bases.add(base)
+        rewrite_results[base]["rewritten_accesses"] += 1
+        rewrite_results[base]["rewritten_fields"].add(field_name)
+        offset_accesses = rewrite_results[base]["offset_accesses"]
+        offset_key = "0x%X" % offset
+        offset_accesses[offset_key] = int(offset_accesses.get(offset_key, 0) or 0) + 1
+        return field_name
+
+    def replace_deref(match: re.Match[str]) -> str:
         base = match.group("base")
         rule = rewrite_rules.get(base)
         if not rule:
@@ -217,15 +237,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
             match.group("pointer_stars"),
         )
         deref_prefix = _outer_value_deref_prefix(match.group("outer_stars"))
-        field_name = "field_%X" % offset
-        rewritten_accesses += 1
-        rewritten_fields.add("%s.%s" % (base, field_name))
-        rewritten_bases.add(base)
-        rewrite_results[base]["rewritten_accesses"] += 1
-        rewrite_results[base]["rewritten_fields"].add(field_name)
-        offset_accesses = rewrite_results[base]["offset_accesses"]
-        offset_key = "0x%X" % offset
-        offset_accesses[offset_key] = int(offset_accesses.get(offset_key, 0) or 0) + 1
+        field_name = record_rewrite(base, offset)
         return "%s%s->%s /* %s +0x%X */" % (
             deref_prefix,
             base,
@@ -234,7 +246,31 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
             offset,
         )
 
-    rewritten = _OFFSET_DEREF_RE.sub(replace, text or "")
+    def replace_address_cast(match: re.Match[str]) -> str:
+        base = match.group("base")
+        rule = rewrite_rules.get(base)
+        if not rule:
+            return match.group(0)
+        offset = _parse_offset(match.group("offset"))
+        if offset is None or offset <= 0:
+            return match.group(0)
+        allowed_offsets = rule.get("allowed_offsets")
+        if allowed_offsets is not None and offset not in allowed_offsets:
+            return match.group(0)
+        address_offsets = rule.get("address_offsets")
+        if address_offsets is not None and offset not in address_offsets:
+            return match.group(0)
+        cast_type = _cast_pointer_type(match.group("type"), match.group("pointer_stars"))
+        field_name = record_rewrite(base, offset)
+        return "(%s)&%s->%s /* address +0x%X */" % (
+            cast_type,
+            base,
+            field_name,
+            offset,
+        )
+
+    rewritten = _OFFSET_DEREF_RE.sub(replace_deref, text or "")
+    rewritten = _OFFSET_ADDRESS_CAST_RE.sub(replace_address_cast, rewritten)
     return rewritten, {
         "rewritten_accesses": rewritten_accesses,
         "rewritten_fields": len(rewritten_fields),
@@ -257,10 +293,14 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
         base = str(plan.get("base", "") or "")
         if not base:
             continue
-        current = rules.setdefault(base, {"allowed_offsets": set(), "has_full_plan": False})
+        current = rules.setdefault(
+            base,
+            {"allowed_offsets": set(), "address_offsets": set(), "has_full_plan": False},
+        )
         if _plan_kind(plan) == "full":
             current["has_full_plan"] = True
             current["allowed_offsets"] = None
+            current["address_offsets"].update(_plan_advertised_offsets(plan))
             continue
         if current.get("has_full_plan"):
             continue
@@ -268,14 +308,21 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
         if allowed_offsets is None:
             continue
         allowed_offsets.update(_plan_allowed_offsets(plan))
+        current["address_offsets"].update(_plan_allowed_offsets(plan))
     result: dict[str, dict[str, Any]] = {}
     for base, rule in rules.items():
         if rule.get("has_full_plan"):
-            result[base] = {"allowed_offsets": None}
+            result[base] = {
+                "allowed_offsets": None,
+                "address_offsets": set(rule.get("address_offsets") or set()),
+            }
             continue
         allowed_offsets = set(rule.get("allowed_offsets") or set())
         if allowed_offsets:
-            result[base] = {"allowed_offsets": allowed_offsets}
+            result[base] = {
+                "allowed_offsets": allowed_offsets,
+                "address_offsets": set(rule.get("address_offsets") or set()),
+            }
     return result
 
 
@@ -580,6 +627,16 @@ def _raw_offset_deref_for_plan_exists(text: str, plan: dict[str, Any]) -> bool:
             continue
         if offset is not None:
             return True
+    address_offsets = _plan_address_offsets(plan)
+    for match in _OFFSET_ADDRESS_CAST_RE.finditer(text or ""):
+        if match.group("base") != base:
+            continue
+        offset = _parse_offset(match.group("offset"))
+        if offset is None:
+            continue
+        if address_offsets is not None and offset not in address_offsets:
+            continue
+        return True
     return False
 
 
@@ -606,6 +663,27 @@ def _plan_allowed_offsets(plan: dict[str, Any]) -> set[int]:
     return offsets
 
 
+def _plan_advertised_offsets(plan: dict[str, Any]) -> set[int]:
+    offsets = set()
+    for offset in plan.get("advertised_offsets", []) or []:
+        try:
+            parsed = int(offset)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            offsets.add(parsed)
+    return offsets
+
+
+def _plan_address_offsets(plan: dict[str, Any]) -> set[int]:
+    if _plan_kind(plan) == "partial":
+        return _plan_allowed_offsets(plan)
+    advertised_offsets = _plan_advertised_offsets(plan)
+    if advertised_offsets:
+        return advertised_offsets
+    return set()
+
+
 def _format_offset_list(offsets: list[int]) -> str:
     return ", ".join("+0x%X" % offset for offset in sorted(set(offsets)))
 
@@ -619,6 +697,14 @@ def _rewritten_field_type(type_name: str, pointer_stars: str) -> str:
     if len(pointer_text) > 64:
         return text
     return pointer_text
+
+
+def _cast_pointer_type(type_name: str, pointer_stars: str) -> str:
+    text = " ".join(str(type_name or "").split())
+    stars = str(pointer_stars or "")
+    if not text:
+        return stars
+    return "%s %s" % (text, stars)
 
 
 def _outer_value_deref_prefix(outer_stars: str) -> str:
@@ -694,6 +780,16 @@ def _parse_offset_list(value: str) -> list[int]:
             continue
         if offset not in offsets:
             offsets.append(offset)
+    return offsets
+
+
+def _parse_field_alias_offsets(value: str) -> list[int]:
+    offsets = []
+    for match in re.finditer(r"\bfield_([0-9A-Fa-f]+)\b", str(value or "")):
+        offset = _parse_offset("0x%s" % match.group(1))
+        if offset is None or offset <= 0 or offset in offsets:
+            continue
+        offsets.append(offset)
     return offsets
 
 

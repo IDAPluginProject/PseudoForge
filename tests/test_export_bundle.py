@@ -312,6 +312,57 @@ __int64 __fastcall LayoutPreviewApply(__int64 argument2)
             self.assertEqual([], preview_metadata["canonical_rewrite_errors"])
             self.assertEqual("passed", preview_metadata["validation"]["status"])
 
+    def test_validated_layout_rewrite_handles_advertised_address_casts(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for context: 2 typed dereference(s) across 2 offset(s), no rewrite blockers found. Source provenance generic_parameter_trust from context. Audit only; body rewrite was not applied. confidence=0.80
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for context: 2 dereference(s) can map to 2 field alias(es) field_8, field_90. Source provenance generic_parameter_trust from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall LayoutPreviewAddressCast(__int64 context)
+{
+  int *v21;
+
+  v21 = (int *)(context + 144);
+  if ( v21 == (int *)(context + 160) )
+    return 0;
+  return *(_QWORD *)(context + 8);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPreviewAddressCast(__int64 context)
+{
+  return context;
+}
+""",
+                name="LayoutPreviewAddressCast",
+                ea=0x140002250,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertIn("context->field_8 /* _QWORD +0x8 */", cleaned_output)
+            self.assertIn("(int *)&context->field_90 /* address +0x90 */", cleaned_output)
+            self.assertIn("(int *)(context + 160)", cleaned_output)
+            self.assertEqual("passed", preview_metadata["validation"]["status"])
+            self.assertEqual("applied", preview_metadata["canonical_rewrite_status"])
+            self.assertEqual(2, preview_metadata["rewritten_accesses"])
+            self.assertEqual(2, preview_metadata["rewritten_fields"])
+            self.assertEqual([0x8, 0x90], preview_metadata["preview_plans"][0]["advertised_offsets"])
+
     def test_validated_layout_rewrite_keeps_canonical_output_when_validation_fails(self) -> None:
         cleaned_text = """
 /*
