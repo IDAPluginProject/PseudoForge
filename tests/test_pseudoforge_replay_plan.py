@@ -650,6 +650,55 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual("dispatchContext", item["offset_base_counts"]["layout_actionable"][0]["base"])
             self.assertFalse(item["offset_base_counts"]["unannotated_named"])
 
+    def test_replay_plan_splits_temp_source_identity_blockers_from_layout_actionable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            temp_blocked_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v22: base is a decompiler temporary; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
+                    "*/",
+                    "__int64 __fastcall TempBlocked(__int64 source)",
+                    "{",
+                    "  v22 = source + 32;",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v22 + %d);" % (index, 512 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140506ED0",
+                name="TempBlocked",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=temp_blocked_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(12, item["metrics"]["body_offset_deref_source_identity_blocked_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_layout_actionable_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_non_layout_base_patterns"])
+            self.assertIn("source_identity_blocked_offset_residue", item["reasons"])
+            self.assertNotIn("layout_actionable_offset_residue", item["reasons"])
+            self.assertNotIn("named_unannotated_base_offset_residue", item["reasons"])
+            self.assertEqual(
+                "v22",
+                item["offset_base_counts"]["source_identity_blocked"][0]["base"],
+            )
+            self.assertFalse(item["offset_base_counts"]["layout_actionable"])
+            self.assertFalse(item["offset_base_counts"]["unannotated_named"])
+            self.assertEqual(
+                "v22",
+                plan["offset_base_breakdown"]["top_source_identity_blocked_bases"][0]["base"],
+            )
+
     def test_replay_plan_treats_hot_field_cluster_as_layout_actionable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

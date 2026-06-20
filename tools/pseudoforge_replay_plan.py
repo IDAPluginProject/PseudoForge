@@ -52,6 +52,8 @@ OFFSET_DEREF_LAYOUT_WEIGHT = 2.0
 OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT = 0.25
 OFFSET_DEREF_DOMAIN_IDENTITY_WEIGHT = 1.5
 OFFSET_DEREF_DOMAIN_IDENTITY_OVERFLOW_WEIGHT = 0.15
+OFFSET_DEREF_SOURCE_IDENTITY_WEIGHT = 1.25
+OFFSET_DEREF_SOURCE_IDENTITY_OVERFLOW_WEIGHT = 0.12
 OFFSET_DEREF_NO_LAYOUT_WEIGHT = 1.0
 OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT = 0.10
 LABEL_RESIDUE_FULL_SCORE_LIMIT = 120
@@ -250,6 +252,7 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
     for title, key in (
         ("Top layout-actionable bases", "top_layout_actionable_bases"),
         ("Top domain-identified residual bases", "top_domain_identified_bases"),
+        ("Top source-identity-blocked bases", "top_source_identity_blocked_bases"),
         ("Top unannotated bases", "top_unannotated_bases"),
         ("Top unannotated argument-identity bases", "top_unannotated_argument_identity_bases"),
         ("Top unannotated context bases", "top_unannotated_context_bases"),
@@ -344,6 +347,7 @@ def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str
 def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     layout_actionable: Counter[str] = Counter()
     domain_identified: Counter[str] = Counter()
+    source_identity_blocked: Counter[str] = Counter()
     unannotated: Counter[str] = Counter()
     unannotated_argument_identity: Counter[str] = Counter()
     unannotated_context: Counter[str] = Counter()
@@ -360,6 +364,7 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         for key, counter in (
             ("layout_actionable", layout_actionable),
             ("domain_identified", domain_identified),
+            ("source_identity_blocked", source_identity_blocked),
             ("unannotated", unannotated),
             ("unannotated_argument_identity", unannotated_argument_identity),
             ("unannotated_context", unannotated_context),
@@ -387,6 +392,10 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "top_domain_identified_bases": _top_counter_items(
             domain_identified,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_source_identity_blocked_bases": _top_counter_items(
+            source_identity_blocked,
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
         "top_unannotated_bases": _top_counter_items(
@@ -535,6 +544,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     partial_opportunities = _layout_partial_opportunity_counts(analysis_text)
     body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
     body_label_tokens = len(LABEL_RE.findall(body_text))
+    source_identity_blocked_bases = _source_identity_blocked_bases(analysis_text)
     layout_actionable_bases = _layout_actionable_bases(analysis_text)
     domain_identified_bases = _domain_identified_offset_bases(analysis_text)
     annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
@@ -571,6 +581,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             if base in domain_identified_residual_bases
         }
     )
+    source_identity_blocked_base_counts = Counter(
+        {
+            base: count
+            for base, count in offset_base_counts.items()
+            if (
+                base in source_identity_blocked_bases
+                and base not in layout_actionable_bases
+                and base not in domain_identified_residual_bases
+                and base not in annotated_scalar_bases
+            )
+        }
+    )
     unannotated_base_counts = Counter(
         {
             base: count
@@ -579,11 +601,13 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 base not in layout_actionable_bases
                 and base not in annotated_scalar_bases
                 and base not in domain_identified_residual_bases
+                and base not in source_identity_blocked_bases
             )
         }
     )
     annotated_scalar_base_offset_derefs = sum(annotated_scalar_base_counts.values())
     domain_identified_base_offset_derefs = sum(domain_identified_base_counts.values())
+    source_identity_blocked_base_offset_derefs = sum(source_identity_blocked_base_counts.values())
     non_layout_base_offset_derefs = sum(unannotated_base_counts.values())
     unannotated_temp_base_counts = Counter(
         {base: count for base, count in unannotated_base_counts.items() if _is_temp_offset_base(base)}
@@ -629,6 +653,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     actionable_offset_derefs = (
         layout_actionable_base_offset_derefs
         + domain_identified_base_offset_derefs
+        + source_identity_blocked_base_offset_derefs
         + bulk_noise_offset_derefs
     )
     layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(analysis_text))
@@ -677,6 +702,12 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "body_offset_deref_layout_actionable_bases": len(layout_actionable_base_counts),
         "body_offset_deref_domain_identified_base_patterns": domain_identified_base_offset_derefs,
         "body_offset_deref_domain_identified_bases": len(domain_identified_base_counts),
+        "body_offset_deref_source_identity_blocked_base_patterns": (
+            source_identity_blocked_base_offset_derefs
+        ),
+        "body_offset_deref_source_identity_blocked_bases": len(
+            source_identity_blocked_base_counts
+        ),
         "body_offset_deref_annotated_scalar_base_patterns": annotated_scalar_base_offset_derefs,
         "body_offset_deref_annotated_scalar_bases": len(annotated_scalar_base_counts),
         "body_offset_deref_non_layout_base_patterns": non_layout_base_offset_derefs,
@@ -740,6 +771,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "domain_identified": _top_counter_items(
                 domain_identified_base_counts,
                 len(domain_identified_base_counts),
+            ),
+            "source_identity_blocked": _top_counter_items(
+                source_identity_blocked_base_counts,
+                len(source_identity_blocked_base_counts),
             ),
             "unannotated": _top_counter_items(
                 unannotated_base_counts,
@@ -831,25 +866,89 @@ def _layout_partial_opportunity_counts(text: str) -> Counter[str]:
 
 def _layout_actionable_bases(text: str) -> set[str]:
     bases: set[str] = set()
-    for pattern in (
-        FIELD_REWRITE_BLOCKER_DETAIL_RE,
-        FIELD_REWRITE_NEAR_READY_DETAIL_RE,
-        FIELD_BASE_STABILITY_DETAIL_RE,
-        FIELD_STABLE_BASE_SOURCE_DETAIL_RE,
-        FIELD_HOT_CLUSTER_DETAIL_RE,
-    ):
+    source_identity_blocked = _source_identity_blocked_bases(text)
+    for pattern in (FIELD_REWRITE_NEAR_READY_DETAIL_RE, FIELD_BASE_STABILITY_DETAIL_RE):
         for match in pattern.finditer(text or ""):
             base = str(match.groupdict().get("base") or "")
+            if base in source_identity_blocked:
+                continue
             if base:
                 bases.add(base)
+    for match in FIELD_REWRITE_BLOCKER_DETAIL_RE.finditer(text or ""):
+        if _is_source_identity_blocker(match.groupdict().get("reasons")):
+            continue
+        base = str(match.groupdict().get("base") or "")
+        if base in source_identity_blocked:
+            continue
+        if base:
+            bases.add(base)
+    for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        source_kind = str(match.groupdict().get("source_kind") or "")
+        if source_kind in {"temp", "generic"}:
+            continue
+        if base:
+            bases.add(base)
+    for match in FIELD_HOT_CLUSTER_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base in source_identity_blocked:
+            continue
+        if base:
+            bases.add(base)
     for match in FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE.finditer(text or ""):
         disposition = str(match.groupdict().get("disposition") or "")
         if "Validated partial layout rewrite applied" in disposition:
             continue
         base = str(match.groupdict().get("base") or "")
+        if base in source_identity_blocked:
+            continue
         if base:
             bases.add(base)
     return bases
+
+
+def _source_identity_blocked_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    trusted_alias_bases = _trusted_source_identity_alias_bases(text)
+    for match in FIELD_REWRITE_BLOCKER_DETAIL_RE.finditer(text or ""):
+        if not _is_source_identity_blocker(match.groupdict().get("reasons")):
+            continue
+        base = str(match.groupdict().get("base") or "")
+        if base in trusted_alias_bases:
+            continue
+        if base:
+            bases.add(base)
+    for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
+        source_kind = str(match.groupdict().get("source_kind") or "")
+        if source_kind not in {"temp", "generic"}:
+            continue
+        base = str(match.groupdict().get("base") or "")
+        if base in trusted_alias_bases:
+            continue
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _trusted_source_identity_alias_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
+        source_kind = str(match.groupdict().get("source_kind") or "")
+        if source_kind in {"temp", "generic"}:
+            continue
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _is_source_identity_blocker(reasons: Any) -> bool:
+    text = str(reasons or "")
+    return (
+        "base is a decompiler temporary" in text
+        or "base name is generic" in text
+        or "base has multiple initializers" in text
+    )
 
 
 def _projected_hot_field_clusters(text: str, existing_layout_bases: set[str]) -> list[dict[str, Any]]:
@@ -970,6 +1069,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
             reasons.append("layout_actionable_offset_residue")
         if metrics["body_offset_deref_domain_identified_base_patterns"] >= 10:
             reasons.append("domain_identified_offset_residue")
+        if metrics["body_offset_deref_source_identity_blocked_base_patterns"] >= 10:
+            reasons.append("source_identity_blocked_offset_residue")
         if metrics["body_offset_deref_bulk_noise_patterns"] >= 10:
             reasons.append("non_layout_offset_residue")
             if metrics["body_offset_deref_non_layout_base_patterns"] >= 10:
@@ -1031,6 +1132,9 @@ def _offset_deref_residue_score(metrics: dict[str, int]) -> float:
     domain_identified_count = int(
         metrics["body_offset_deref_domain_identified_base_patterns"] or 0
     )
+    source_identity_count = int(
+        metrics["body_offset_deref_source_identity_blocked_base_patterns"] or 0
+    )
     bulk_count = int(metrics["body_offset_deref_bulk_noise_patterns"] or 0)
     layout_full_score_count = min(layout_count, OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT)
     layout_overflow_count = max(0, layout_count - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT)
@@ -1044,6 +1148,15 @@ def _offset_deref_residue_score(metrics: dict[str, int]) -> float:
         0,
         remaining_full_score_capacity - domain_identified_full_score_count,
     )
+    source_identity_full_score_count = min(source_identity_count, remaining_full_score_capacity)
+    source_identity_overflow_count = max(
+        0,
+        source_identity_count - source_identity_full_score_count,
+    )
+    remaining_full_score_capacity = max(
+        0,
+        remaining_full_score_capacity - source_identity_full_score_count,
+    )
     bulk_full_score_count = min(bulk_count, remaining_full_score_capacity)
     bulk_overflow_count = max(0, bulk_count - bulk_full_score_count)
     return (
@@ -1051,6 +1164,8 @@ def _offset_deref_residue_score(metrics: dict[str, int]) -> float:
         + (layout_overflow_count * OFFSET_DEREF_RESIDUE_OVERFLOW_WEIGHT)
         + (domain_identified_full_score_count * OFFSET_DEREF_DOMAIN_IDENTITY_WEIGHT)
         + (domain_identified_overflow_count * OFFSET_DEREF_DOMAIN_IDENTITY_OVERFLOW_WEIGHT)
+        + (source_identity_full_score_count * OFFSET_DEREF_SOURCE_IDENTITY_WEIGHT)
+        + (source_identity_overflow_count * OFFSET_DEREF_SOURCE_IDENTITY_OVERFLOW_WEIGHT)
         + (bulk_full_score_count * OFFSET_DEREF_NO_LAYOUT_WEIGHT)
         + (bulk_overflow_count * OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT)
     )
@@ -1079,6 +1194,9 @@ def _score_model() -> dict[str, Any]:
             "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
             "domain_identified_base_metric": (
                 "body_offset_deref_domain_identified_base_patterns"
+            ),
+            "source_identity_blocked_base_metric": (
+                "body_offset_deref_source_identity_blocked_base_patterns"
             ),
             "annotated_scalar_base_metric": "body_offset_deref_annotated_scalar_base_patterns",
             "annotated_scalar_domain_structures": sorted(SCALAR_OFFSET_DOMAIN_STRUCTURES),
@@ -1112,6 +1230,8 @@ def _score_model() -> dict[str, Any]:
             "layout_signal_weight": OFFSET_DEREF_LAYOUT_WEIGHT,
             "domain_identity_weight": OFFSET_DEREF_DOMAIN_IDENTITY_WEIGHT,
             "domain_identity_overflow_weight": OFFSET_DEREF_DOMAIN_IDENTITY_OVERFLOW_WEIGHT,
+            "source_identity_weight": OFFSET_DEREF_SOURCE_IDENTITY_WEIGHT,
+            "source_identity_overflow_weight": OFFSET_DEREF_SOURCE_IDENTITY_OVERFLOW_WEIGHT,
             "no_layout_weight": OFFSET_DEREF_NO_LAYOUT_WEIGHT,
             "no_layout_overflow_weight": OFFSET_DEREF_NO_LAYOUT_OVERFLOW_WEIGHT,
         },
