@@ -2908,11 +2908,15 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
     simple_assignments = [item for item in assignments if item.group("op") == "="]
     if len(simple_assignments) != len(assignments):
         blockers.append("base uses compound assignment")
-    pre_access_rhs = [
-        _normalize_assignment_rhs(item.group("rhs"))
-        for item in simple_assignments
-        if item.start() < first_access
-    ]
+    pre_access_rhs = _canonicalized_pre_access_assignment_rhs(
+        text,
+        base,
+        [
+            item
+            for item in simple_assignments
+            if item.start() < first_access
+        ],
+    )
     effective_pre_access_rhs = _effective_pre_access_initializer_rhs(pre_access_rhs)
     distinct_pre_access_rhs = {item for item in effective_pre_access_rhs if item}
     if len(distinct_pre_access_rhs) > 1:
@@ -2956,6 +2960,60 @@ def _effective_pre_access_initializer_rhs(values: list[str]) -> list[str]:
     return result
 
 
+def _canonicalized_pre_access_assignment_rhs(
+    text: str,
+    base: str,
+    assignments: list[re.Match[str]],
+) -> list[str]:
+    return [
+        _canonical_pre_access_initializer_rhs(
+            text,
+            item.group("rhs"),
+            item.start(),
+            {base},
+        )
+        for item in assignments
+        if item.group("op") == "="
+    ]
+
+
+def _canonical_pre_access_initializer_rhs(
+    text: str,
+    rhs: str,
+    before: int,
+    seen: set[str],
+) -> str:
+    normalized = _normalize_assignment_rhs(rhs)
+    if not normalized or not _is_identifier_expression(normalized):
+        return normalized
+    if normalized in seen:
+        return normalized
+    seen.add(normalized)
+    assignments = [
+        item
+        for item in _base_direct_assignments(text, normalized)
+        if item.start() < before
+    ]
+    if not assignments:
+        return normalized
+    if any(item.group("op") != "=" for item in assignments):
+        return normalized
+    canonical_sources = [
+        _canonical_pre_access_initializer_rhs(
+            text,
+            item.group("rhs"),
+            item.start(),
+            set(seen),
+        )
+        for item in assignments
+    ]
+    effective_sources = _effective_pre_access_initializer_rhs(canonical_sources)
+    distinct_sources = list(dict.fromkeys(item for item in effective_sources if item))
+    if len(distinct_sources) != 1:
+        return normalized
+    return distinct_sources[0]
+
+
 def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
     first_access = _first_layout_access_start(text, base)
     if first_access < 0:
@@ -2963,11 +3021,15 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
     assignments = _base_direct_assignments(text, base)
     pre_access = [item for item in assignments if item.start() < first_access]
     post_access = [item for item in assignments if item.start() >= first_access]
-    simple_pre_rhs = [
-        _normalize_assignment_rhs(item.group("rhs"))
-        for item in pre_access
-        if item.group("op") == "="
-    ]
+    simple_pre_rhs = _canonicalized_pre_access_assignment_rhs(
+        text,
+        base,
+        [
+            item
+            for item in pre_access
+            if item.group("op") == "="
+        ],
+    )
     effective_pre_rhs = _effective_pre_access_initializer_rhs(simple_pre_rhs)
     distinct_pre_rhs = list(dict.fromkeys(item for item in effective_pre_rhs if item))
     stable_rhs = effective_pre_rhs[-1] if effective_pre_rhs else ""
@@ -3123,7 +3185,20 @@ def _stable_base_source_before_layout_access(text: str, base: str) -> str:
     ]
     effective_pre_access_rhs = _effective_pre_access_initializer_rhs(pre_access_rhs)
     distinct_pre_access_rhs = {item for item in effective_pre_access_rhs if item}
-    if len(distinct_pre_access_rhs) != 1:
+    canonical_pre_access_rhs = _canonicalized_pre_access_assignment_rhs(
+        text,
+        base,
+        pre_access_assignments,
+    )
+    effective_canonical_pre_access_rhs = _effective_pre_access_initializer_rhs(
+        canonical_pre_access_rhs
+    )
+    distinct_canonical_pre_access_rhs = {
+        item
+        for item in effective_canonical_pre_access_rhs
+        if item
+    }
+    if len(distinct_pre_access_rhs) != 1 and len(distinct_canonical_pre_access_rhs) != 1:
         return ""
     stable_rhs = effective_pre_access_rhs[-1] if effective_pre_access_rhs else ""
     if _is_null_initializer(stable_rhs):
