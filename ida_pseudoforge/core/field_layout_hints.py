@@ -67,7 +67,13 @@ _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "parameter_direct_alias",
     "parameter_indexed_pointer_alias",
     "parameter_subobject_pointer_alias",
+    "temporary_parameter_direct_alias",
     "temporary_call_result_alias",
+}
+_DOMAIN_IDENTITY_ALIAS_SOURCE_PROVENANCES = {
+    "named_parameter_direct_alias",
+    "parameter_direct_alias",
+    "temporary_parameter_direct_alias",
 }
 _NARROW_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix narrow subfield access widths"
 _WIDE_SUBFIELD_OVERLAY_BLOCKER = "one or more offsets mix wide overlay access widths"
@@ -352,12 +358,23 @@ def _domain_identity_matches_for_layouts(
         base: _non_identity_layout_rewrite_blockers(text or "", layout)
         for base, layout in layouts.items()
     }
-    return domain_identity_matches(
+    matches = domain_identity_matches(
         text or "",
         set(layouts),
         non_identity_blockers_by_base=non_identity_blockers_by_base,
         profile_context=profile_context,
     )
+    direct_matches = dict(matches)
+    for base in sorted(set(layouts) - set(matches)):
+        identity = _trusted_stable_base_source_identity(text or "", base)
+        if identity.get("source_provenance") not in _DOMAIN_IDENTITY_ALIAS_SOURCE_PROVENANCES:
+            continue
+        source = str(identity.get("source", "") or "")
+        source_match = direct_matches.get(source)
+        if not source_match:
+            continue
+        matches[base] = _domain_identity_match_for_alias(source_match, base, identity)
+    return matches
 
 
 def _domain_identity_for_layout(
@@ -374,6 +391,37 @@ def _domain_identity_for_layout(
         layout.base,
         non_identity_blockers=blockers,
         profile_context=profile_context,
+    )
+
+
+def _domain_identity_match_for_alias(
+    match: DomainIdentityMatch,
+    base: str,
+    identity: dict[str, Any],
+) -> DomainIdentityMatch:
+    source_alias = str(identity.get("source_alias", "") or "")
+    source_text = str(identity.get("source", "") or match.base)
+    reason = "%s via stable source %s" % (match.match_reason, source_text)
+    if source_alias and source_alias != source_text:
+        reason += " through %s" % source_alias
+    return DomainIdentityMatch(
+        profile_id=match.profile_id,
+        base=base,
+        role=match.role,
+        structure=match.structure,
+        mode=match.mode,
+        effective_mode=match.effective_mode,
+        confidence=round(min(match.confidence, 0.70), 2),
+        parameter_index=match.parameter_index,
+        parameter_name=match.parameter_name,
+        fields=match.fields,
+        match_reason=reason,
+        forced_report_only_reasons=match.forced_report_only_reasons,
+        ambiguous_profile_ids=match.ambiguous_profile_ids,
+        profile_source=match.profile_source,
+        profile_version=match.profile_version,
+        profile_metadata=match.profile_metadata,
+        suppress_layout_inference=match.suppress_layout_inference,
     )
 
 
@@ -3152,7 +3200,8 @@ def _named_parameter_direct_source_identity(
         return {}
     if _layout_base_kind(base) != "temp":
         return {}
-    if _layout_source_kind(source) != "named":
+    source_kind = _layout_source_kind(source)
+    if source_kind not in {"named", "temporary"}:
         return {}
     first_access = _first_layout_access_start(text, base)
     if first_access < 0:
@@ -3195,10 +3244,13 @@ def _named_parameter_direct_source_identity(
         return {}
     if _base_address_taken(text, source) or _base_has_array_index_use(text, source) or _base_is_incremented(text, source):
         return {}
+    source_provenance = "named_parameter_direct_alias"
+    if source_kind == "temporary":
+        source_provenance = "temporary_parameter_direct_alias"
     return {
         "source": root,
         "source_kind": "parameter",
-        "source_provenance": "named_parameter_direct_alias",
+        "source_provenance": source_provenance,
         "source_rhs_kind": "direct_parameter_alias",
         "source_alias": source,
         "base_alias_assignments": base_alias_assignment_count,

@@ -965,6 +965,63 @@ __int64 __fastcall BackContainerSourceLayout(__int64 completionApc)
         self.assertEqual(1, len(previews))
         self.assertEqual("parameter_back_container_alias", previews[0]["source_provenance"])
 
+    def test_back_container_alias_does_not_inherit_source_domain_identity(self) -> None:
+        comments = field_layout_comments(
+            """
+void __fastcall IopCompleteRequest(__int64 completionApc, __int64 a2, _QWORD *a3, ULONG_PTR *a4, _QWORD *a5)
+{
+  __int64 v6;
+  __int64 result;
+
+  result = *(_QWORD *)(completionApc + 8);
+  v6 = completionApc - 120;
+  result += *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40)
+       + *(_QWORD *)(v6 + 48)
+       + *(_QWORD *)(v6 + 56)
+       + *(_QWORD *)(v6 + 64)
+       + *(_QWORD *)(v6 + 72)
+       + *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40);
+  IopProcessBufferedIoCompletion();
+  KeInsertQueueApc();
+}
+""",
+            profile_context={"arch": "x64", "build": "26200.8457", "image": "ntoskrnl.exe"},
+        )
+        identities = [
+            item
+            for item in comments
+            if item.get("kind") == "domain_structure_identity" and item.get("base") == "v6"
+        ]
+        sources = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_stable_base_source" and item.get("base") == "v6"
+        ]
+        blockers = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers" and item.get("base") == "v6"
+        ]
+        ready = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_ready" and item.get("base") == "v6"
+        ]
+
+        self.assertEqual([], identities)
+        self.assertEqual(1, len(sources))
+        self.assertEqual("completionApc", sources[0]["source"])
+        self.assertEqual("parameter_back_container_alias", sources[0]["source_provenance"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("parameter_back_container_alias", ready[0]["source_provenance"])
+
     def test_temp_base_with_parameter_indirect_source_reports_source_hint(self) -> None:
         comments = field_layout_comments(
             """
@@ -1380,6 +1437,138 @@ __int64 __fastcall StableNamedParameterDirectAliasLayout(__int64 context)
         self.assertEqual("direct_parameter_alias", ready[0]["source_rhs_kind"])
         self.assertEqual(1, len(previews))
         self.assertEqual("named_parameter_direct_alias", previews[0]["source_provenance"])
+
+    def test_temp_base_with_temporary_parameter_direct_alias_source_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableTemporaryParameterDirectAliasLayout(__int64 context)
+{
+  __int64 v214;
+  __int64 v4;
+
+  v214 = context;
+  v4 = v214;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("context", sources[0]["source"])
+        self.assertEqual("v214", sources[0]["source_alias"])
+        self.assertEqual("parameter", sources[0]["source_kind"])
+        self.assertEqual("temporary_parameter_direct_alias", sources[0]["source_provenance"])
+        self.assertEqual("direct_parameter_alias", sources[0]["source_rhs_kind"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("context", ready[0]["source"])
+        self.assertEqual("v214", ready[0]["source_alias"])
+        self.assertEqual("temporary_parameter_direct_alias", ready[0]["source_provenance"])
+        self.assertEqual("direct_parameter_alias", ready[0]["source_rhs_kind"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("temporary_parameter_direct_alias", previews[0]["source_provenance"])
+
+    def test_temp_hot_cluster_inherits_domain_identity_from_temporary_parameter_alias(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall SepCommonAccessCheckEx(
+        __int64 subjectContext,
+        char subjectContextLocked,
+        __int64 accessState,
+        __int64 accessCheckOutputs,
+        __int64 argument4,
+        char accessMode,
+        int accessCheckFlags)
+{
+  __int64 v214;
+  __int64 v29;
+  __int64 result;
+
+  v214 = accessState;
+  result = *(_DWORD *)(accessState + 16) + *(_QWORD *)(accessState + 8);
+  v29 = v214;
+  result += *(_DWORD *)(v29 + 16);
+  result += *(_DWORD *)(v29 + 16);
+  result += *(_DWORD *)(v29 + 16);
+  result += *(_DWORD *)(v29 + 16);
+  result += *(_BYTE *)(v29 + 16);
+  result += *(_BYTE *)(v29 + 16);
+  result += *(_BYTE *)(v29 + 16);
+  result += *(_BYTE *)(v29 + 16);
+  result += *(_QWORD *)(v29 + 8);
+  result += *(_QWORD *)(v29 + 8);
+  result += *(_QWORD *)(v29 + 8);
+  result += *(_QWORD *)(v29 + 8);
+  result += *(_QWORD *)(v29 + 8);
+  result += *(_QWORD *)(v29 + 8);
+  result += *(_DWORD *)(v29 + 20);
+  result += *(_BYTE *)(v29 + 20);
+  result += *(_DWORD *)(v29 + 32);
+  SepAccessCheckEx();
+  SeUnlockSubjectContext(subjectContext);
+  return result;
+}
+""",
+            profile_context={"arch": "x64", "build": "26200.8457", "image": "ntoskrnl.exe"},
+        )
+        identities = [
+            item
+            for item in comments
+            if item.get("kind") == "domain_structure_identity" and item.get("base") == "v29"
+        ]
+        aliases = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_field_aliases" and item.get("base") == "v29"
+        ]
+        blockers = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers" and item.get("base") == "v29"
+        ]
+        sources = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_stable_base_source" and item.get("base") == "v29"
+        ]
+        hot_clusters = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_field_hot_cluster" and item.get("base") == "v29"
+        ]
+
+        self.assertEqual(1, len(identities))
+        self.assertEqual("SEP_ACCESS_STATE", identities[0]["structure"])
+        self.assertIn("via stable source accessState through v214", identities[0]["text"])
+        self.assertEqual(1, len(aliases))
+        alias_names = {item["name"] for item in aliases[0]["fields"]}
+        self.assertIn("objectTypeInfo", alias_names)
+        self.assertIn("desiredAccess", alias_names)
+        self.assertIn("previouslyGrantedAccess", alias_names)
+        self.assertIn("genericMapping", alias_names)
+        self.assertEqual(1, len(blockers))
+        self.assertIn("rewrite offset threshold requires at least 8 offsets", blockers[0]["blockers"])
+        self.assertEqual(1, len(sources))
+        self.assertEqual("accessState", sources[0]["source"])
+        self.assertEqual("v214", sources[0]["source_alias"])
+        self.assertEqual("temporary_parameter_direct_alias", sources[0]["source_provenance"])
+        self.assertEqual([], hot_clusters)
 
     def test_temp_base_with_non_parameter_local_direct_alias_source_remains_blocked(self) -> None:
         comments = field_layout_comments(
