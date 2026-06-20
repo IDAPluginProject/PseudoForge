@@ -2966,7 +2966,10 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
     )
     effective_pre_access_rhs = _effective_pre_access_initializer_rhs(pre_access_rhs)
     distinct_pre_access_rhs = {item for item in effective_pre_access_rhs if item}
-    if len(distinct_pre_access_rhs) > 1:
+    if (
+        len(distinct_pre_access_rhs) > 1
+        and not _same_call_result_family_pre_access_rhs(effective_pre_access_rhs)
+    ):
         blockers.append("base has multiple initializers before layout access")
     stable_rhs = effective_pre_access_rhs[-1] if effective_pre_access_rhs else ""
     for assignment in simple_assignments:
@@ -3005,6 +3008,27 @@ def _effective_pre_access_initializer_rhs(values: list[str]) -> list[str]:
             seen_non_null = True
         result.append(normalized)
     return result
+
+
+def _same_call_result_family_pre_access_rhs(values: list[str]) -> str:
+    effective_values = [
+        _normalize_assignment_rhs(item)
+        for item in values
+        if _normalize_assignment_rhs(item)
+    ]
+    if len(effective_values) < 2:
+        return ""
+    call_names = []
+    for value in effective_values:
+        if _layout_rhs_kind(value) != "call_result":
+            return ""
+        call_name = _parse_direct_call_result_name(value)
+        if not call_name:
+            return ""
+        call_names.append(call_name)
+    if len(set(call_names)) != 1:
+        return ""
+    return effective_values[-1]
 
 
 def _canonicalized_pre_access_assignment_rhs(
@@ -3245,9 +3269,11 @@ def _stable_base_source_before_layout_access(text: str, base: str) -> str:
         for item in effective_canonical_pre_access_rhs
         if item
     }
-    if len(distinct_pre_access_rhs) != 1 and len(distinct_canonical_pre_access_rhs) != 1:
-        return ""
     stable_rhs = effective_pre_access_rhs[-1] if effective_pre_access_rhs else ""
+    if len(distinct_pre_access_rhs) != 1 and len(distinct_canonical_pre_access_rhs) != 1:
+        stable_rhs = _same_call_result_family_pre_access_rhs(effective_pre_access_rhs)
+        if not stable_rhs:
+            return ""
     if _is_null_initializer(stable_rhs):
         return ""
     return stable_rhs

@@ -3998,6 +3998,95 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
         self.assertIn("branch-merged layout base", merge[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_same_call_result_initializers_before_layout_access_are_rewrite_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall SameCallResultInitializerLayout(__int64 context, int reload)
+{
+  __int64 v22;
+
+  v22 = MakeLayoutSource(context, 0);
+  if ( reload )
+  {
+    v22 = MakeLayoutSource(context, 1);
+  }
+  return *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40)
+       + *(_QWORD *)(v22 + 48)
+       + *(_QWORD *)(v22 + 56)
+       + *(_QWORD *)(v22 + 64)
+       + *(_QWORD *)(v22 + 72)
+       + *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+
+        self.assertEqual([], blockers)
+        self.assertEqual([], merge)
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v22", sources[0]["base"])
+        self.assertEqual("MakeLayoutSource(context, 1)", sources[0]["source"])
+        self.assertEqual("direct_call_result_alias", sources[0]["source_provenance"])
+        self.assertEqual(1, len(ready))
+        self.assertEqual("v22", ready[0]["base"])
+        self.assertEqual("direct_call_result_alias", ready[0]["source_provenance"])
+
+    def test_different_call_result_initializers_before_layout_access_stay_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall DifferentCallResultInitializerLayout(__int64 context, int reload)
+{
+  __int64 v22;
+
+  v22 = MakePrimaryLayoutSource(context);
+  if ( reload )
+  {
+    v22 = MakeFallbackLayoutSource(context);
+  }
+  return *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40)
+       + *(_QWORD *)(v22 + 48)
+       + *(_QWORD *)(v22 + 56)
+       + *(_QWORD *)(v22 + 64)
+       + *(_QWORD *)(v22 + 72)
+       + *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual(
+            ["MakePrimaryLayoutSource(context)", "MakeFallbackLayoutSource(context)"],
+            merge[0]["source_candidates"],
+        )
+        self.assertEqual(
+            {
+                "call_result:MakeFallbackLayoutSource": 1,
+                "call_result:MakePrimaryLayoutSource": 1,
+            },
+            merge[0]["source_family_counts"],
+        )
+        self.assertEqual("distinct_source_family_review", merge[0]["source_family_disposition"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_alias_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
             """
