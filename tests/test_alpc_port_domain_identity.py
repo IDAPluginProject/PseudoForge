@@ -251,6 +251,37 @@ NTSTATUS __fastcall AlpcpReferenceMessageByWaitingThread(PVOID WaitingThreadMess
         self.assertEqual("ALPC_PORT", reference_roles["currentPortObject"])
         self.assertEqual("ALPC_PORT", reference_roles["portListEntry"])
 
+    def test_complete_dispatch_message_context_roles(self) -> None:
+        plan = self._plan(
+            """
+LONG_PTR __fastcall AlpcpCompleteDispatchMessage(__int64 context)
+{
+  __int64 object;
+  ULONG_PTR v4;
+
+  object = *(_QWORD *)(context + 32);
+  v4 = *(_QWORD *)(context + 8);
+  AlpcpCaptureMessageDataSafe(v4);
+  AlpcpInsertMessagePendingQueue(object, v4);
+  AlpcpUnlockMessage(v4);
+  return ObfDereferenceObject((PVOID)object);
+}
+"""
+        )
+
+        roles = self._roles(plan, "windows.alpc_port.complete_dispatch_message")
+        identity = self._single_identity(
+            plan,
+            "windows.alpc_port.complete_dispatch_message",
+            role="dispatchContext",
+        )
+        rename_map = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("ALPC_DISPATCH_MESSAGE_CONTEXT", roles["dispatchContext"])
+        self.assertEqual("dispatchContext", rename_map["context"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertIn("profile_report_only", identity["blockers"])
+
     def test_section_and_reserve_blob_roles(self) -> None:
         create_section_plan = self._plan(
             """

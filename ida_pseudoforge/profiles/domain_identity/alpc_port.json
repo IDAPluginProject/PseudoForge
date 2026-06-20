@@ -740,6 +740,32 @@
       ]
     },
     {
+      "id": "windows.alpc_port.complete_dispatch_message",
+      "source": "Reviewed AlpcpCompleteDispatchMessage completion callback context, message handoff, completion port notification, and dispatch cleanup flow.",
+      "function_names": [
+        "AlpcpCompleteDispatchMessage"
+      ],
+      "required_call_regex": [
+        "\\bAlpcp(?:CaptureMessageDataSafe|InsertMessagePendingQueue|UnlockMessage|QueueIoCompletionPort)\\b"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "dispatchContext",
+          "role": "dispatchContext",
+          "structure": "ALPC_DISPATCH_MESSAGE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "rename_confidence": 0.90,
+          "accepted_types": [
+            "__int64",
+            "PVOID"
+          ],
+          "source": "AlpcpCompleteDispatchMessage packed ALPC dispatch completion context argument"
+        }
+      ]
+    },
+    {
       "id": "windows.alpc_port.receive_message_internal",
       "source": "Reviewed AlpcpReceiveMessage receive-port selection, buffer probing, direct/queued receive, message copy-out, and attribute exposure flow.",
       "function_names": [
