@@ -352,6 +352,55 @@ __int64 MiResolvePageFileFault(__int64 a1, unsigned __int64 a2)
         self.assertEqual("report-only", identity["effective_mode"])
         self.assertEqual([], identity["fields"])
 
+    def test_complete_proto_pte_fault_identifies_pfn_entry_local(self) -> None:
+        without_callees = self._plan(
+            """
+NTSTATUS __fastcall MiCompleteProtoPteFault(__int64 context, __int64 argument1)
+{
+  ULONG_PTR BugCheckParameter2;
+
+  BugCheckParameter2 = 48 * argument1 - 0x220000000000LL;
+  return *(_QWORD *)(BugCheckParameter2 + 16) ? STATUS_SUCCESS : STATUS_PTE_CHANGED;
+}
+"""
+        )
+        with_callees = self._plan(
+            """
+NTSTATUS __fastcall MiCompleteProtoPteFault(__int64 context, __int64 argument1)
+{
+  ULONG_PTR BugCheckParameter2;
+  NTSTATUS status;
+
+  BugCheckParameter2 = 48 * argument1 - 0x220000000000LL;
+  if ( MiGetPagingFileOffset(*(_QWORD *)(BugCheckParameter2 + 16)) )
+  {
+    MiSetPfnModified(BugCheckParameter2, 1);
+  }
+  status = MiPrivateFixup(context, 0, 0, BugCheckParameter2, 0, 0);
+  MiLockAndDecrementShareCount(BugCheckParameter2, 2LL, 0, 0);
+  return status;
+}
+"""
+        )
+
+        self.assertFalse(
+            any(
+                item["profile_id"] == "windows.memory_manager.complete_proto_pte_fault"
+                for item in self._identities(without_callees)
+            )
+        )
+
+        identity = self._identity_for_base(
+            with_callees,
+            "windows.memory_manager.complete_proto_pte_fault",
+            "BugCheckParameter2",
+        )
+
+        self.assertEqual("MMPFN", identity["structure_name"])
+        self.assertEqual("pfnEntry", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual([], identity["fields"])
+
     def test_report_only_vad_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """

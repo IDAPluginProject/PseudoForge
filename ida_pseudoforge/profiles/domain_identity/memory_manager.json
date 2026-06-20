@@ -38,6 +38,30 @@
       ]
     },
     {
+      "id": "windows.memory_manager.complete_proto_pte_fault",
+      "source": "Reviewed MiCompleteProtoPteFault prototype PTE fault path where the computed BugCheckParameter2 local is an MMPFN/PFN database entry used for page-file, modified-page, private-fixup, and share-count handling.",
+      "function_names": [
+        "MiCompleteProtoPteFault"
+      ],
+      "required_calls": [
+        "MiSetPfnModified",
+        "MiPrivateFixup",
+        "MiLockAndDecrementShareCount"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "BugCheckParameter2"
+          ],
+          "role": "pfnEntry",
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "source": "MiCompleteProtoPteFault computed PFN database entry local"
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.locate_address",
       "source": "Reviewed MiLocateAddress current-process VAD cache/tree lookup by virtual address.",
       "function_names": [
