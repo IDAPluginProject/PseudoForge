@@ -153,6 +153,7 @@ NTSTATUS __fastcall IopCreateFile(HANDLE *a1, int a2, __int64 a3, NTSTATUS *a4, 
         self.assertEqual("ECP_ENTRY", roles["extraCreateParameterEntry"])
         self.assertEqual("ETHREAD", roles["currentThread"])
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in self._profile_identities(plan, "windows.file_cache_section.iop_create_file")))
+        self.assertEqual("eaBuffer", self._rename_map(plan).get("a10"))
 
     def test_iop_parse_device_roles(self) -> None:
         plan = self._plan(
@@ -716,6 +717,9 @@ void __stdcall CcSetFileSizes(PFILE_OBJECT FileObject, PCC_FILE_SIZES FileSizes)
 
     def _identities(self, plan) -> list[dict[str, object]]:
         return [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+
+    def _rename_map(self, plan) -> dict[str, str]:
+        return {item.old: item.new for item in plan.renames if item.apply}
 
     def _profile_identities(self, plan, profile_id: str) -> list[dict[str, object]]:
         return [item for item in self._identities(plan) if item.get("profile_id") == profile_id]

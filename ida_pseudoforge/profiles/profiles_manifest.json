@@ -208,7 +208,7 @@
       "source": "PseudoForge curated ntoskrnl file object, section object, and cache manager role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "D3BC461DA7236FD81E60A21E5B6154A8A1FEBA2B5F205EB25930E47C424C1245",
+      "sha256": "9F6365D1DBCDB14B41CF62109BC9BF3A9DA47E27A0B704D0299A390402CAEA76",
       "counts": {
         "profiles": 22
       }

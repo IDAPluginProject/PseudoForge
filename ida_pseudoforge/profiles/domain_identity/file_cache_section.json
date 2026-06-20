@@ -459,10 +459,12 @@
         },
         {
           "parameter_index": 9,
+          "rename_to": "eaBuffer",
           "role": "eaBuffer",
           "structure": "FILE_EA_BUFFER",
           "mode": "report-only",
           "confidence": 0.78,
+          "rename_confidence": 0.90,
           "accepted_types": [
             "PVOID",
             "__int64"
