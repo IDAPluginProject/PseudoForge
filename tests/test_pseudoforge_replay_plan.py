@@ -494,6 +494,50 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("Source Identity Review Queues", markdown)
             self.assertIn("argument_parameter_identity_review", markdown)
 
+    def test_replay_plan_excludes_virtual_address_offsets_from_structure_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            code_pointer_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - domain_structure_identity: Domain identity for controlPc: role controlPc, structure VIRTUAL_ADDRESS, mode report-only, profile windows.exception_unwind.rtlpx_virtual_unwind parameter 2 (controlPc). Fields none observed. Role-only evidence; no field rewrite was applied. confidence=0.74",
+                    "*/",
+                    "__int64 __fastcall RtlpxVirtualUnwind(unsigned __int64 controlPc)",
+                    "{",
+                ]
+                + [
+                    "  byte%d = *(_BYTE *)(controlPc + %d);" % (index, index)
+                    for index in range(12)
+                ]
+                + ["  return byte0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140234800",
+                name="RtlpxVirtualUnwind",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=code_pointer_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(12, item["metrics"]["body_offset_deref_patterns"])
+            self.assertEqual(12, item["metrics"]["body_offset_deref_annotated_scalar_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_non_layout_base_patterns"])
+            self.assertEqual(0, item["metrics"]["body_offset_deref_unannotated_named_base_patterns"])
+            self.assertNotIn("offset_deref_residue", item["reasons"])
+            self.assertNotIn("named_unannotated_base_offset_residue", item["reasons"])
+            self.assertEqual("controlPc", item["offset_base_counts"]["annotated_scalar"][0]["base"])
+            self.assertFalse(item["offset_base_counts"]["unannotated_named"])
+            self.assertEqual(
+                "controlPc",
+                plan["offset_base_breakdown"]["top_annotated_scalar_bases"][0]["base"],
+            )
+
     def test_replay_plan_treats_hot_field_cluster_as_layout_actionable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

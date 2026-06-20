@@ -83,6 +83,15 @@ SIMPLE_OFFSET_DEREF_BASE_RE = re.compile(
     r"(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
 REGISTRY_DOMAIN_ROLE_RE = re.compile(r"\bregistry_domain_role_evidence\b")
+DOMAIN_STRUCTURE_IDENTITY_RE = re.compile(
+    r"-\s+domain_structure_identity:\s+Domain identity for "
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*):\s+"
+    r"role\s+(?P<role>[A-Za-z_][A-Za-z0-9_]*)"
+    r".*?\bstructure\s+(?P<structure>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
+SCALAR_OFFSET_DOMAIN_STRUCTURES = {
+    "VIRTUAL_ADDRESS",
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -245,6 +254,7 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
         ("Top unannotated bugcheck bases", "top_unannotated_bugcheck_bases"),
         ("Top unannotated temp bases", "top_unannotated_temp_bases"),
         ("Top unannotated named bases", "top_unannotated_named_bases"),
+        ("Top annotated scalar/code-pointer bases", "top_annotated_scalar_bases"),
         ("Top projected hot cluster bases", "top_projected_hot_cluster_bases"),
     ):
         entries = breakdown.get(key, []) or []
@@ -337,6 +347,7 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
     unannotated_bugcheck: Counter[str] = Counter()
     unannotated_temp: Counter[str] = Counter()
     unannotated_named: Counter[str] = Counter()
+    annotated_scalar: Counter[str] = Counter()
     projected_hot_cluster: Counter[str] = Counter()
     for item in items:
         if not isinstance(item, dict):
@@ -351,6 +362,7 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
             ("unannotated_bugcheck", unannotated_bugcheck),
             ("unannotated_temp", unannotated_temp),
             ("unannotated_named", unannotated_named),
+            ("annotated_scalar", annotated_scalar),
             ("projected_hot_cluster", projected_hot_cluster),
         ):
             entries = offset_base_counts.get(key, []) or []
@@ -394,6 +406,10 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "top_unannotated_named_bases": _top_counter_items(
             unannotated_named,
+            OFFSET_BASE_BREAKDOWN_LIMIT,
+        ),
+        "top_annotated_scalar_bases": _top_counter_items(
+            annotated_scalar,
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
         "top_projected_hot_cluster_bases": _top_counter_items(
@@ -507,6 +523,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     body_generic_tokens = len(GENERIC_IDENTIFIER_RE.findall(body_text))
     body_label_tokens = len(LABEL_RE.findall(body_text))
     layout_actionable_bases = _layout_actionable_bases(cleaned_text)
+    annotated_scalar_bases = _annotated_scalar_offset_bases(cleaned_text)
     projected_hot_field_clusters = _projected_hot_field_clusters(body_text, layout_actionable_bases)
     projected_hot_field_cluster_base_counts = Counter(
         {
@@ -524,10 +541,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_actionable_base_counts = Counter(
         {base: count for base, count in offset_base_counts.items() if base in layout_actionable_bases}
     )
-    unannotated_base_counts = Counter(
-        {base: count for base, count in offset_base_counts.items() if base not in layout_actionable_bases}
+    annotated_scalar_base_counts = Counter(
+        {base: count for base, count in offset_base_counts.items() if base in annotated_scalar_bases}
     )
-    non_layout_base_offset_derefs = simple_base_offset_derefs - layout_actionable_base_offset_derefs
+    unannotated_base_counts = Counter(
+        {
+            base: count
+            for base, count in offset_base_counts.items()
+            if base not in layout_actionable_bases and base not in annotated_scalar_bases
+        }
+    )
+    annotated_scalar_base_offset_derefs = sum(annotated_scalar_base_counts.values())
+    non_layout_base_offset_derefs = sum(unannotated_base_counts.values())
     unannotated_temp_base_counts = Counter(
         {base: count for base, count in unannotated_base_counts.items() if _is_temp_offset_base(base)}
     )
@@ -569,6 +594,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     )
     unmatched_base_offset_derefs = max(0, body_offset_derefs - simple_base_offset_derefs)
     bulk_noise_offset_derefs = non_layout_base_offset_derefs + unmatched_base_offset_derefs
+    actionable_offset_derefs = layout_actionable_base_offset_derefs + bulk_noise_offset_derefs
     layout_rewrite_blockers = len(FIELD_REWRITE_BLOCKER_RE.findall(cleaned_text))
     layout_rewrite_near_ready = len(FIELD_REWRITE_NEAR_READY_RE.findall(cleaned_text))
     layout_rewrite_partial_review_only = int(partial_opportunities.get("review_only", 0))
@@ -601,6 +627,11 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             0,
             body_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
         ),
+        "body_offset_deref_actionable_patterns": actionable_offset_derefs,
+        "body_offset_deref_actionable_overflow_patterns": max(
+            0,
+            actionable_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
+        ),
         "body_offset_deref_simple_base_patterns": simple_base_offset_derefs,
         "body_offset_deref_layout_actionable_patterns": layout_actionable_base_offset_derefs,
         "body_offset_deref_layout_actionable_overflow_patterns": max(
@@ -608,6 +639,8 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             layout_actionable_base_offset_derefs - OFFSET_DEREF_RESIDUE_FULL_SCORE_LIMIT,
         ),
         "body_offset_deref_layout_actionable_bases": len(layout_actionable_base_counts),
+        "body_offset_deref_annotated_scalar_base_patterns": annotated_scalar_base_offset_derefs,
+        "body_offset_deref_annotated_scalar_bases": len(annotated_scalar_base_counts),
         "body_offset_deref_non_layout_base_patterns": non_layout_base_offset_derefs,
         "body_offset_deref_non_layout_bases": len(unannotated_base_counts),
         "body_offset_deref_unannotated_generic_base_patterns": unannotated_generic_base_offset_derefs,
@@ -694,6 +727,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 unannotated_named_base_counts,
                 len(unannotated_named_base_counts),
             ),
+            "annotated_scalar": _top_counter_items(
+                annotated_scalar_base_counts,
+                len(annotated_scalar_base_counts),
+            ),
             "projected_hot_cluster": _top_counter_items(
                 projected_hot_field_cluster_base_counts,
                 len(projected_hot_field_cluster_base_counts),
@@ -765,6 +802,18 @@ def _simple_offset_deref_base_counts(text: str) -> Counter[str]:
     return counts
 
 
+def _annotated_scalar_offset_bases(cleaned_text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in DOMAIN_STRUCTURE_IDENTITY_RE.finditer(cleaned_text or ""):
+        structure = str(match.group("structure") or "")
+        if structure not in SCALAR_OFFSET_DOMAIN_STRUCTURES:
+            continue
+        base = str(match.group("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
 def _top_counter_items(counter: Counter[str], limit: int) -> list[dict[str, Any]]:
     return [
         {"base": base, "count": int(count)}
@@ -834,7 +883,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("rename_gap")
     if metrics["body_generic_identifier_tokens"] >= 50:
         reasons.append("generic_residue")
-    if metrics["body_offset_deref_patterns"] >= 10:
+    if metrics["body_offset_deref_actionable_patterns"] >= 10:
         reasons.append("offset_deref_residue")
         if metrics["body_offset_deref_layout_actionable_patterns"] >= 10:
             reasons.append("layout_actionable_offset_residue")
@@ -864,7 +913,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("label_residue")
     if (
         metrics["body_generic_identifier_overflow_tokens"]
-        or metrics["body_offset_deref_overflow_patterns"]
+        or metrics["body_offset_deref_actionable_overflow_patterns"]
         or metrics["body_label_overflow_tokens"]
     ):
         reasons.append("bulk_residue_saturation")
@@ -931,6 +980,8 @@ def _score_model() -> dict[str, Any]:
                 "registry_domain_profile_hits",
             ],
             "layout_base_match_metric": "body_offset_deref_layout_actionable_patterns",
+            "annotated_scalar_base_metric": "body_offset_deref_annotated_scalar_base_patterns",
+            "annotated_scalar_domain_structures": sorted(SCALAR_OFFSET_DOMAIN_STRUCTURES),
             "unannotated_base_metric": "body_offset_deref_non_layout_base_patterns",
             "unannotated_generic_base_metric": (
                 "body_offset_deref_unannotated_generic_base_patterns"
