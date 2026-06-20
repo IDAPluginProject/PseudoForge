@@ -3539,6 +3539,78 @@ __int64 __fastcall StableSavedAliasReloadLayout(__int64 a1)
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
         self.assertTrue(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_stable_initializer_alias_reload_after_layout_access_does_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall StableInitializerAliasReloadLayout(__int64 a1)
+{
+  __int64 sessionSpace;
+  __int64 savedSessionSpace;
+  __int64 result;
+
+  sessionSpace = a1;
+  savedSessionSpace = a1;
+  result = *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32);
+  sessionSpace = savedSessionSpace;
+  return result + *(_QWORD *)(sessionSpace + 40);
+}
+"""
+        )
+
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+        self.assertTrue(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_mutated_initializer_alias_reload_after_layout_access_blocks_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall MutatedInitializerAliasReloadLayout(__int64 a1, __int64 a2)
+{
+  __int64 sessionSpace;
+  __int64 savedSessionSpace;
+  __int64 result;
+
+  sessionSpace = a1;
+  savedSessionSpace = a1;
+  result = *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32);
+  sessionSpace = savedSessionSpace;
+  result += *(_QWORD *)(sessionSpace + 40);
+  sessionSpace = a2;
+  savedSessionSpace = a2;
+  sessionSpace = savedSessionSpace;
+  return result + *(_QWORD *)(sessionSpace + 48);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        stability = [item for item in comments if item.get("kind") == "inferred_offset_base_stability"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(stability))
+        self.assertEqual(1, stability[0]["stable_post_access_reload_count"])
+        self.assertEqual(2, stability[0]["risky_post_access_assignment_count"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_mutated_saved_alias_reload_after_layout_access_blocks_rewrite(self) -> None:
         comments = field_layout_comments(
             """

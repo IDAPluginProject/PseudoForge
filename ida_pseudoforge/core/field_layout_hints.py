@@ -1157,6 +1157,7 @@ def _field_base_stability_comment_from_layout(
         "distinct_pre_access_rhs_count": int(trace.get("distinct_pre_access_rhs_count", 0) or 0),
         "distinct_pre_access_rhs": rhs_samples,
         "post_access_assignment_count": int(trace.get("post_access_assignment_count", 0) or 0),
+        "stable_post_access_reload_count": int(trace.get("stable_post_access_reload_count", 0) or 0),
         "risky_post_access_assignment_count": int(trace.get("risky_post_access_assignment_count", 0) or 0),
     }
 
@@ -2688,15 +2689,18 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
     if len(distinct_pre_access_rhs) > 1:
         blockers.append("base has multiple initializers before layout access")
     stable_rhs = pre_access_rhs[-1] if pre_access_rhs else ""
-    stable_reload_sources = set()
-    if stable_rhs:
-        stable_reload_sources.add(stable_rhs)
-    stable_reload_sources.update(_stable_aliases_for_base_before_access(text, base, first_access))
     for assignment in simple_assignments:
         if assignment.start() < first_access:
             continue
         rhs = _normalize_assignment_rhs(assignment.group("rhs"))
-        if rhs in stable_reload_sources:
+        if _is_stable_base_reload_rhs(
+            text,
+            base,
+            rhs,
+            stable_rhs,
+            first_access,
+            assignment.start(),
+        ):
             continue
         if _next_layout_access_start(text, base, assignment.end()) < 0:
             continue
@@ -2723,17 +2727,23 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
         if item.group("op") == "="
     ]
     distinct_pre_rhs = list(dict.fromkeys(item for item in simple_pre_rhs if item))
-    stable_reload_sources = set()
-    if simple_pre_rhs:
-        stable_reload_sources.add(simple_pre_rhs[-1])
-    stable_reload_sources.update(_stable_aliases_for_base_before_access(text, base, first_access))
+    stable_rhs = simple_pre_rhs[-1] if simple_pre_rhs else ""
     risky_post_access_count = 0
+    stable_post_access_reload_count = 0
     for assignment in post_access:
         if assignment.group("op") != "=":
             risky_post_access_count += 1
             continue
         rhs = _normalize_assignment_rhs(assignment.group("rhs"))
-        if rhs in stable_reload_sources:
+        if _is_stable_base_reload_rhs(
+            text,
+            base,
+            rhs,
+            stable_rhs,
+            first_access,
+            assignment.start(),
+        ):
+            stable_post_access_reload_count += 1
             continue
         if _next_layout_access_start(text, base, assignment.end()) >= 0:
             risky_post_access_count += 1
@@ -2742,6 +2752,7 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
         "distinct_pre_access_rhs_count": len(distinct_pre_rhs),
         "distinct_pre_access_rhs": distinct_pre_rhs,
         "post_access_assignment_count": len(post_access),
+        "stable_post_access_reload_count": stable_post_access_reload_count,
         "risky_post_access_assignment_count": risky_post_access_count,
     }
 
@@ -2762,27 +2773,84 @@ def _base_direct_assignments(text: str, base: str) -> list[re.Match[str]]:
     return list(pattern.finditer(text or ""))
 
 
-def _stable_aliases_for_base_before_access(text: str, base: str, first_access: int) -> set[str]:
-    aliases: set[str] = set()
-    if first_access < 0:
-        return aliases
-    pattern = re.compile(
-        r"(?m)^\s*(?P<alias>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\([^;\n]*\)\s*)?%s\s*;\s*(?://[^\n]*)?$"
-        % re.escape(base)
+def _is_identifier_expression(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(value or "").strip()))
+
+
+def _is_stable_base_reload_rhs(
+    text: str,
+    base: str,
+    rhs: str,
+    stable_rhs: str,
+    first_access: int,
+    assignment_start: int,
+) -> bool:
+    normalized_rhs = _normalize_assignment_rhs(rhs)
+    if not normalized_rhs:
+        return False
+    if stable_rhs and normalized_rhs == stable_rhs:
+        return True
+    if not _is_identifier_expression(normalized_rhs):
+        return False
+    if normalized_rhs == base:
+        return False
+    return _identifier_holds_stable_base_before_access(
+        text,
+        normalized_rhs,
+        base,
+        stable_rhs,
+        first_access,
+        assignment_start,
+        set(),
     )
-    for match in pattern.finditer(text or ""):
-        if match.start() >= first_access:
-            continue
-        alias = match.group("alias")
-        if alias == base:
-            continue
-        alias_assignments = _base_direct_assignments(text, alias)
-        if len(alias_assignments) != 1:
-            continue
-        if alias_assignments[0].start() != match.start():
-            continue
-        aliases.add(alias)
-    return aliases
+
+
+def _identifier_holds_stable_base_before_access(
+    text: str,
+    name: str,
+    base: str,
+    stable_rhs: str,
+    first_access: int,
+    position: int,
+    seen: set[str],
+) -> bool:
+    if first_access < 0 or position < 0:
+        return False
+    if name in seen:
+        return False
+    seen.add(name)
+    assignments = [
+        item
+        for item in _base_direct_assignments(text, name)
+        if item.start() < position
+    ]
+    if not assignments:
+        return False
+    assignment = assignments[-1]
+    if assignment.start() >= first_access:
+        return False
+    if assignment.group("op") != "=":
+        return False
+    source = _normalize_assignment_rhs(assignment.group("rhs"))
+    if not source:
+        return False
+    if stable_rhs and source == stable_rhs:
+        return True
+    if source == base:
+        return True
+    if not _is_identifier_expression(source):
+        return False
+    if source == name:
+        return False
+    return _identifier_holds_stable_base_before_access(
+        text,
+        source,
+        base,
+        stable_rhs,
+        first_access,
+        assignment.start(),
+        seen,
+    )
 
 
 def _stable_base_source_before_layout_access(text: str, base: str) -> str:
