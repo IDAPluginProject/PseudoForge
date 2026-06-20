@@ -2740,10 +2740,11 @@ def _base_change_blockers(text: str, base: str) -> list[str]:
         for item in simple_assignments
         if item.start() < first_access
     ]
-    distinct_pre_access_rhs = {item for item in pre_access_rhs if item}
+    effective_pre_access_rhs = _effective_pre_access_initializer_rhs(pre_access_rhs)
+    distinct_pre_access_rhs = {item for item in effective_pre_access_rhs if item}
     if len(distinct_pre_access_rhs) > 1:
         blockers.append("base has multiple initializers before layout access")
-    stable_rhs = pre_access_rhs[-1] if pre_access_rhs else ""
+    stable_rhs = effective_pre_access_rhs[-1] if effective_pre_access_rhs else ""
     for assignment in simple_assignments:
         if assignment.start() < first_access:
             continue
@@ -2769,6 +2770,19 @@ def _is_base_stability_blocker_reason(reason: str) -> bool:
     return any(fragment in lowered for fragment in _BASE_STABILITY_BLOCKER_FRAGMENTS)
 
 
+def _effective_pre_access_initializer_rhs(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen_non_null = False
+    for value in values:
+        normalized = _normalize_assignment_rhs(value)
+        if normalized and _is_null_initializer(normalized) and not seen_non_null:
+            continue
+        if normalized and not _is_null_initializer(normalized):
+            seen_non_null = True
+        result.append(normalized)
+    return result
+
+
 def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
     first_access = _first_layout_access_start(text, base)
     if first_access < 0:
@@ -2781,8 +2795,9 @@ def _base_assignment_trace(text: str, base: str) -> dict[str, Any]:
         for item in pre_access
         if item.group("op") == "="
     ]
-    distinct_pre_rhs = list(dict.fromkeys(item for item in simple_pre_rhs if item))
-    stable_rhs = simple_pre_rhs[-1] if simple_pre_rhs else ""
+    effective_pre_rhs = _effective_pre_access_initializer_rhs(simple_pre_rhs)
+    distinct_pre_rhs = list(dict.fromkeys(item for item in effective_pre_rhs if item))
+    stable_rhs = effective_pre_rhs[-1] if effective_pre_rhs else ""
     risky_post_access_count = 0
     stable_post_access_reload_count = 0
     for assignment in post_access:
@@ -2926,10 +2941,14 @@ def _stable_base_source_before_layout_access(text: str, base: str) -> str:
         _normalize_assignment_rhs(item.group("rhs"))
         for item in pre_access_assignments
     ]
-    distinct_pre_access_rhs = {item for item in pre_access_rhs if item}
+    effective_pre_access_rhs = _effective_pre_access_initializer_rhs(pre_access_rhs)
+    distinct_pre_access_rhs = {item for item in effective_pre_access_rhs if item}
     if len(distinct_pre_access_rhs) != 1:
         return ""
-    return pre_access_rhs[-1] if pre_access_rhs else ""
+    stable_rhs = effective_pre_access_rhs[-1] if effective_pre_access_rhs else ""
+    if _is_null_initializer(stable_rhs):
+        return ""
+    return stable_rhs
 
 
 def _stable_base_source_identity(text: str, base: str) -> dict[str, Any]:

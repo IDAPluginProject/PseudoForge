@@ -3202,6 +3202,80 @@ __int64 __fastcall StableAliasLayout(__int64 a1)
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
         self.assertTrue(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_leading_null_initializer_before_temp_alias_does_not_block_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall LeadingNullInitializerLayout(__int64 a1)
+{
+  __int64 v4;
+
+  v4 = 0LL;
+  v4 = a1;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v4", sources[0]["base"])
+        self.assertEqual("a1", sources[0]["source"])
+        self.assertEqual("parameter_direct_alias", sources[0]["source_provenance"])
+        self.assertEqual(1, sources[0]["base_alias_assignments"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("parameter_direct_alias", ready[0]["source_provenance"])
+
+    def test_final_null_initializer_before_temp_alias_access_stays_blocked(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall FinalNullInitializerLayout(__int64 a1)
+{
+  __int64 v4;
+
+  v4 = a1;
+  v4 = 0LL;
+  return *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40)
+       + *(_QWORD *)(v4 + 48)
+       + *(_QWORD *)(v4 + 56)
+       + *(_QWORD *)(v4 + 64)
+       + *(_QWORD *)(v4 + 72)
+       + *(_QWORD *)(v4 + 16)
+       + *(_QWORD *)(v4 + 24)
+       + *(_QWORD *)(v4 + 32)
+       + *(_QWORD *)(v4 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        stability = [item for item in comments if item.get("kind") == "inferred_offset_base_stability"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base is a decompiler temporary", blockers[0]["blockers"])
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(stability))
+        self.assertEqual(2, stability[0]["pre_access_assignment_count"])
+        self.assertEqual(2, stability[0]["distinct_pre_access_rhs_count"])
+        self.assertEqual(["a1", "0LL"], stability[0]["distinct_pre_access_rhs"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_stable_base_source" for item in comments))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_terminal_base_reassignment_after_layout_access_does_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
             """
