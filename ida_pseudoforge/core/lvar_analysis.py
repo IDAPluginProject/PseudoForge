@@ -254,7 +254,7 @@ def _parameter_renames(capture: FunctionCapture, include_generic: bool = True) -
             new_name = explicit_names[index]
         elif "SYSTEM_INFORMATION_CLASS" in type_text:
             new_name = "systemInformationClass"
-        elif "Length" in old_name or "ULONG" in type_text and index >= 2:
+        elif _looks_like_length_parameter(old_name, type_text, index):
             new_name = "inputLength"
         elif include_generic and old_name.startswith("a"):
             new_name = f"argument{index}"
@@ -290,6 +290,42 @@ def _profile_parameter_names(function_name: str, expected_count: int) -> list[st
             return []
         result.append(name)
     return result
+
+
+def _looks_like_length_parameter(old_name: str, type_text: str, index: int) -> bool:
+    if "Length" in old_name and not _is_pointer_like_parameter_type(type_text):
+        return True
+    return index >= 2 and _is_plain_length_integer_type(type_text)
+
+
+def _is_plain_length_integer_type(type_text: str) -> bool:
+    normalized = _normalized_parameter_type(type_text)
+    return normalized == "ULONG"
+
+
+def _is_pointer_like_parameter_type(type_text: str) -> bool:
+    normalized = _normalized_parameter_type(type_text)
+    if "*" in (type_text or ""):
+        return True
+    if normalized.endswith("_PTR") or normalized.endswith(" PTR"):
+        return True
+    return normalized in {
+        "PVOID",
+        "PULONG",
+        "PULONG_PTR",
+        "PSIZE_T",
+        "PHANDLE",
+        "PSTR",
+        "PWSTR",
+        "PCHAR",
+        "PBYTE",
+    }
+
+
+def _normalized_parameter_type(type_text: str) -> str:
+    normalized = re.sub(r"\b(?:CONST|VOLATILE)\b", "", (type_text or "").upper())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
 
 
 def _lower_camel_from_pascal(name: str) -> str:
