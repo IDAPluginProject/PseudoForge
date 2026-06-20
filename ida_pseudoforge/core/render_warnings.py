@@ -19,12 +19,25 @@ def display_warnings(plan: CleanPlan) -> list[object]:
         and not _is_registry_callback_display_warning(warning, plan)
         and not _is_zw_api_probe_display_warning(warning, plan)
         and not _is_memory_manager_probe_display_warning(warning, plan)
+        and not _is_resolved_status_carrier_display_warning(warning, plan)
     ]
     return sorted(warnings, key=_warning_display_rank)
 
 
 def display_warning_count(plan: CleanPlan) -> int:
     return len(display_warnings(plan))
+
+
+def export_warnings(plan: CleanPlan) -> list[str]:
+    result: list[str] = []
+    seen = set()
+    for warning in display_warnings(plan):
+        text = format_warning(warning)
+        if text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def format_warning(warning: object) -> str:
@@ -160,6 +173,28 @@ def _is_irp_device_control_display_warning(warning: object, plan: CleanPlan) -> 
         return True
     if re.match(r"^Skipped LLM rename v\d+->", text) and "low confidence" in lowered:
         return True
+    return False
+
+
+def _is_resolved_status_carrier_display_warning(warning: object, plan: CleanPlan) -> bool:
+    text = format_warning(warning)
+    conflict_match = re.match(
+        r"^Downgraded status/object semantic conflict rename "
+        r"(?P<old>[A-Za-z_][A-Za-z0-9_]*)->[A-Za-z_][A-Za-z0-9_]* "
+        r"to (?P=old)->(?P<new>[A-Za-z_][A-Za-z0-9_]*):",
+        text,
+    )
+    if conflict_match:
+        return _has_applied_rename(plan, conflict_match.group("old"), conflict_match.group("new"))
+
+    carrier_match = re.match(
+        r"^Downgraded object-style status carrier name "
+        r"(?P<old>[A-Za-z_][A-Za-z0-9_]*)->(?P<new>[A-Za-z_][A-Za-z0-9_]*):",
+        text,
+    )
+    if carrier_match:
+        return _has_applied_rename(plan, carrier_match.group("old"), carrier_match.group("new"))
+
     return False
 
 

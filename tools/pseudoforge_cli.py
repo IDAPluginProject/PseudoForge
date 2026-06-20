@@ -13,7 +13,8 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.profiles.loader import configure_profile_dir, profile_load_warnings
+from ida_pseudoforge.core.render_warnings import export_warnings
+from ida_pseudoforge.profiles.loader import configure_profile_dir
 from ida_pseudoforge.config import LlmConfig
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
@@ -99,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         entrypoint="offline_cli",
         apply_validated_layout_rewrites=args.apply_validated_layout_rewrites,
     )
-    warnings = _combined_warnings(plan.warnings, profile_load_warnings())
+    warnings = export_warnings(plan)
     if args.rule_report:
         report_path = _write_rule_report(args.rule_report, capture, plan.rule_report)
         paths["rule_report"] = str(report_path)
@@ -153,18 +154,6 @@ def _case_value_arg(value: str) -> int:
 def _safe_file_stem(name: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "._-" else "_" for char in name)
     return cleaned.strip("._") or "function"
-
-
-def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
-    result = []
-    seen = set()
-    for warning in list(primary) + list(secondary):
-        text = str(warning)
-        if text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 if __name__ == "__main__":

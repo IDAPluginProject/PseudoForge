@@ -50,6 +50,7 @@ from ida_pseudoforge.core.llm_candidate_cache import (
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.core.render_warnings import export_warnings
 from ida_pseudoforge.profiles.loader import active_profile_root, configure_profile_dir, profile_load_warnings
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
 from ida_pseudoforge.models.provider_factory import build_rename_provider
@@ -372,7 +373,7 @@ def _analyze_function(
             forge_writer.write_section(section)
         else:
             _write_forge_section(forge_path, target_path, capture.ea, section)
-        warnings = _combined_warnings(plan.warnings, profile_load_warnings())
+        warnings = export_warnings(plan)
         result = {
             "event": "function",
             "status": "ok",
@@ -617,18 +618,6 @@ def _render_helper_text_for_alias(call_name: str, caller_capture: FunctionCaptur
         return None
     helper_plan = build_clean_plan(helper_capture)
     return render_cleaned_pseudocode(helper_capture, helper_plan)
-
-
-def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
-    result = []
-    seen = set()
-    for warning in list(primary) + list(secondary):
-        text = str(warning)
-        if text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 def _iter_function_eas(args: argparse.Namespace, skip_eas: set[int]) -> Iterable[int]:

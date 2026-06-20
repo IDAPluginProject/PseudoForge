@@ -17,6 +17,7 @@ from ida_pseudoforge.core.render import (
     render_flow_report,
     render_switch_outline,
 )
+from ida_pseudoforge.core.render_warnings import export_warnings
 from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
 from ida_pseudoforge.profiles.loader import (
     active_profile_manifests,
@@ -158,15 +159,7 @@ def safe_artifact_stem(name: str, max_length: int = 96, digest_source: str | Non
 
 
 def _combined_export_warnings(plan: CleanPlan) -> list[str]:
-    result = []
-    seen = set()
-    for warning in list(plan.warnings) + profile_load_warnings():
-        text = str(warning)
-        if text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
+    return export_warnings(plan)
 
 
 def _raw_vs_cleaned_diff(safe_name: str, raw_text: str, cleaned_text: str) -> str:

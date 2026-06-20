@@ -27,6 +27,28 @@ __int64 __fastcall ExportBundleSample(int a1)
 """
 
 
+STATUS_OBJECT_EXPORT_SAMPLE = """
+__int64 __fastcall StatusObjectExportSample()
+{
+  int ObjectProperty;
+  int ObjectList;
+  int status;
+
+  ObjectProperty = QueryObjectProperty();
+  if ( ObjectProperty == STATUS_BUFFER_TOO_SMALL )
+  {
+    status = ObjectProperty;
+  }
+  ObjectList = STATUS_MORE_PROCESSING_REQUIRED;
+  if ( ObjectList < 0 )
+  {
+    return ObjectList;
+  }
+  return status;
+}
+"""
+
+
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
         profile_loader.clear_profile_caches()
@@ -75,6 +97,29 @@ class ExportBundleTests(unittest.TestCase):
                 )
             finally:
                 profile_loader.clear_profile_caches()
+
+    def test_write_export_bundle_hides_resolved_status_carrier_display_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                STATUS_OBJECT_EXPORT_SAMPLE,
+                ea=0x140002000,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+            self.assertIn("Downgraded object-style status carrier name", "\n".join(plan.warnings))
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            warning_payload = json.loads(Path(artifacts["warnings"]).read_text(encoding="utf-8"))
+            rename_payload = json.loads(Path(artifacts["rename_map"]).read_text(encoding="utf-8"))
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(warning_payload, [])
+            self.assertEqual(summary["warnings"], 0)
+            self.assertIn(
+                "Downgraded object-style status carrier name",
+                "\n".join(str(item) for item in rename_payload["warnings"]),
+            )
 
     def test_write_export_bundle_allows_summary_suffix_override(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

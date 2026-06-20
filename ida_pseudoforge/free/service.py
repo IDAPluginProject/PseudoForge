@@ -101,6 +101,7 @@ class FreeAnalysisDeps:
     build_clean_plan: Any
     write_export_bundle: Any
     render_cleaned_pseudocode: Any
+    export_warnings: Any
     active_profile_manifests: Any
     active_profile_names: Any
     active_profile_root: Any
@@ -126,6 +127,7 @@ def load_free_analysis_deps() -> FreeAnalysisDeps:
         from ida_pseudoforge.core.lvar_analysis import build_clean_plan
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
         from ida_pseudoforge.core.render import render_cleaned_pseudocode
+        from ida_pseudoforge.core.render_warnings import export_warnings
         from ida_pseudoforge.models.provider_factory import build_rename_provider
         from ida_pseudoforge.profiles.loader import (
             active_profile_manifests,
@@ -150,6 +152,7 @@ def load_free_analysis_deps() -> FreeAnalysisDeps:
         build_clean_plan=build_clean_plan,
         write_export_bundle=write_export_bundle,
         render_cleaned_pseudocode=render_cleaned_pseudocode,
+        export_warnings=export_warnings,
         active_profile_manifests=active_profile_manifests,
         active_profile_names=active_profile_names,
         active_profile_root=active_profile_root,
@@ -376,16 +379,17 @@ def _analyze_source(
     _check_cancel(cancel_check)
     plan, llm_status = _build_plan(capture, options, deps, rule_dirs)
     _check_cancel(cancel_check)
+    warnings = deps.export_warnings(plan)
     _emit_field(progress, "Rename candidates", len(plan.renames))
     _emit_field(progress, "Flow rewrites", len(plan.flow_rewrites))
-    _emit_field(progress, "Warnings", len(plan.warnings))
+    _emit_field(progress, "Warnings", len(warnings))
     _emit_field(progress, "LLM status", llm_status)
 
     _emit_step(progress, "Write artifacts", str(output_dir))
     try:
-        warnings = _combined_warnings(plan.warnings, deps.profile_load_warnings())
-        if len(warnings) > len(plan.warnings):
-            _emit_field(progress, "Profile warnings", len(warnings) - len(plan.warnings))
+        profile_warnings = deps.profile_load_warnings()
+        if profile_warnings:
+            _emit_field(progress, "Profile warnings", len(profile_warnings))
         artifact_write = _write_analysis_artifacts(
             output_dir=output_dir,
             input_label=input_label,
@@ -607,18 +611,6 @@ def _write_summary(output_dir: Path, capture: Any, result: dict[str, Any]) -> Pa
     path.write_text(json.dumps(result, indent=2, ensure_ascii=True), encoding="utf-8")
     result["artifacts"]["summary"] = str(path)
     return path
-
-
-def _combined_warnings(primary: list[object], secondary: list[str]) -> list[str]:
-    result = []
-    seen = set()
-    for warning in list(primary) + list(secondary):
-        text = str(warning)
-        if text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 def _format_rule_dirs(rule_dirs: list[str]) -> str:

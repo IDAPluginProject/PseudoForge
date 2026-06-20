@@ -94,6 +94,31 @@ class RenderWarningsTests(unittest.TestCase):
 
         self.assertEqual(display_warnings(plan), ["Pool2 may leak on failure path"])
 
+    def test_display_warnings_hides_resolved_status_carrier_downgrades(self) -> None:
+        plan = _plan(
+            [
+                "Downgraded status/object semantic conflict rename Object->referencedObject "
+                "to Object->objectStatus: Object has NTSTATUS carrier evidence (assigned_from_call)",
+                "Downgraded object-style status carrier name ObjectProperty->objectPropertyStatus: "
+                "ObjectProperty has NTSTATUS carrier evidence (assigned_from_call)",
+            ],
+            renames=[
+                RenameSuggestion("lvar", "Object", "objectStatus", 0.86, "semantic-rule", "test"),
+                RenameSuggestion("lvar", "ObjectProperty", "objectPropertyStatus", 0.84, "kernel-status", "test"),
+            ],
+        )
+
+        self.assertEqual(display_warnings(plan), [])
+        self.assertEqual(display_warning_count(plan), 0)
+
+    def test_display_warnings_keeps_unresolved_status_carrier_downgrade(self) -> None:
+        warning = (
+            "Downgraded object-style status carrier name ObjectProperty->objectPropertyStatus: "
+            "ObjectProperty has NTSTATUS carrier evidence (assigned_from_call)"
+        )
+
+        self.assertEqual(display_warnings(_plan([warning])), [warning])
+
     def test_format_warning_handles_structured_and_json_warnings(self) -> None:
         self.assertEqual(
             format_warning({"old": "sub_140001000", "reason": "unresolved indirect call"}),
