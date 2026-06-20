@@ -1484,6 +1484,45 @@ __int64 __fastcall StableTemporaryParameterDirectAliasLayout(__int64 context)
         self.assertEqual(1, len(previews))
         self.assertEqual("temporary_parameter_direct_alias", previews[0]["source_provenance"])
 
+    def test_temp_base_with_repeated_temporary_parameter_alias_reload_is_audit_ready(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall RepeatedTemporaryParameterAliasReloadLayout(__int64 context)
+{
+  __int64 v214;
+  __int64 v45;
+
+  v214 = context;
+  v45 = v214;
+  v45 = v214;
+  return *(_QWORD *)(v45 + 16)
+       + *(_QWORD *)(v45 + 24)
+       + *(_QWORD *)(v45 + 32)
+       + *(_QWORD *)(v45 + 40)
+       + *(_QWORD *)(v45 + 48)
+       + *(_QWORD *)(v45 + 56)
+       + *(_QWORD *)(v45 + 64)
+       + *(_QWORD *)(v45 + 72)
+       + *(_QWORD *)(v45 + 16)
+       + *(_QWORD *)(v45 + 24)
+       + *(_QWORD *)(v45 + 32)
+       + *(_QWORD *)(v45 + 40);
+}
+"""
+        )
+        sources = [item for item in comments if item.get("kind") == "inferred_offset_stable_base_source"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual(1, len(sources))
+        self.assertEqual("v45", sources[0]["base"])
+        self.assertEqual("context", sources[0]["source"])
+        self.assertEqual("v214", sources[0]["source_alias"])
+        self.assertEqual("temporary_parameter_direct_alias", sources[0]["source_provenance"])
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("temporary_parameter_direct_alias", ready[0]["source_provenance"])
+
     def test_temp_hot_cluster_inherits_domain_identity_from_temporary_parameter_alias(self) -> None:
         comments = field_layout_comments(
             """

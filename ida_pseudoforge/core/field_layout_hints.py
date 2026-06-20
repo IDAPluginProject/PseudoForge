@@ -3196,7 +3196,7 @@ def _named_parameter_direct_source_identity(
     source: str,
     base_alias_assignment_count: int,
 ) -> dict[str, Any]:
-    if base_alias_assignment_count != 1:
+    if base_alias_assignment_count <= 0:
         return {}
     if _layout_base_kind(base) != "temp":
         return {}
@@ -3213,7 +3213,7 @@ def _named_parameter_direct_source_identity(
         and item.group("op") == "="
         and _normalize_assignment_rhs(item.group("rhs")) == source
     ]
-    if len(base_alias_assignments) != 1:
+    if not base_alias_assignments:
         return {}
     base_alias_start = base_alias_assignments[0].start()
     source_assignments = [
