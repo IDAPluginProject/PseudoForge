@@ -37,6 +37,7 @@ from ida_pseudoforge.core.llm_failures import (
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.capture import profile_context_from_source_path
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.rule_diagnostics import format_rule_report_summary
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
@@ -741,11 +742,15 @@ def _direct_runtime_helper_aliases(cleaned: str, capture: FunctionCapture) -> di
 
 def _set_capture_source_path(capture: FunctionCapture) -> None:
     if capture.source_path:
+        if not capture.profile_context:
+            capture.profile_context = profile_context_from_source_path(capture.source_path)
         return
     try:
         capture.source_path = str(run_on_main_thread(_target_file_path, write=False))
+        capture.profile_context = profile_context_from_source_path(capture.source_path)
     except Exception:
         capture.source_path = ""
+        capture.profile_context = {}
 
 
 def _target_and_forge_paths() -> tuple[Path, Path]:

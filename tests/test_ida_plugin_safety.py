@@ -353,6 +353,22 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertTrue(session.matches_current(r"F:\target\driver.sys", capture.ea))
         self.assertFalse(session.matches_current(r"F:\target\other.sys", capture.ea))
 
+    def test_set_capture_source_path_populates_profile_context_when_source_already_set(self):
+        capture = FunctionCapture(
+            ea=0x140001000,
+            name="ExpReleaseResourceForThreadLite",
+            prototype="char __fastcall ExpReleaseResourceForThreadLite(ULONG_PTR a1)",
+            pseudocode="char __fastcall ExpReleaseResourceForThreadLite(ULONG_PTR a1)\n{\n  return a1 != 0;\n}",
+            source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe.i64",
+        )
+        capture.profile_context = {}
+
+        actions_module._set_capture_source_path(capture)
+
+        self.assertEqual("ntoskrnl.exe", capture.profile_context["image"])
+        self.assertEqual("26200.8457", capture.profile_context["build"])
+        self.assertEqual("x64", capture.profile_context["arch"])
+
     def test_preflight_rejects_invalid_colliding_and_unselected_renames(self):
         capture = _capture()
         plan = _plan(capture)

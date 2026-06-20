@@ -14,6 +14,7 @@ from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tools.pseudoforge_ida_batch import (
     _apply_runtime_helper_aliases_to_batch_outputs,
     _batch_progress_record,
+    _batch_profile_context,
     _build_corpus_metadata,
     _build_plan_with_optional_llm,
     _cancel_file_requested,
@@ -100,6 +101,42 @@ class IdaBatchTests(unittest.TestCase):
         self.assertEqual([], metadata["functions"])
         self.assertIn("imports", metadata)
         self.assertIn("segments", metadata)
+
+    def test_ida_batch_profile_context_preserves_idb_arch_for_target_binary(self) -> None:
+        context = _batch_profile_context(
+            Path(r"D:\bin\os\26200.8457\ntoskrnl.exe.i64"),
+            Path(r"D:\bin\os\26200.8457\ntoskrnl.exe"),
+        )
+
+        self.assertEqual("ntoskrnl.exe", context["image"])
+        self.assertEqual("26200.8457", context["build"])
+        self.assertEqual("x64", context["arch"])
+
+    def test_ida_batch_target_binary_context_keeps_domain_parameter_renames(self) -> None:
+        context = _batch_profile_context(
+            Path(r"D:\bin\os\26200.8457\ntoskrnl.exe.i64"),
+            Path(r"D:\bin\os\26200.8457\ntoskrnl.exe"),
+        )
+        capture = capture_from_pseudocode(
+            """
+char __fastcall ExpReleaseResourceForThreadLite(ULONG_PTR BugCheckParameter1, ULONG_PTR BugCheckParameter3, __int64 a3, _DWORD *a4)
+{
+  KeGetCurrentIrql();
+  *(_DWORD *)(BugCheckParameter1 + 56) = 1;
+  *a4 = 0;
+  return BugCheckParameter3 != 0;
+}
+""",
+            source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe",
+            profile_context=context,
+        )
+
+        plan = build_clean_plan(capture)
+        active = {(item.old, item.new, item.source) for item in plan.active_renames()}
+
+        self.assertIn(("BugCheckParameter1", "resource", "domain-profile"), active)
+        self.assertIn(("BugCheckParameter3", "resourceThread", "domain-profile"), active)
+        self.assertIn(("a4", "releaseState", "domain-profile"), active)
 
     def test_ida_batch_exact_ea_file_limits_selection(self) -> None:
         class FakeFunc:

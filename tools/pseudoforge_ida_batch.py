@@ -23,7 +23,7 @@ for module_name in list(sys.modules):
         del sys.modules[module_name]
 
 from ida_pseudoforge.config import LlmConfig, get_provider_api_key, load_config
-from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.capture import capture_from_pseudocode, profile_context_from_source_path
 from ida_pseudoforge.core.export_bundle import safe_artifact_stem, write_export_bundle
 from ida_pseudoforge.core.forge_store import (
     parse_forge_function_sections,
@@ -176,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
 
             reporter.write(_batch_progress_record(ea, _function_name(ea), processed + 1, total_selected))
             processed += 1
-            result = _analyze_function(ea, target_path, forge_path, forge_writer, args, rename_provider, llm_info)
+            result = _analyze_function(ea, idb_path, target_path, forge_path, forge_writer, args, rename_provider, llm_info)
             reporter.write(result)
             if result.get("status") == "ok":
                 succeeded += 1
@@ -336,6 +336,7 @@ def _require_ida() -> None:
 
 def _analyze_function(
     ea: int,
+    idb_path: Path | None,
     target_path: Path,
     forge_path: Path,
     forge_writer: "_BatchForgeWriter | None",
@@ -358,7 +359,13 @@ def _analyze_function(
             return _skipped_function(ea, name, "Hex-Rays returned no cfunc", started)
 
         pseudocode = _cfunc_text(cfunc)
-        capture = capture_from_pseudocode(pseudocode, name=name, ea=ea, source_path=str(target_path))
+        capture = capture_from_pseudocode(
+            pseudocode,
+            name=name,
+            ea=ea,
+            source_path=str(target_path),
+            profile_context=_batch_profile_context(idb_path, target_path),
+        )
         capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
         plan, llm_status, llm_error, llm_error_class, llm_error_summary = _build_plan_with_optional_llm(
             capture,
@@ -437,6 +444,16 @@ def _analyze_function(
             "traceback": traceback.format_exc(),
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
+
+
+def _batch_profile_context(idb_path: Path | None, target_path: Path) -> dict[str, object]:
+    idb_context = profile_context_from_source_path(str(idb_path)) if idb_path is not None else {}
+    target_context = profile_context_from_source_path(str(target_path))
+    context: dict[str, object] = dict(idb_context)
+    context.update(target_context)
+    if idb_context.get("arch") and not target_context.get("arch"):
+        context["arch"] = idb_context["arch"]
+    return context
 
 
 def _skipped_function(ea: int, name: str, reason: str, started: float) -> dict[str, Any]:

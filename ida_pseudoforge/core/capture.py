@@ -44,12 +44,12 @@ def capture_from_pseudocode(
 
 
 def _profile_context(source_path: str, profile_context: dict[str, object] | None) -> dict[str, object]:
-    result = _profile_context_from_source_path(source_path)
+    result = profile_context_from_source_path(source_path)
     result.update(dict(profile_context or {}))
     return result
 
 
-def _profile_context_from_source_path(source_path: str) -> dict[str, object]:
+def profile_context_from_source_path(source_path: str) -> dict[str, object]:
     path_text = str(source_path or "").strip()
     if not path_text:
         return {}
