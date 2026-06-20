@@ -585,6 +585,50 @@
       ]
     },
     {
+      "id": "windows.trap_processor_state.ki_start_thread_cycle_accumulation_context_swap",
+      "source": "Reviewed KiStartThreadCycleAccumulationContextSwap processor accounting path where the target PRCB and switched thread are used for cycle accumulation, scheduler assist, and deferred preemption APC handling.",
+      "function_names": [
+        "KiStartThreadCycleAccumulationContextSwap"
+      ],
+      "required_calls": [
+        "HalpTimerGetInternalData",
+        "KeGetCurrentPrcb",
+        "KiInsertDeferredPreemptionApc"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "targetPrcb",
+          "role": "targetPrcb",
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKPRCB",
+            "struct _KPRCB *",
+            "_KPRCB *"
+          ],
+          "source": "KiStartThreadCycleAccumulationContextSwap target PRCB accounting argument"
+        },
+        {
+          "parameter_index": 1,
+          "rename_to": "thread",
+          "role": "thread",
+          "structure": "KTHREAD",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PKTHREAD",
+            "struct _KTHREAD *",
+            "_KTHREAD *"
+          ],
+          "source": "KiStartThreadCycleAccumulationContextSwap switched thread argument used for scheduling state and deferred preemption"
+        }
+      ]
+    },
+    {
       "id": "windows.trap_processor_state.ki_swap_thread",
       "source": "Reviewed KiSwapThread current thread, PRCB, next thread, core control block, and scheduler subnode scheduling path.",
       "function_names": [

@@ -254,6 +254,65 @@ void __noreturn KiIdleLoop()
         self.assertEqual("KTHREAD", idle_roles["idleThread"])
         self.assertEqual("KTHREAD", idle_roles["nextThread"])
 
+    def test_thread_cycle_accumulation_context_swap_roles(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall KiStartThreadCycleAccumulationContextSwap(__int64 argument0, __int64 argument1, __int64 timerContext)
+{
+  struct _KPRCB *CurrentPrcb;
+  _DWORD *schedulerAssist;
+  __int64 cycles;
+
+  if ( !*(_BYTE *)(argument0 + 34524) )
+  {
+    return 0;
+  }
+  cycles = HalpTimerGetInternalData(HalpPerformanceCounter, argument1, timerContext, 10000000LL);
+  *(_QWORD *)(argument0 + 34560) += cycles;
+  if ( (*(_BYTE *)(argument1 + 2) & 4) != 0 )
+  {
+    CurrentPrcb = KeGetCurrentPrcb();
+    schedulerAssist = CurrentPrcb->SchedulerAssist;
+    KiRemoveSystemWorkPriorityKick(CurrentPrcb, 0, schedulerAssist, 0);
+  }
+  if ( *(char *)(argument1 + 195) >= 16 )
+  {
+    *(_QWORD *)(argument1 + 1080) = 0LL;
+  }
+  return KiInsertDeferredPreemptionApc(argument0, argument1, 1);
+}
+"""
+        )
+
+        roles = self._roles(
+            plan,
+            "windows.trap_processor_state.ki_start_thread_cycle_accumulation_context_swap",
+        )
+        rename_map = {item.old: item.new for item in plan.active_renames()}
+
+        self.assertEqual("KPRCB", roles["targetPrcb"])
+        self.assertEqual("KTHREAD", roles["thread"])
+        self.assertEqual("targetPrcb", rename_map["argument0"])
+        self.assertEqual("thread", rename_map["argument1"])
+
+    def test_thread_cycle_accumulation_context_swap_requires_scheduler_flow(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall KiStartThreadCycleAccumulationContextSwap(__int64 argument0, __int64 argument1, __int64 timerContext)
+{
+  return HalpTimerGetInternalData(HalpPerformanceCounter, argument1, timerContext, 10000000LL);
+}
+"""
+        )
+
+        self.assertEqual(
+            [],
+            self._profile_identities(
+                plan,
+                "windows.trap_processor_state.ki_start_thread_cycle_accumulation_context_swap",
+            ),
+        )
+
     def test_report_only_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """
