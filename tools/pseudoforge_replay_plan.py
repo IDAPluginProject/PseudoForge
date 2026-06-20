@@ -202,11 +202,12 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             "",
             (
                 "| Rank | Function | EA | Score | Warnings | Rename gap | Body generics | "
-                "Body offsets | Layout offsets | Unannotated offsets | Unmatched offsets | Body labels | Reasons |"
+                "Body offsets | Layout offsets | Domain offsets | Source-id offsets | "
+                "Unannotated offsets | Unmatched offsets | Body labels | Reasons |"
             ),
             (
-                "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-                "--- |"
+                "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+                "---: | ---: | ---: | ---: | --- |"
             ),
         ]
     )
@@ -215,7 +216,7 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
             continue
         metrics = _coerce_dict(item.get("metrics", {}))
         lines.append(
-            "| %d | `%s` | `%s` | %.2f | %d | %d | %d | %d | %d | %d | %d | %d | %s |"
+            "| %d | `%s` | `%s` | %.2f | %d | %d | %d | %d | %d | %d | %d | %d | %d | %d | %s |"
             % (
                 index,
                 item.get("name", ""),
@@ -226,6 +227,11 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
                 int(metrics.get("body_generic_identifier_tokens", 0) or 0),
                 int(metrics.get("body_offset_deref_patterns", 0) or 0),
                 int(metrics.get("body_offset_deref_layout_actionable_patterns", 0) or 0),
+                int(metrics.get("body_offset_deref_domain_identified_base_patterns", 0) or 0),
+                int(
+                    metrics.get("body_offset_deref_source_identity_blocked_base_patterns", 0)
+                    or 0
+                ),
                 int(metrics.get("body_offset_deref_non_layout_base_patterns", 0) or 0),
                 int(metrics.get("body_offset_deref_unmatched_base_patterns", 0) or 0),
                 int(metrics.get("body_label_tokens", 0) or 0),
@@ -286,6 +292,7 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
         return []
     lines = ["", "## Source Identity Review Queues", ""]
     for title, key in (
+        ("Source-identity-blocked bases", "source_identity_blocked"),
         ("Context parameter candidates", "context"),
         ("Argument parameter candidates", "argument"),
         ("Bugcheck parameter pointer candidates", "bugcheck"),
@@ -439,6 +446,12 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     queue_specs = (
+        (
+            "source_identity_blocked",
+            "source_identity_blocked",
+            "source_identity_recovery_review",
+            "Trace temp/generic base assignment provenance before enabling rewrite.",
+        ),
         (
             "context",
             "unannotated_context",
@@ -1248,6 +1261,7 @@ def _score_model() -> dict[str, Any]:
             "queue_limit": SOURCE_IDENTITY_QUEUE_LIMIT,
             "min_offset_derefs": SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS,
             "source_kinds": [
+                "source_identity_blocked",
                 "context",
                 "argument",
                 "bugcheck",

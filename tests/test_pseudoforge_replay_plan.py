@@ -698,6 +698,14 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 "v22",
                 plan["offset_base_breakdown"]["top_source_identity_blocked_bases"][0]["base"],
             )
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("TempBlocked", source_queue[0]["function"])
+            self.assertEqual("v22", source_queue[0]["base"])
+            self.assertEqual("source_identity_recovery_review", source_queue[0]["disposition"])
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Source-id offsets", markdown)
+            self.assertIn("Source Identity Review Queues", markdown)
+            self.assertIn("source_identity_recovery_review", markdown)
 
     def test_replay_plan_treats_hot_field_cluster_as_layout_actionable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
