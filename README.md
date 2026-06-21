@@ -226,6 +226,17 @@ Implemented:
     `NtSetSystemInformation`, and strongly evidenced generic switch
     dispatchers, plus packed C++ struct sketches that include observed reject
     guards and derived valid predicates for recovered buffer layouts.
+36. Trusted temp-base provenance reporting classifies decompiler temporary
+    layout bases by source origin, lifetime stability, branch merge shape,
+    guard dominance, and mutation risk. It emits explicit review comments such
+    as `inferred_offset_temp_provenance_trace`,
+    `inferred_offset_trusted_temp_source`,
+    `inferred_offset_temp_promotion_blocked`,
+    `inferred_offset_same_family_merge_provenance`,
+    `inferred_offset_call_result_parameter_dominance`, and
+    `inferred_offset_post_access_mutation_blocker`. Risky cases remain
+    report-only; canonical field rewrites still require provenance, dominance,
+    clear blockers, and existing validation gates.
 
 Still pending:
 
@@ -377,16 +388,23 @@ tools/
   build_status_codes_profile.py
   empty_llm_rename_provider.py
   profile_load_smoke.py
+  pseudoforge_cleanup_integrity.py
   pseudoforge_cli.py
+  pseudoforge_corpus_quality.py
   pseudoforge_free_console.py
   pseudoforge_free_cli.py
   pseudoforge_free_gui.py
   pseudoforge_corpus_index.py
   pseudoforge_corpus_qa.py
   pseudoforge_ida_batch.py
+  pseudoforge_ida_case_contract_batch.py
   pseudoforge_ida_cli.py
   pseudoforge_ida_identity_apply_smoke.py
+  pseudoforge_quality_compare.py
+  pseudoforge_replay_plan.py
+  pseudoforge_rule_author.py
   release_pseudoforge.py
+  run_pseudoforge_free_gui.ps1
   run_pseudoforge_ida_batch.ps1
   score_pseudoforge_quality.py
   summarize_pseudoforge_ida_batch.py
@@ -1579,6 +1597,87 @@ python -B .\tools\pseudoforge_corpus_qa.py `
 
 Q&A answers are designed to cite function EA, name, and artifact paths. Claims that cannot be grounded in the retrieved artifacts should be reported as unknown rather than guessed.
 
+### Corpus Quality And Replay Planning
+
+After a headless IDA run, use the quality and replay tools to measure cleanup
+quality, find high-value rerun targets, and compare before/after results. These
+tools operate on generated corpus artifacts and do not modify an IDB.
+
+Generate a JSON and Markdown quality report:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_quality.py `
+  --corpus-root "$env:TEMP\pseudoforge_ida_cli\driver" `
+  --out "$env:TEMP\pseudoforge_ida_cli\driver-quality" `
+  --format both
+```
+
+The report includes residue metrics, rewrite blocker queues, preview artifact
+validation status, API semantic recovery, and layout provenance sections. The
+`Layout Temp-Base Provenance` section summarizes trusted temp sources, blocked
+temp candidates, review-only candidates, source origins, branch merge shapes,
+dominance state, and blocker reasons such as post-access reassignment,
+address-taken mutation risk, pointer mutation, opaque call results, and weak or
+unknown source identity.
+
+Generate a focused replay plan from an existing corpus:
+
+```powershell
+python -B .\tools\pseudoforge_replay_plan.py `
+  --corpus-root "$env:TEMP\pseudoforge_ida_cli\driver" `
+  --out "$env:TEMP\pseudoforge_ida_cli\driver-replay-plan" `
+  --limit 100 `
+  --top 25
+```
+
+The replay plan writes `replay-eas.txt`, `opaque-target-eas.txt`,
+`replay-plan.json`, and `replay-plan.md`. Use `replay-eas.txt` with
+`pseudoforge_ida_cli.py --ea-file` when rerunning only the highest-signal
+functions:
+
+```powershell
+python -B .\tools\pseudoforge_ida_cli.py `
+  "C:\Path\To\IDA\ida64.exe" `
+  "D:\Path\To\driver.sys.i64" `
+  "$env:TEMP\pseudoforge_ida_cli\driver-rerun" `
+  --target-path "D:\Path\To\driver.sys" `
+  --ea-file "$env:TEMP\pseudoforge_ida_cli\driver-replay-plan\replay-eas.txt" `
+  --allow-no-llm `
+  --apply-validated-layout-rewrites
+```
+
+After the rerun, generate a second quality report:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_quality.py `
+  --corpus-root "$env:TEMP\pseudoforge_ida_cli\driver-rerun" `
+  --out "$env:TEMP\pseudoforge_ida_cli\driver-rerun-quality" `
+  --format both
+```
+
+Compare old and new quality reports:
+
+```powershell
+python -B .\tools\pseudoforge_quality_compare.py `
+  --old "$env:TEMP\pseudoforge_ida_cli\driver-quality\corpus-quality.json" `
+  --new "$env:TEMP\pseudoforge_ida_cli\driver-rerun-quality\corpus-quality.json" `
+  --out "$env:TEMP\pseudoforge_ida_cli\driver-quality-compare" `
+  --format both
+```
+
+Important temp-base provenance policy:
+
+- `trusted_stable_temp` and `trusted_stable_source` are evidence classes, not a
+  shortcut around validation.
+- Mixed parameter/call-result branches, same-family merges, bugcheck/debug
+  parameters, opaque call results, globals/MMIO-looking bases, array cursors,
+  post-access writes, address-taken uses, and pointer mutations stay
+  report-only or blocked unless dominance and blocker-free validation prove the
+  access path.
+- Canonical field rewrite remains fail-closed. Review aliases and provenance
+  comments may appear even when the cleaned body intentionally keeps raw offset
+  dereferences.
+
 ### Sharing Corpus Artifacts With Other AI Agents
 
 The corpus artifacts are intentionally tool-agnostic. Any agent that can read local files can consume them without loading IDA or running PseudoForge code.
@@ -2015,6 +2114,20 @@ comparison on a replay output:
 
 ```powershell
 python -B .\tools\pseudoforge_cleanup_integrity.py --corpus-root .\pseudoforge_out\release-validation-top30-nollm --out .\pseudoforge_out\release-validation-top30-nollm-integrity --format both --fail-on-issues
+```
+
+Targeted layout provenance and corpus reporting checks:
+
+```powershell
+python -B -m pytest tests\test_field_layout_hints.py -q
+python -B -m pytest tests\test_pseudoforge_corpus_quality.py tests\test_pseudoforge_replay_plan.py -q
+```
+
+Generate quality and replay-plan reports for a local corpus:
+
+```powershell
+python -B .\tools\pseudoforge_corpus_quality.py --corpus-root .\pseudoforge_out\release-validation-top30-nollm --out .\pseudoforge_out\release-validation-top30-nollm-quality --format both
+python -B .\tools\pseudoforge_replay_plan.py --corpus-root .\pseudoforge_out\release-validation-top30-nollm --out .\pseudoforge_out\release-validation-top30-nollm-plan --limit 100 --top 25
 ```
 
 Unit tests:
