@@ -975,6 +975,63 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("temporary_provenance_review", markdown)
             self.assertIn("call_result_temporary_branch", markdown)
 
+    def test_replay_plan_marks_call_result_parameter_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            call_result_parameter_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v47: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v47: 2 initializer(s) before first layout access across 2 source candidate(s): *argument0; LookupLayoutObject(argument0). Candidate classes call_result=1, expression=1. Source families call_result:LookupLayoutObject=1, parameter:argument0=1; disposition distinct_source_family_review. Candidate kinds parameter_root=1, call_result=1. Merge shape call_result_parameter_branch (high risk); next review parameter/call-result path dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "      - inferred_offset_call_result_parameter_merge_provenance: Call-result/parameter merge provenance for v47: 1 call-result initializer(s), 1 parameter-root candidate(s), 0 temporary-root candidate(s). Call families LookupLayoutObject=1. Parameter roots argument0. Parameter candidates *argument0 [pointer_deref]. Temporary roots none. 1 call-result initializer(s) mention parameter root(s). First layout access is dominated by a base truthiness guard. Guard condition v47. Provenance class call_result_with_parameter_root_linked_arguments_pointer_deref. Keep canonical rewrite blocked until parameter/call-result path dominance is validated. confidence=0.65",
+                    "*/",
+                    "__int64 __fastcall CallResultParameterMerge(__int64 argument0)",
+                    "{",
+                    "  v47 = *(_QWORD *)argument0;",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v47 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140BD2A04",
+                name="CallResultParameterMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=call_result_parameter_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_call_result_parameter_merge_provenance"])
+            self.assertIn("layout_call_result_parameter_merge_provenance", item["reasons"])
+            self.assertEqual(
+                "v47",
+                item["offset_base_counts"]["call_result_parameter_merge_provenance"][0]["base"],
+            )
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("CallResultParameterMerge", source_queue[0]["function"])
+            self.assertEqual("v47", source_queue[0]["base"])
+            self.assertEqual("call_result_parameter_branch", source_queue[0]["merge_shape"])
+            self.assertEqual("high", source_queue[0]["merge_risk"])
+            self.assertEqual("parameter_provenance_review", source_queue[0]["disposition"])
+            self.assertIn("parameter/call-result path dominance", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "parameter_provenance_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "call_result_parameter_merge_disposition"
+                ],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("parameter_provenance_review", markdown)
+            self.assertIn("call_result_parameter_branch", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

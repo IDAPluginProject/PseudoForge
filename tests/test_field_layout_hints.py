@@ -4223,6 +4223,73 @@ __int64 __fastcall CallResultTemporaryMergeLayout(__int64 CacheMap, int reuse)
         self.assertIn("allocation_call_with_parameter_temporary", provenance[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_call_result_parameter_merge_reports_provenance(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall CallResultParameterMergeLayout(__int64 Object, int useCall)
+{
+  __int64 v20;
+
+  v20 = *(_QWORD *)Object;
+  if ( useCall )
+  {
+    v20 = LookupLayoutObject(Object);
+  }
+  if ( v20 )
+  {
+    return *(_QWORD *)(v20 + 16)
+         + *(_QWORD *)(v20 + 24)
+         + *(_QWORD *)(v20 + 32)
+         + *(_QWORD *)(v20 + 40)
+         + *(_QWORD *)(v20 + 48)
+         + *(_QWORD *)(v20 + 56)
+         + *(_QWORD *)(v20 + 64)
+         + *(_QWORD *)(v20 + 72)
+         + *(_QWORD *)(v20 + 16)
+         + *(_QWORD *)(v20 + 24)
+         + *(_QWORD *)(v20 + 32)
+         + *(_QWORD *)(v20 + 40);
+  }
+  return 0LL;
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+        provenance = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_call_result_parameter_merge_provenance"
+        ]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual("call_result_parameter_branch", merge[0]["merge_shape"])
+        self.assertEqual(["parameter_root", "call_result"], merge[0]["source_candidate_kinds"])
+        self.assertEqual(1, len(provenance))
+        self.assertEqual("v20", provenance[0]["base"])
+        self.assertEqual(1, provenance[0]["call_result_initializer_count"])
+        self.assertEqual(1, provenance[0]["parameter_root_candidate_count"])
+        self.assertEqual(0, provenance[0]["temporary_root_candidate_count"])
+        self.assertEqual({"LookupLayoutObject": 1}, provenance[0]["call_name_counts"])
+        self.assertEqual(["Object"], provenance[0]["parameter_roots"])
+        self.assertEqual({"pointer_deref": 1}, provenance[0]["parameter_branch_shape_counts"])
+        self.assertEqual(1, provenance[0]["linked_call_result_parameter_root_count"])
+        self.assertTrue(provenance[0]["first_layout_access_guarded"])
+        self.assertEqual("v20", provenance[0]["guard_condition"])
+        self.assertEqual(
+            "call_result_with_parameter_root_linked_arguments_pointer_deref",
+            provenance[0]["provenance_class"],
+        )
+        parameter = provenance[0]["parameter_root_candidates"][0]
+        self.assertEqual("*(_QWORD *)Object", parameter["source"])
+        self.assertEqual("Object", parameter["source_root"])
+        self.assertEqual("parameter", parameter["source_root_kind"])
+        self.assertEqual("pointer_deref", parameter["branch_shape"])
+        self.assertIn("parameter/call-result path dominance", provenance[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_alias_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
             """

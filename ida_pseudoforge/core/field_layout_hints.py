@@ -264,6 +264,13 @@ def field_layout_comments(
                     )
                     if call_result_equivalence:
                         comments.append(call_result_equivalence)
+                    parameter_provenance = _field_call_result_parameter_merge_provenance_comment(
+                        text or "",
+                        item,
+                        merge,
+                    )
+                    if parameter_provenance:
+                        comments.append(parameter_provenance)
                     temporary_provenance = _field_call_result_temporary_merge_provenance_comment(
                         text or "",
                         item,
@@ -1783,6 +1790,195 @@ def _field_call_result_merge_equivalence_comment(
         "same_direct_call_family": len(set(direct_names)) == 1 and bool(direct_names),
         "equivalence_class": equivalence_class,
     }
+
+
+def _field_call_result_parameter_merge_provenance_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    merge: dict[str, Any],
+) -> dict[str, Any] | None:
+    if merge.get("merge_shape") != "call_result_parameter_branch":
+        return None
+    candidates = list(merge.get("source_candidates", []) or [])
+    call_candidates = _call_result_merge_candidates(text, candidates)
+    parameter_candidates = _parameter_root_merge_candidates(text, candidates, layout.base)
+    if not call_candidates or not parameter_candidates:
+        return None
+    temporary_candidates = _temporary_root_merge_candidates(text, candidates, layout.base)
+    temporary_details = [
+        _temporary_root_provenance_before_layout_access(text, layout.base, item)
+        for item in temporary_candidates
+    ]
+    call_name_counts = Counter(str(item["call_name"]) for item in call_candidates if item.get("call_name"))
+    call_kind_counts = Counter(str(item["candidate_kind"]) for item in call_candidates if item.get("candidate_kind"))
+    parameter_roots = list(
+        dict.fromkeys(
+            str(item.get("source_root", "") or "")
+            for item in parameter_candidates
+            if item.get("source_root")
+        )
+    )
+    parameter_shape_counts = Counter(
+        str(item.get("branch_shape", "") or "")
+        for item in parameter_candidates
+    )
+    linked_call_count = _call_result_parameter_root_reference_count(call_candidates, parameter_roots)
+    provenance_class = _call_result_parameter_provenance_class(
+        call_kind_counts,
+        parameter_shape_counts,
+        bool(temporary_details),
+        linked_call_count,
+    )
+    call_name_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(call_name_counts.items())
+    )
+    parameter_text = "; ".join(
+        "%s %s" % (
+            _comment_safe_snippet(str(item.get("source", "") or "")),
+            _same_source_family_candidate_suffix(item),
+        )
+        for item in parameter_candidates[:4]
+    )
+    temporary_text = "none"
+    if temporary_details:
+        temporary_text = "; ".join(
+            "%s stable=%s" % (
+                _comment_safe_snippet(str(item.get("temporary_root", "") or "")),
+                _comment_safe_snippet(str(item.get("stable_source", "") or "unknown")),
+            )
+            for item in temporary_details[:4]
+        )
+    first_access = _first_layout_access_start(text, layout.base)
+    guard = _truthiness_guard_dominating_offset(text, layout.base, first_access)
+    guarded_text = "is"
+    guard_condition_text = ""
+    confidence = 0.62
+    if not guard:
+        guarded_text = "is not"
+    else:
+        guard_condition_text = " Guard condition %s." % guard["condition"]
+        confidence = 0.64
+    if linked_call_count:
+        confidence = max(confidence, 0.65)
+    return {
+        "kind": "inferred_offset_call_result_parameter_merge_provenance",
+        "text": (
+            "Call-result/parameter merge provenance for %s: %d call-result initializer(s), "
+            "%d parameter-root candidate(s), %d temporary-root candidate(s). Call families %s. "
+            "Parameter roots %s. Parameter candidates %s. Temporary roots %s. "
+            "%d call-result initializer(s) mention parameter root(s). First layout access %s "
+            "dominated by a base truthiness guard.%s Provenance class %s. "
+            "Keep canonical rewrite blocked until parameter/call-result path dominance is validated."
+            % (
+                layout.base,
+                len(call_candidates),
+                len(parameter_candidates),
+                len(temporary_details),
+                call_name_text,
+                ", ".join(parameter_roots),
+                parameter_text,
+                temporary_text,
+                linked_call_count,
+                guarded_text,
+                guard_condition_text,
+                provenance_class,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "merge_shape": "call_result_parameter_branch",
+        "call_result_initializer_count": len(call_candidates),
+        "parameter_root_candidate_count": len(parameter_candidates),
+        "temporary_root_candidate_count": len(temporary_details),
+        "call_name_counts": dict(sorted(call_name_counts.items())),
+        "call_candidate_kind_counts": dict(sorted(call_kind_counts.items())),
+        "call_result_candidates": call_candidates,
+        "parameter_root_candidates": parameter_candidates,
+        "parameter_roots": parameter_roots,
+        "parameter_branch_shape_counts": dict(sorted(parameter_shape_counts.items())),
+        "temporary_root_candidates": temporary_details,
+        "temporary_roots": [
+            str(item.get("temporary_root", "") or "")
+            for item in temporary_details
+            if item.get("temporary_root")
+        ],
+        "linked_call_result_parameter_root_count": linked_call_count,
+        "first_layout_access_guarded": bool(guard),
+        "guard_condition": str(guard.get("condition", "") if guard else ""),
+        "guard_start": int(guard.get("start", -1) if guard else -1),
+        "guard_end": int(guard.get("end", -1) if guard else -1),
+        "provenance_class": provenance_class,
+    }
+
+
+def _parameter_root_merge_candidates(
+    text: str,
+    values: Any,
+    target_base: str,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for value in values or []:
+        detail = _same_source_family_candidate_detail(text, value)
+        if not detail:
+            continue
+        if detail.get("source_root") == target_base:
+            continue
+        if detail.get("candidate_kind") != "parameter_root":
+            continue
+        key = (
+            str(detail.get("source", "") or ""),
+            str(detail.get("source_root", "") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(detail)
+    return candidates
+
+
+def _call_result_parameter_root_reference_count(
+    call_candidates: list[dict[str, Any]],
+    parameter_roots: list[str],
+) -> int:
+    roots = [str(item or "") for item in parameter_roots if str(item or "")]
+    count = 0
+    for candidate in call_candidates:
+        source = str(candidate.get("source", "") or "")
+        if any(re.search(r"\b%s\b" % re.escape(root), source) for root in roots):
+            count += 1
+    return count
+
+
+def _call_result_parameter_provenance_class(
+    call_kind_counts: Counter[str],
+    parameter_shape_counts: Counter[str],
+    has_temporary_roots: bool,
+    linked_call_count: int,
+) -> str:
+    call_kinds = set(call_kind_counts)
+    parameter_shapes = set(parameter_shape_counts)
+    if "opaque_call_result" in call_kinds:
+        base_class = "opaque_call_with_parameter_root"
+    elif "allocation_call_result" in call_kinds:
+        base_class = "allocation_call_with_parameter_root"
+    elif "indirect_call_result" in call_kinds:
+        base_class = "indirect_call_with_parameter_root"
+    else:
+        base_class = "call_result_with_parameter_root"
+    if linked_call_count:
+        base_class += "_linked_arguments"
+    if "pointer_deref" in parameter_shapes:
+        base_class += "_pointer_deref"
+    elif "field_pointer" in parameter_shapes:
+        base_class += "_field_pointer"
+    elif "pointer_arithmetic" in parameter_shapes:
+        base_class += "_pointer_arithmetic"
+    if has_temporary_roots:
+        base_class += "_and_temporary_roots"
+    return base_class
 
 
 def _field_call_result_temporary_merge_provenance_comment(
