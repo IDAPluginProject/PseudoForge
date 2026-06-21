@@ -2576,6 +2576,89 @@ __int64 __fastcall StableParameterIndexedSourceLayout(_QWORD *argument0)
         self.assertEqual(1, len(ready))
         self.assertEqual("parameter_indexed_pointer_alias", ready[0]["source_provenance"])
 
+    def test_indexed_callback_table_access_emits_report_only_evidence(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall IndexedCallbackTableLayout(_DWORD *argument0, unsigned int argument1, int argument2)
+{
+  __int64 v4;
+  __int64 v6;
+  __int64 v7;
+
+  v4 = argument0;
+  if ( argument0[630] & 0x8000000 )
+    v6 = argument0[593];
+  else
+    v6 = argument0[524];
+  if ( (*((__int64 (__fastcall **)(__int64, __int64))v4 + 70))(v6, v7) )
+    (*((void (__fastcall **)(__int64 *, __int64))v4 + 71))(&v6, v7);
+  if ( (*((unsigned __int8 (__fastcall **)(__int64 *, _QWORD, __int64))v4 + 72))(&v6, 0, v7) )
+    return (*((__int64 (__fastcall **)(unsigned __int64, _QWORD, _QWORD))v4 + 32))(argument1, 0, 0);
+  return argument2;
+}
+"""
+        )
+        evidence = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_indexed_callback_table_evidence"
+        ]
+
+        self.assertEqual(1, len(evidence))
+        self.assertEqual("argument0", evidence[0]["base"])
+        self.assertEqual("argument", evidence[0]["base_kind"])
+        self.assertEqual([524, 593, 630], evidence[0]["scalar_indexes"])
+        self.assertEqual([32, 70, 71, 72], evidence[0]["callback_slots"])
+        self.assertEqual(["v4"], evidence[0]["alias_bases"])
+        self.assertEqual(7, evidence[0]["access_count"])
+        self.assertEqual(3, evidence[0]["scalar_access_count"])
+        self.assertEqual(4, evidence[0]["callback_access_count"])
+        self.assertIn("Review-only", evidence[0]["text"])
+        self.assertIn("not used for canonical field rewrite", evidence[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_layout" for item in comments))
+
+    def test_reassigned_indexed_callback_alias_is_not_promoted_to_parameter_evidence(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall ReassignedIndexedCallbackAlias(_DWORD *argument0)
+{
+  __int64 v4;
+
+  v4 = argument0;
+  v4 = LookupDispatchTable();
+  (*((void (__fastcall **)(_QWORD))v4 + 70))(0);
+  (*((void (__fastcall **)(_QWORD))v4 + 71))(0);
+  (*((void (__fastcall **)(_QWORD))v4 + 72))(0);
+  return 0;
+}
+"""
+        )
+
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_indexed_callback_table_evidence" for item in comments)
+        )
+
+    def test_late_indexed_callback_alias_is_not_used_for_earlier_access(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall LateIndexedCallbackAlias(_DWORD *argument0)
+{
+  __int64 v4;
+
+  (*((void (__fastcall **)(_QWORD))v4 + 70))(0);
+  (*((void (__fastcall **)(_QWORD))v4 + 71))(0);
+  (*((void (__fastcall **)(_QWORD))v4 + 72))(0);
+  v4 = argument0;
+  return 0;
+}
+"""
+        )
+
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_indexed_callback_table_evidence" for item in comments)
+        )
+
     def test_temp_base_with_local_subobject_source_remains_blocked(self) -> None:
         comments = field_layout_comments(
             """

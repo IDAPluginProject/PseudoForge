@@ -24,6 +24,20 @@ _OFFSET_DEREF_RE = re.compile(
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
+_INDEXED_ACCESS_RE = re.compile(
+    r"\b(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"\[\s*(?P<index>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\]"
+)
+_CALLBACK_TABLE_SLOT_RE = re.compile(
+    r"\*\s*\(\s*\([^;\n]*\*\s*\*[^;\n]*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<slot>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
+_DIRECT_ASSIGNMENT_RE = re.compile(
+    r"(?m)^\s*(?P<lhs>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"(?P<op>\+=|-=|\*=|/=|%=|&=|\|=|\^=|=)(?!=)\s*"
+    r"(?P<rhs>[^;\n]*);\s*(?://[^\n]*)?$"
+)
 
 _SCALAR_BASE_WORDS = {
     "count",
@@ -165,6 +179,14 @@ class _LayoutEvidence:
     offsets: dict[int, set[str]] = field(default_factory=dict)
     offset_access_counts: Counter[int] = field(default_factory=Counter)
     access_count: int = 0
+
+
+@dataclass(slots=True)
+class _IndexedLayoutEvidence:
+    base: str
+    scalar_indexes: Counter[int] = field(default_factory=Counter)
+    callback_slots: Counter[int] = field(default_factory=Counter)
+    alias_bases: set[str] = field(default_factory=set)
 
 
 def field_layout_comments(
@@ -321,6 +343,20 @@ def field_layout_comments(
     )
     for item in hot_clusters[:max(0, int(max_comments or 0))]:
         comments.append(_field_hot_cluster_comment_from_layout(item))
+    indexed_evidence = [
+        item
+        for item in _collect_indexed_layout_evidence(text or "").values()
+        if _has_indexed_layout_evidence(item)
+    ]
+    indexed_evidence.sort(
+        key=lambda item: (
+            -_indexed_layout_access_count(item),
+            -_indexed_layout_slot_count(item),
+            item.base.lower(),
+        )
+    )
+    for item in indexed_evidence[:max(0, int(max_comments or 0))]:
+        comments.append(_indexed_layout_comment_from_evidence(item))
     return comments
 
 
@@ -360,6 +396,107 @@ def _collect_layouts(text: str) -> dict[str, _LayoutEvidence]:
     return layouts
 
 
+def _collect_indexed_layout_evidence(text: str) -> dict[str, _IndexedLayoutEvidence]:
+    aliases = _direct_identifier_aliases(text)
+    evidence_by_base: dict[str, _IndexedLayoutEvidence] = {}
+    for match in _INDEXED_ACCESS_RE.finditer(text or ""):
+        raw_base = match.group("base")
+        index = _parse_offset(match.group("index"))
+        base = _indexed_layout_canonical_base(text, raw_base, aliases, match.start())
+        if not base or index is None or index <= 0:
+            continue
+        evidence = evidence_by_base.setdefault(base, _IndexedLayoutEvidence(base=base))
+        evidence.scalar_indexes[index] += 1
+        if raw_base != base:
+            evidence.alias_bases.add(raw_base)
+    for match in _CALLBACK_TABLE_SLOT_RE.finditer(text or ""):
+        raw_base = match.group("base")
+        slot = _parse_offset(match.group("slot"))
+        base = _indexed_layout_canonical_base(text, raw_base, aliases, match.start())
+        if not base or slot is None or slot <= 0:
+            continue
+        evidence = evidence_by_base.setdefault(base, _IndexedLayoutEvidence(base=base))
+        evidence.callback_slots[slot] += 1
+        if raw_base != base:
+            evidence.alias_bases.add(raw_base)
+    return evidence_by_base
+
+
+def _indexed_layout_canonical_base(
+    text: str,
+    raw_base: str,
+    aliases: dict[str, str],
+    position: int = -1,
+) -> str:
+    base = str(raw_base or "")
+    if not base or _is_scalar_like_base(base):
+        return ""
+    if _base_is_function_parameter(text, base):
+        return base
+    if position >= 0:
+        return _indexed_layout_alias_base_before(text, base, position, {base})
+    seen = {base}
+    current = base
+    for _ in range(4):
+        source = aliases.get(current, "")
+        if not source or source in seen:
+            return ""
+        if _base_is_function_parameter(text, source):
+            return source
+        seen.add(source)
+        current = source
+    return ""
+
+
+def _indexed_layout_alias_base_before(
+    text: str,
+    base: str,
+    before: int,
+    seen: set[str],
+) -> str:
+    assignments = [
+        item
+        for item in _base_direct_assignments(text, base)
+        if item.start() < before
+    ]
+    if not assignments:
+        return ""
+    assignment = assignments[-1]
+    if assignment.group("op") != "=":
+        return ""
+    source = _normalize_assignment_rhs(assignment.group("rhs"))
+    if not _is_identifier_expression(source) or source in seen:
+        return ""
+    if _base_is_function_parameter(text, source):
+        return source
+    seen.add(source)
+    return _indexed_layout_alias_base_before(text, source, assignment.start(), seen)
+
+
+def _direct_identifier_aliases(text: str) -> dict[str, str]:
+    assignments_by_lhs: dict[str, list[re.Match[str]]] = {}
+    for match in _DIRECT_ASSIGNMENT_RE.finditer(text or ""):
+        lhs = match.group("lhs")
+        assignments_by_lhs.setdefault(lhs, []).append(match)
+    aliases: dict[str, str] = {}
+    for lhs, assignments in assignments_by_lhs.items():
+        if not assignments or _base_is_function_parameter(text, lhs):
+            continue
+        if any(item.group("op") != "=" for item in assignments):
+            continue
+        rhs_values = [
+            _normalize_assignment_rhs(item.group("rhs"))
+            for item in assignments
+        ]
+        if any(not _is_identifier_expression(item) for item in rhs_values):
+            continue
+        distinct_rhs = {item for item in rhs_values if item and item != lhs}
+        if len(distinct_rhs) != 1:
+            continue
+        aliases[lhs] = next(iter(distinct_rhs))
+    return aliases
+
+
 def _has_enough_layout_evidence(layout: _LayoutEvidence) -> bool:
     distinct_offsets = len(layout.offsets)
     if _layout_base_kind(layout.base) in {"temp", "generic", "argument", "bugcheck"}:
@@ -393,6 +530,76 @@ def _comment_from_layout(layout: _LayoutEvidence) -> dict[str, Any]:
         ),
         "confidence": round(confidence, 2),
         "base_kind": base_kind,
+    }
+
+
+def _has_indexed_layout_evidence(evidence: _IndexedLayoutEvidence) -> bool:
+    slot_count = _indexed_layout_slot_count(evidence)
+    access_count = _indexed_layout_access_count(evidence)
+    callback_slot_count = len(evidence.callback_slots)
+    if slot_count >= 5 and access_count >= 5:
+        return True
+    return callback_slot_count >= 2 and slot_count >= 3 and access_count >= 3
+
+
+def _indexed_layout_access_count(evidence: _IndexedLayoutEvidence) -> int:
+    return int(sum(evidence.scalar_indexes.values()) + sum(evidence.callback_slots.values()))
+
+
+def _indexed_layout_slot_count(evidence: _IndexedLayoutEvidence) -> int:
+    return len(set(evidence.scalar_indexes) | set(evidence.callback_slots))
+
+
+def _indexed_slot_text(prefix: str, slots: list[int]) -> str:
+    if not slots:
+        return "none"
+    shown = slots[:8]
+    text = ", ".join("%s_%d" % (prefix, item) for item in shown)
+    if len(slots) > len(shown):
+        text += ", ..."
+    return text
+
+
+def _indexed_layout_comment_from_evidence(evidence: _IndexedLayoutEvidence) -> dict[str, Any]:
+    scalar_indexes = sorted(evidence.scalar_indexes)
+    callback_slots = sorted(evidence.callback_slots)
+    scalar_text = _indexed_slot_text("index", scalar_indexes)
+    callback_text = _indexed_slot_text("slot", callback_slots)
+    alias_text = ""
+    if evidence.alias_bases:
+        alias_text = " Alias bases %s." % ", ".join(sorted(evidence.alias_bases))
+    base_kind = _layout_base_kind(evidence.base)
+    access_count = _indexed_layout_access_count(evidence)
+    slot_count = _indexed_layout_slot_count(evidence)
+    confidence = min(
+        _field_indexed_layout_confidence_cap_for_base_kind(base_kind),
+        0.56 + slot_count * 0.02 + min(access_count, 12) * 0.008 + len(callback_slots) * 0.015,
+    )
+    return {
+        "kind": "inferred_offset_indexed_callback_table_evidence",
+        "text": (
+            "Indexed layout evidence for %s (%s base): %d indexed/callback access(es) across %d slot(s); "
+            "scalar indexes %s; callback slots %s.%s Review-only; indexed table access is not used for canonical field rewrite."
+            % (
+                evidence.base,
+                _field_hot_cluster_base_kind_label(base_kind),
+                access_count,
+                slot_count,
+                scalar_text,
+                callback_text,
+                alias_text,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": evidence.base,
+        "base_kind": base_kind,
+        "access_count": access_count,
+        "slot_count": slot_count,
+        "scalar_access_count": sum(evidence.scalar_indexes.values()),
+        "callback_access_count": sum(evidence.callback_slots.values()),
+        "scalar_indexes": scalar_indexes,
+        "callback_slots": callback_slots,
+        "alias_bases": sorted(evidence.alias_bases),
     }
 
 
@@ -3562,6 +3769,18 @@ def _field_hot_cluster_confidence_cap_for_base_kind(base_kind: str) -> float:
         return 0.70
     if base_kind == "bugcheck":
         return 0.68
+    return 0.74
+
+
+def _field_indexed_layout_confidence_cap_for_base_kind(base_kind: str) -> float:
+    if base_kind == "temp":
+        return 0.66
+    if base_kind == "generic":
+        return 0.70
+    if base_kind == "argument":
+        return 0.72
+    if base_kind == "bugcheck":
+        return 0.66
     return 0.74
 
 
