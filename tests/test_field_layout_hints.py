@@ -4290,6 +4290,62 @@ __int64 __fastcall CallResultParameterMergeLayout(__int64 Object, int useCall)
         self.assertIn("parameter/call-result path dominance", provenance[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_bugcheck_parameter_merge_reports_identity(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall BugcheckParameterMergeLayout(__int64 BugCheckParameter2, __int64 BugCheckParameter3, int useFallback)
+{
+  __int64 v12;
+
+  v12 = BugCheckParameter3;
+  if ( useFallback )
+  {
+    v12 = BugCheckParameter2;
+  }
+  if ( v12 )
+  {
+    return *(_QWORD *)(v12 + 16)
+         + *(_QWORD *)(v12 + 24)
+         + *(_QWORD *)(v12 + 32)
+         + *(_QWORD *)(v12 + 40)
+         + *(_QWORD *)(v12 + 48)
+         + *(_QWORD *)(v12 + 56)
+         + *(_QWORD *)(v12 + 64)
+         + *(_QWORD *)(v12 + 72)
+         + *(_QWORD *)(v12 + 16)
+         + *(_QWORD *)(v12 + 24)
+         + *(_QWORD *)(v12 + 32)
+         + *(_QWORD *)(v12 + 40);
+  }
+  return 0LL;
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+        identity = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_bugcheck_parameter_merge_identity"
+        ]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual("bugcheck_parameter_branch", merge[0]["merge_shape"])
+        self.assertEqual(["bugcheck_root", "bugcheck_root"], merge[0]["source_candidate_kinds"])
+        self.assertEqual(1, len(identity))
+        self.assertEqual("v12", identity[0]["base"])
+        self.assertEqual(2, identity[0]["bugcheck_root_candidate_count"])
+        self.assertEqual(0, identity[0]["temporary_root_candidate_count"])
+        self.assertEqual(["BugCheckParameter3", "BugCheckParameter2"], identity[0]["bugcheck_roots"])
+        self.assertEqual({"2": 1, "3": 1}, identity[0]["bugcheck_parameter_ordinals"])
+        self.assertTrue(identity[0]["first_layout_access_guarded"])
+        self.assertEqual("v12", identity[0]["guard_condition"])
+        self.assertEqual("multiple_bugcheck_roots", identity[0]["identity_class"])
+        self.assertIn("BugCheckParameter names as unresolved", identity[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_alias_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
             """

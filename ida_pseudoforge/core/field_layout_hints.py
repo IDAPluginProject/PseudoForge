@@ -271,6 +271,13 @@ def field_layout_comments(
                     )
                     if parameter_provenance:
                         comments.append(parameter_provenance)
+                    bugcheck_identity = _field_bugcheck_parameter_merge_identity_comment(
+                        text or "",
+                        item,
+                        merge,
+                    )
+                    if bugcheck_identity:
+                        comments.append(bugcheck_identity)
                     temporary_provenance = _field_call_result_temporary_merge_provenance_comment(
                         text or "",
                         item,
@@ -1433,7 +1440,7 @@ def _base_merge_source_candidate_kind(text: str, value: str) -> str:
     root = _base_merge_source_family_root(rhs)
     if root:
         root_kind = _layout_source_kind(root)
-        if _base_is_function_parameter(text, root):
+        if _base_is_function_parameter(text, root) and root_kind != "bugcheck":
             root_kind = "parameter"
         return "%s_root" % root_kind
     return _base_merge_rhs_class(rhs)
@@ -1978,6 +1985,173 @@ def _call_result_parameter_provenance_class(
         base_class += "_pointer_arithmetic"
     if has_temporary_roots:
         base_class += "_and_temporary_roots"
+    return base_class
+
+
+def _field_bugcheck_parameter_merge_identity_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    merge: dict[str, Any],
+) -> dict[str, Any] | None:
+    if merge.get("merge_shape") != "bugcheck_parameter_branch":
+        return None
+    candidates = list(merge.get("source_candidates", []) or [])
+    bugcheck_candidates = _bugcheck_root_merge_candidates(text, candidates, layout.base)
+    temporary_candidates = _temporary_root_merge_candidates(text, candidates, layout.base)
+    if not bugcheck_candidates:
+        return None
+    temporary_details = [
+        _temporary_root_provenance_before_layout_access(text, layout.base, item)
+        for item in temporary_candidates
+    ]
+    bugcheck_roots = list(
+        dict.fromkeys(
+            str(item.get("source_root", "") or "")
+            for item in bugcheck_candidates
+            if item.get("source_root")
+        )
+    )
+    ordinal_counts = Counter(
+        _bugcheck_parameter_ordinal(str(item.get("source_root", "") or "unknown"))
+        for item in bugcheck_candidates
+    )
+    temporary_stable_kinds = Counter(
+        str(item.get("stable_source_kind", "") or "unresolved")
+        for item in temporary_details
+    )
+    identity_class = _bugcheck_parameter_merge_identity_class(
+        bugcheck_roots,
+        temporary_details,
+    )
+    bugcheck_text = "; ".join(
+        "%s %s" % (
+            _comment_safe_snippet(str(item.get("source", "") or "")),
+            _same_source_family_candidate_suffix(item),
+        )
+        for item in bugcheck_candidates[:4]
+    )
+    temporary_text = "none"
+    if temporary_details:
+        temporary_text = "; ".join(
+            "%s stable=%s" % (
+                _comment_safe_snippet(str(item.get("temporary_root", "") or "")),
+                _comment_safe_snippet(str(item.get("stable_source", "") or "unknown")),
+            )
+            for item in temporary_details[:4]
+        )
+    first_access = _first_layout_access_start(text, layout.base)
+    guard = _truthiness_guard_dominating_offset(text, layout.base, first_access)
+    guarded_text = "is"
+    guard_condition_text = ""
+    confidence = 0.61
+    if not guard:
+        guarded_text = "is not"
+    else:
+        guard_condition_text = " Guard condition %s." % guard["condition"]
+        confidence = 0.63
+    if len(bugcheck_roots) == 1 and not temporary_details:
+        confidence = max(confidence, 0.64)
+    return {
+        "kind": "inferred_offset_bugcheck_parameter_merge_identity",
+        "text": (
+            "Bugcheck-parameter merge identity for %s: %d bugcheck-root candidate(s), "
+            "%d temporary-root candidate(s). Bugcheck roots %s. Bugcheck candidates %s. "
+            "Temporary roots %s. First layout access %s dominated by a base truthiness guard.%s "
+            "Identity class %s. Treat BugCheckParameter names as unresolved decompiler identity; "
+            "keep canonical rewrite blocked until domain-specific pointer meaning is validated."
+            % (
+                layout.base,
+                len(bugcheck_candidates),
+                len(temporary_details),
+                ", ".join(bugcheck_roots),
+                bugcheck_text,
+                temporary_text,
+                guarded_text,
+                guard_condition_text,
+                identity_class,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "merge_shape": "bugcheck_parameter_branch",
+        "bugcheck_root_candidate_count": len(bugcheck_candidates),
+        "temporary_root_candidate_count": len(temporary_details),
+        "bugcheck_root_candidates": bugcheck_candidates,
+        "bugcheck_roots": bugcheck_roots,
+        "bugcheck_parameter_ordinals": dict(sorted(ordinal_counts.items())),
+        "temporary_root_candidates": temporary_details,
+        "temporary_roots": [
+            str(item.get("temporary_root", "") or "")
+            for item in temporary_details
+            if item.get("temporary_root")
+        ],
+        "temporary_stable_source_kind_counts": dict(sorted(temporary_stable_kinds.items())),
+        "unresolved_temporary_root_count": sum(
+            1
+            for item in temporary_details
+            if not str(item.get("stable_source", "") or "")
+        ),
+        "first_layout_access_guarded": bool(guard),
+        "guard_condition": str(guard.get("condition", "") if guard else ""),
+        "guard_start": int(guard.get("start", -1) if guard else -1),
+        "guard_end": int(guard.get("end", -1) if guard else -1),
+        "identity_class": identity_class,
+    }
+
+
+def _bugcheck_root_merge_candidates(
+    text: str,
+    values: Any,
+    target_base: str,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for value in values or []:
+        detail = _same_source_family_candidate_detail(text, value)
+        if not detail:
+            continue
+        if detail.get("source_root") == target_base:
+            continue
+        if detail.get("candidate_kind") != "bugcheck_root":
+            continue
+        key = (
+            str(detail.get("source", "") or ""),
+            str(detail.get("source_root", "") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(detail)
+    return candidates
+
+
+def _bugcheck_parameter_ordinal(name: str) -> str:
+    match = re.fullmatch(r"(?i)BugCheckParameter(?P<ordinal>\d+)", str(name or ""))
+    if not match:
+        return "unknown"
+    return str(int(match.group("ordinal")))
+
+
+def _bugcheck_parameter_merge_identity_class(
+    bugcheck_roots: list[str],
+    temporary_details: list[dict[str, Any]],
+) -> str:
+    root_count = len([item for item in bugcheck_roots if item])
+    unresolved_temporary_count = sum(
+        1
+        for item in temporary_details
+        if not str(item.get("stable_source", "") or "")
+    )
+    if root_count > 1:
+        base_class = "multiple_bugcheck_roots"
+    else:
+        base_class = "single_bugcheck_root"
+    if temporary_details:
+        if unresolved_temporary_count:
+            base_class += "_with_unresolved_temporary"
+        else:
+            base_class += "_with_stable_temporary"
     return base_class
 
 

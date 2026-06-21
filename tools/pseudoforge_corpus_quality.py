@@ -150,6 +150,9 @@ FIELD_BASE_STABILITY_DETAIL_RE = re.compile(
 )
 FIELD_BASE_RELOCATION_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_base_relocation_evidence:")
 FIELD_BASE_MERGE_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_base_merge_evidence:")
+FIELD_BUGCHECK_PARAMETER_MERGE_IDENTITY_RE = re.compile(
+    r"-\s+inferred_offset_bugcheck_parameter_merge_identity:"
+)
 FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_RE = re.compile(
     r"-\s+inferred_offset_call_result_parameter_merge_provenance:"
 )
@@ -3560,6 +3563,13 @@ def _update_text_metrics(
         FIELD_BASE_MERGE_EVIDENCE_RE,
         "inferred_offset_base_merge_evidence",
         "functions_with_inferred_offset_base_merge_evidence",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_BUGCHECK_PARAMETER_MERGE_IDENTITY_RE,
+        "inferred_offset_bugcheck_parameter_merge_identity",
+        "functions_with_inferred_offset_bugcheck_parameter_merge_identity",
     )
     _count_pattern(
         text_totals,

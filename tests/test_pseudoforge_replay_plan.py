@@ -1032,6 +1032,63 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("parameter_provenance_review", markdown)
             self.assertIn("call_result_parameter_branch", markdown)
 
+    def test_replay_plan_marks_bugcheck_parameter_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            bugcheck_parameter_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v12: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v12: 2 initializer(s) before first layout access across 2 source candidate(s): BugCheckParameter3; BugCheckParameter2. Candidate classes identifier=2. Source families bugcheck:BugCheckParameter2=1, bugcheck:BugCheckParameter3=1; disposition distinct_source_family_review. Candidate kinds bugcheck_root=2. Merge shape bugcheck_parameter_branch (high risk); next resolve bugcheck parameter domain identity. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "      - inferred_offset_bugcheck_parameter_merge_identity: Bugcheck-parameter merge identity for v12: 2 bugcheck-root candidate(s), 0 temporary-root candidate(s). Bugcheck roots BugCheckParameter3, BugCheckParameter2. Bugcheck candidates BugCheckParameter3 [direct_root 0x0]; BugCheckParameter2 [direct_root 0x0]. Temporary roots none. First layout access is dominated by a base truthiness guard. Guard condition v12. Identity class multiple_bugcheck_roots. Treat BugCheckParameter names as unresolved decompiler identity; keep canonical rewrite blocked until domain-specific pointer meaning is validated. confidence=0.63",
+                    "*/",
+                    "__int64 __fastcall BugcheckParameterMerge(__int64 BugCheckParameter2)",
+                    "{",
+                    "  v12 = BugCheckParameter2;",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v12 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140871C20",
+                name="BugcheckParameterMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=bugcheck_parameter_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_bugcheck_parameter_merge_identity"])
+            self.assertIn("layout_bugcheck_parameter_merge_identity", item["reasons"])
+            self.assertEqual(
+                "v12",
+                item["offset_base_counts"]["bugcheck_parameter_merge_identity"][0]["base"],
+            )
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("BugcheckParameterMerge", source_queue[0]["function"])
+            self.assertEqual("v12", source_queue[0]["base"])
+            self.assertEqual("bugcheck_parameter_branch", source_queue[0]["merge_shape"])
+            self.assertEqual("high", source_queue[0]["merge_risk"])
+            self.assertEqual("bugcheck_identity_review", source_queue[0]["disposition"])
+            self.assertIn("bugcheck-parameter domain identity", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "bugcheck_identity_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "bugcheck_parameter_merge_disposition"
+                ],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("bugcheck_identity_review", markdown)
+            self.assertIn("bugcheck_parameter_branch", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
