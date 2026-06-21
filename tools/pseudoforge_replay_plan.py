@@ -141,6 +141,12 @@ FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_CLASS_RE = re.compile(
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*?"
     r"\bProvenance class\s+(?P<provenance_class>[a-z_]+)\."
 )
+FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_FAMILIES_RE = re.compile(
+    r"-\s+inferred_offset_call_result_parameter_merge_provenance:\s+"
+    r"Call-result/parameter merge provenance for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*?"
+    r"\bCall families\s+(?P<families>.*?)\.\s+Parameter roots"
+)
 FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_call_result_temporary_merge_provenance:\s+"
     r"Call-result/temporary merge provenance for\s+"
@@ -151,6 +157,12 @@ FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_CLASS_RE = re.compile(
     r"Call-result/temporary merge provenance for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*?"
     r"\bProvenance class\s+(?P<provenance_class>[a-z_]+)\."
+)
+FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_FAMILIES_RE = re.compile(
+    r"-\s+inferred_offset_call_result_temporary_merge_provenance:\s+"
+    r"Call-result/temporary merge provenance for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*?"
+    r"\bCall families\s+(?P<families>.*?)\.\s+Temporary roots"
 )
 FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_same_source_family_merge_dominance:\s+"
@@ -372,15 +384,15 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
             (
                 "| Function | EA | Base | Offset derefs | Projected hot cluster accesses | "
                 "Function layout offsets | Function blockers | Merge shape | Provenance class | "
-                "Disposition |"
+                "Opaque call targets | Disposition |"
             )
         )
-        lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |")
+        lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |")
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             lines.append(
-                "| `%s` | `%s` | `%s` | %d | %d | %d | %d | `%s` | `%s` | `%s` |"
+                "| `%s` | `%s` | `%s` | %d | %d | %d | %d | `%s` | `%s` | `%s` | `%s` |"
                 % (
                     entry.get("function", ""),
                     entry.get("ea", ""),
@@ -391,6 +403,7 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
                     int(entry.get("layout_blockers", 0) or 0),
                     entry.get("merge_shape", ""),
                     entry.get("provenance_class", ""),
+                    ", ".join(str(item) for item in entry.get("opaque_call_targets", []) or []),
                     entry.get("disposition", ""),
                 )
             )
@@ -621,6 +634,13 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
             temporary_provenance_classes = _coerce_dict(
                 base_merge_provenance_classes.get("call_result_temporary", {})
             )
+            base_merge_call_targets = _coerce_dict(item.get("base_merge_call_targets", {}))
+            parameter_opaque_call_targets = _coerce_dict(
+                base_merge_call_targets.get("call_result_parameter_opaque", {})
+            )
+            temporary_opaque_call_targets = _coerce_dict(
+                base_merge_call_targets.get("call_result_temporary_opaque", {})
+            )
             projected_hot_cluster_accesses = {
                 str(entry.get("base", "") or ""): int(entry.get("count", 0) or 0)
                 for entry in offset_base_counts.get("projected_hot_cluster", []) or []
@@ -645,6 +665,7 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 merge_shape = ""
                 merge_risk = ""
                 provenance_class = ""
+                opaque_call_targets: list[str] = []
                 if has_base_merge_evidence:
                     merge_shape = str(base_merge_shapes.get(base, "") or "unknown")
                     merge_risk = str(base_merge_risks.get(base, "") or "")
@@ -653,6 +674,15 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         or temporary_provenance_classes.get(base)
                         or ""
                     )
+                    opaque_call_targets = [
+                        str(item)
+                        for item in (
+                            parameter_opaque_call_targets.get(base)
+                            or temporary_opaque_call_targets.get(base)
+                            or []
+                        )
+                        if str(item)
+                    ]
                     has_same_source_family_dominance = base in same_source_family_dominance_bases
                     effective_disposition = "path_sensitive_merge_review"
                     effective_recommended_next = (
@@ -700,13 +730,15 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         effective_disposition = "parameter_provenance_review"
                         if "opaque_call" in provenance_class and "temporary_roots" in provenance_class:
                             effective_recommended_next = (
-                                "Resolve opaque call target and temporary roots before "
+                                "Resolve opaque call target %s and temporary roots before "
                                 "promoting this merged layout base."
+                                % _opaque_call_target_text(opaque_call_targets)
                             )
                         elif "opaque_call" in provenance_class:
                             effective_recommended_next = (
-                                "Resolve opaque call target before promoting this "
-                                "merged layout base."
+                                "Resolve opaque call target %s before promoting this merged "
+                                "layout base."
+                                % _opaque_call_target_text(opaque_call_targets)
                             )
                         else:
                             effective_recommended_next = (
@@ -757,6 +789,7 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         "merge_shape": merge_shape,
                         "merge_risk": merge_risk,
                         "provenance_class": provenance_class,
+                        "opaque_call_targets": opaque_call_targets,
                         "disposition": effective_disposition,
                         "recommended_next": effective_recommended_next,
                     }
@@ -819,11 +852,17 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     call_result_parameter_merge_provenance_classes = (
         _call_result_parameter_merge_provenance_classes(analysis_text)
     )
+    call_result_parameter_opaque_call_targets = _call_result_parameter_opaque_call_targets(
+        analysis_text,
+    )
     call_result_temporary_merge_provenance_bases = (
         _call_result_temporary_merge_provenance_bases(analysis_text)
     )
     call_result_temporary_merge_provenance_classes = (
         _call_result_temporary_merge_provenance_classes(analysis_text)
+    )
+    call_result_temporary_opaque_call_targets = _call_result_temporary_opaque_call_targets(
+        analysis_text,
     )
     same_source_family_merge_dominance_bases = _same_source_family_merge_dominance_bases(
         analysis_text,
@@ -983,6 +1022,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         for provenance_class in call_result_parameter_merge_provenance_classes.values()
         if "temporary_roots" in provenance_class
     )
+    layout_call_result_parameter_opaque_call_targets = sum(
+        len(targets)
+        for targets in call_result_parameter_opaque_call_targets.values()
+    )
     layout_call_result_temporary_merge_provenance_unresolved = sum(
         1
         for provenance_class in call_result_temporary_merge_provenance_classes.values()
@@ -992,6 +1035,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         1
         for provenance_class in call_result_temporary_merge_provenance_classes.values()
         if provenance_class and "unresolved_temporary" not in provenance_class
+    )
+    layout_call_result_temporary_opaque_call_targets = sum(
+        len(targets)
+        for targets in call_result_temporary_opaque_call_targets.values()
     )
     layout_same_source_family_merge_dominance = len(
         FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_RE.findall(analysis_text)
@@ -1105,11 +1152,17 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "layout_call_result_parameter_merge_provenance_with_temporary_roots": (
             layout_call_result_parameter_merge_provenance_with_temporary_roots
         ),
+        "layout_call_result_parameter_opaque_call_targets": (
+            layout_call_result_parameter_opaque_call_targets
+        ),
         "layout_call_result_temporary_merge_provenance_unresolved": (
             layout_call_result_temporary_merge_provenance_unresolved
         ),
         "layout_call_result_temporary_merge_provenance_traced": (
             layout_call_result_temporary_merge_provenance_traced
+        ),
+        "layout_call_result_temporary_opaque_call_targets": (
+            layout_call_result_temporary_opaque_call_targets
         ),
         "layout_same_source_family_merge_dominance": layout_same_source_family_merge_dominance,
         "layout_stable_base_sources": layout_stable_base_sources,
@@ -1215,6 +1268,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "base_merge_provenance_classes": {
             "call_result_parameter": call_result_parameter_merge_provenance_classes,
             "call_result_temporary": call_result_temporary_merge_provenance_classes,
+        },
+        "base_merge_call_targets": {
+            "call_result_parameter_opaque": call_result_parameter_opaque_call_targets,
+            "call_result_temporary_opaque": call_result_temporary_opaque_call_targets,
         },
         "summary_path": str(summary_path),
     }
@@ -1409,6 +1466,13 @@ def _call_result_parameter_merge_provenance_classes(text: str) -> dict[str, str]
     )
 
 
+def _call_result_parameter_opaque_call_targets(text: str) -> dict[str, list[str]]:
+    return _opaque_call_targets_by_base(
+        text,
+        FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_FAMILIES_RE,
+    )
+
+
 def _call_result_temporary_merge_provenance_bases(text: str) -> set[str]:
     bases: set[str] = set()
     for match in FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_DETAIL_RE.finditer(text or ""):
@@ -1425,6 +1489,13 @@ def _call_result_temporary_merge_provenance_classes(text: str) -> dict[str, str]
     )
 
 
+def _call_result_temporary_opaque_call_targets(text: str) -> dict[str, list[str]]:
+    return _opaque_call_targets_by_base(
+        text,
+        FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_FAMILIES_RE,
+    )
+
+
 def _merge_provenance_classes(
     text: str,
     pattern: re.Pattern[str],
@@ -1436,6 +1507,43 @@ def _merge_provenance_classes(
         if base and provenance_class:
             classes[base] = provenance_class
     return classes
+
+
+def _opaque_call_targets_by_base(
+    text: str,
+    pattern: re.Pattern[str],
+) -> dict[str, list[str]]:
+    targets_by_base: dict[str, list[str]] = {}
+    for match in pattern.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        families = str(match.groupdict().get("families") or "")
+        targets = [
+            name
+            for name in _call_family_names(families)
+            if name.startswith("sub_")
+        ]
+        if base and targets:
+            targets_by_base[base] = list(dict.fromkeys(targets))
+    return targets_by_base
+
+
+def _call_family_names(families: str) -> list[str]:
+    names: list[str] = []
+    for item in str(families or "").split(","):
+        match = re.fullmatch(r"\s*(?P<name>[^=,]+?)\s*=\s*\d+\s*", item)
+        if not match:
+            continue
+        name = str(match.group("name") or "").strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _opaque_call_target_text(targets: list[str]) -> str:
+    names = [str(item) for item in targets or [] if str(item)]
+    if not names:
+        return "unknown"
+    return ", ".join(names[:3])
 
 
 def _same_source_family_merge_dominance_bases(text: str) -> set[str]:
@@ -1670,10 +1778,14 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_call_result_parameter_provenance_opaque")
     if metrics["layout_call_result_parameter_merge_provenance_with_temporary_roots"]:
         reasons.append("layout_call_result_parameter_provenance_with_temporary_roots")
+    if metrics["layout_call_result_parameter_opaque_call_targets"]:
+        reasons.append("layout_call_result_parameter_opaque_call_target")
     if metrics["layout_call_result_temporary_merge_provenance_traced"]:
         reasons.append("layout_call_result_temporary_provenance_traced")
     if metrics["layout_call_result_temporary_merge_provenance_unresolved"]:
         reasons.append("layout_call_result_temporary_provenance_unresolved")
+    if metrics["layout_call_result_temporary_opaque_call_targets"]:
+        reasons.append("layout_call_result_temporary_opaque_call_target")
     if metrics["layout_same_source_family_merge_dominance"]:
         reasons.append("layout_same_source_family_merge_dominance")
     if metrics["layout_hot_field_clusters"]:
@@ -1838,11 +1950,17 @@ def _score_model() -> dict[str, Any]:
             "call_result_parameter_temporary_roots_metric": (
                 "layout_call_result_parameter_merge_provenance_with_temporary_roots"
             ),
+            "call_result_parameter_opaque_target_metric": (
+                "layout_call_result_parameter_opaque_call_targets"
+            ),
             "call_result_temporary_traced_metric": (
                 "layout_call_result_temporary_merge_provenance_traced"
             ),
             "call_result_temporary_unresolved_metric": (
                 "layout_call_result_temporary_merge_provenance_unresolved"
+            ),
+            "call_result_temporary_opaque_target_metric": (
+                "layout_call_result_temporary_opaque_call_targets"
             ),
             "source_kinds": [
                 "source_identity_blocked",

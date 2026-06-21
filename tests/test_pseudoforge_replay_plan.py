@@ -1153,8 +1153,8 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                     "/*",
                     "    Kernel insights:",
                     "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v47: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
-                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v47: 3 initializer(s) before first layout access across 3 source candidate(s): *argument0; guard_dispatch_icall_no_overrides(argument0); *(_QWORD *)(v12 + 8). Candidate classes call_result=1, expression=2. Source families call_result:guard_dispatch_icall_no_overrides=1, parameter:argument0=1, temporary:v12=1; disposition distinct_source_family_review. Candidate kinds parameter_root=1, opaque_call_result=1, temporary_root=1. Merge shape call_result_parameter_branch (high risk); next review parameter/call-result path dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
-                    "      - inferred_offset_call_result_parameter_merge_provenance: Call-result/parameter merge provenance for v47: 1 call-result initializer(s), 1 parameter-root candidate(s), 1 temporary-root candidate(s). Call families guard_dispatch_icall_no_overrides=1. Parameter roots argument0. Parameter candidates *argument0 [pointer_deref]. Temporary roots v12 stable=unknown. 0 call-result initializer(s) mention parameter root(s). First layout access is not dominated by a base truthiness guard. Provenance class opaque_call_with_parameter_root_pointer_deref_and_temporary_roots. Keep canonical rewrite blocked until parameter/call-result path dominance is validated. confidence=0.62",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v47: 3 initializer(s) before first layout access across 3 source candidate(s): *argument0; sub_140BD6AF8(v12); *(_QWORD *)(v12 + 8). Candidate classes call_result=1, expression=2. Source families call_result:sub_140BD6AF8(v12)=1, parameter:argument0=1, temporary:v12=1; disposition distinct_source_family_review. Candidate kinds parameter_root=1, opaque_call_result=1, temporary_root=1. Merge shape call_result_parameter_branch (high risk); next review parameter/call-result path dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "      - inferred_offset_call_result_parameter_merge_provenance: Call-result/parameter merge provenance for v47: 1 call-result initializer(s), 1 parameter-root candidate(s), 1 temporary-root candidate(s). Call families sub_140BD6AF8=1. Parameter roots argument0. Parameter candidates *argument0 [pointer_deref]. Temporary roots v12 stable=unknown. 0 call-result initializer(s) mention parameter root(s). First layout access is not dominated by a base truthiness guard. Provenance class opaque_call_with_parameter_root_pointer_deref_and_temporary_roots. Keep canonical rewrite blocked until parameter/call-result path dominance is validated. confidence=0.62",
                     "*/",
                     "__int64 __fastcall OpaqueCallResultParameterMerge(__int64 argument0)",
                     "{",
@@ -1183,6 +1183,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 1,
                 item["metrics"]["layout_call_result_parameter_merge_provenance_opaque"],
             )
+            self.assertEqual(1, item["metrics"]["layout_call_result_parameter_opaque_call_targets"])
             self.assertEqual(
                 1,
                 item["metrics"][
@@ -1190,19 +1191,70 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 ],
             )
             self.assertIn("layout_call_result_parameter_provenance_opaque", item["reasons"])
+            self.assertIn("layout_call_result_parameter_opaque_call_target", item["reasons"])
             self.assertIn(
                 "layout_call_result_parameter_provenance_with_temporary_roots",
                 item["reasons"],
+            )
+            self.assertEqual(
+                ["sub_140BD6AF8"],
+                item["base_merge_call_targets"]["call_result_parameter_opaque"]["v47"],
             )
             source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
             self.assertEqual(
                 "opaque_call_with_parameter_root_pointer_deref_and_temporary_roots",
                 source_queue[0]["provenance_class"],
             )
+            self.assertEqual(["sub_140BD6AF8"], source_queue[0]["opaque_call_targets"])
             self.assertIn(
-                "Resolve opaque call target and temporary roots",
+                "Resolve opaque call target sub_140BD6AF8 and temporary roots",
                 source_queue[0]["recommended_next"],
             )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("sub_140BD6AF8", markdown)
+
+    def test_replay_plan_marks_opaque_call_result_temporary_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            call_result_temporary_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v806: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v806: 2 initializer(s) before first layout access across 2 source candidate(s): sub_140506ED0(size); *(_QWORD *)(v1703 + 8). Candidate classes call_result=1, expression=1. Source families call_result:sub_140506ED0(size)=1, temporary:v1703=1; disposition distinct_source_family_review. Candidate kinds opaque_call_result=1, temporary_root=1. Merge shape call_result_temporary_branch (high risk); next trace temporary/call-result dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "      - inferred_offset_call_result_temporary_merge_provenance: Call-result/temporary merge provenance for v806: 1 call-result initializer(s), 1 temporary-root candidate(s). Call families sub_140506ED0=1. Temporary roots v1703 stable=*argument0. Provenance class opaque_call_with_temporary. Keep canonical rewrite blocked until temporary source dominance is validated. confidence=0.64",
+                    "*/",
+                    "__int64 __fastcall OpaqueCallResultTemporaryMerge(__int64 argument0, __int64 size)",
+                    "{",
+                    "  v806 = sub_140506ED0(size);",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v806 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140506ED0",
+                name="OpaqueCallResultTemporaryMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=call_result_temporary_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_call_result_temporary_opaque_call_targets"])
+            self.assertIn("layout_call_result_temporary_opaque_call_target", item["reasons"])
+            self.assertEqual(
+                ["sub_140506ED0"],
+                item["base_merge_call_targets"]["call_result_temporary_opaque"]["v806"],
+            )
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual(["sub_140506ED0"], source_queue[0]["opaque_call_targets"])
 
     def test_replay_plan_marks_bugcheck_parameter_merge_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
