@@ -156,6 +156,9 @@ FIELD_BUGCHECK_PARAMETER_MERGE_IDENTITY_RE = re.compile(
 FIELD_CALL_RESULT_MERGE_EQUIVALENCE_RE = re.compile(
     r"-\s+inferred_offset_call_result_merge_equivalence:"
 )
+FIELD_ALLOCATION_NULL_MERGE_DOMINANCE_RE = re.compile(
+    r"-\s+inferred_offset_allocation_null_merge_dominance:"
+)
 FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_RE = re.compile(
     r"-\s+inferred_offset_call_result_parameter_merge_provenance:"
 )
@@ -3583,6 +3586,13 @@ def _update_text_metrics(
         FIELD_CALL_RESULT_MERGE_EQUIVALENCE_RE,
         "inferred_offset_call_result_merge_equivalence",
         "functions_with_inferred_offset_call_result_merge_equivalence",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_ALLOCATION_NULL_MERGE_DOMINANCE_RE,
+        "inferred_offset_allocation_null_merge_dominance",
+        "functions_with_inferred_offset_allocation_null_merge_dominance",
     )
     _count_pattern(
         text_totals,

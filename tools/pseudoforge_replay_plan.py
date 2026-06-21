@@ -125,6 +125,11 @@ FIELD_CALL_RESULT_MERGE_EQUIVALENCE_DETAIL_RE = re.compile(
     r"Call-result merge equivalence for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
 )
+FIELD_ALLOCATION_NULL_MERGE_DOMINANCE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_allocation_null_merge_dominance:\s+"
+    r"Allocation/null merge dominance for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
+)
 FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_call_result_parameter_merge_provenance:\s+"
     r"Call-result/parameter merge provenance for\s+"
@@ -555,6 +560,15 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 or []
                 if isinstance(entry, dict)
             }
+            allocation_null_dominance_bases = {
+                str(entry.get("base", "") or "")
+                for entry in offset_base_counts.get(
+                    "allocation_null_merge_dominance",
+                    [],
+                )
+                or []
+                if isinstance(entry, dict)
+            }
             call_result_parameter_provenance_bases = {
                 str(entry.get("base", "") or "")
                 for entry in offset_base_counts.get(
@@ -628,6 +642,11 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                     )
                     if merge_shape == "allocation_null_branch":
                         effective_disposition = "allocation_null_dominance_review"
+                        if base in allocation_null_dominance_bases:
+                            effective_recommended_next = (
+                                "Validate allocation/null guard dominance before promoting this "
+                                "merged layout base."
+                            )
                     elif merge_shape == "call_result_branch":
                         effective_disposition = "call_result_equivalence_review"
                     elif merge_shape == "call_result_parameter_branch":
@@ -742,6 +761,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         analysis_text,
     )
     call_result_merge_equivalence_bases = _call_result_merge_equivalence_bases(
+        analysis_text,
+    )
+    allocation_null_merge_dominance_bases = _allocation_null_merge_dominance_bases(
         analysis_text,
     )
     call_result_parameter_merge_provenance_bases = (
@@ -884,6 +906,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_call_result_merge_equivalence = len(
         FIELD_CALL_RESULT_MERGE_EQUIVALENCE_RE.findall(analysis_text)
     )
+    layout_allocation_null_merge_dominance = len(
+        FIELD_ALLOCATION_NULL_MERGE_DOMINANCE_DETAIL_RE.findall(analysis_text)
+    )
     layout_call_result_parameter_merge_provenance = len(
         FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_RE.findall(analysis_text)
     )
@@ -905,6 +930,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         + layout_base_merge_evidence
         + layout_bugcheck_parameter_merge_identity
         + layout_call_result_merge_equivalence
+        + layout_allocation_null_merge_dominance
         + layout_call_result_parameter_merge_provenance
         + layout_call_result_temporary_merge_provenance
         + layout_same_source_family_merge_dominance
@@ -989,6 +1015,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "layout_base_merge_evidence": layout_base_merge_evidence,
         "layout_bugcheck_parameter_merge_identity": layout_bugcheck_parameter_merge_identity,
         "layout_call_result_merge_equivalence": layout_call_result_merge_equivalence,
+        "layout_allocation_null_merge_dominance": layout_allocation_null_merge_dominance,
         "layout_call_result_parameter_merge_provenance": layout_call_result_parameter_merge_provenance,
         "layout_call_result_temporary_merge_provenance": layout_call_result_temporary_merge_provenance,
         "layout_same_source_family_merge_dominance": layout_same_source_family_merge_dominance,
@@ -1036,6 +1063,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "call_result_merge_equivalence": _top_counter_items(
                 Counter({base: 1 for base in call_result_merge_equivalence_bases}),
                 len(call_result_merge_equivalence_bases),
+            ),
+            "allocation_null_merge_dominance": _top_counter_items(
+                Counter({base: 1 for base in allocation_null_merge_dominance_bases}),
+                len(allocation_null_merge_dominance_bases),
             ),
             "call_result_parameter_merge_provenance": _top_counter_items(
                 Counter({base: 1 for base in call_result_parameter_merge_provenance_bases}),
@@ -1256,6 +1287,15 @@ def _call_result_merge_equivalence_bases(text: str) -> set[str]:
     return bases
 
 
+def _allocation_null_merge_dominance_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_ALLOCATION_NULL_MERGE_DOMINANCE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
 def _call_result_parameter_merge_provenance_bases(text: str) -> set[str]:
     bases: set[str] = set()
     for match in FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_DETAIL_RE.finditer(text or ""):
@@ -1424,6 +1464,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_base_merge_evidence"] * 6.0
     score += metrics["layout_bugcheck_parameter_merge_identity"] * 4.0
     score += metrics["layout_call_result_merge_equivalence"] * 4.0
+    score += metrics["layout_allocation_null_merge_dominance"] * 4.0
     score += metrics["layout_call_result_parameter_merge_provenance"] * 4.0
     score += metrics["layout_call_result_temporary_merge_provenance"] * 4.0
     score += metrics["layout_same_source_family_merge_dominance"] * 4.0
@@ -1493,6 +1534,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_bugcheck_parameter_merge_identity")
     if metrics["layout_call_result_merge_equivalence"]:
         reasons.append("layout_call_result_merge_equivalence")
+    if metrics["layout_allocation_null_merge_dominance"]:
+        reasons.append("layout_allocation_null_merge_dominance")
     if metrics["layout_call_result_parameter_merge_provenance"]:
         reasons.append("layout_call_result_parameter_merge_provenance")
     if metrics["layout_call_result_temporary_merge_provenance"]:
@@ -1580,6 +1623,7 @@ def _score_model() -> dict[str, Any]:
                 "layout_base_merge_evidence",
                 "layout_bugcheck_parameter_merge_identity",
                 "layout_call_result_merge_equivalence",
+                "layout_allocation_null_merge_dominance",
                 "layout_call_result_parameter_merge_provenance",
                 "layout_call_result_temporary_merge_provenance",
                 "layout_same_source_family_merge_dominance",
