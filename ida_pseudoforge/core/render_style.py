@@ -162,7 +162,7 @@ def _find_statement_end(lines: list[str], start_index: int) -> int:
         if _control_header_end_index(lines, start_index) < start_index:
             return start_index
         return _find_body_end(lines, start_index)
-    return start_index
+    return _find_simple_statement_end(lines, start_index)
 
 
 def _find_labeled_statement_end(lines: list[str], label_index: int) -> int:
@@ -170,6 +170,72 @@ def _find_labeled_statement_end(lines: list[str], label_index: int) -> int:
     if body_index < 0:
         return label_index
     return _find_statement_end(lines, body_index)
+
+
+def _find_simple_statement_end(lines: list[str], start_index: int) -> int:
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+    quote = ""
+    escaped = False
+    in_block_comment = False
+
+    for index in range(start_index, len(lines)):
+        line = lines[index]
+        char_index = 0
+        while char_index < len(line):
+            char = line[char_index]
+            next_char = line[char_index + 1] if char_index + 1 < len(line) else ""
+
+            if in_block_comment:
+                if char == "*" and next_char == "/":
+                    in_block_comment = False
+                    char_index += 2
+                    continue
+                char_index += 1
+                continue
+
+            if quote:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = ""
+                char_index += 1
+                continue
+
+            if char == "/" and next_char == "/":
+                break
+            if char == "/" and next_char == "*":
+                in_block_comment = True
+                char_index += 2
+                continue
+            if char in {"\"", "'"}:
+                quote = char
+                char_index += 1
+                continue
+            if char == "(":
+                paren_depth += 1
+            elif char == ")":
+                paren_depth = max(0, paren_depth - 1)
+            elif char == "[":
+                bracket_depth += 1
+            elif char == "]":
+                bracket_depth = max(0, bracket_depth - 1)
+            elif char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth = max(0, brace_depth - 1)
+            elif (
+                char == ";"
+                and paren_depth == 0
+                and bracket_depth == 0
+                and brace_depth == 0
+            ):
+                return index
+            char_index += 1
+    return start_index
 
 
 def _find_body_end(lines: list[str], header_index: int) -> int:

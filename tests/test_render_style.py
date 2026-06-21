@@ -154,6 +154,56 @@ class RenderStyleTests(unittest.TestCase):
             rendered,
         )
 
+    def test_single_statement_body_wraps_complete_multiline_call(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( status < 0 )\n"
+            "  DifUtilDbgPrint(\n"
+            "    (int)\"Failed to register kernel DIF plugin %d\",\n"
+            "    (unsigned int)RuleId,\n"
+            "    (unsigned int)status);\n"
+            "else\n"
+            "  CarSetCustomRuleIdRange(ruleId);\n"
+        )
+
+        self.assertIn(
+            "if ( status < 0 )\n"
+            "{\n"
+            "  DifUtilDbgPrint(\n"
+            "    (int)\"Failed to register kernel DIF plugin %d\",\n"
+            "    (unsigned int)RuleId,\n"
+            "    (unsigned int)status);\n"
+            "}\n"
+            "else\n"
+            "{\n"
+            "  CarSetCustomRuleIdRange(ruleId);\n"
+            "}",
+            styled,
+        )
+        self.assertNotIn("DifUtilDbgPrint(\n}", styled)
+
+    def test_single_statement_body_wraps_complete_multiline_assignment_call(self) -> None:
+        styled = enforce_generated_code_style(
+            "if ( currentLinkPtr >= avlTablePtr[1].BalancedRoot.LeftChild )\n"
+            "  avlTablePtr[1].BalancedRoot.LeftChild = (_RTL_BALANCED_LINKS *)*((_QWORD *)RtlGetElementGenericTableAvl(\n"
+            "                                                                              avlTablePtr,\n"
+            "                                                                              avlTablePtr->NumberGenericTableElements - 1)\n"
+            "                                                                + 1);\n"
+            "DifReleaseSpinLockFromDpcLevelSafe(&spinLockState);\n"
+        )
+
+        self.assertIn(
+            "if ( currentLinkPtr >= avlTablePtr[1].BalancedRoot.LeftChild )\n"
+            "{\n"
+            "  avlTablePtr[1].BalancedRoot.LeftChild = (_RTL_BALANCED_LINKS *)*((_QWORD *)RtlGetElementGenericTableAvl(\n"
+            "                                                                              avlTablePtr,\n"
+            "                                                                              avlTablePtr->NumberGenericTableElements - 1)\n"
+            "                                                                + 1);\n"
+            "}\n"
+            "DifReleaseSpinLockFromDpcLevelSafe(&spinLockState);",
+            styled,
+        )
+        self.assertNotIn("RtlGetElementGenericTableAvl(\n}", styled)
+
     def test_nested_else_after_empty_if_is_repaired(self) -> None:
         styled = enforce_generated_code_style(
             "if ( flags != 0 )\n"
