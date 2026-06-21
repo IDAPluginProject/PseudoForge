@@ -234,6 +234,7 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
     for item in selected:
         for reason in item.get("reasons", []) or []:
             reason_counts[str(reason)] += 1
+    opaque_call_target_queues = _opaque_call_target_queues(selected)
     return {
         "schema": "pseudoforge_replay_plan_v1",
         "pseudoforge_version": VERSION,
@@ -245,7 +246,8 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
         "candidate_count": len(items),
         "reason_counts": dict(sorted(reason_counts.items())),
         "offset_base_breakdown": _offset_base_breakdown(selected),
-        "opaque_call_target_queues": _opaque_call_target_queues(selected),
+        "opaque_call_target_queues": opaque_call_target_queues,
+        "opaque_call_target_eas": _opaque_call_target_eas(opaque_call_target_queues),
         "source_identity_review_queues": _source_identity_review_queues(selected),
         "score_model": _score_model(),
         "items": selected,
@@ -373,18 +375,19 @@ def _render_opaque_call_target_queues(plan: dict[str, Any]) -> list[str]:
     lines = ["", "## Opaque Call Target Queues", ""]
     lines.append(
         (
-            "| Target | Functions | Bases | Parameter merges | Temporary merges | "
+            "| Target | Target EA | Functions | Bases | Parameter merges | Temporary merges | "
             "Source-identity offset derefs | Recommended next |"
         )
     )
-    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | --- |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |")
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         lines.append(
-            "| `%s` | %d | %d | %d | %d | %d | %s |"
+            "| `%s` | `%s` | %d | %d | %d | %d | %d | %s |"
             % (
                 entry.get("target", ""),
+                entry.get("target_ea", ""),
                 int(entry.get("function_count", 0) or 0),
                 int(entry.get("base_count", 0) or 0),
                 int(entry.get("parameter_merge_count", 0) or 0),
@@ -448,10 +451,12 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
 
 def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str]:
     ea_path = output_dir / "replay-eas.txt"
+    opaque_target_ea_path = output_dir / "opaque-target-eas.txt"
     json_path = output_dir / "replay-plan.json"
     markdown_path = output_dir / "replay-plan.md"
     outputs = {
         "ea_file": str(ea_path),
+        "opaque_target_ea_file": str(opaque_target_ea_path),
         "json": str(json_path),
         "markdown": str(markdown_path),
     }
@@ -459,6 +464,10 @@ def _write_plan_outputs(plan: dict[str, Any], output_dir: Path) -> dict[str, str
     plan["recommended_commands"] = _recommended_commands(str(plan.get("corpus_root", "")), str(ea_path))
     ea_path.write_text(
         "\n".join(str(item.get("ea", "")) for item in plan.get("items", []) if item.get("ea")) + "\n",
+        encoding="utf-8",
+    )
+    opaque_target_ea_path.write_text(
+        "\n".join(str(ea) for ea in plan.get("opaque_call_target_eas", []) if ea) + "\n",
         encoding="utf-8",
     )
     json_path.write_text(json.dumps(plan, indent=2, ensure_ascii=True, sort_keys=True), encoding="utf-8")
@@ -645,6 +654,7 @@ def _opaque_call_target_queues(items: list[dict[str, Any]]) -> dict[str, Any]:
         rows.append(
             {
                 "target": target,
+                "target_ea": _opaque_call_target_ea(target),
                 "function_count": len(functions),
                 "base_count": len(bases),
                 "parameter_merge_count": int(row.get("parameter_merge_count", 0) or 0),
@@ -667,6 +677,25 @@ def _opaque_call_target_queues(items: list[dict[str, Any]]) -> dict[str, Any]:
         )
     )
     return {"targets": rows[:OPAQUE_CALL_TARGET_QUEUE_LIMIT]}
+
+
+def _opaque_call_target_eas(queues: dict[str, Any]) -> list[str]:
+    entries = queues.get("targets", []) or []
+    if not isinstance(entries, list):
+        return []
+    eas = [
+        str(entry.get("target_ea", "") or "")
+        for entry in entries
+        if isinstance(entry, dict) and str(entry.get("target_ea", "") or "")
+    ]
+    return list(dict.fromkeys(eas))
+
+
+def _opaque_call_target_ea(target: str) -> str:
+    match = re.fullmatch(r"sub_([0-9A-Fa-f]+)", str(target or ""))
+    if not match:
+        return ""
+    return "0x%s" % match.group(1).upper()
 
 
 def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

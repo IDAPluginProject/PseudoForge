@@ -92,9 +92,14 @@ __int64 __fastcall Quiet(__int64 status)
 
             self.assertEqual(0, exit_code)
             self.assertEqual("0x140001000\n", (out_dir / "replay-eas.txt").read_text(encoding="utf-8"))
+            self.assertEqual("\n", (out_dir / "opaque-target-eas.txt").read_text(encoding="utf-8"))
             self.assertTrue((out_dir / "replay-plan.json").exists())
             self.assertTrue((out_dir / "replay-plan.md").exists())
             payload = json.loads((out_dir / "replay-plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                str(out_dir / "opaque-target-eas.txt"),
+                payload["outputs"]["opaque_target_ea_file"],
+            )
             self.assertIn(str(out_dir / "replay-eas.txt"), payload["recommended_commands"][0])
 
     def test_replay_plan_exposes_registry_domain_profile_hits(self) -> None:
@@ -1318,6 +1323,8 @@ __int64 __fastcall ValidatedPartial(__int64 context)
 
             target_queue = plan["opaque_call_target_queues"]["targets"]
             self.assertEqual("sub_140BD6AF8", target_queue[0]["target"])
+            self.assertEqual("0x140BD6AF8", target_queue[0]["target_ea"])
+            self.assertEqual(["0x140BD6AF8"], plan["opaque_call_target_eas"])
             self.assertEqual(2, target_queue[0]["function_count"])
             self.assertEqual(2, target_queue[0]["base_count"])
             self.assertEqual(1, target_queue[0]["parameter_merge_count"])
