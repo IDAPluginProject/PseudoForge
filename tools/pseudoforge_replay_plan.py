@@ -67,6 +67,7 @@ LABEL_RESIDUE_OVERFLOW_WEIGHT = 0.05
 OFFSET_BASE_BREAKDOWN_LIMIT = 15
 SOURCE_IDENTITY_QUEUE_LIMIT = 15
 SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS = 10
+OPAQUE_CALL_TARGET_QUEUE_LIMIT = 15
 TEMP_OFFSET_BASE_PATTERN = r"[av]\d+"
 ARGUMENT_OFFSET_BASE_PATTERN = r"argument\d+"
 CONTEXT_OFFSET_BASE_PATTERN = r"context"
@@ -244,6 +245,7 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
         "candidate_count": len(items),
         "reason_counts": dict(sorted(reason_counts.items())),
         "offset_base_breakdown": _offset_base_breakdown(selected),
+        "opaque_call_target_queues": _opaque_call_target_queues(selected),
         "source_identity_review_queues": _source_identity_review_queues(selected),
         "score_model": _score_model(),
         "items": selected,
@@ -270,6 +272,7 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
     else:
         lines.append("No selected reasons.")
     lines.extend(_render_offset_base_breakdown(plan))
+    lines.extend(_render_opaque_call_target_queues(plan))
     lines.extend(_render_source_identity_review_queues(plan))
     lines.extend(
         [
@@ -359,6 +362,38 @@ def _render_offset_base_breakdown(plan: dict[str, Any]) -> list[str]:
                 continue
             lines.append("| `%s` | %d |" % (entry.get("base", ""), int(entry.get("count", 0) or 0)))
         lines.append("")
+    return lines
+
+
+def _render_opaque_call_target_queues(plan: dict[str, Any]) -> list[str]:
+    queues = _coerce_dict(plan.get("opaque_call_target_queues", {}))
+    entries = queues.get("targets", []) or []
+    if not isinstance(entries, list) or not entries:
+        return []
+    lines = ["", "## Opaque Call Target Queues", ""]
+    lines.append(
+        (
+            "| Target | Functions | Bases | Parameter merges | Temporary merges | "
+            "Source-identity offset derefs | Recommended next |"
+        )
+    )
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | --- |")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        lines.append(
+            "| `%s` | %d | %d | %d | %d | %d | %s |"
+            % (
+                entry.get("target", ""),
+                int(entry.get("function_count", 0) or 0),
+                int(entry.get("base_count", 0) or 0),
+                int(entry.get("parameter_merge_count", 0) or 0),
+                int(entry.get("temporary_merge_count", 0) or 0),
+                int(entry.get("source_identity_offset_derefs", 0) or 0),
+                entry.get("recommended_next", ""),
+            )
+        )
+    lines.append("")
     return lines
 
 
@@ -522,6 +557,116 @@ def _offset_base_breakdown(items: list[dict[str, Any]]) -> dict[str, Any]:
             OFFSET_BASE_BREAKDOWN_LIMIT,
         ),
     }
+
+
+def _opaque_call_target_queues(items: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        offset_base_counts = _coerce_dict(item.get("offset_base_counts", {}))
+        source_identity_counts = {
+            str(entry.get("base", "") or ""): int(entry.get("count", 0) or 0)
+            for entry in offset_base_counts.get("source_identity_blocked", []) or []
+            if isinstance(entry, dict)
+        }
+        provenance_classes = _coerce_dict(item.get("base_merge_provenance_classes", {}))
+        parameter_classes = _coerce_dict(provenance_classes.get("call_result_parameter", {}))
+        temporary_classes = _coerce_dict(provenance_classes.get("call_result_temporary", {}))
+        call_targets = _coerce_dict(item.get("base_merge_call_targets", {}))
+        for merge_kind, targets_by_base, classes in (
+            (
+                "parameter",
+                _coerce_dict(call_targets.get("call_result_parameter_opaque", {})),
+                parameter_classes,
+            ),
+            (
+                "temporary",
+                _coerce_dict(call_targets.get("call_result_temporary_opaque", {})),
+                temporary_classes,
+            ),
+        ):
+            for base, targets in targets_by_base.items():
+                base_text = str(base or "")
+                if not base_text or not isinstance(targets, list):
+                    continue
+                for target in targets:
+                    target_text = str(target or "")
+                    if not target_text:
+                        continue
+                    row = grouped.setdefault(
+                        target_text,
+                        {
+                            "target": target_text,
+                            "functions": {},
+                            "bases": set(),
+                            "parameter_merge_count": 0,
+                            "temporary_merge_count": 0,
+                            "source_identity_offset_derefs": 0,
+                            "top_functions": [],
+                        },
+                    )
+                    row["bases"].add(base_text)
+                    row["source_identity_offset_derefs"] += int(
+                        source_identity_counts.get(base_text, 0)
+                    )
+                    if merge_kind == "parameter":
+                        row["parameter_merge_count"] += 1
+                    else:
+                        row["temporary_merge_count"] += 1
+                    function_key = "%s:%s:%s" % (
+                        str(item.get("ea", "") or ""),
+                        str(item.get("name", "") or ""),
+                        base_text,
+                    )
+                    row["functions"][function_key] = {
+                        "function": str(item.get("name", "") or ""),
+                        "ea": str(item.get("ea", "") or ""),
+                        "base": base_text,
+                        "merge_kind": merge_kind,
+                        "provenance_class": str(classes.get(base_text, "") or ""),
+                        "offset_derefs": int(source_identity_counts.get(base_text, 0) or 0),
+                        "score": float(item.get("score", 0.0) or 0.0),
+                    }
+    rows: list[dict[str, Any]] = []
+    for target, row in grouped.items():
+        functions = list(_coerce_dict(row.get("functions", {})).values())
+        functions.sort(
+            key=lambda entry: (
+                -int(entry.get("offset_derefs", 0) or 0),
+                -float(entry.get("score", 0.0) or 0.0),
+                str(entry.get("function", "")),
+                str(entry.get("base", "")),
+            )
+        )
+        bases = row.get("bases", set())
+        if not isinstance(bases, set):
+            bases = set()
+        rows.append(
+            {
+                "target": target,
+                "function_count": len(functions),
+                "base_count": len(bases),
+                "parameter_merge_count": int(row.get("parameter_merge_count", 0) or 0),
+                "temporary_merge_count": int(row.get("temporary_merge_count", 0) or 0),
+                "source_identity_offset_derefs": int(
+                    row.get("source_identity_offset_derefs", 0) or 0
+                ),
+                "top_functions": functions[:5],
+                "recommended_next": (
+                    "Resolve opaque call target %s before promoting %d merged layout base(s)."
+                    % (target, len(bases))
+                ),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            -int(row.get("base_count", 0) or 0),
+            -int(row.get("source_identity_offset_derefs", 0) or 0),
+            str(row.get("target", "")),
+        )
+    )
+    return {"targets": rows[:OPAQUE_CALL_TARGET_QUEUE_LIMIT]}
 
 
 def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -1971,6 +2116,17 @@ def _score_model() -> dict[str, Any]:
             "purpose": (
                 "Rank unannotated parameter-like bases before enabling promotion rules; "
                 "split branch/call-result merged layout bases into path-sensitive review."
+            ),
+        },
+        "opaque_call_target_queues": {
+            "queue_limit": OPAQUE_CALL_TARGET_QUEUE_LIMIT,
+            "target_metric_keys": [
+                "layout_call_result_parameter_opaque_call_targets",
+                "layout_call_result_temporary_opaque_call_targets",
+            ],
+            "purpose": (
+                "Group repeated opaque sub_* call-result blockers by target so one target "
+                "review can explain multiple merged layout bases."
             ),
         },
     }
