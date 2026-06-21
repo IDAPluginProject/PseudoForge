@@ -170,6 +170,15 @@ FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_DETAIL_RE = re.compile(
     r"Same-source-family merge dominance for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
 )
+FIELD_INDEXED_CALLBACK_TABLE_RE = re.compile(
+    r"-\s+inferred_offset_indexed_callback_table_evidence:"
+)
+FIELD_INDEXED_CALLBACK_TABLE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_indexed_callback_table_evidence:\s+"
+    r"Indexed layout evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"\("
+)
 SCALAR_OFFSET_DOMAIN_STRUCTURES = {
     "VIRTUAL_ADDRESS",
 }
@@ -1041,6 +1050,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     same_source_family_merge_dominance_bases = _same_source_family_merge_dominance_bases(
         analysis_text,
     )
+    indexed_callback_table_bases = _indexed_callback_table_bases(analysis_text)
     domain_identified_bases = _domain_identified_offset_bases(analysis_text)
     annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
     domain_identified_residual_bases = (
@@ -1217,6 +1227,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_same_source_family_merge_dominance = len(
         FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_RE.findall(analysis_text)
     )
+    layout_indexed_callback_table_evidence = len(
+        FIELD_INDEXED_CALLBACK_TABLE_RE.findall(analysis_text)
+    )
     layout_stable_base_sources = len(FIELD_STABLE_BASE_SOURCE_RE.findall(analysis_text))
     layout_hot_field_clusters = len(FIELD_HOT_CLUSTER_RE.findall(analysis_text))
     registry_domain_profile_hits = len(REGISTRY_DOMAIN_ROLE_RE.findall(analysis_text))
@@ -1233,6 +1246,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         + layout_call_result_parameter_merge_provenance
         + layout_call_result_temporary_merge_provenance
         + layout_same_source_family_merge_dominance
+        + layout_indexed_callback_table_evidence
         + layout_stable_base_sources
         + layout_hot_field_clusters
     )
@@ -1339,6 +1353,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             layout_call_result_temporary_opaque_call_targets
         ),
         "layout_same_source_family_merge_dominance": layout_same_source_family_merge_dominance,
+        "layout_indexed_callback_table_evidence": layout_indexed_callback_table_evidence,
         "layout_stable_base_sources": layout_stable_base_sources,
         "layout_hot_field_clusters": layout_hot_field_clusters,
         "registry_domain_profile_hits": registry_domain_profile_hits,
@@ -1399,6 +1414,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "same_source_family_merge_dominance": _top_counter_items(
                 Counter({base: 1 for base in same_source_family_merge_dominance_bases}),
                 len(same_source_family_merge_dominance_bases),
+            ),
+            "indexed_callback_table": _top_counter_items(
+                Counter({base: 1 for base in indexed_callback_table_bases}),
+                len(indexed_callback_table_bases),
             ),
             "unannotated": _top_counter_items(
                 unannotated_base_counts,
@@ -1729,6 +1748,15 @@ def _same_source_family_merge_dominance_bases(text: str) -> set[str]:
     return bases
 
 
+def _indexed_callback_table_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_INDEXED_CALLBACK_TABLE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
 def _merge_shape_recommended_next(merge_shape: str, fallback: str) -> str:
     shape = str(merge_shape or "")
     if shape == "same_source_family":
@@ -1874,6 +1902,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_call_result_parameter_merge_provenance"] * 4.0
     score += metrics["layout_call_result_temporary_merge_provenance"] * 4.0
     score += metrics["layout_same_source_family_merge_dominance"] * 4.0
+    score += metrics["layout_indexed_callback_table_evidence"] * 4.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["layout_hot_field_clusters"] * 4.0
     score += metrics["registry_domain_profile_hits"] * 3.0
@@ -1962,6 +1991,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_call_result_temporary_opaque_call_target")
     if metrics["layout_same_source_family_merge_dominance"]:
         reasons.append("layout_same_source_family_merge_dominance")
+    if metrics["layout_indexed_callback_table_evidence"]:
+        reasons.append("layout_indexed_callback_table_evidence")
     if metrics["layout_hot_field_clusters"]:
         reasons.append("layout_hot_field_cluster")
     if metrics["registry_domain_profile_hits"]:
@@ -2047,6 +2078,7 @@ def _score_model() -> dict[str, Any]:
                 "layout_call_result_parameter_merge_provenance",
                 "layout_call_result_temporary_merge_provenance",
                 "layout_same_source_family_merge_dominance",
+                "layout_indexed_callback_table_evidence",
                 "layout_stable_base_sources",
                 "layout_hot_field_clusters",
                 "registry_domain_profile_hits",

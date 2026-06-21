@@ -1483,6 +1483,53 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                 plan["score_model"]["offset_actionability"]["layout_signal_metrics"],
             )
 
+    def test_replay_plan_scores_indexed_callback_table_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_function(
+                root,
+                ea="0x140BD6AF8",
+                name="IndexedCallbackTable",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body="""
+__int64 __fastcall IndexedCallbackTable(_DWORD *argument0)
+{
+  return argument0[630];
+}
+""",
+                rename_map_comments=[
+                    {
+                        "kind": "inferred_offset_indexed_callback_table_evidence",
+                        "text": (
+                            "Indexed layout evidence for argument0 (argument identity base): "
+                            "8 indexed/callback access(es) across 8 slot(s); scalar indexes "
+                            "index_513, index_524, index_593, index_630; callback slots "
+                            "slot_32, slot_70, slot_71, slot_72. Alias bases v4. Review-only; "
+                            "indexed table access is not used for canonical field rewrite."
+                        ),
+                        "confidence": 0.72,
+                    }
+                ],
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_indexed_callback_table_evidence"])
+            self.assertEqual(1, item["metrics"]["layout_actionability_signals"])
+            self.assertIn("layout_indexed_callback_table_evidence", item["reasons"])
+            self.assertEqual(1, plan["reason_counts"]["layout_indexed_callback_table_evidence"])
+            self.assertEqual(
+                "argument0",
+                item["offset_base_counts"]["indexed_callback_table"][0]["base"],
+            )
+            self.assertIn(
+                "layout_indexed_callback_table_evidence",
+                plan["score_model"]["offset_actionability"]["layout_signal_metrics"],
+            )
+
     def test_replay_plan_projects_missing_hot_field_clusters(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
