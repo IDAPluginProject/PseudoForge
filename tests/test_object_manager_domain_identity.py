@@ -6,6 +6,10 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.domain_identity_summary import (
+    domain_identity_summary_payload,
+    format_domain_identity_summary,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.profiles import loader as profile_loader
 
@@ -119,6 +123,13 @@ LONG_PTR __stdcall ObfDereferenceObject(PVOID referencedObject)
         self.assertIn("build_mismatch", identity["blockers"])
         self.assertEqual([], identity["fields"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
+        summary = domain_identity_summary_payload(plan)
+        summary_text = format_domain_identity_summary(plan)
+
+        self.assertEqual(1, summary["total_hits"])
+        self.assertEqual(1, summary["report_only_hits"])
+        self.assertEqual(1, summary["blocker_counts"]["build_mismatch"])
+        self.assertIn("build_mismatch=1", summary_text)
 
     def test_source_path_infers_object_manager_profile_context(self) -> None:
         capture = capture_from_pseudocode(

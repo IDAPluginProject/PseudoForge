@@ -49,6 +49,14 @@ __int64 __fastcall StatusObjectExportSample()
 """
 
 
+OBJECT_DOMAIN_EXPORT_SAMPLE = """
+LONG_PTR __stdcall ObfDereferenceObject(PVOID referencedObject)
+{
+  return *((volatile LONG_PTR *)referencedObject - 6);
+}
+"""
+
+
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
         profile_loader.clear_profile_caches()
@@ -194,6 +202,36 @@ class ExportBundleTests(unittest.TestCase):
             self.assertEqual(1, diagnostics["validation_errors"])
             self.assertEqual("project/broken.json", summary["rule_load_errors"][0]["path"])
             self.assertEqual("project/invalid.json", summary["rule_validation_errors"][0]["path"])
+
+    def test_write_export_bundle_includes_domain_identity_summary(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                capture = capture_from_pseudocode(
+                    OBJECT_DOMAIN_EXPORT_SAMPLE,
+                    ea=0x140003000,
+                    source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe.i64",
+                )
+                plan = build_clean_plan(capture)
+
+                artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+                summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+                domain_summary = summary["domain_identity_summary"]
+                rename_payload = json.loads(Path(artifacts["rename_map"]).read_text(encoding="utf-8"))
+
+                self.assertEqual(1, domain_summary["total_hits"])
+                self.assertEqual(1, domain_summary["report_only_hits"])
+                self.assertEqual(1, domain_summary["blocker_counts"]["profile_report_only"])
+                self.assertIn("windows.object_manager.dereference_object", domain_summary["top_profile_ids"])
+                self.assertTrue(
+                    any(
+                        item.get("kind") == "domain_structure_identity"
+                        for item in rename_payload["comments"]
+                    )
+                )
+        finally:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
 
     def test_write_export_bundle_includes_layout_rewrite_preview_artifacts(self) -> None:
         cleaned_text = """

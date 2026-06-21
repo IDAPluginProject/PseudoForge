@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
 from ida_pseudoforge.core.render_flow import format_flow_case_value
 from ida_pseudoforge.core.render_labels import (
     semantic_label_display,
@@ -56,6 +57,11 @@ def render_header_lines(
                 f"    Flow: {flow.kind} dispatcher={flow.dispatcher} cases=[{cases}] "
                 f"confidence={flow.confidence:.2f}{source_suffix}"
             )
+
+    domain_summary = format_domain_identity_summary(plan)
+    if domain_summary:
+        for line in domain_summary.splitlines():
+            header.append(f"    {line}")
 
     if plan.comments:
         header.append("    Kernel insights:")

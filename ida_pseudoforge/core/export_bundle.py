@@ -12,6 +12,7 @@ from ida_pseudoforge.core.buffer_contracts import (
 )
 from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.domain_identity_summary import domain_identity_summary_payload
 from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
     render_flow_report,
@@ -197,6 +198,7 @@ def _export_summary_payload(
         "rule_diagnostics": rule_diagnostics,
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),
         "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
+        "domain_identity_summary": domain_identity_summary_payload(plan),
         "profile_root": active_profile_root(),
         "active_profiles": active_profile_names(),
         "profile_warnings": profile_load_warnings(),

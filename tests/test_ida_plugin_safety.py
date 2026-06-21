@@ -1642,6 +1642,26 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertEqual(configured, [selected])
         self.assertEqual(plan.function_ea, capture.ea)
 
+    def test_analysis_summary_includes_domain_identity_hits(self):
+        capture = _capture()
+        plan = _plan(capture)
+        plan.comments.append(
+            {
+                "kind": "domain_structure_identity",
+                "profile_id": "windows.io_manager.delete_device",
+                "effective_mode": "report-only",
+                "blockers": ["profile_report_only", "build_mismatch"],
+                "forced_report_only_reasons": ["build_mismatch"],
+            }
+        )
+
+        summary = actions_module._format_analysis_summary(capture, plan)
+
+        self.assertIn("Domain identities: 1 hit(s)", summary)
+        self.assertIn("Top profiles: windows.io_manager.delete_device.", summary)
+        self.assertIn("profile_report_only=1", summary)
+        self.assertIn("build_mismatch=1", summary)
+
     def test_build_plan_logs_provider_cyber_policy_block_to_output_and_plan(self):
         capture = _capture()
         old_load = actions_module.load_config

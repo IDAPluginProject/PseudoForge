@@ -38,6 +38,7 @@ from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.capture import profile_context_from_source_path
+from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.rule_diagnostics import format_rule_report_summary
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
@@ -1313,6 +1314,9 @@ def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:
     rule_summary = format_rule_report_summary(plan.rule_report, include_error_details=True)
     if rule_summary:
         lines.append(rule_summary)
+    domain_summary = format_domain_identity_summary(plan)
+    if domain_summary:
+        lines.append(domain_summary)
     if plan.warnings:
         lines.append("")
         lines.append("Warnings:")

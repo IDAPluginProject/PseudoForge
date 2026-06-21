@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.domain_identity_summary import (
+    domain_identity_summary_payload,
+    format_domain_identity_summary,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -45,6 +50,33 @@ NTSTATUS __stdcall IoCreateDevice(PDRIVER_OBJECT DriverObject, ULONG DeviceExten
         self.assertEqual("OBJECT_BODY", roles["securityOrNameObject"])
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
         self.assertTrue(all("profile_report_only" in item["blockers"] for item in identities))
+        summary = domain_identity_summary_payload(plan)
+        summary_text = format_domain_identity_summary(plan)
+        rendered = render_cleaned_pseudocode(
+            capture_from_pseudocode(
+                """
+NTSTATUS __stdcall IoCreateDevice(PDRIVER_OBJECT DriverObject, ULONG DeviceExtensionSize, PUNICODE_STRING DeviceName, ULONG DeviceType, ULONG DeviceCharacteristics, BOOLEAN Exclusive, PDEVICE_OBJECT *DeviceObject)
+{
+  PVOID referencedObject;
+
+  referencedObject = 0;
+  *DeviceObject = (PDEVICE_OBJECT)referencedObject;
+  return DeviceType ? STATUS_SUCCESS : STATUS_INVALID_PARAMETER;
+}
+""",
+                source_path=SOURCE_PATH,
+            ),
+            plan,
+        )
+
+        self.assertEqual(len(identities), summary["total_hits"])
+        self.assertEqual(len(identities), summary["report_only_hits"])
+        self.assertEqual(0, summary["canonical_rewrite_eligible_hits"])
+        self.assertEqual(len(identities), summary["blocker_counts"]["profile_report_only"])
+        self.assertIn("windows.io_manager.create_device", summary["top_profile_ids"])
+        self.assertIn("Domain identities:", summary_text)
+        self.assertIn("profile_report_only=", summary_text)
+        self.assertIn("Domain identities:", rendered)
 
     def test_create_device_secure_requires_create_device_handoff(self) -> None:
         without_handoff = self._plan(
