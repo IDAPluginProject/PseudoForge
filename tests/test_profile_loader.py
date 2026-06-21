@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ida_pseudoforge.profiles import loader as profile_loader
 from ida_pseudoforge.core import kernel_api
+from ida_pseudoforge.ida.profile_config_dialog import format_profile_summary
 from tools.profile_load_smoke import run_smoke
 
 
@@ -65,6 +66,105 @@ class ProfileLoaderTests(unittest.TestCase):
                 self.assertEqual(manifests[0]["profile_kind"], "sample")
                 self.assertEqual(manifests[0]["counts"], {"entries": 1})
                 self.assertEqual(profile_loader.profile_load_warnings(), [])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_available_domain_identity_profiles_reports_builtin_pack_inventory(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+        try:
+            names = profile_loader.available_domain_identity_profile_names()
+            manifests = profile_loader.available_domain_identity_profile_manifests()
+            summary = format_profile_summary("")
+
+            self.assertIn("domain_identity.json", names)
+            self.assertIn("domain_identity/io_manager.json", names)
+            self.assertGreater(len(names), 1)
+            self.assertTrue(
+                any(item.get("name") == "domain_identity/io_manager.json" for item in manifests)
+            )
+            self.assertIn("Available domain packs:", summary)
+            self.assertIn("Domain pack files:", summary)
+            self.assertIn("Domain pack source versions: 10.0.26200.8457", summary)
+        finally:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
+    def test_available_domain_identity_profiles_reports_isolated_pack_inventory(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "domain_identity"
+            pack_dir.mkdir()
+            (pack_dir / "custom.json").write_text(
+                json.dumps({"schema": "domain_identity_profiles_v1", "profiles": []}),
+                encoding="utf-8",
+            )
+            manifest = {
+                "schema_version": 1,
+                "profiles": {
+                    "domain_identity/custom.json": {
+                        "profile_kind": "domain_identity",
+                        "source": "unit test",
+                        "source_version": "unit-build",
+                        "sha256": "ABCDEF",
+                        "counts": {"profiles": 0},
+                    }
+                },
+            }
+            (temp_path / profile_loader.PROFILE_MANIFEST_NAME).write_text(
+                json.dumps(manifest),
+                encoding="utf-8",
+            )
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+
+                self.assertEqual(
+                    profile_loader.available_domain_identity_profile_names(),
+                    ["domain_identity/custom.json"],
+                )
+                manifests = profile_loader.available_domain_identity_profile_manifests()
+                summary = format_profile_summary(str(temp_path))
+
+                self.assertEqual(len(manifests), 1)
+                self.assertEqual(manifests[0]["name"], "domain_identity/custom.json")
+                self.assertIn("Available domain packs: 1", summary)
+                self.assertIn("Domain pack files: domain_identity/custom.json", summary)
+                self.assertIn("Domain pack source versions: unit-build", summary)
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_profile_summary_reports_missing_domain_pack_inventory(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+
+                self.assertEqual(profile_loader.available_domain_identity_profile_names(), [])
+                summary = format_profile_summary(str(temp_path))
+
+                self.assertIn("Available domain packs: 0", summary)
+                self.assertIn("Domain pack files: none", summary)
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_profile_summary_reports_domain_pack_load_warnings(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "domain_identity"
+            pack_dir.mkdir()
+            (pack_dir / "broken.json").write_text("{broken", encoding="utf-8")
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+                profile_loader.load_json_profile("domain_identity/broken.json")
+
+                summary = format_profile_summary(str(temp_path))
+
+                self.assertIn("Available domain packs: 1", summary)
+                self.assertIn("Profile warnings: 1", summary)
             finally:
                 profile_loader.PROFILE_DIR = original_dir
                 profile_loader.clear_profile_caches()

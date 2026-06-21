@@ -1748,6 +1748,7 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertEqual(len(messages), 1)
         self.assertIn("Version: %s" % VERSION, messages[0])
         self.assertIn("Profile directory:", messages[0])
+        self.assertIn("Available domain packs:", messages[0])
         self.assertIn("Preview mode:", messages[0])
 
     def test_show_settings_includes_source_context(self):

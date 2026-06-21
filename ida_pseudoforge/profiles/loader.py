@@ -11,6 +11,8 @@ DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent
 PROFILE_DIR = Path(os.environ.get("PSEUDOFORGE_PROFILE_DIR") or DEFAULT_PROFILE_DIR).expanduser()
 PROFILE_MANIFEST_NAME = "profiles_manifest.json"
 KERNEL_API_PROFILE_NAME = "kernel_api.json"
+DOMAIN_IDENTITY_PROFILE_NAME = "domain_identity.json"
+DOMAIN_IDENTITY_PROFILE_DIR = "domain_identity"
 KERNEL_API_FAMILY_FILES = {
     "functions": "kernel_functions.json",
     "enums": "kernel_enums.json",
@@ -108,6 +110,28 @@ def active_profile_names() -> list[str]:
 def active_profile_manifests() -> list[dict[str, Any]]:
     result = []
     for name in sorted(_ACTIVE_PROFILE_NAMES):
+        manifest = profile_manifest(name)
+        if manifest:
+            result.append(manifest)
+    return result
+
+
+def available_domain_identity_profile_names() -> list[str]:
+    root = PROFILE_DIR
+    names: list[str] = []
+    if (root / DOMAIN_IDENTITY_PROFILE_NAME).is_file():
+        names.append(DOMAIN_IDENTITY_PROFILE_NAME)
+    pack_root = root / DOMAIN_IDENTITY_PROFILE_DIR
+    if pack_root.is_dir():
+        for path in sorted(pack_root.glob("*.json")):
+            if path.is_file():
+                names.append("%s/%s" % (DOMAIN_IDENTITY_PROFILE_DIR, path.name))
+    return names
+
+
+def available_domain_identity_profile_manifests() -> list[dict[str, Any]]:
+    result = []
+    for name in available_domain_identity_profile_names():
         manifest = profile_manifest(name)
         if manifest:
             result.append(manifest)

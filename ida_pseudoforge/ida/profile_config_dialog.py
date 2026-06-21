@@ -43,6 +43,18 @@ def format_profile_summary(configured_profile_dir: str) -> str:
         "Profile directory: %s" % configured,
         "Active profile root: %s" % profile_loader.active_profile_root(),
     ]
+    domain_names = profile_loader.available_domain_identity_profile_names()
+    lines.append("Available domain packs: %d" % len(domain_names))
+    lines.append("Domain pack files: %s" % _format_name_list(domain_names))
+    domain_versions = sorted(
+        {
+            str(item.get("source_version"))
+            for item in profile_loader.available_domain_identity_profile_manifests()
+            if item.get("source_version")
+        }
+    )
+    if domain_versions:
+        lines.append("Domain pack source versions: %s" % ", ".join(domain_versions))
     active_names = profile_loader.active_profile_names()
     if active_names:
         lines.append("Loaded profiles: %s" % ", ".join(active_names))
@@ -59,3 +71,13 @@ def format_profile_summary(configured_profile_dir: str) -> str:
     if warnings:
         lines.append("Profile warnings: %d" % len(warnings))
     return "\n".join(lines)
+
+
+def _format_name_list(names: list[str], limit: int = 8) -> str:
+    if not names:
+        return "none"
+    shown = names[: max(1, int(limit))]
+    text = ", ".join(shown)
+    if len(names) > len(shown):
+        text += ", ... %d more" % (len(names) - len(shown))
+    return text
