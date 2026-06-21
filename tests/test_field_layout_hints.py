@@ -3873,6 +3873,48 @@ __int64 __fastcall CompoundAliasLayout(__int64 sessionSpace)
         self.assertEqual("mutation_blocked", temp_blocked[0]["trust_class"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_address_taken_temp_base_blocks_trusted_promotion(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall AddressTakenTempLayout(__int64 sessionSpace)
+{
+  __int64 v6;
+  __int64 result;
+
+  v6 = sessionSpace;
+  result = *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40)
+       + *(_QWORD *)(v6 + 48)
+       + *(_QWORD *)(v6 + 56)
+       + *(_QWORD *)(v6 + 64)
+       + *(_QWORD *)(v6 + 72)
+       + *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40);
+  ProbeLayout(&v6);
+  return result;
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
+        temp_blocked = [item for item in comments if item.get("kind") == "inferred_offset_temp_promotion_blocked"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base address is taken", blockers[0]["blockers"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("mutation_blocked", temp_trace[0]["trust_class"])
+        self.assertTrue(temp_trace[0]["address_taken"])
+        self.assertTrue(temp_trace[0]["call_mutation_risk"])
+        self.assertIn("address_taken", temp_trace[0]["block_reasons"])
+        self.assertIn("call_mutation_risk", temp_trace[0]["block_reasons"])
+        self.assertEqual(1, len(temp_blocked))
+        self.assertEqual("mutation_blocked", temp_blocked[0]["trust_class"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_stable_same_rhs_reload_after_layout_access_does_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
             """
