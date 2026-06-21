@@ -133,6 +133,50 @@ __int64 __fastcall CmDeleteValueKey(__int64 keyBody)
             self.assertEqual(1, plan["reason_counts"]["registry_domain_profile_hit"])
             self.assertIn("registry_domain_profile_hit", render_replay_plan_markdown(plan))
 
+    def test_replay_plan_tracks_temp_provenance_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_function(
+                root,
+                ea="0x140003000",
+                name="TempProvenance",
+                warnings=0,
+                rename_candidates=4,
+                renames=4,
+                cleaned_body="""
+/*
+    Kernel insights:
+      - inferred_offset_temp_provenance_trace: Temp-base provenance trace for v8: trust class trusted_stable_temp, source MakeObject(v7) (call_result/direct_call_result_alias), origin call_result, first layout access line 12, pre-access initializers 1/1, post-access assignments 0 risky 0, pointer mutation no, address-taken no, array-indexed no, call-mutation-risk no, branch merge none, guard dominance missing. confidence=0.72
+      - inferred_offset_trusted_temp_source: Trusted temp-base source for v8: source MakeObject(v7) (call_result/direct_call_result_alias), origin call_result, promotion ready yes, first layout access line 12. Single-source lifetime, blocker-free mutation, and threshold gates are satisfied. confidence=0.74
+      - inferred_offset_temp_promotion_blocked: Temp-base promotion blocked for v14: trust class reassignment_blocked, reasons branch_merge, post_access_reassignment, same_source_family. Rewrite blockers base is a decompiler temporary; base has multiple initializers before layout access; base is reassigned after layout access. Canonical rewrite remains disabled until provenance, dominance, and mutation gates are clear. confidence=0.66
+      - inferred_offset_same_family_merge_provenance: Same-family merge provenance for v14: root argument2 (argument), candidate count 2, branch shapes direct_root=2, guard dominance missing, trust class same_family_merge_review. Review-only until path-specific initializer dominance is validated. confidence=0.64
+      - inferred_offset_call_result_parameter_dominance: Call-result parameter dominance for v15: linked call-result initializers 1, parameter roots argument2, guard dominance missing, trust class call_result_parameter_review. Review-only until parameter/call-result path dominance is validated. confidence=0.65
+      - inferred_offset_post_access_mutation_blocker: Post-access mutation blocker for v14: post-access assignments 1, risky 1, stable reloads 0, reasons base is reassigned after layout access, trust class reassignment_blocked. Canonical rewrite remains blocked until later layout accesses are proven to use the same base object. confidence=0.66
+*/
+__int64 __fastcall TempProvenance(__int64 v8)
+{
+  return *(_QWORD *)(v8 + 16);
+}
+""",
+            )
+
+            plan = build_replay_plan(root, limit=1)
+            item = plan["items"][0]
+
+            self.assertEqual("TempProvenance", item["name"])
+            self.assertEqual(1, item["metrics"]["layout_trusted_temp_sources"])
+            self.assertEqual(1, item["metrics"]["layout_temp_provenance_traces"])
+            self.assertEqual(1, item["metrics"]["layout_temp_promotion_blocked"])
+            self.assertEqual(1, item["metrics"]["layout_same_family_merge_provenance"])
+            self.assertEqual(1, item["metrics"]["layout_call_result_parameter_dominance"])
+            self.assertEqual(1, item["metrics"]["layout_post_access_mutation_blockers"])
+            self.assertIn("layout_trusted_temp_source", item["reasons"])
+            self.assertIn("layout_temp_promotion_blocked", item["reasons"])
+            self.assertEqual("v8", item["offset_base_counts"]["trusted_temp_source"][0]["base"])
+            self.assertEqual("v14", item["offset_base_counts"]["temp_promotion_blocked"][0]["base"])
+            self.assertEqual("trusted_stable_temp", item["base_merge_provenance_classes"]["temp_base"]["v8"])
+            self.assertEqual("reassignment_blocked", item["base_merge_provenance_classes"]["temp_base"]["v14"])
+
     def test_replay_plan_scores_only_review_only_partial_opportunities(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

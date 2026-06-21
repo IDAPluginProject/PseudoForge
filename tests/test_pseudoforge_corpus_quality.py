@@ -45,8 +45,15 @@ CLEANED = r"""
       - inferred_offset_call_result_temporary_merge_provenance: Call-result/temporary merge provenance for v17: 1 call-result initializer(s), 1 temporary-root candidate(s). Call families ExAllocateFromLookasideListEx=1. Temporary roots v29 stable=deref(_QWORD,referencedObject@0x28). Provenance class allocation_call_with_temporary. Keep canonical rewrite blocked until temporary source dominance is validated. confidence=0.64
       - inferred_offset_bugcheck_parameter_merge_identity: Bugcheck-parameter merge identity for v16: 2 bugcheck-root candidate(s), 0 temporary-root candidate(s). Bugcheck roots BugCheckParameter3, BugCheckParameter2. Bugcheck candidates BugCheckParameter3 [direct_root 0x0]; BugCheckParameter2 [direct_root 0x0]. Temporary roots none. First layout access is not dominated by a base truthiness guard. Identity class multiple_bugcheck_roots. Treat BugCheckParameter names as unresolved decompiler identity; keep canonical rewrite blocked until domain-specific pointer meaning is validated. confidence=0.61
       - inferred_offset_same_source_family_merge_dominance: Same-source-family merge dominance for v14: 2 initializer candidate(s) share argument root argument2. Branch shapes direct_root=2; source offsets 0x0; first layout access is not dominated by a base truthiness guard. Candidate sources argument2 [direct_root 0x0]; argument3 [direct_root 0x0]. Dominance class argument_root_direct_branch. Keep canonical rewrite blocked until path-specific initializer dominance is validated. confidence=0.63
+      - inferred_offset_same_family_merge_provenance: Same-family merge provenance for v14: root argument2 (argument), candidate count 2, branch shapes direct_root=2, guard dominance missing, trust class same_family_merge_review. Review-only until path-specific initializer dominance is validated. confidence=0.64
+      - inferred_offset_call_result_parameter_dominance: Call-result parameter dominance for v15: linked call-result initializers 1, parameter roots argument2, guard dominance missing, trust class call_result_parameter_review. Review-only until parameter/call-result path dominance is validated. confidence=0.65
       - inferred_offset_base_relocation_evidence: Base relocation evidence for v14: trusted source argument2 (direct_argument_alias), 1 post-access assignment(s), 0 stable reload(s), 1 relocation-sensitive assignment(s). relocation-sensitive RHS argument3. Treat as a moving logical layout; keep canonical rewrite blocked until segment or relocation validation is available. confidence=0.70
+      - inferred_offset_post_access_mutation_blocker: Post-access mutation blocker for v14: post-access assignments 1, risky 1, stable reloads 0, reasons base is reassigned after layout access, trust class reassignment_blocked. Canonical rewrite remains blocked until later layout accesses are proven to use the same base object. confidence=0.66
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v14: base is a decompiler temporary. Review-only aliases remain available. confidence=0.73
+      - inferred_offset_temp_provenance_trace: Temp-base provenance trace for v8: trust class trusted_stable_temp, source MakeObject(v7) (call_result/direct_call_result_alias), origin call_result, first layout access line 12, pre-access initializers 1/1, post-access assignments 0 risky 0, pointer mutation no, address-taken no, array-indexed no, call-mutation-risk no, branch merge none, guard dominance missing. confidence=0.72
+      - inferred_offset_trusted_temp_source: Trusted temp-base source for v8: source MakeObject(v7) (call_result/direct_call_result_alias), origin call_result, promotion ready yes, first layout access line 12. Single-source lifetime, blocker-free mutation, and threshold gates are satisfied. confidence=0.74
+      - inferred_offset_temp_provenance_trace: Temp-base provenance trace for v14: trust class reassignment_blocked, source argument2 (argument/direct_argument_alias), origin function_parameter, first layout access line 16, pre-access initializers 2/2, post-access assignments 1 risky 1, pointer mutation no, address-taken no, array-indexed no, call-mutation-risk no, branch merge same_source_family, guard dominance missing. confidence=0.66
+      - inferred_offset_temp_promotion_blocked: Temp-base promotion blocked for v14: trust class reassignment_blocked, reasons branch_merge, post_access_reassignment, same_source_family. Rewrite blockers base is a decompiler temporary; base has multiple initializers before layout access; base is reassigned after layout access. Canonical rewrite remains disabled until provenance, dominance, and mutation gates are clear. confidence=0.66
       - inferred_offset_generic_base_evidence: Generic base evidence for context: 20 typed dereference(s) across 10 offset(s), blocker profile generic_only. Review-only; rewrite remains blocked until the base identity is trusted. confidence=0.74
       - inferred_offset_generic_base_trust_candidate: Generic base trust candidate for context: parameter source, generic-only blockers, 20 typed dereference(s) across 10 offset(s). Promotion eligible only when no other rewrite blocker is present; canonical rewrite still requires explicit validation-gated export. confidence=0.76
 */
@@ -868,6 +875,21 @@ __int64 __fastcall ExpressionSource(__int64 context)
                     "generic_only"
                 ],
             )
+            temp_stats = report["layout_temp_provenance_stats"]
+            self.assertEqual(2, temp_stats["totals"]["trace_comments"])
+            self.assertEqual(1, temp_stats["totals"]["trusted_temp_sources"])
+            self.assertEqual(1, temp_stats["totals"]["blocked_candidates"])
+            self.assertEqual(1, temp_stats["totals"]["rewrite_ready_unlocked"])
+            self.assertEqual(1, temp_stats["trust_classes"]["trusted_stable_temp"])
+            self.assertEqual(2, temp_stats["trust_classes"]["reassignment_blocked"])
+            self.assertEqual(2, temp_stats["source_origins"]["call_result"])
+            self.assertEqual(1, temp_stats["source_origins"]["function_parameter"])
+            self.assertEqual(1, temp_stats["branch_merge_shapes"]["same_source_family"])
+            self.assertEqual(1, temp_stats["block_reasons"]["post_access_reassignment"])
+            self.assertEqual("Sample", temp_stats["top_functions"][0]["name"])
+            self.assertEqual(2, temp_stats["top_functions"][0]["trace_count"])
+            self.assertEqual(1, temp_stats["top_functions"][0]["trusted_count"])
+            self.assertEqual(1, temp_stats["top_functions"][0]["blocked_count"])
             self.assertEqual(1, report["layout_subfield_overlay_stats"]["totals"]["overlay_comments"])
             self.assertEqual(
                 1,
@@ -1406,7 +1428,13 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 1,
                 report["text_stats"]["inferred_offset_same_source_family_merge_dominance"],
             )
+            self.assertEqual(1, report["text_stats"]["inferred_offset_same_family_merge_provenance"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_call_result_parameter_dominance"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_base_relocation_evidence"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_post_access_mutation_blocker"])
+            self.assertEqual(2, report["text_stats"]["inferred_offset_temp_provenance_trace"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_trusted_temp_source"])
+            self.assertEqual(1, report["text_stats"]["inferred_offset_temp_promotion_blocked"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_rewrite_ready"])

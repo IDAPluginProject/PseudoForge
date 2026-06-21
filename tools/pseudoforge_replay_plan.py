@@ -19,6 +19,7 @@ from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     FIELD_BUGCHECK_PARAMETER_MERGE_IDENTITY_RE,
     FIELD_CALL_RESULT_MERGE_EQUIVALENCE_RE,
+    FIELD_CALL_RESULT_PARAMETER_DOMINANCE_RE,
     FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_RE,
     FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_RE,
     FIELD_BASE_MERGE_EVIDENCE_RE,
@@ -32,9 +33,17 @@ from tools.pseudoforge_corpus_quality import (
     FIELD_REWRITE_NEAR_READY_RE,
     FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE,
     FIELD_REWRITE_PARTIAL_OPPORTUNITY_RE,
+    FIELD_POST_ACCESS_MUTATION_BLOCKER_RE,
+    FIELD_SAME_FAMILY_MERGE_PROVENANCE_RE,
     FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_RE,
     FIELD_STABLE_BASE_SOURCE_DETAIL_RE,
     FIELD_STABLE_BASE_SOURCE_RE,
+    FIELD_TEMP_PROMOTION_BLOCKED_RE,
+    FIELD_TEMP_PROMOTION_BLOCKED_DETAIL_RE,
+    FIELD_TEMP_PROVENANCE_TRACE_RE,
+    FIELD_TEMP_PROVENANCE_TRACE_DETAIL_RE,
+    FIELD_TRUSTED_TEMP_SOURCE_RE,
+    FIELD_TRUSTED_TEMP_SOURCE_DETAIL_RE,
     GENERIC_IDENTIFIER_RE,
     HEX_STATUS_RE,
     LABEL_RE,
@@ -1050,6 +1059,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     same_source_family_merge_dominance_bases = _same_source_family_merge_dominance_bases(
         analysis_text,
     )
+    trusted_temp_source_bases = _trusted_temp_source_bases(analysis_text)
+    temp_provenance_trace_bases = _temp_provenance_trace_bases(analysis_text)
+    temp_promotion_blocked_bases = _temp_promotion_blocked_bases(analysis_text)
+    temp_provenance_trust_classes = _temp_provenance_trust_classes(analysis_text)
     indexed_callback_table_bases = _indexed_callback_table_bases(analysis_text)
     domain_identified_bases = _domain_identified_offset_bases(analysis_text)
     annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
@@ -1227,6 +1240,28 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_same_source_family_merge_dominance = len(
         FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_RE.findall(analysis_text)
     )
+    layout_trusted_temp_sources = len(FIELD_TRUSTED_TEMP_SOURCE_RE.findall(analysis_text))
+    layout_temp_provenance_traces = len(FIELD_TEMP_PROVENANCE_TRACE_RE.findall(analysis_text))
+    layout_temp_promotion_blocked = len(FIELD_TEMP_PROMOTION_BLOCKED_RE.findall(analysis_text))
+    layout_same_family_merge_provenance = len(
+        FIELD_SAME_FAMILY_MERGE_PROVENANCE_RE.findall(analysis_text)
+    )
+    layout_call_result_parameter_dominance = len(
+        FIELD_CALL_RESULT_PARAMETER_DOMINANCE_RE.findall(analysis_text)
+    )
+    layout_post_access_mutation_blockers = len(
+        FIELD_POST_ACCESS_MUTATION_BLOCKER_RE.findall(analysis_text)
+    )
+    layout_temp_provenance_review_only = sum(
+        1
+        for trust_class in temp_provenance_trust_classes.values()
+        if trust_class.endswith("_review") or trust_class == "stable_review_only"
+    )
+    layout_temp_provenance_blocked = sum(
+        1
+        for trust_class in temp_provenance_trust_classes.values()
+        if trust_class.endswith("_blocked")
+    )
     layout_indexed_callback_table_evidence = len(
         FIELD_INDEXED_CALLBACK_TABLE_RE.findall(analysis_text)
     )
@@ -1246,6 +1281,12 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         + layout_call_result_parameter_merge_provenance
         + layout_call_result_temporary_merge_provenance
         + layout_same_source_family_merge_dominance
+        + layout_trusted_temp_sources
+        + layout_temp_provenance_traces
+        + layout_temp_promotion_blocked
+        + layout_same_family_merge_provenance
+        + layout_call_result_parameter_dominance
+        + layout_post_access_mutation_blockers
         + layout_indexed_callback_table_evidence
         + layout_stable_base_sources
         + layout_hot_field_clusters
@@ -1353,6 +1394,14 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             layout_call_result_temporary_opaque_call_targets
         ),
         "layout_same_source_family_merge_dominance": layout_same_source_family_merge_dominance,
+        "layout_trusted_temp_sources": layout_trusted_temp_sources,
+        "layout_temp_provenance_traces": layout_temp_provenance_traces,
+        "layout_temp_promotion_blocked": layout_temp_promotion_blocked,
+        "layout_temp_provenance_review_only": layout_temp_provenance_review_only,
+        "layout_temp_provenance_blocked": layout_temp_provenance_blocked,
+        "layout_same_family_merge_provenance": layout_same_family_merge_provenance,
+        "layout_call_result_parameter_dominance": layout_call_result_parameter_dominance,
+        "layout_post_access_mutation_blockers": layout_post_access_mutation_blockers,
         "layout_indexed_callback_table_evidence": layout_indexed_callback_table_evidence,
         "layout_stable_base_sources": layout_stable_base_sources,
         "layout_hot_field_clusters": layout_hot_field_clusters,
@@ -1415,6 +1464,18 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 Counter({base: 1 for base in same_source_family_merge_dominance_bases}),
                 len(same_source_family_merge_dominance_bases),
             ),
+            "trusted_temp_source": _top_counter_items(
+                Counter({base: 1 for base in trusted_temp_source_bases}),
+                len(trusted_temp_source_bases),
+            ),
+            "temp_provenance_trace": _top_counter_items(
+                Counter({base: 1 for base in temp_provenance_trace_bases}),
+                len(temp_provenance_trace_bases),
+            ),
+            "temp_promotion_blocked": _top_counter_items(
+                Counter({base: 1 for base in temp_promotion_blocked_bases}),
+                len(temp_promotion_blocked_bases),
+            ),
             "indexed_callback_table": _top_counter_items(
                 Counter({base: 1 for base in indexed_callback_table_bases}),
                 len(indexed_callback_table_bases),
@@ -1461,6 +1522,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "base_merge_provenance_classes": {
             "call_result_parameter": call_result_parameter_merge_provenance_classes,
             "call_result_temporary": call_result_temporary_merge_provenance_classes,
+            "temp_base": temp_provenance_trust_classes,
         },
         "base_merge_call_targets": {
             "call_result_parameter_opaque": call_result_parameter_opaque_call_targets,
@@ -1748,6 +1810,52 @@ def _same_source_family_merge_dominance_bases(text: str) -> set[str]:
     return bases
 
 
+def _trusted_temp_source_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_TRUSTED_TEMP_SOURCE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _temp_provenance_trace_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_TEMP_PROVENANCE_TRACE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _temp_promotion_blocked_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_TEMP_PROMOTION_BLOCKED_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _temp_provenance_trust_classes(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for match in FIELD_TEMP_PROVENANCE_TRACE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        trust_class = str(match.groupdict().get("trust_class") or "")
+        if base and trust_class:
+            result[base] = trust_class
+    for match in FIELD_TEMP_PROMOTION_BLOCKED_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        trust_class = str(match.groupdict().get("trust_class") or "")
+        if base and trust_class:
+            result[base] = trust_class
+    for match in FIELD_TRUSTED_TEMP_SOURCE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            result[base] = "trusted_stable_temp"
+    return result
+
+
 def _indexed_callback_table_bases(text: str) -> set[str]:
     bases: set[str] = set()
     for match in FIELD_INDEXED_CALLBACK_TABLE_DETAIL_RE.finditer(text or ""):
@@ -1902,6 +2010,12 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_call_result_parameter_merge_provenance"] * 4.0
     score += metrics["layout_call_result_temporary_merge_provenance"] * 4.0
     score += metrics["layout_same_source_family_merge_dominance"] * 4.0
+    score += metrics["layout_trusted_temp_sources"] * 3.0
+    score += metrics["layout_temp_provenance_traces"] * 2.0
+    score += metrics["layout_temp_promotion_blocked"] * 3.0
+    score += metrics["layout_same_family_merge_provenance"] * 2.0
+    score += metrics["layout_call_result_parameter_dominance"] * 2.0
+    score += metrics["layout_post_access_mutation_blockers"] * 3.0
     score += metrics["layout_indexed_callback_table_evidence"] * 4.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["layout_hot_field_clusters"] * 4.0
@@ -1991,6 +2105,22 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_call_result_temporary_opaque_call_target")
     if metrics["layout_same_source_family_merge_dominance"]:
         reasons.append("layout_same_source_family_merge_dominance")
+    if metrics["layout_trusted_temp_sources"]:
+        reasons.append("layout_trusted_temp_source")
+    if metrics["layout_temp_provenance_traces"]:
+        reasons.append("layout_temp_provenance_trace")
+    if metrics["layout_temp_promotion_blocked"]:
+        reasons.append("layout_temp_promotion_blocked")
+    if metrics["layout_temp_provenance_review_only"]:
+        reasons.append("layout_temp_provenance_review_only")
+    if metrics["layout_temp_provenance_blocked"]:
+        reasons.append("layout_temp_provenance_blocked")
+    if metrics["layout_same_family_merge_provenance"]:
+        reasons.append("layout_same_family_merge_provenance")
+    if metrics["layout_call_result_parameter_dominance"]:
+        reasons.append("layout_call_result_parameter_dominance")
+    if metrics["layout_post_access_mutation_blockers"]:
+        reasons.append("layout_post_access_mutation_blocker")
     if metrics["layout_indexed_callback_table_evidence"]:
         reasons.append("layout_indexed_callback_table_evidence")
     if metrics["layout_hot_field_clusters"]:

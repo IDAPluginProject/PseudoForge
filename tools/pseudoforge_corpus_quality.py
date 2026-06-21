@@ -183,6 +183,49 @@ FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_RE = re.compile(
 FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_RE = re.compile(
     r"-\s+inferred_offset_same_source_family_merge_dominance:"
 )
+FIELD_TRUSTED_TEMP_SOURCE_RE = re.compile(r"-\s+inferred_offset_trusted_temp_source:")
+FIELD_TRUSTED_TEMP_SOURCE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_trusted_temp_source:\s+Trusted temp-base source for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+source\s+"
+    r"(?P<source>.*?)\s+\((?P<source_kind>[a-z_]+)/(?P<source_provenance>[a-z_]+)\),\s+"
+    r"origin\s+(?P<source_origin>[a-z_]+),\s+promotion ready\s+(?P<promotion_ready>yes|no),\s+"
+    r"first layout access line\s+(?P<first_layout_access_line>-?\d+)\.\s+"
+    r"Single-source lifetime, blocker-free mutation, and threshold gates are satisfied\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+FIELD_TEMP_PROVENANCE_TRACE_RE = re.compile(r"-\s+inferred_offset_temp_provenance_trace:")
+FIELD_TEMP_PROVENANCE_TRACE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_temp_provenance_trace:\s+Temp-base provenance trace for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+trust class\s+"
+    r"(?P<trust_class>[a-z_]+),\s+source\s+"
+    r"(?P<source>.*?)\s+\((?P<source_kind>[a-z_]+)/(?P<source_provenance>[a-z_]+)\),\s+"
+    r"origin\s+(?P<source_origin>[a-z_]+),\s+first layout access line\s+"
+    r"(?P<first_layout_access_line>-?\d+),\s+pre-access initializers\s+"
+    r"(?P<pre_access_assignment_count>\d+)/(?P<distinct_pre_access_rhs_count>\d+),\s+"
+    r"post-access assignments\s+(?P<post_access_assignment_count>\d+)\s+risky\s+"
+    r"(?P<risky_post_access_assignment_count>\d+),\s+pointer mutation\s+"
+    r"(?P<pointer_mutation>yes|no),\s+address-taken\s+(?P<address_taken>yes|no),\s+"
+    r"array-indexed\s+(?P<array_indexed>yes|no),\s+call-mutation-risk\s+"
+    r"(?P<call_mutation_risk>yes|no),\s+branch merge\s+(?P<branch_merge_shape>[a-z_]+),\s+"
+    r"guard dominance\s+(?P<guard_dominance>[a-z_]+)\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+FIELD_TEMP_PROMOTION_BLOCKED_RE = re.compile(r"-\s+inferred_offset_temp_promotion_blocked:")
+FIELD_TEMP_PROMOTION_BLOCKED_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_temp_promotion_blocked:\s+Temp-base promotion blocked for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+trust class\s+"
+    r"(?P<trust_class>[a-z_]+),\s+reasons\s+(?P<block_reasons>.*?)\.\s+"
+    r"Rewrite blockers\s+(?P<rewrite_blockers>.*?)\.\s+"
+    r"Canonical rewrite remains disabled until provenance, dominance, and mutation gates are clear\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+FIELD_SAME_FAMILY_MERGE_PROVENANCE_RE = re.compile(r"-\s+inferred_offset_same_family_merge_provenance:")
+FIELD_CALL_RESULT_PARAMETER_DOMINANCE_RE = re.compile(
+    r"-\s+inferred_offset_call_result_parameter_dominance:"
+)
+FIELD_POST_ACCESS_MUTATION_BLOCKER_RE = re.compile(
+    r"-\s+inferred_offset_post_access_mutation_blocker:"
+)
 FIELD_GENERIC_BASE_EVIDENCE_RE = re.compile(r"-\s+inferred_offset_generic_base_evidence:")
 FIELD_GENERIC_BASE_EVIDENCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_generic_base_evidence:\s+Generic base evidence for\s+"
@@ -427,6 +470,15 @@ def analyze_corpus(
     generic_base_trust_candidate_sources: Counter[str] = Counter()
     generic_base_trust_candidate_profiles: Counter[str] = Counter()
     generic_base_trust_candidate_totals = Counter()
+    temp_provenance_bases: Counter[str] = Counter()
+    temp_provenance_trust_classes: Counter[str] = Counter()
+    temp_provenance_source_origins: Counter[str] = Counter()
+    temp_provenance_source_kinds: Counter[str] = Counter()
+    temp_provenance_source_provenance: Counter[str] = Counter()
+    temp_provenance_branch_shapes: Counter[str] = Counter()
+    temp_provenance_guard_dominance: Counter[str] = Counter()
+    temp_provenance_block_reasons: Counter[str] = Counter()
+    temp_provenance_totals = Counter()
     rewrite_ready_bases: Counter[str] = Counter()
     rewrite_ready_source_provenance: Counter[str] = Counter()
     rewrite_ready_threshold_policies: Counter[str] = Counter()
@@ -482,6 +534,7 @@ def analyze_corpus(
     top_base_stability_functions = []
     top_generic_base_evidence_functions = []
     top_generic_base_trust_candidate_functions = []
+    top_temp_provenance_functions = []
     top_rewrite_ready_functions = []
     top_rewrite_preview_functions = []
     top_rewrite_preview_artifact_functions = []
@@ -555,6 +608,7 @@ def analyze_corpus(
                     base_stability,
                     generic_base_evidence,
                     generic_base_trust_candidates,
+                    temp_provenance,
                     rewrite_ready,
                     rewrite_previews,
                     rewrite_near_ready,
@@ -646,6 +700,18 @@ def analyze_corpus(
                     generic_base_trust_candidate_bases,
                     generic_base_trust_candidate_sources,
                     generic_base_trust_candidate_profiles,
+                )
+                _update_layout_temp_provenance_metrics(
+                    temp_provenance,
+                    temp_provenance_totals,
+                    temp_provenance_bases,
+                    temp_provenance_trust_classes,
+                    temp_provenance_source_origins,
+                    temp_provenance_source_kinds,
+                    temp_provenance_source_provenance,
+                    temp_provenance_branch_shapes,
+                    temp_provenance_guard_dominance,
+                    temp_provenance_block_reasons,
                 )
                 _update_layout_rewrite_ready_metrics(
                     rewrite_ready,
@@ -739,6 +805,10 @@ def analyze_corpus(
                             summary_path,
                             generic_base_trust_candidates,
                         )
+                    )
+                if temp_provenance.get("traces") or temp_provenance.get("blocked"):
+                    top_temp_provenance_functions.append(
+                        _temp_provenance_function_summary(name, ea, summary_path, temp_provenance)
                     )
                 if rewrite_ready:
                     top_rewrite_ready_functions.append(
@@ -927,6 +997,14 @@ def analyze_corpus(
             -int(item["candidate_count"]),
             -int(item["max_offsets"]),
             -int(item["max_access_count"]),
+            str(item["name"]),
+        )
+    )
+    top_temp_provenance_functions.sort(
+        key=lambda item: (
+            -int(item["trace_count"]),
+            -int(item["blocked_count"]),
+            -int(item["trusted_count"]),
             str(item["name"]),
         )
     )
@@ -1124,6 +1202,20 @@ def analyze_corpus(
             "blocker_profiles": _counter_to_dict(Counter(dict(generic_base_trust_candidate_profiles.most_common(top)))),
             "top_functions": top_generic_base_trust_candidate_functions[:top],
         },
+        "layout_temp_provenance_stats": {
+            "totals": _counter_to_dict(temp_provenance_totals),
+            "top_bases": _counter_to_dict(Counter(dict(temp_provenance_bases.most_common(top)))),
+            "trust_classes": _counter_to_dict(Counter(dict(temp_provenance_trust_classes.most_common(top)))),
+            "source_origins": _counter_to_dict(Counter(dict(temp_provenance_source_origins.most_common(top)))),
+            "source_kinds": _counter_to_dict(Counter(dict(temp_provenance_source_kinds.most_common(top)))),
+            "source_provenance": _counter_to_dict(
+                Counter(dict(temp_provenance_source_provenance.most_common(top)))
+            ),
+            "branch_merge_shapes": _counter_to_dict(Counter(dict(temp_provenance_branch_shapes.most_common(top)))),
+            "guard_dominance": _counter_to_dict(Counter(dict(temp_provenance_guard_dominance.most_common(top)))),
+            "block_reasons": _counter_to_dict(Counter(dict(temp_provenance_block_reasons.most_common(top)))),
+            "top_functions": top_temp_provenance_functions[:top],
+        },
         "layout_rewrite_ready_stats": {
             "totals": _counter_to_dict(rewrite_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_ready_bases.most_common(top)))),
@@ -1245,6 +1337,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     base_stability_stats = _coerce_dict(report.get("layout_base_stability_stats", {}))
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
     generic_base_trust_candidate_stats = _coerce_dict(report.get("layout_generic_base_trust_candidate_stats", {}))
+    temp_provenance_stats = _coerce_dict(report.get("layout_temp_provenance_stats", {}))
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_preview_stats = _coerce_dict(report.get("layout_rewrite_preview_stats", {}))
     rewrite_preview_artifact_stats = _coerce_dict(report.get("layout_rewrite_preview_artifact_stats", {}))
@@ -1265,6 +1358,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     base_stability_totals = _coerce_dict(base_stability_stats.get("totals", {}))
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
     generic_base_trust_candidate_totals = _coerce_dict(generic_base_trust_candidate_stats.get("totals", {}))
+    temp_provenance_totals = _coerce_dict(temp_provenance_stats.get("totals", {}))
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_preview_totals = _coerce_dict(rewrite_preview_stats.get("totals", {}))
     rewrite_preview_artifact_totals = _coerce_dict(rewrite_preview_artifact_stats.get("totals", {}))
@@ -1800,6 +1894,86 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 sources,
                 profiles,
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Layout Temp-Base Provenance",
+            "",
+            "- Provenance traces: `%s` across `%s` functions"
+            % (
+                temp_provenance_totals.get("trace_comments", 0),
+                temp_provenance_totals.get("functions_with_temp_provenance", 0),
+            ),
+            "- Trusted temp sources: `%s`" % temp_provenance_totals.get("trusted_temp_sources", 0),
+            "- Blocked temp candidates: `%s`" % temp_provenance_totals.get("blocked_candidates", 0),
+            "- Review-only candidates: `%s`" % temp_provenance_totals.get("review_only_candidates", 0),
+            "- Rewrite-ready unlocked: `%s`" % temp_provenance_totals.get("rewrite_ready_unlocked", 0),
+            "",
+            "### Temp Provenance Trust Classes",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(temp_provenance_stats.get("trust_classes", {})), "Trust class"))
+    lines.extend(
+        [
+            "",
+            "### Temp Provenance Source Origins",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(temp_provenance_stats.get("source_origins", {})), "Origin"))
+    lines.extend(
+        [
+            "",
+            "### Temp Provenance Block Reasons",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(temp_provenance_stats.get("block_reasons", {})), "Reason"))
+    lines.extend(
+        [
+            "",
+            "### Temp Provenance Branch Shapes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(_coerce_dict(temp_provenance_stats.get("branch_merge_shapes", {})), "Shape")
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Temp Provenance Functions",
+            "",
+            "| Function | EA | Traces | Trusted | Blocked | Trust classes | Origins | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in temp_provenance_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        trust_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("trust_classes", {})).items()
+        )
+        origins = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("source_origins", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("trace_count", 0) or 0),
+                int(item.get("trusted_count", 0) or 0),
+                int(item.get("blocked_count", 0) or 0),
+                _markdown_table_cell(trust_classes),
+                _markdown_table_cell(origins),
                 bases,
             )
         )
@@ -3576,27 +3750,10 @@ def _update_text_metrics(
     text_totals: Counter[str],
     body_text_totals: Counter[str],
     path: Path,
-) -> tuple[
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-    list[dict[str, Any]],
-]:
+) -> tuple[Any, ...]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], {}, [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -3612,6 +3769,7 @@ def _update_text_metrics(
     base_stability = _extract_layout_base_stability(text)
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
     generic_base_trust_candidates = _extract_layout_generic_base_trust_candidates(text)
+    temp_provenance = _extract_layout_temp_provenance(text)
     rewrite_ready = _extract_layout_rewrite_ready(text)
     rewrite_previews = _extract_layout_rewrite_previews(text)
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
@@ -3742,6 +3900,48 @@ def _update_text_metrics(
     _count_pattern(
         text_totals,
         text,
+        FIELD_TRUSTED_TEMP_SOURCE_RE,
+        "inferred_offset_trusted_temp_source",
+        "functions_with_inferred_offset_trusted_temp_source",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_TEMP_PROVENANCE_TRACE_RE,
+        "inferred_offset_temp_provenance_trace",
+        "functions_with_inferred_offset_temp_provenance_trace",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_TEMP_PROMOTION_BLOCKED_RE,
+        "inferred_offset_temp_promotion_blocked",
+        "functions_with_inferred_offset_temp_promotion_blocked",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_SAME_FAMILY_MERGE_PROVENANCE_RE,
+        "inferred_offset_same_family_merge_provenance",
+        "functions_with_inferred_offset_same_family_merge_provenance",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_CALL_RESULT_PARAMETER_DOMINANCE_RE,
+        "inferred_offset_call_result_parameter_dominance",
+        "functions_with_inferred_offset_call_result_parameter_dominance",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_POST_ACCESS_MUTATION_BLOCKER_RE,
+        "inferred_offset_post_access_mutation_blocker",
+        "functions_with_inferred_offset_post_access_mutation_blocker",
+    )
+    _count_pattern(
+        text_totals,
+        text,
         FIELD_GENERIC_BASE_EVIDENCE_RE,
         "inferred_offset_generic_base_evidence",
         "functions_with_inferred_offset_generic_base_evidence",
@@ -3799,6 +3999,7 @@ def _update_text_metrics(
         base_stability,
         generic_base_evidence,
         generic_base_trust_candidates,
+        temp_provenance,
         rewrite_ready,
         rewrite_previews,
         rewrite_near_ready,
@@ -5430,6 +5631,66 @@ def _extract_layout_generic_base_trust_candidates(text: str) -> list[dict[str, A
     return candidates
 
 
+def _extract_layout_temp_provenance(text: str) -> dict[str, list[dict[str, Any]]]:
+    traces = []
+    for match in FIELD_TEMP_PROVENANCE_TRACE_DETAIL_RE.finditer(text or ""):
+        traces.append(
+            {
+                "base": match.group("base"),
+                "trust_class": match.group("trust_class"),
+                "source": match.group("source"),
+                "source_kind": match.group("source_kind"),
+                "source_provenance": match.group("source_provenance"),
+                "source_origin": match.group("source_origin"),
+                "first_layout_access_line": _int_value(match.group("first_layout_access_line"), -1),
+                "pre_access_assignment_count": _int_value(match.group("pre_access_assignment_count"), 0),
+                "distinct_pre_access_rhs_count": _int_value(match.group("distinct_pre_access_rhs_count"), 0),
+                "post_access_assignment_count": _int_value(match.group("post_access_assignment_count"), 0),
+                "risky_post_access_assignment_count": _int_value(
+                    match.group("risky_post_access_assignment_count"),
+                    0,
+                ),
+                "pointer_mutation": match.group("pointer_mutation") == "yes",
+                "address_taken": match.group("address_taken") == "yes",
+                "array_indexed": match.group("array_indexed") == "yes",
+                "call_mutation_risk": match.group("call_mutation_risk") == "yes",
+                "branch_merge_shape": match.group("branch_merge_shape"),
+                "guard_dominance": match.group("guard_dominance"),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    trusted = []
+    for match in FIELD_TRUSTED_TEMP_SOURCE_DETAIL_RE.finditer(text or ""):
+        trusted.append(
+            {
+                "base": match.group("base"),
+                "source": match.group("source"),
+                "source_kind": match.group("source_kind"),
+                "source_provenance": match.group("source_provenance"),
+                "source_origin": match.group("source_origin"),
+                "promotion_ready": match.group("promotion_ready") == "yes",
+                "first_layout_access_line": _int_value(match.group("first_layout_access_line"), -1),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    blocked = []
+    for match in FIELD_TEMP_PROMOTION_BLOCKED_DETAIL_RE.finditer(text or ""):
+        blocked.append(
+            {
+                "base": match.group("base"),
+                "trust_class": match.group("trust_class"),
+                "block_reasons": _split_reason_list(match.group("block_reasons")),
+                "rewrite_blockers": _split_semicolon_list(match.group("rewrite_blockers")),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return {
+        "traces": traces,
+        "trusted": trusted,
+        "blocked": blocked,
+    }
+
+
 def _extract_layout_rewrite_ready(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_REWRITE_READY_DETAIL_RE.finditer(text or ""):
@@ -5564,6 +5825,22 @@ def _parse_layout_offset_list(value: str) -> list[int]:
             continue
         offsets.append(offset)
     return offsets
+
+
+def _split_reason_list(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in str(value or "").split(",")
+        if item.strip() and item.strip().lower() != "none"
+    ]
+
+
+def _split_semicolon_list(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in str(value or "").split(";")
+        if item.strip() and item.strip().lower() != "none"
+    ]
 
 
 def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
@@ -6044,6 +6321,59 @@ def _update_layout_generic_base_trust_candidate_metrics(
         bases[str(candidate.get("base", "") or "unknown")] += 1
         source_kinds[str(candidate.get("source_kind", "") or "unknown")] += 1
         blocker_profiles[str(candidate.get("blocker_profile", "") or "unknown")] += 1
+
+
+def _update_layout_temp_provenance_metrics(
+    provenance: dict[str, list[dict[str, Any]]],
+    totals: Counter[str],
+    bases: Counter[str],
+    trust_classes: Counter[str],
+    source_origins: Counter[str],
+    source_kinds: Counter[str],
+    source_provenance: Counter[str],
+    branch_shapes: Counter[str],
+    guard_dominance: Counter[str],
+    block_reasons: Counter[str],
+) -> None:
+    traces = [item for item in provenance.get("traces", []) or [] if isinstance(item, dict)]
+    trusted = [item for item in provenance.get("trusted", []) or [] if isinstance(item, dict)]
+    blocked = [item for item in provenance.get("blocked", []) or [] if isinstance(item, dict)]
+    if not traces and not trusted and not blocked:
+        return
+    totals["functions_with_temp_provenance"] += 1
+    totals["trace_comments"] += len(traces)
+    totals["trusted_temp_sources"] += len(trusted)
+    totals["blocked_candidates"] += len(blocked)
+    totals["review_only_candidates"] += sum(
+        1
+        for item in traces
+        if str(item.get("trust_class", "") or "").endswith("_review")
+        or str(item.get("trust_class", "") or "") == "stable_review_only"
+    )
+    totals["rewrite_ready_unlocked"] += sum(
+        1
+        for item in trusted
+        if bool(item.get("promotion_ready"))
+    )
+    for item in traces:
+        base = str(item.get("base", "") or "unknown")
+        bases[base] += 1
+        trust_classes[str(item.get("trust_class", "") or "unknown")] += 1
+        source_origins[str(item.get("source_origin", "") or "unknown")] += 1
+        source_kinds[str(item.get("source_kind", "") or "unknown")] += 1
+        source_provenance[str(item.get("source_provenance", "") or "unknown")] += 1
+        branch_shapes[str(item.get("branch_merge_shape", "") or "none")] += 1
+        guard_dominance[str(item.get("guard_dominance", "") or "unknown")] += 1
+    for item in trusted:
+        bases[str(item.get("base", "") or "unknown")] += 1
+        source_origins[str(item.get("source_origin", "") or "unknown")] += 1
+        source_kinds[str(item.get("source_kind", "") or "unknown")] += 1
+        source_provenance[str(item.get("source_provenance", "") or "unknown")] += 1
+    for item in blocked:
+        bases[str(item.get("base", "") or "unknown")] += 1
+        trust_classes[str(item.get("trust_class", "") or "unknown")] += 1
+        for reason in item.get("block_reasons", []) or []:
+            block_reasons[str(reason)] += 1
 
 
 def _update_layout_rewrite_ready_metrics(
@@ -6856,6 +7186,39 @@ def _generic_base_trust_candidate_function_summary(
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _temp_provenance_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    provenance: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    traces = [item for item in provenance.get("traces", []) or [] if isinstance(item, dict)]
+    trusted = [item for item in provenance.get("trusted", []) or [] if isinstance(item, dict)]
+    blocked = [item for item in provenance.get("blocked", []) or [] if isinstance(item, dict)]
+    all_items = traces + trusted + blocked
+    trust_classes = Counter(
+        str(item.get("trust_class", "") or "trusted_stable_temp")
+        for item in all_items
+    )
+    source_origins = Counter(
+        str(item.get("source_origin", "") or "unknown")
+        for item in traces + trusted
+    )
+    bases = [str(item.get("base", "") or "unknown") for item in all_items[:8]]
+    return {
+        "ea": ea,
+        "name": name,
+        "trace_count": len(traces),
+        "trusted_count": len(trusted),
+        "blocked_count": len(blocked),
+        "bases": bases,
+        "trust_classes": _counter_to_dict(Counter(dict(trust_classes.most_common(5)))),
+        "source_origins": _counter_to_dict(Counter(dict(source_origins.most_common(5)))),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in all_items), default=0.0),
         "summary_path": str(summary_path),
     }
 

@@ -214,7 +214,6 @@ __int64 __fastcall DomainNoProfileLayout(__int64 argument0)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
-
         self.assertEqual([], blockers)
         self.assertEqual(1, len(ready))
         self.assertEqual("domain_identity", ready[0]["source_provenance"])
@@ -844,7 +843,7 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
 """
         )
 
-        self.assertEqual(4, len(comments))
+        self.assertEqual(6, len(comments))
         self.assertEqual("temp", comments[0]["base_kind"])
         self.assertEqual(0.74, comments[0]["confidence"])
         self.assertIn("temporary base", comments[0]["text"])
@@ -863,6 +862,11 @@ __int64 __fastcall StrongTempLayout(__int64 v14)
         self.assertIn("Review aliases for v14 (temporary base)", aliases[0]["text"])
         self.assertIn("do not treat as a recovered structure type", aliases[0]["text"])
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
+        temp_blocked = [item for item in comments if item.get("kind") == "inferred_offset_temp_promotion_blocked"]
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("weak_or_unknown_source_blocked", temp_trace[0]["trust_class"])
+        self.assertEqual(1, len(temp_blocked))
         self.assertEqual(1, len(blockers))
         self.assertEqual("v14", blockers[0]["base"])
         self.assertEqual("temp", blockers[0]["base_kind"])
@@ -994,7 +998,6 @@ __int64 __fastcall StableTempSourceLayout(__int64 argument2)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
-
         self.assertEqual(1, len(sources))
         self.assertEqual("v4", sources[0]["base"])
         self.assertEqual("temp", sources[0]["base_kind"])
@@ -1053,7 +1056,6 @@ __int64 __fastcall BackContainerSourceLayout(__int64 completionApc)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
-
         self.assertEqual(1, len(sources))
         self.assertEqual("v6", sources[0]["base"])
         self.assertEqual("completionApc", sources[0]["source"])
@@ -1155,7 +1157,6 @@ __int64 __fastcall ParameterIndirectSourceLayout(__int64 *a1)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
-
         self.assertEqual(1, len(sources))
         self.assertEqual("v4", sources[0]["base"])
         self.assertEqual("a1", sources[0]["source"])
@@ -2109,6 +2110,8 @@ __int64 __fastcall StableTemporaryCallResultSourceLayout(__int64 context)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
+        trusted_temp = [item for item in comments if item.get("kind") == "inferred_offset_trusted_temp_source"]
 
         self.assertEqual(1, len(sources))
         self.assertEqual("v4", sources[0]["base"])
@@ -2124,6 +2127,13 @@ __int64 __fastcall StableTemporaryCallResultSourceLayout(__int64 context)
         self.assertEqual("CreateStableContext(context)", ready[0]["source_call"])
         self.assertEqual(1, len(previews))
         self.assertEqual("temporary_call_result_alias", previews[0]["source_provenance"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("trusted_stable_temp", temp_trace[0]["trust_class"])
+        self.assertEqual("call_result_temporary", temp_trace[0]["source_origin"])
+        self.assertTrue(temp_trace[0]["promotion_eligible"])
+        self.assertEqual(1, len(trusted_temp))
+        self.assertEqual("trusted_stable_temp", trusted_temp[0]["trust_class"])
+        self.assertTrue(trusted_temp[0]["promotion_eligible"])
 
     def test_temp_base_with_final_temporary_call_result_source_is_audit_ready(self) -> None:
         comments = field_layout_comments(
@@ -2523,6 +2533,10 @@ __int64 __fastcall AllocationSubobjectRelocationLayout(unsigned int size)
         relocation = [
             item for item in comments if item.get("kind") == "inferred_offset_base_relocation_evidence"
         ]
+        mutation = [
+            item for item in comments if item.get("kind") == "inferred_offset_post_access_mutation_blocker"
+        ]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
 
@@ -2536,6 +2550,12 @@ __int64 __fastcall AllocationSubobjectRelocationLayout(unsigned int size)
         self.assertIn("moving logical layout", relocation[0]["text"])
         self.assertEqual(1, len(blockers))
         self.assertIn("base is reassigned after layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(mutation))
+        self.assertEqual("reassignment_blocked", mutation[0]["trust_class"])
+        self.assertEqual(2, mutation[0]["post_access_assignment_count"])
+        self.assertEqual(1, mutation[0]["risky_post_access_assignment_count"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("reassignment_blocked", temp_trace[0]["trust_class"])
         self.assertEqual([], ready)
 
     def test_temp_base_with_parameter_indexed_source_is_audit_ready(self) -> None:
@@ -2948,7 +2968,7 @@ __int64 __fastcall StrongContextLayout(__int64 context)
         )
 
         self.assertEqual([], weak_comments)
-        self.assertEqual(6, len(strong_comments))
+        self.assertEqual(7, len(strong_comments))
         self.assertEqual("generic", strong_comments[0]["base_kind"])
         self.assertEqual(0.78, strong_comments[0]["confidence"])
         self.assertIn("generic base", strong_comments[0]["text"])
@@ -3821,26 +3841,36 @@ __int64 __fastcall UnknownTypeConflictLayout(__int64 sessionSpace)
             """
 __int64 __fastcall CompoundAliasLayout(__int64 sessionSpace)
 {
-  sessionSpace += 8;
-  return *(_QWORD *)(sessionSpace + 16)
-       + *(_QWORD *)(sessionSpace + 24)
-       + *(_QWORD *)(sessionSpace + 32)
-       + *(_QWORD *)(sessionSpace + 40)
-       + *(_QWORD *)(sessionSpace + 48)
-       + *(_QWORD *)(sessionSpace + 56)
-       + *(_QWORD *)(sessionSpace + 64)
-       + *(_QWORD *)(sessionSpace + 72)
-       + *(_QWORD *)(sessionSpace + 16)
-       + *(_QWORD *)(sessionSpace + 24)
-       + *(_QWORD *)(sessionSpace + 32)
-       + *(_QWORD *)(sessionSpace + 40);
+  __int64 v6;
+
+  v6 = sessionSpace;
+  v6 += 8;
+  return *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40)
+       + *(_QWORD *)(v6 + 48)
+       + *(_QWORD *)(v6 + 56)
+       + *(_QWORD *)(v6 + 64)
+       + *(_QWORD *)(v6 + 72)
+       + *(_QWORD *)(v6 + 16)
+       + *(_QWORD *)(v6 + 24)
+       + *(_QWORD *)(v6 + 32)
+       + *(_QWORD *)(v6 + 40);
 }
 """
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
+        temp_blocked = [item for item in comments if item.get("kind") == "inferred_offset_temp_promotion_blocked"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base uses compound assignment", blockers[0]["blockers"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("mutation_blocked", temp_trace[0]["trust_class"])
+        self.assertIn("pointer_mutation", temp_trace[0]["block_reasons"])
+        self.assertEqual(1, len(temp_blocked))
+        self.assertEqual("mutation_blocked", temp_blocked[0]["trust_class"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_stable_same_rhs_reload_after_layout_access_does_not_block_rewrite(self) -> None:
@@ -4283,6 +4313,8 @@ __int64 __fastcall CallResultTemporaryMergeLayout(__int64 CacheMap, int reuse)
             for item in comments
             if item.get("kind") == "inferred_offset_call_result_temporary_merge_provenance"
         ]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
+        temp_blocked = [item for item in comments if item.get("kind") == "inferred_offset_temp_promotion_blocked"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
@@ -4304,6 +4336,12 @@ __int64 __fastcall CallResultTemporaryMergeLayout(__int64 CacheMap, int reuse)
         self.assertEqual("parameter", temporary["stable_source_kind"])
         self.assertTrue(temporary["has_stable_source"])
         self.assertIn("allocation_call_with_parameter_temporary", provenance[0]["text"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("call_result_temporary_review", temp_trace[0]["trust_class"])
+        self.assertEqual("call_result_temporary_branch", temp_trace[0]["branch_merge_shape"])
+        self.assertIn("call_result_temporary_branch", temp_trace[0]["block_reasons"])
+        self.assertEqual(1, len(temp_blocked))
+        self.assertEqual("call_result_temporary_review", temp_blocked[0]["trust_class"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_call_result_temporary_merge_masks_offset_source_in_comment(self) -> None:
@@ -4389,6 +4427,12 @@ __int64 __fastcall CallResultParameterMergeLayout(__int64 Object, int useCall)
             for item in comments
             if item.get("kind") == "inferred_offset_call_result_parameter_merge_provenance"
         ]
+        dominance = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_call_result_parameter_dominance"
+        ]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
@@ -4416,6 +4460,12 @@ __int64 __fastcall CallResultParameterMergeLayout(__int64 Object, int useCall)
         self.assertEqual("parameter", parameter["source_root_kind"])
         self.assertEqual("pointer_deref", parameter["branch_shape"])
         self.assertIn("parameter/call-result path dominance", provenance[0]["text"])
+        self.assertEqual(1, len(dominance))
+        self.assertEqual("call_result_parameter_review", dominance[0]["trust_class"])
+        self.assertEqual(1, dominance[0]["linked_call_result_parameter_root_count"])
+        self.assertTrue(dominance[0]["first_layout_access_guarded"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("call_result_parameter_review", temp_trace[0]["trust_class"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_bugcheck_parameter_merge_reports_identity(self) -> None:
@@ -4590,6 +4640,12 @@ __int64 __fastcall SameParameterFamilyMergeLayout(__int64 eaBuffer)
             for item in comments
             if item.get("kind") == "inferred_offset_same_source_family_merge_dominance"
         ]
+        provenance = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_same_family_merge_provenance"
+        ]
+        temp_trace = [item for item in comments if item.get("kind") == "inferred_offset_temp_provenance_trace"]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
@@ -4619,6 +4675,12 @@ __int64 __fastcall SameParameterFamilyMergeLayout(__int64 eaBuffer)
             dominance[0]["dominance_class"],
         )
         self.assertIn("same-source-family merge dominance", dominance[0]["text"].lower())
+        self.assertEqual(1, len(provenance))
+        self.assertEqual("same_family_merge_review", provenance[0]["trust_class"])
+        self.assertEqual("eaBuffer", provenance[0]["source_root"])
+        self.assertFalse(provenance[0]["first_layout_access_guarded"])
+        self.assertEqual(1, len(temp_trace))
+        self.assertEqual("same_family_merge_review", temp_trace[0]["trust_class"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_allocation_null_merge_reports_shape(self) -> None:

@@ -279,6 +279,12 @@ def field_layout_comments(
                     )
                     if same_source_dominance:
                         comments.append(same_source_dominance)
+                        same_family_provenance = _field_same_family_merge_provenance_comment(
+                            item,
+                            same_source_dominance,
+                        )
+                        if same_family_provenance:
+                            comments.append(same_family_provenance)
                     call_result_equivalence = _field_call_result_merge_equivalence_comment(
                         text or "",
                         item,
@@ -293,6 +299,12 @@ def field_layout_comments(
                     )
                     if parameter_provenance:
                         comments.append(parameter_provenance)
+                        parameter_dominance = _field_call_result_parameter_dominance_comment(
+                            item,
+                            parameter_provenance,
+                        )
+                        if parameter_dominance:
+                            comments.append(parameter_dominance)
                     bugcheck_identity = _field_bugcheck_parameter_merge_identity_comment(
                         text or "",
                         item,
@@ -310,6 +322,13 @@ def field_layout_comments(
                 relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
                 if relocation:
                     comments.append(relocation)
+                post_access_mutation = _field_post_access_mutation_blocker_comment(
+                    item,
+                    blocker,
+                    stability,
+                )
+                if post_access_mutation:
+                    comments.append(post_access_mutation)
             expression_source = _field_stable_expression_source_comment_from_layout(text or "", item, blocker)
             if expression_source:
                 comments.append(expression_source)
@@ -319,6 +338,12 @@ def field_layout_comments(
             partial_opportunity = _field_rewrite_partial_opportunity_comment(text or "", item, blocker)
             if partial_opportunity:
                 comments.append(partial_opportunity)
+            temp_trace = _field_temp_provenance_trace_comment_from_layout(text or "", item, blocker=blocker)
+            if temp_trace:
+                comments.append(temp_trace)
+                temp_blocked = _field_temp_promotion_blocked_comment_from_trace(temp_trace)
+                if temp_blocked:
+                    comments.append(temp_blocked)
         else:
             ready = _field_rewrite_ready_comment(text or "", item, profile_context)
             if ready:
@@ -326,6 +351,12 @@ def field_layout_comments(
                 rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
                 if rewrite_preview:
                     comments.append(rewrite_preview)
+                temp_trace = _field_temp_provenance_trace_comment_from_layout(text or "", item)
+                if temp_trace:
+                    comments.append(temp_trace)
+                    trusted_temp = _field_trusted_temp_source_comment_from_trace(temp_trace)
+                    if trusted_temp:
+                        comments.append(trusted_temp)
     hot_clusters = [
         item
         for item in layouts.values()
@@ -1336,6 +1367,546 @@ def _field_generic_base_trust_candidate_comment_from_layout(text: str, layout: _
         "access_count": layout.access_count,
         "threshold_policy": threshold_policy,
     }
+
+
+def _field_temp_provenance_trace_comment_from_layout(
+    text: str,
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    record = _temp_base_provenance_record(text, layout, blocker=blocker)
+    if not record:
+        return None
+    confidence = min(
+        0.78,
+        0.58 + len(layout.offsets) * 0.014 + min(layout.access_count, 20) * 0.004,
+    )
+    if record["promotion_eligible"]:
+        confidence = max(confidence, 0.72)
+    elif record["trust_class"] in {
+        "same_family_merge_review",
+        "call_result_parameter_review",
+        "call_result_temporary_review",
+    }:
+        confidence = max(confidence, 0.66)
+    source = str(record.get("source", "") or "none")
+    source_kind = str(record.get("source_kind", "") or "unknown")
+    source_provenance = str(record.get("source_provenance", "") or "unknown")
+    return {
+        "kind": "inferred_offset_temp_provenance_trace",
+        "text": (
+            "Temp-base provenance trace for %s: trust class %s, source %s (%s/%s), "
+            "origin %s, first layout access line %d, pre-access initializers %d/%d, "
+            "post-access assignments %d risky %d, pointer mutation %s, address-taken %s, "
+            "array-indexed %s, call-mutation-risk %s, branch merge %s, guard dominance %s."
+            % (
+                layout.base,
+                record["trust_class"],
+                source,
+                source_kind,
+                source_provenance,
+                record["source_origin"],
+                int(record["first_layout_access_line"]),
+                int(record["pre_access_assignment_count"]),
+                int(record["distinct_pre_access_rhs_count"]),
+                int(record["post_access_assignment_count"]),
+                int(record["risky_post_access_assignment_count"]),
+                _yes_no(bool(record["pointer_mutation"])),
+                _yes_no(bool(record["address_taken"])),
+                _yes_no(bool(record["array_indexed"])),
+                _yes_no(bool(record["call_mutation_risk"])),
+                record["branch_merge_shape"],
+                record["guard_dominance"],
+            )
+        ),
+        "confidence": round(confidence, 2),
+        **record,
+    }
+
+
+def _field_trusted_temp_source_comment_from_trace(trace: dict[str, Any]) -> dict[str, Any] | None:
+    if trace.get("base_kind") != "temp":
+        return None
+    if trace.get("trust_class") != "trusted_stable_temp":
+        return None
+    source = str(trace.get("source", "") or "none")
+    source_kind = str(trace.get("source_kind", "") or "unknown")
+    source_provenance = str(trace.get("source_provenance", "") or "unknown")
+    return {
+        "kind": "inferred_offset_trusted_temp_source",
+        "text": (
+            "Trusted temp-base source for %s: source %s (%s/%s), origin %s, "
+            "promotion ready yes, first layout access line %d. "
+            "Single-source lifetime, blocker-free mutation, and threshold gates are satisfied."
+            % (
+                trace["base"],
+                source,
+                source_kind,
+                source_provenance,
+                trace["source_origin"],
+                int(trace.get("first_layout_access_line", -1) or -1),
+            )
+        ),
+        "confidence": min(0.8, max(0.72, float(trace.get("confidence", 0.72) or 0.72))),
+        "base": trace["base"],
+        "base_kind": trace["base_kind"],
+        "source": source,
+        "source_kind": source_kind,
+        "source_provenance": source_provenance,
+        "source_origin": trace["source_origin"],
+        "trust_class": trace["trust_class"],
+        "promotion_eligible": True,
+        "offset_count": int(trace.get("offset_count", 0) or 0),
+        "access_count": int(trace.get("access_count", 0) or 0),
+    }
+
+
+def _field_temp_promotion_blocked_comment_from_trace(trace: dict[str, Any]) -> dict[str, Any] | None:
+    if trace.get("promotion_eligible"):
+        return None
+    reasons = [
+        str(item)
+        for item in trace.get("block_reasons", []) or []
+        if str(item)
+    ]
+    if not reasons:
+        reasons = [str(trace.get("trust_class", "") or "review_required")]
+    reason_text = ", ".join(reasons[:8])
+    blocker_text = "; ".join(str(item) for item in trace.get("blockers", []) or [] if str(item))
+    if not blocker_text:
+        blocker_text = "none"
+    return {
+        "kind": "inferred_offset_temp_promotion_blocked",
+        "text": (
+            "Temp-base promotion blocked for %s: trust class %s, reasons %s. "
+            "Rewrite blockers %s. Canonical rewrite remains disabled until provenance, dominance, and mutation gates are clear."
+            % (
+                trace["base"],
+                trace["trust_class"],
+                reason_text,
+                blocker_text,
+            )
+        ),
+        "confidence": min(0.78, max(0.6, float(trace.get("confidence", 0.6) or 0.6))),
+        "base": trace["base"],
+        "base_kind": trace["base_kind"],
+        "trust_class": trace["trust_class"],
+        "block_reasons": reasons,
+        "blockers": list(trace.get("blockers", []) or []),
+        "source_origin": str(trace.get("source_origin", "") or "unknown"),
+        "branch_merge_shape": str(trace.get("branch_merge_shape", "") or "none"),
+    }
+
+
+def _field_same_family_merge_provenance_comment(
+    layout: _LayoutEvidence,
+    dominance: dict[str, Any],
+) -> dict[str, Any] | None:
+    if dominance.get("merge_shape") != "same_source_family":
+        return None
+    guard_state = "present" if dominance.get("first_layout_access_guarded") else "missing"
+    branch_shapes = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(_coerce_counter_dict(dominance.get("branch_shape_counts")).items())
+    )
+    if not branch_shapes:
+        branch_shapes = "unknown"
+    return {
+        "kind": "inferred_offset_same_family_merge_provenance",
+        "text": (
+            "Same-family merge provenance for %s: root %s (%s), candidate count %d, "
+            "branch shapes %s, guard dominance %s, trust class same_family_merge_review. "
+            "Review-only until path-specific initializer dominance is validated."
+            % (
+                layout.base,
+                str(dominance.get("source_root", "") or "unknown"),
+                str(dominance.get("source_root_kind", "") or "unknown"),
+                int(dominance.get("candidate_count", 0) or 0),
+                branch_shapes,
+                guard_state,
+            )
+        ),
+        "confidence": min(0.72, max(0.64, float(dominance.get("confidence", 0.64) or 0.64))),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "trust_class": "same_family_merge_review",
+        "merge_shape": "same_source_family",
+        "source_root": str(dominance.get("source_root", "") or ""),
+        "source_root_kind": str(dominance.get("source_root_kind", "") or ""),
+        "candidate_count": int(dominance.get("candidate_count", 0) or 0),
+        "branch_shape_counts": _coerce_counter_dict(dominance.get("branch_shape_counts")),
+        "first_layout_access_guarded": bool(dominance.get("first_layout_access_guarded")),
+    }
+
+
+def _field_call_result_parameter_dominance_comment(
+    layout: _LayoutEvidence,
+    provenance: dict[str, Any],
+) -> dict[str, Any] | None:
+    if provenance.get("merge_shape") != "call_result_parameter_branch":
+        return None
+    guard_state = "present" if provenance.get("first_layout_access_guarded") else "missing"
+    parameter_roots = ", ".join(str(item) for item in provenance.get("parameter_roots", []) or [] if str(item))
+    if not parameter_roots:
+        parameter_roots = "unknown"
+    linked_count = int(provenance.get("linked_call_result_parameter_root_count", 0) or 0)
+    trust_class = "call_result_parameter_review"
+    return {
+        "kind": "inferred_offset_call_result_parameter_dominance",
+        "text": (
+            "Call-result parameter dominance for %s: linked call-result initializers %d, "
+            "parameter roots %s, guard dominance %s, trust class %s. "
+            "Review-only until parameter/call-result path dominance is validated."
+            % (
+                layout.base,
+                linked_count,
+                parameter_roots,
+                guard_state,
+                trust_class,
+            )
+        ),
+        "confidence": min(0.72, max(0.62, float(provenance.get("confidence", 0.62) or 0.62))),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "trust_class": trust_class,
+        "merge_shape": "call_result_parameter_branch",
+        "linked_call_result_parameter_root_count": linked_count,
+        "parameter_roots": list(provenance.get("parameter_roots", []) or []),
+        "first_layout_access_guarded": bool(provenance.get("first_layout_access_guarded")),
+        "provenance_class": str(provenance.get("provenance_class", "") or ""),
+    }
+
+
+def _field_post_access_mutation_blocker_comment(
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any],
+    stability: dict[str, Any],
+) -> dict[str, Any] | None:
+    blockers = [
+        str(item)
+        for item in blocker.get("blockers", []) or []
+        if str(item)
+    ]
+    mutation_reasons = [
+        item
+        for item in blockers
+        if item in {
+            "base is reassigned after layout access",
+            "base is incremented or decremented",
+            "base uses compound assignment",
+            "base address is taken",
+            "base is also indexed like an array",
+        }
+    ]
+    risky_count = int(stability.get("risky_post_access_assignment_count", 0) or 0)
+    if not mutation_reasons and risky_count <= 0:
+        return None
+    post_count = int(stability.get("post_access_assignment_count", 0) or 0)
+    reload_count = int(stability.get("stable_post_access_reload_count", 0) or 0)
+    reason_text = "; ".join(mutation_reasons[:6]) if mutation_reasons else "post-access assignment risk"
+    trust_class = "reassignment_blocked"
+    if any(reason in mutation_reasons for reason in (
+        "base is incremented or decremented",
+        "base uses compound assignment",
+        "base address is taken",
+        "base is also indexed like an array",
+    )):
+        trust_class = "mutation_blocked"
+    return {
+        "kind": "inferred_offset_post_access_mutation_blocker",
+        "text": (
+            "Post-access mutation blocker for %s: post-access assignments %d, risky %d, "
+            "stable reloads %d, reasons %s, trust class %s. "
+            "Canonical rewrite remains blocked until later layout accesses are proven to use the same base object."
+            % (
+                layout.base,
+                post_count,
+                risky_count,
+                reload_count,
+                reason_text,
+                trust_class,
+            )
+        ),
+        "confidence": min(0.76, 0.62 + min(post_count + risky_count, 6) * 0.02),
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "trust_class": trust_class,
+        "post_access_assignment_count": post_count,
+        "risky_post_access_assignment_count": risky_count,
+        "stable_post_access_reload_count": reload_count,
+        "reasons": mutation_reasons,
+    }
+
+
+def _temp_base_provenance_record(
+    text: str,
+    layout: _LayoutEvidence,
+    blocker: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_kind = _layout_base_kind(layout.base)
+    if base_kind not in {"temp", "generic", "argument", "bugcheck"}:
+        return {}
+    blockers = [
+        str(item)
+        for item in (blocker or {}).get("blockers", []) or []
+        if str(item)
+    ]
+    if blocker is None:
+        blockers = _field_rewrite_blockers(text, layout)
+    trace = _base_assignment_trace(text, layout.base)
+    first_access = _first_layout_access_start(text, layout.base)
+    identity = _stable_base_source_identity(text, layout.base)
+    trusted_identity = _trusted_stable_base_source_identity(text, layout.base)
+    if not identity and base_kind == "generic":
+        identity = _trusted_generic_parameter_layout_identity(text, layout) or {}
+        trusted_identity = identity if identity else {}
+    if not identity and base_kind == "argument":
+        identity = _trusted_decompiler_parameter_layout_identity(text, layout) or {}
+        trusted_identity = identity if identity else {}
+    source = str(identity.get("source", "") or trace.get("stable_source", "") or "")
+    source_kind = str(identity.get("source_kind", "") or trace.get("stable_source_kind", "") or "")
+    if source and not source_kind:
+        source_kind = _layout_source_kind(source)
+    source_provenance = str(identity.get("source_provenance", "") or "unknown_source_alias")
+    source_rhs_kind = str(identity.get("source_rhs_kind", "") or trace.get("stable_source_rhs_kind", "") or "")
+    merge_shape = _temp_base_merge_shape_from_blockers(text, layout, blockers, trace)
+    guard = _truthiness_guard_dominating_offset(text, layout.base, first_access)
+    pointer_mutation = _base_is_incremented(text, layout.base) or _base_uses_compound_assignment(text, layout.base)
+    address_taken = _base_address_taken(text, layout.base)
+    array_indexed = _base_has_array_index_use(text, layout.base)
+    call_mutation_risk = _base_call_mutation_risk(text, layout.base)
+    origin = _temp_base_source_origin(text, layout.base, base_kind, source, source_kind, source_provenance)
+    block_reasons = _temp_provenance_block_reasons(
+        blockers,
+        origin,
+        source,
+        source_kind,
+        source_provenance,
+        merge_shape,
+        pointer_mutation,
+        address_taken,
+        array_indexed,
+        call_mutation_risk,
+    )
+    trust_class = _temp_provenance_trust_class(
+        base_kind,
+        bool(trusted_identity),
+        blockers,
+        block_reasons,
+        origin,
+        merge_shape,
+    )
+    promotion_eligible = (
+        trust_class in {"trusted_stable_temp", "trusted_stable_source"}
+        and not blockers
+        and bool(_field_rewrite_threshold_policy(layout))
+    )
+    return {
+        "base": layout.base,
+        "base_kind": base_kind,
+        "trust_class": trust_class,
+        "source": source,
+        "source_kind": source_kind or "unknown",
+        "source_provenance": source_provenance,
+        "source_rhs_kind": source_rhs_kind or "unknown",
+        "source_origin": origin,
+        "first_layout_access": first_access,
+        "first_layout_access_line": _line_number_at(text, first_access),
+        "pre_access_assignment_count": int(trace.get("pre_access_assignment_count", 0) or 0),
+        "distinct_pre_access_rhs_count": int(trace.get("distinct_pre_access_rhs_count", 0) or 0),
+        "distinct_pre_access_rhs": list(trace.get("distinct_pre_access_rhs", []) or []),
+        "post_access_assignment_count": int(trace.get("post_access_assignment_count", 0) or 0),
+        "risky_post_access_assignment_count": int(trace.get("risky_post_access_assignment_count", 0) or 0),
+        "stable_post_access_reload_count": int(trace.get("stable_post_access_reload_count", 0) or 0),
+        "pointer_mutation": bool(pointer_mutation),
+        "address_taken": bool(address_taken),
+        "array_indexed": bool(array_indexed),
+        "call_mutation_risk": bool(call_mutation_risk),
+        "branch_merge_shape": merge_shape,
+        "guard_dominance": "present" if guard else "missing",
+        "guard_condition": str(guard.get("condition", "") if guard else ""),
+        "same_source_family": merge_shape == "same_source_family",
+        "blockers": blockers,
+        "block_reasons": block_reasons,
+        "promotion_eligible": promotion_eligible,
+        "offset_count": len(layout.offsets),
+        "access_count": layout.access_count,
+    }
+
+
+def _temp_base_merge_shape_from_blockers(
+    text: str,
+    layout: _LayoutEvidence,
+    blockers: list[str],
+    trace: dict[str, Any],
+) -> str:
+    if "base has multiple initializers before layout access" not in blockers:
+        return "none"
+    rhs_values = _trace_rhs_samples(trace.get("distinct_pre_access_rhs", []))
+    if len(rhs_values) < 2:
+        return "branch_merge"
+    families = Counter(_base_merge_source_family(text, item) for item in rhs_values)
+    kinds = Counter(_base_merge_source_candidate_kind(text, item) for item in rhs_values)
+    return _base_merge_shape(families, kinds)
+
+
+def _temp_base_source_origin(
+    text: str,
+    base: str,
+    base_kind: str,
+    source: str,
+    source_kind: str,
+    source_provenance: str,
+) -> str:
+    if _is_mmio_like_base(base) or _is_mmio_like_base(source):
+        return "global_mmio_register"
+    if base_kind == "bugcheck" or source_kind == "bugcheck":
+        return "bugcheck_debug_parameter"
+    if source_provenance in {"parameter_direct_alias", "temporary_parameter_direct_alias", "direct_argument_alias"}:
+        return "function_parameter"
+    if source_provenance in {"parameter_indirect_pointer_alias"}:
+        return "parameter_deref"
+    if source_provenance in {"parameter_field_pointer_alias"}:
+        return "field_load_from_trusted_base"
+    if source_provenance in {"parameter_back_container_alias", "parameter_subobject_pointer_alias"}:
+        return "parameter_subobject"
+    if source_provenance in {"parameter_indexed_pointer_alias"}:
+        return "parameter_indexed"
+    if source_provenance in {"allocation_subobject_pointer_alias"}:
+        return "allocation_call_result"
+    if source_provenance in {"temporary_call_result_alias"}:
+        return "call_result_temporary"
+    if source_provenance in {"local_out_parameter_alias"}:
+        return "call_result_parameter"
+    if source_provenance in {"direct_call_result_alias", "named_call_result_alias", "named_branch_call_result_alias"}:
+        call_name = _parse_any_direct_call_result_name(source)
+        if _is_allocation_like_call_result_name(call_name):
+            return "allocation_call_result"
+        if call_name.startswith("sub_") or call_name.startswith("guard_dispatch_"):
+            return "opaque_call_result"
+        return "call_result"
+    if source_kind == "temporary":
+        return "saved_alias_reload"
+    if source_kind in {"argument", "parameter"}:
+        return "function_parameter"
+    if source_kind == "named":
+        return "stack_local_aggregate"
+    if source_kind == "call_result":
+        call_name = _parse_any_direct_call_result_name(source)
+        if _is_allocation_like_call_result_name(call_name):
+            return "allocation_call_result"
+        if call_name.startswith("sub_") or call_name.startswith("guard_dispatch_"):
+            return "opaque_call_result"
+        return "call_result"
+    if source_kind == "generic":
+        return "domain_identity"
+    return "unknown"
+
+
+def _temp_provenance_block_reasons(
+    blockers: list[str],
+    origin: str,
+    source: str,
+    source_kind: str,
+    source_provenance: str,
+    merge_shape: str,
+    pointer_mutation: bool,
+    address_taken: bool,
+    array_indexed: bool,
+    call_mutation_risk: bool,
+) -> list[str]:
+    reasons: list[str] = []
+    if "base has multiple initializers before layout access" in blockers:
+        reasons.append("branch_merge")
+    if "base is reassigned after layout access" in blockers:
+        reasons.append("post_access_reassignment")
+    if pointer_mutation or "base uses compound assignment" in blockers or "base is incremented or decremented" in blockers:
+        reasons.append("pointer_mutation")
+    if address_taken or "base address is taken" in blockers:
+        reasons.append("address_taken")
+    if array_indexed or "base is also indexed like an array" in blockers:
+        reasons.append("array_indexed")
+    if call_mutation_risk:
+        reasons.append("call_mutation_risk")
+    if "rewrite offset threshold requires at least 8 offsets" in blockers:
+        reasons.append("offset_threshold_gap")
+    if "rewrite access threshold requires at least 12 accesses" in blockers:
+        reasons.append("access_threshold_gap")
+    if merge_shape in {"call_result_parameter_branch", "call_result_temporary_branch", "same_source_family"}:
+        reasons.append(merge_shape)
+    if origin in {"opaque_call_result", "global_mmio_register"}:
+        reasons.append(origin)
+    if not source or source_kind in {"", "expression", "scalar"} or source_provenance in {
+        "unknown_source_alias",
+        "missing_alias_assignment",
+        "temporary_source_alias",
+        "generic_source_alias",
+    }:
+        reasons.append("weak_or_unknown_source")
+    return list(dict.fromkeys(reasons))
+
+
+def _temp_provenance_trust_class(
+    base_kind: str,
+    has_trusted_identity: bool,
+    blockers: list[str],
+    block_reasons: list[str],
+    origin: str,
+    merge_shape: str,
+) -> str:
+    if any(item in block_reasons for item in ("pointer_mutation", "address_taken", "array_indexed", "call_mutation_risk")):
+        return "mutation_blocked"
+    if "post_access_reassignment" in block_reasons:
+        return "reassignment_blocked"
+    if merge_shape == "same_source_family":
+        return "same_family_merge_review"
+    if merge_shape == "call_result_parameter_branch":
+        return "call_result_parameter_review"
+    if merge_shape == "call_result_temporary_branch":
+        return "call_result_temporary_review"
+    if "branch_merge" in block_reasons:
+        return "branch_merge_blocked"
+    if origin == "opaque_call_result":
+        return "opaque_source_blocked"
+    if origin == "global_mmio_register":
+        return "opaque_source_blocked"
+    if "weak_or_unknown_source" in block_reasons:
+        return "weak_or_unknown_source_blocked"
+    if has_trusted_identity and not blockers:
+        if base_kind == "temp":
+            return "trusted_stable_temp"
+        return "trusted_stable_source"
+    if has_trusted_identity:
+        return "stable_review_only"
+    if base_kind in {"generic", "argument", "bugcheck"}:
+        return "stable_review_only"
+    return "weak_or_unknown_source_blocked"
+
+
+def _base_uses_compound_assignment(text: str, base: str) -> bool:
+    return any(item.group("op") != "=" for item in _base_direct_assignments(text, base))
+
+
+def _base_call_mutation_risk(text: str, base: str) -> bool:
+    if not base:
+        return False
+    escaped = re.escape(base)
+    return bool(
+        re.search(
+            r"\b[A-Za-z_][A-Za-z0-9_:~]*\s*\([^;\n]*&\s*%s\b[^;\n]*\)" % escaped,
+            text or "",
+        )
+    )
+
+
+def _line_number_at(text: str, offset: int) -> int:
+    if offset < 0:
+        return -1
+    return str(text or "")[:offset].count("\n") + 1
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
 
 
 def _field_rewrite_blocker_comment(
