@@ -53,6 +53,12 @@ Hard failures:
 - compile failure
 - invalid builtin rule pack
 - release dry-run failure
+- release package omits `ida_pseudoforge/profiles/domain_identity/*.json`,
+  `profiles_manifest.json`, or `subsystem_identity_index.json`
+- packaged runtime imports `tools.*`
+- packaged runtime no longer reports a subsystem domain hit group
+- packaged runtime ignores a profile-backed `canonical_type` parameter
+  correction smoke
 - whitespace errors from `git diff --check`
 - unexpected version mismatch between `ida_pseudoforge/version.py` and
   `ida-plugin.json`
@@ -111,6 +117,13 @@ Required checks:
 - `pseudoforge-ida-summary.json` reports `failed=0`
 - JSONL progress has one `status=ok` function record per selected EA
 - `llm_statuses` are all `disabled`
+- selected domain-pack replay functions include visible
+  `domain_structure_identity` comments, `domain_identity_summary` profile IDs,
+  and `Top subsystems` output for Object Manager, I/O Manager,
+  Registry/Configuration, Memory Manager, or Token/Security when those
+  subsystems are in scope
+- at least one focused parameter-type smoke shows
+  `parameter_type_corrections` when a matched profile provides `canonical_type`
 - `pseudoforge_cleanup_integrity.py` reports zero syntactic/artifact integrity
   issues before manual review or metric comparison
 - `pseudoforge_corpus_quality.py` writes both JSON and Markdown reports
@@ -338,8 +351,11 @@ Before running `release_pseudoforge.py` for a public release:
 6. Inspect representative raw-vs-cleaned diffs for each major cleanup change.
 7. Confirm `git status --short` contains only intended files.
 8. Confirm generated corpus and replay outputs are not staged.
-9. Write release notes with command outputs, replay size, and metric deltas.
-10. Package the release:
+9. Confirm domain-pack release gates still cover packaged runtime profile data,
+   no `tools.*` runtime import, IDA-visible subsystem hit summaries, and
+   profile-backed parameter type correction.
+10. Write release notes with command outputs, replay size, and metric deltas.
+11. Package the release:
 
 ```powershell
 python -B .\tools\release_pseudoforge.py

@@ -94,6 +94,10 @@ class ReleasePseudoForgeTests(unittest.TestCase):
         self.assertEqual(expected_profile_root, smoke["profile_root"])
         self.assertGreater(smoke["domain_profile_count"], 0)
         self.assertEqual("I/O Manager", smoke["io_manager_subsystem"])
+        self.assertEqual(1, smoke["type_correction_count"])
+        self.assertEqual("windows.io_manager.delete_device", smoke["type_correction_profile"])
+        self.assertTrue(smoke["type_corrected_signature"])
+        self.assertFalse(smoke["type_correction_apply_to_idb"])
         self.assertEqual([], smoke["tools_modules"])
 
     def test_prepare_release_no_version_bump_packages_current_version(self):
@@ -139,11 +143,27 @@ def _run_packaged_runtime_smoke(package_root: Path) -> dict[str, object]:
         import pseudoforge
         import ida_pseudoforge.ida.plugin
         import ida_pseudoforge.ida.actions
+        from ida_pseudoforge.core.capture import capture_from_pseudocode
         from ida_pseudoforge.core.domain_identity import domain_identity_profiles_available
+        from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+        from ida_pseudoforge.core.render import render_cleaned_pseudocode
         from ida_pseudoforge.profiles import loader as profile_loader
 
         domain_profiles_available = domain_identity_profiles_available()
         io_manager_metadata = profile_loader.subsystem_identity_metadata("windows.io_manager.delete_device")
+        pseudocode = (
+            "void __stdcall IoDeleteDevice(__int64 a1)\\n"
+            "{\\n"
+            "  IopCompleteUnloadOrDelete((ULONG_PTR)a1);\\n"
+            "}\\n"
+        )
+        capture = capture_from_pseudocode(
+            pseudocode,
+            source_path=r"D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64",
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        type_correction = plan.type_corrections[0] if plan.type_corrections else None
         active_profiles = profile_loader.active_profile_names()
         domain_profile_names = [
             name
@@ -162,6 +182,10 @@ def _run_packaged_runtime_smoke(package_root: Path) -> dict[str, object]:
                     "domain_profile_count": len(domain_profile_names),
                     "io_manager_subsystem": io_manager_metadata.get("subsystem", ""),
                     "profile_root": profile_loader.active_profile_root(),
+                    "type_corrected_signature": "void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)" in rendered,
+                    "type_correction_apply_to_idb": bool(type_correction.apply_to_idb) if type_correction else True,
+                    "type_correction_count": len(plan.type_corrections),
+                    "type_correction_profile": type_correction.profile_id if type_correction else "",
                     "tools_modules": tools_modules,
                 },
                 sort_keys=True,
