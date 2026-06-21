@@ -698,10 +698,21 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         )
                     if base in call_result_parameter_provenance_bases:
                         effective_disposition = "parameter_provenance_review"
-                        effective_recommended_next = (
-                            "Validate parameter/call-result path dominance before "
-                            "promoting this merged layout base."
-                        )
+                        if "opaque_call" in provenance_class and "temporary_roots" in provenance_class:
+                            effective_recommended_next = (
+                                "Resolve opaque call target and temporary roots before "
+                                "promoting this merged layout base."
+                            )
+                        elif "opaque_call" in provenance_class:
+                            effective_recommended_next = (
+                                "Resolve opaque call target before promoting this "
+                                "merged layout base."
+                            )
+                        else:
+                            effective_recommended_next = (
+                                "Validate parameter/call-result path dominance before "
+                                "promoting this merged layout base."
+                            )
                     if base in call_result_temporary_provenance_bases:
                         effective_disposition = "temporary_provenance_review"
                         if "unresolved_temporary" in provenance_class:
@@ -962,6 +973,16 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         for provenance_class in call_result_parameter_merge_provenance_classes.values()
         if "linked" in provenance_class
     )
+    layout_call_result_parameter_merge_provenance_opaque = sum(
+        1
+        for provenance_class in call_result_parameter_merge_provenance_classes.values()
+        if "opaque_call" in provenance_class
+    )
+    layout_call_result_parameter_merge_provenance_with_temporary_roots = sum(
+        1
+        for provenance_class in call_result_parameter_merge_provenance_classes.values()
+        if "temporary_roots" in provenance_class
+    )
     layout_call_result_temporary_merge_provenance_unresolved = sum(
         1
         for provenance_class in call_result_temporary_merge_provenance_classes.values()
@@ -1077,6 +1098,12 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "layout_call_result_temporary_merge_provenance": layout_call_result_temporary_merge_provenance,
         "layout_call_result_parameter_merge_provenance_linked": (
             layout_call_result_parameter_merge_provenance_linked
+        ),
+        "layout_call_result_parameter_merge_provenance_opaque": (
+            layout_call_result_parameter_merge_provenance_opaque
+        ),
+        "layout_call_result_parameter_merge_provenance_with_temporary_roots": (
+            layout_call_result_parameter_merge_provenance_with_temporary_roots
         ),
         "layout_call_result_temporary_merge_provenance_unresolved": (
             layout_call_result_temporary_merge_provenance_unresolved
@@ -1639,6 +1666,10 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_call_result_temporary_merge_provenance")
     if metrics["layout_call_result_parameter_merge_provenance_linked"]:
         reasons.append("layout_call_result_parameter_provenance_linked")
+    if metrics["layout_call_result_parameter_merge_provenance_opaque"]:
+        reasons.append("layout_call_result_parameter_provenance_opaque")
+    if metrics["layout_call_result_parameter_merge_provenance_with_temporary_roots"]:
+        reasons.append("layout_call_result_parameter_provenance_with_temporary_roots")
     if metrics["layout_call_result_temporary_merge_provenance_traced"]:
         reasons.append("layout_call_result_temporary_provenance_traced")
     if metrics["layout_call_result_temporary_merge_provenance_unresolved"]:
@@ -1800,6 +1831,12 @@ def _score_model() -> dict[str, Any]:
             "call_result_temporary_merge_disposition": "temporary_provenance_review",
             "call_result_parameter_linked_metric": (
                 "layout_call_result_parameter_merge_provenance_linked"
+            ),
+            "call_result_parameter_opaque_metric": (
+                "layout_call_result_parameter_merge_provenance_opaque"
+            ),
+            "call_result_parameter_temporary_roots_metric": (
+                "layout_call_result_parameter_merge_provenance_with_temporary_roots"
             ),
             "call_result_temporary_traced_metric": (
                 "layout_call_result_temporary_merge_provenance_traced"
