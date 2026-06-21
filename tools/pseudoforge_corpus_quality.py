@@ -97,6 +97,21 @@ FIELD_HOT_CLUSTER_DETAIL_RE = re.compile(
     r"no structure type or body rewrite was inferred\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
+FIELD_INDEXED_CALLBACK_TABLE_RE = re.compile(
+    r"-\s+inferred_offset_indexed_callback_table_evidence:"
+)
+FIELD_INDEXED_CALLBACK_TABLE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_indexed_callback_table_evidence:\s+"
+    r"Indexed layout evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s+\((?P<base_kind>[a-z ]+)\s+base\):\s+"
+    r"(?P<access_count>\d+)\s+indexed/callback access\(es\)\s+across\s+"
+    r"(?P<slot_count>\d+)\s+slot\(s\);\s+scalar indexes\s+"
+    r"(?P<scalar_indexes>.*?);\s+callback slots\s+"
+    r"(?P<callback_slots>.*?)\.\s+"
+    r"(?:Alias bases\s+(?P<alias_bases>.*?)\.\s+)?"
+    r"Review-only;\s+indexed table access is not used for canonical field rewrite\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
 FIELD_SUBFIELD_OVERLAY_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_subfield_overlays:\s+"
@@ -391,6 +406,10 @@ def analyze_corpus(
     hot_field_cluster_base_kinds: Counter[str] = Counter()
     hot_field_cluster_field_types: Counter[str] = Counter()
     hot_field_cluster_totals = Counter()
+    indexed_callback_table_bases: Counter[str] = Counter()
+    indexed_callback_table_base_kinds: Counter[str] = Counter()
+    indexed_callback_table_alias_bases: Counter[str] = Counter()
+    indexed_callback_table_totals = Counter()
     stable_base_source_bases: Counter[str] = Counter()
     stable_base_source_sources: Counter[str] = Counter()
     stable_base_source_kinds: Counter[str] = Counter()
@@ -458,6 +477,7 @@ def analyze_corpus(
     top_narrow_subfield_functions = []
     top_bitfield_alias_functions = []
     top_hot_field_cluster_functions = []
+    top_indexed_callback_table_functions = []
     top_stable_base_source_functions = []
     top_base_stability_functions = []
     top_generic_base_evidence_functions = []
@@ -530,6 +550,7 @@ def analyze_corpus(
                     narrow_subfields,
                     bitfield_aliases,
                     hot_field_clusters,
+                    indexed_callback_tables,
                     stable_base_sources,
                     base_stability,
                     generic_base_evidence,
@@ -586,6 +607,13 @@ def analyze_corpus(
                     hot_field_cluster_bases,
                     hot_field_cluster_base_kinds,
                     hot_field_cluster_field_types,
+                )
+                _update_layout_indexed_callback_table_metrics(
+                    indexed_callback_tables,
+                    indexed_callback_table_totals,
+                    indexed_callback_table_bases,
+                    indexed_callback_table_base_kinds,
+                    indexed_callback_table_alias_bases,
                 )
                 _update_layout_stable_base_source_metrics(
                     stable_base_sources,
@@ -681,6 +709,15 @@ def analyze_corpus(
                 if hot_field_clusters:
                     top_hot_field_cluster_functions.append(
                         _hot_field_cluster_function_summary(name, ea, summary_path, hot_field_clusters)
+                    )
+                if indexed_callback_tables:
+                    top_indexed_callback_table_functions.append(
+                        _indexed_callback_table_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            indexed_callback_tables,
+                        )
                     )
                 if stable_base_sources:
                     top_stable_base_source_functions.append(
@@ -1048,6 +1085,13 @@ def analyze_corpus(
             "field_types": _counter_to_dict(Counter(dict(hot_field_cluster_field_types.most_common(top)))),
             "top_functions": top_hot_field_cluster_functions[:top],
         },
+        "layout_indexed_callback_table_stats": {
+            "totals": _counter_to_dict(indexed_callback_table_totals),
+            "top_bases": _counter_to_dict(Counter(dict(indexed_callback_table_bases.most_common(top)))),
+            "base_kinds": _counter_to_dict(Counter(dict(indexed_callback_table_base_kinds.most_common(top)))),
+            "alias_bases": _counter_to_dict(Counter(dict(indexed_callback_table_alias_bases.most_common(top)))),
+            "top_functions": top_indexed_callback_table_functions[:top],
+        },
         "layout_stable_base_source_stats": {
             "totals": _counter_to_dict(stable_base_source_totals),
             "top_bases": _counter_to_dict(Counter(dict(stable_base_source_bases.most_common(top)))),
@@ -1196,6 +1240,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
     hot_field_cluster_stats = _coerce_dict(report.get("layout_hot_field_cluster_stats", {}))
+    indexed_callback_table_stats = _coerce_dict(report.get("layout_indexed_callback_table_stats", {}))
     stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
     base_stability_stats = _coerce_dict(report.get("layout_base_stability_stats", {}))
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
@@ -1215,6 +1260,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     narrow_subfield_totals = _coerce_dict(narrow_subfield_stats.get("totals", {}))
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
     hot_field_cluster_totals = _coerce_dict(hot_field_cluster_stats.get("totals", {}))
+    indexed_callback_table_totals = _coerce_dict(indexed_callback_table_stats.get("totals", {}))
     stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
     base_stability_totals = _coerce_dict(base_stability_stats.get("totals", {}))
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
@@ -2113,6 +2159,76 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_top_field_access_count", 0) or 0),
                 _markdown_table_cell(base_kinds),
                 _markdown_table_cell(field_types),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Indexed Callback Table Evidence",
+            "",
+            "- Indexed/callback evidence comments: `%s` across `%s` functions"
+            % (
+                indexed_callback_table_totals.get("evidence_comments", 0),
+                indexed_callback_table_totals.get("functions_with_evidence_comments", 0),
+            ),
+            "- Indexed/callback access observations: `%s`"
+            % indexed_callback_table_totals.get("access_observations", 0),
+            "- Indexed/callback slot observations: `%s`"
+            % indexed_callback_table_totals.get("slot_observations", 0),
+            "",
+            "### Indexed Callback Base Kinds",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(indexed_callback_table_stats.get("base_kinds", {})), "Kind"))
+    lines.extend(
+        [
+            "",
+            "### Indexed Callback Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(indexed_callback_table_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Indexed Callback Alias Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(indexed_callback_table_stats.get("alias_bases", {})), "Alias"))
+    lines.extend(
+        [
+            "",
+            "### Highest Indexed Callback Functions",
+            "",
+            "| Function | EA | Evidence | Max slots | Max accesses | Base kinds | Alias bases | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in indexed_callback_table_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        base_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("base_kinds", {})).items()
+        )
+        alias_bases = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("alias_bases", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("evidence_count", 0) or 0),
+                int(item.get("max_slot_count", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                _markdown_table_cell(base_kinds),
+                _markdown_table_cell(alias_bases),
                 bases,
             )
         )
@@ -3480,7 +3596,7 @@ def _update_text_metrics(
 ]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -3491,6 +3607,7 @@ def _update_text_metrics(
     narrow_subfields = _extract_layout_narrow_subfields(text)
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
     hot_field_clusters = _extract_layout_hot_field_clusters(text)
+    indexed_callback_tables = _extract_layout_indexed_callback_tables(text)
     stable_base_sources = _extract_layout_stable_base_sources(text)
     base_stability = _extract_layout_base_stability(text)
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
@@ -3544,6 +3661,13 @@ def _update_text_metrics(
         FIELD_HOT_CLUSTER_RE,
         "inferred_offset_field_hot_clusters",
         "functions_with_inferred_offset_field_hot_clusters",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_INDEXED_CALLBACK_TABLE_RE,
+        "inferred_offset_indexed_callback_table_evidence",
+        "functions_with_inferred_offset_indexed_callback_table_evidence",
     )
     _count_pattern(
         text_totals,
@@ -3670,6 +3794,7 @@ def _update_text_metrics(
         narrow_subfields,
         bitfield_aliases,
         hot_field_clusters,
+        indexed_callback_tables,
         stable_base_sources,
         base_stability,
         generic_base_evidence,
@@ -5072,6 +5197,45 @@ def _extract_layout_hot_field_clusters(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_indexed_callback_tables(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_INDEXED_CALLBACK_TABLE_DETAIL_RE.finditer(text or ""):
+        scalar_indexes = _parse_indexed_callback_slots(match.group("scalar_indexes"), "index")
+        callback_slots = _parse_indexed_callback_slots(match.group("callback_slots"), "slot")
+        alias_bases = _parse_indexed_callback_alias_bases(
+            match.groupdict().get("alias_bases") or ""
+        )
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "base_kind": match.group("base_kind").replace(" ", "_"),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "slot_count": _int_value(match.group("slot_count"), 0),
+                "scalar_indexes": scalar_indexes,
+                "callback_slots": callback_slots,
+                "alias_bases": alias_bases,
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
+def _parse_indexed_callback_slots(value: str, prefix: str) -> list[int]:
+    slots = []
+    pattern = re.compile(r"\b%s_(?P<slot>\d+)\b" % re.escape(prefix))
+    for match in pattern.finditer(str(value or "")):
+        slots.append(_int_value(match.group("slot"), 0))
+    return slots
+
+
+def _parse_indexed_callback_alias_bases(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in str(value or "").split(",")
+        if item.strip() and item.strip().lower() != "none"
+    ]
+
+
 def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
     candidates = []
     for match in FIELD_STABLE_BASE_SOURCE_DETAIL_RE.finditer(text or ""):
@@ -5681,6 +5845,28 @@ def _update_layout_hot_field_cluster_metrics(
         base_kinds[str(candidate.get("base_kind", "") or "unknown")] += 1
         for field in fields:
             field_types[str(field.get("type", "") or "unknown")] += 1
+
+
+def _update_layout_indexed_callback_table_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    base_kinds: Counter[str],
+    alias_bases: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_evidence_comments"] += 1
+    for candidate in candidates:
+        totals["evidence_comments"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["slot_observations"] += _int_value(candidate.get("slot_count"), 0)
+        totals["scalar_index_observations"] += len(candidate.get("scalar_indexes", []) or [])
+        totals["callback_slot_observations"] += len(candidate.get("callback_slots", []) or [])
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        base_kinds[str(candidate.get("base_kind", "") or "unknown")] += 1
+        for alias_base in candidate.get("alias_bases", []) or []:
+            alias_bases[str(alias_base)] += 1
 
 
 def _update_layout_stable_base_source_metrics(
@@ -6529,6 +6715,34 @@ def _hot_field_cluster_function_summary(
         "max_offsets": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_top_field_access_count": top_field_access_count,
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _indexed_callback_table_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    base_kinds = Counter(
+        str(item.get("base_kind", "") or "unknown")
+        for item in candidates
+    )
+    alias_bases = Counter()
+    for candidate in candidates:
+        for alias_base in candidate.get("alias_bases", []) or []:
+            alias_bases[str(alias_base)] += 1
+    return {
+        "ea": ea,
+        "name": name,
+        "evidence_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "base_kinds": _counter_to_dict(Counter(dict(base_kinds.most_common(5)))),
+        "alias_bases": _counter_to_dict(Counter(dict(alias_bases.most_common(5)))),
+        "max_slot_count": max((_int_value(item.get("slot_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),
     }
