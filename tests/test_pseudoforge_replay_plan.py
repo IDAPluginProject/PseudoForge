@@ -886,6 +886,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                     "    Kernel insights:",
                     "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v21: base is a decompiler temporary; one or more offsets mix irregular field access widths; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
                     "      - inferred_offset_base_merge_evidence: Base merge evidence for v21: 3 initializer(s) before first layout access across 3 source candidate(s): RtlpInterlockedPopEntrySList(&P->ListHead); RtlpInterlockedPopEntrySList(&L->ListHead); guard_dispatch_icall_no_overrides((unsigned int)L->Type, L->Size). Candidate classes call_result=3. Source families call_result:RtlpInterlockedPopEntrySList=2, call_result:guard_dispatch_icall_no_overrides((unsigned int)L->Type, L->Size=1; disposition distinct_source_family_review. Candidate kinds call_result=2, indirect_call_result=1. Merge shape call_result_branch (medium_high risk); next review call-result object equivalence. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.71",
+                    "      - inferred_offset_call_result_merge_equivalence: Call-result merge equivalence for v21: 3 call-result initializer(s), 2 direct call(s), 1 indirect dispatch call(s), 0 opaque call(s). Call families RtlpInterlockedPopEntrySList=2, guard_dispatch_icall_no_overrides=1; equivalence class direct_call_with_indirect_fallback. Keep canonical rewrite blocked until call-result object equivalence is validated. confidence=0.64",
                     "*/",
                     "__int64 __fastcall CallResultMerge(__int64 P, __int64 L)",
                     "{",
@@ -909,6 +910,13 @@ __int64 __fastcall ValidatedPartial(__int64 context)
 
             plan = build_replay_plan(root, limit=1)
 
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_call_result_merge_equivalence"])
+            self.assertIn("layout_call_result_merge_equivalence", item["reasons"])
+            self.assertEqual(
+                "v21",
+                item["offset_base_counts"]["call_result_merge_equivalence"][0]["base"],
+            )
             source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
             self.assertEqual("CallResultMerge", source_queue[0]["function"])
             self.assertEqual("v21", source_queue[0]["base"])

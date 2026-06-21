@@ -38,6 +38,7 @@ CLEANED = r"""
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
       - inferred_offset_base_stability: Base stability evidence for v14: 2 initializer(s) before first layout access across 2 distinct RHS (argument2; argument3); 1 post-access assignment(s), 1 followed by later layout access. Post-access assignment samples: relocation-sensitive RHS argument3. Review initializer dominance before enabling canonical rewrite. confidence=0.70
       - inferred_offset_base_merge_evidence: Base merge evidence for v14: 2 initializer(s) before first layout access across 2 source candidate(s): argument2; argument3. Candidate classes identifier=2. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.70
+      - inferred_offset_call_result_merge_equivalence: Call-result merge equivalence for v18: 3 call-result initializer(s), 2 direct call(s), 1 indirect dispatch call(s), 0 opaque call(s). Call families RtlpInterlockedPopEntrySList=2, guard_dispatch_icall_no_overrides=1; equivalence class direct_call_with_indirect_fallback. Keep canonical rewrite blocked until call-result object equivalence is validated. confidence=0.64
       - inferred_offset_call_result_parameter_merge_provenance: Call-result/parameter merge provenance for v15: 1 call-result initializer(s), 1 parameter-root candidate(s), 0 temporary-root candidate(s). Call families LookupLayoutObject=1. Parameter roots argument2. Parameter candidates *argument2 [pointer_deref]. Temporary roots none. 1 call-result initializer(s) mention parameter root(s). First layout access is not dominated by a base truthiness guard. Provenance class call_result_with_parameter_root_linked_arguments_pointer_deref. Keep canonical rewrite blocked until parameter/call-result path dominance is validated. confidence=0.65
       - inferred_offset_call_result_temporary_merge_provenance: Call-result/temporary merge provenance for v17: 1 call-result initializer(s), 1 temporary-root candidate(s). Call families ExAllocateFromLookasideListEx=1. Temporary roots v29 stable=deref(_QWORD,referencedObject@0x28). Provenance class allocation_call_with_temporary. Keep canonical rewrite blocked until temporary source dominance is validated. confidence=0.64
       - inferred_offset_bugcheck_parameter_merge_identity: Bugcheck-parameter merge identity for v16: 2 bugcheck-root candidate(s), 0 temporary-root candidate(s). Bugcheck roots BugCheckParameter3, BugCheckParameter2. Bugcheck candidates BugCheckParameter3 [direct_root 0x0]; BugCheckParameter2 [direct_root 0x0]. Temporary roots none. First layout access is not dominated by a base truthiness guard. Identity class multiple_bugcheck_roots. Treat BugCheckParameter names as unresolved decompiler identity; keep canonical rewrite blocked until domain-specific pointer meaning is validated. confidence=0.61
@@ -1364,6 +1365,10 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(
                 1,
                 report["text_stats"]["inferred_offset_call_result_parameter_merge_provenance"],
+            )
+            self.assertEqual(
+                1,
+                report["text_stats"]["inferred_offset_call_result_merge_equivalence"],
             )
             self.assertEqual(
                 1,
