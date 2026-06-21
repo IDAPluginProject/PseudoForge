@@ -2359,7 +2359,37 @@ def _call_result_temporary_provenance_class(
 
 
 def _comment_safe_snippet(value: str) -> str:
-    return str(value or "").replace("/*", "/ *").replace("*/", "* /")
+    text = str(value or "").replace("/*", "/ *").replace("*/", "* /")
+
+    def replace_offset_deref(match: re.Match[str]) -> str:
+        type_text = _normalize_type_name(match.group("type"))
+        base = match.group("base")
+        op = match.group("op")
+        offset_text = match.group("offset")
+        try:
+            offset = int(
+                offset_text,
+                16 if offset_text.lower().startswith("0x") else 10,
+            )
+        except ValueError:
+            return match.group(0)
+        if op == "-":
+            offset = -offset
+        if offset < 0:
+            rendered_offset = "-0x%X" % abs(offset)
+        else:
+            rendered_offset = "0x%X" % offset
+        return "deref(%s,%s@%s)" % (type_text, base, rendered_offset)
+
+    return re.sub(
+        r"\*\s*\(\s*(?P<type>[^()]+?)\s*\*\s*\)\s*"
+        r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*"
+        r"(?P<op>[+-])\s*"
+        r"(?P<offset>0x[0-9A-Fa-f]+|\d+)"
+        r"(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)",
+        replace_offset_deref,
+        text,
+    )
 
 
 def _call_result_merge_candidates(text: str, values: Any) -> list[dict[str, Any]]:
