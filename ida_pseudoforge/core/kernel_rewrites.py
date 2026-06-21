@@ -45,6 +45,11 @@ _POINTER_SIZED_CAST_PATTERN = (
 )
 
 
+def clear_profile_dependent_kernel_rewrite_caches() -> None:
+    _profile_structure_layout.cache_clear()
+    _ob_pre_operation_original_desired_access_offsets.cache_clear()
+
+
 INFERRED_PROVIDER_TYPE = "\n".join(
     [
         "// PseudoForge: inferred record layout from LIST_ENTRY and pool allocation usage.",

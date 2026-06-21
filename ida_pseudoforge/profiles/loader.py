@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from functools import lru_cache
 from typing import Any
 from pathlib import Path
@@ -204,6 +205,32 @@ def clear_profile_caches() -> None:
     get_thread_information_class_value.cache_clear()
     _PROFILE_LOAD_WARNINGS.clear()
     _ACTIVE_PROFILE_NAMES.clear()
+    _clear_profile_dependent_runtime_caches()
+
+
+def _clear_profile_dependent_runtime_caches() -> None:
+    clearers = (
+        (
+            "ida_pseudoforge.core.kernel_rewrites",
+            "clear_profile_dependent_kernel_rewrite_caches",
+        ),
+        (
+            "ida_pseudoforge.core.buffer_contracts",
+            "clear_profile_dependent_buffer_contract_caches",
+        ),
+        (
+            "ida_pseudoforge.core.render_status",
+            "clear_profile_dependent_render_status_caches",
+        ),
+    )
+    for module_name, function_name in clearers:
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        clear_func = getattr(module, function_name, None)
+        if clear_func is None:
+            continue
+        clear_func()
 
 
 @lru_cache(maxsize=None)

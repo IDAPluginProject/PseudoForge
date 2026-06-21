@@ -136,6 +136,12 @@ _TYPE_LIKE_CALL_RE = re.compile(r"^_{1,2}(?:u?int(?:8|16|32|64)|m(?:64|128i?|256
 _IRP_ASSOCIATED_IRP_OFFSET_X64 = 0x18
 
 
+def clear_profile_dependent_buffer_contract_caches() -> None:
+    _profile_field_layout_for_pointer_type.cache_clear()
+    _profile_structure_field_layout.cache_clear()
+    _profile_structure_size.cache_clear()
+
+
 @dataclass(slots=True)
 class CaseContextAccess:
     base: str

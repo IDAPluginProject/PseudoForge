@@ -17,6 +17,10 @@ except Exception:
 MM_INTERNAL_PAGE_READ_REQUIRED_STATUS = "MI_STATUS_PAGE_READ_REQUIRED"
 
 
+def clear_profile_dependent_render_status_caches() -> None:
+    _ntstatus_returning_api_names.cache_clear()
+
+
 def _replace_status_returns(text: str) -> str:
     return _replace_status_literals(text, None)
 

@@ -4,12 +4,14 @@ import difflib
 import json
 import os
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.profiles import loader as profile_loader
 from tests.fixtures.ntset_samples import NTSET_SYSTEM_INFORMATION_SAMPLE
 from tests.fixtures.snapshot_samples import (
     DRIVER_ENTRY_SAMPLE,
@@ -119,6 +121,9 @@ def _write_snapshot(path: Path, text: str) -> None:
 class RenderSnapshotTests(unittest.TestCase):
     maxDiff = None
 
+    def tearDown(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
     def test_rendered_output_matches_golden_snapshots(self) -> None:
         for case in SNAPSHOT_CASES:
             with self.subTest(case=case["name"]):
@@ -148,6 +153,27 @@ class RenderSnapshotTests(unittest.TestCase):
                         )
                     )
                     self.fail("Renderer snapshot mismatch:\n%s" % diff)
+
+    def test_profile_directory_switch_clears_profile_backed_rewrite_caches(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                profile_loader.configure_profile_dir(temp_dir)
+                primed_without_profile = _render_snapshot(OB_PRE_OPERATION_SAMPLE, None)
+                self.assertIn("*(_DWORD *)preOperationInfo", primed_without_profile)
+
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+            rendered = _render_snapshot(OB_PRE_OPERATION_SAMPLE, None)
+
+            self.assertIn("preOperationInfo->Operation == 1", rendered)
+            self.assertIn(
+                "preOperationInfo->Parameters->CreateHandleInformation.OriginalDesiredAccess",
+                rendered,
+            )
+            self.assertNotIn("*(_DWORD *)preOperationInfo", rendered)
+        finally:
+            profile_loader.PROFILE_DIR = original_dir
+            profile_loader.clear_profile_caches()
 
 
 if __name__ == "__main__":
