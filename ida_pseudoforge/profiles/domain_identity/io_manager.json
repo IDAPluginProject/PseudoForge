@@ -228,10 +228,17 @@
       "parameters": [
         {
           "parameter_index": 0,
+          "rename_to": "deviceObject",
           "role": "deviceObject",
           "structure": "DEVICE_OBJECT",
           "mode": "report-only",
           "confidence": 0.92,
+          "canonical_type": "PDEVICE_OBJECT",
+          "canonical_name": "deviceObject",
+          "type_source": "IoDeleteDevice WDK prototype and reviewed I/O Manager profile",
+          "type_confidence": 0.92,
+          "apply_to_preview": true,
+          "apply_to_idb": false,
           "accepted_types": [
             "PDEVICE_OBJECT",
             "struct _DEVICE_OBJECT *",

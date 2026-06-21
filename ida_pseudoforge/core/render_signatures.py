@@ -10,8 +10,12 @@ from ida_pseudoforge.core.kernel_semantics import (
     looks_like_registry_callback_registration,
     looks_like_zw_api_probe,
 )
-from ida_pseudoforge.core.normalize import extract_function_name
-from ida_pseudoforge.core.plan_schema import FunctionCapture
+from ida_pseudoforge.core.normalize import (
+    extract_function_name,
+    find_matching_paren,
+    split_parameters_with_spans,
+)
+from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, ParameterTypeCorrection
 from ida_pseudoforge.core.render_callbacks import (
     apply_known_callback_signature as _apply_known_callback_signature_impl,
     normalize_callback_registration_toggle_body as _normalize_callback_registration_toggle_body,
@@ -56,6 +60,38 @@ def apply_known_callback_signature(text: str, capture: FunctionCapture) -> str:
     return _apply_known_callback_signature_impl(text, capture, find_signature_end)
 
 
+def apply_profile_parameter_type_corrections(
+    text: str,
+    capture: FunctionCapture,
+    plan: CleanPlan,
+) -> str:
+    corrections = {
+        item.parameter_index: item
+        for item in plan.type_corrections
+        if item.apply_to_preview and not item.blockers and item.canonical_type
+    }
+    if not corrections:
+        return text
+
+    function_name = capture.name or extract_function_name(capture.prototype)
+    if not function_name:
+        return text
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not re.search(r"\b%s\s*\(" % re.escape(function_name), line):
+            continue
+        end_index = find_signature_end(lines, index)
+        if end_index < index:
+            return text
+        signature = "\n".join(lines[index:end_index + 1])
+        corrected = _correct_signature_parameters(signature, corrections)
+        if corrected == signature:
+            return text
+        lines = lines[:index] + corrected.splitlines() + lines[end_index + 1:]
+        return "\n".join(lines)
+    return text
+
+
 def apply_known_signature_body_rewrites(text: str, capture: FunctionCapture) -> str:
     function_name = capture.name or extract_function_name(capture.prototype)
     if function_name != "NtSetSystemInformation":
@@ -71,6 +107,48 @@ def apply_known_signature_body_rewrites(text: str, capture: FunctionCapture) -> 
             return _normalize_zw_api_probe_body(text)
         return text
     return _normalize_ntset_system_information_body(text)
+
+
+def _correct_signature_parameters(
+    signature: str,
+    corrections: dict[int, ParameterTypeCorrection],
+) -> str:
+    open_index = signature.find("(")
+    close_index = find_matching_paren(signature, open_index)
+    if open_index < 0 or close_index <= open_index:
+        return signature
+    parameter_text = signature[open_index + 1:close_index]
+    parameters = split_parameters_with_spans(parameter_text)
+    if not parameters:
+        return signature
+
+    replacements: list[tuple[int, int, str]] = []
+    for parameter_index, (_parameter, span) in enumerate(parameters):
+        correction = corrections.get(parameter_index)
+        if correction is None:
+            continue
+        current_name = _parameter_name(_parameter)
+        if not current_name:
+            continue
+        render_name = current_name
+        if current_name == correction.new_name:
+            render_name = correction.new_name
+        elif current_name == correction.old_name and correction.new_name == correction.old_name:
+            render_name = correction.new_name
+        replacement = "%s %s" % (correction.canonical_type, render_name)
+        replacements.append((span[0], span[1], replacement))
+
+    if not replacements:
+        return signature
+    updated_parameters = parameter_text
+    for start, end, replacement in sorted(replacements, reverse=True):
+        updated_parameters = updated_parameters[:start] + replacement + updated_parameters[end:]
+    return signature[:open_index + 1] + updated_parameters + signature[close_index:]
+
+
+def _parameter_name(parameter: str) -> str:
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^\]]*\])?$", parameter.strip())
+    return match.group(1) if match else ""
 
 
 def find_signature_end(lines: list[str], start_index: int) -> int:

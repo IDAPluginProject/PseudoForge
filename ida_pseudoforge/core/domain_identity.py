@@ -11,6 +11,7 @@ from ida_pseudoforge.core.normalize import (
     extract_function_signature,
     extract_parameters_from_signature,
 )
+from ida_pseudoforge.core.plan_schema import ParameterTypeCorrection
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -206,6 +207,35 @@ def domain_identity_parameter_renames(
             if rename:
                 candidates.append(rename)
     return _dedupe_parameter_renames(candidates)
+
+
+def domain_identity_parameter_type_corrections(
+    text: str,
+    profile_context: dict[str, Any] | None = None,
+) -> list[ParameterTypeCorrection]:
+    if not domain_identity_profiles_available():
+        return []
+    signature = extract_function_signature(text or "")
+    function_name = extract_function_name(signature)
+    full_name = _extract_full_function_name(signature)
+    parameters = extract_parameters_from_signature(signature)
+    candidates: list[ParameterTypeCorrection] = []
+    for profile in _domain_identity_profiles():
+        if not _function_matches(profile, function_name, full_name, signature, text or ""):
+            continue
+        if not _profile_parameter_shape_matches(profile, parameters):
+            continue
+        profile_blockers = _profile_context_blockers(profile, profile_context)
+        for parameter in _profile_parameters(profile):
+            correction = _parameter_type_correction(
+                profile,
+                parameter,
+                parameters,
+                profile_blockers,
+            )
+            if correction:
+                candidates.append(correction)
+    return _dedupe_parameter_type_corrections(candidates)
 
 
 def _candidate_matches(
@@ -549,6 +579,102 @@ def _dedupe_parameter_renames(
         for old, item in sorted(selected.items(), key=lambda pair: pair[1].parameter_index)
         if old not in conflicts
     ]
+
+
+def _parameter_type_correction(
+    profile: dict[str, Any],
+    parameter: dict[str, Any],
+    parameters: list[tuple[str, str]],
+    profile_blockers: list[str],
+) -> ParameterTypeCorrection | None:
+    raw_type = parameter.get("canonical_type", parameter.get("display_type", ""))
+    if raw_type in (None, ""):
+        return None
+    parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
+    if parameter_index < 0 or parameter_index >= len(parameters):
+        return None
+    old_name, old_type = parameters[parameter_index]
+    if not _parameter_type_matches(parameter, old_type):
+        return None
+
+    canonical_type = _safe_type_correction_text(raw_type)
+    blockers = list(profile_blockers)
+    if not canonical_type:
+        blockers.append("invalid_canonical_type")
+    new_name = _safe_identifier_text(
+        parameter.get(
+            "canonical_name",
+            parameter.get("display_name", parameter.get("rename_to", parameter.get("role", old_name))),
+        ),
+        old_name,
+    )
+    confidence = _float_value(parameter.get("type_confidence", parameter.get("confidence")), 0.72)
+    confidence = round(max(0.0, min(0.98, confidence)), 2)
+    mode = _mode_value(parameter.get("mode"))
+    if mode != MODE_REPORT_ONLY and confidence < 0.75:
+        blockers.append("low_confidence")
+    effective_mode = MODE_REPORT_ONLY if blockers else mode
+    apply_to_preview = _bool_value(parameter.get("apply_to_preview"), True) and not blockers
+    return ParameterTypeCorrection(
+        parameter_index=parameter_index,
+        old_name=old_name,
+        new_name=new_name,
+        old_type=old_type,
+        canonical_type=canonical_type,
+        profile_id=_profile_id(profile),
+        source=_safe_note_text(parameter.get("type_source", parameter.get("source", ""))) or _profile_source(profile, parameter),
+        provenance=_safe_note_text(parameter.get("type_provenance", parameter.get("provenance", "")))
+        or _profile_source(profile, parameter),
+        confidence=confidence,
+        effective_mode=effective_mode,
+        blockers=list(dict.fromkeys(blockers)),
+        apply_to_preview=apply_to_preview,
+        apply_to_idb=_bool_value(parameter.get("apply_to_idb"), False),
+    )
+
+
+def _dedupe_parameter_type_corrections(
+    candidates: list[ParameterTypeCorrection],
+) -> list[ParameterTypeCorrection]:
+    by_index: dict[int, list[ParameterTypeCorrection]] = {}
+    for item in candidates:
+        by_index.setdefault(item.parameter_index, []).append(item)
+
+    result: list[ParameterTypeCorrection] = []
+    for parameter_index, items in sorted(by_index.items()):
+        active = [item for item in items if item.apply_to_preview]
+        active_shapes = {
+            (item.canonical_type, item.new_name)
+            for item in active
+            if item.canonical_type
+        }
+        if len(active_shapes) > 1:
+            first = sorted(items, key=lambda item: item.profile_id)[0]
+            result.append(
+                ParameterTypeCorrection(
+                    parameter_index=parameter_index,
+                    old_name=first.old_name,
+                    new_name=first.old_name,
+                    old_type=first.old_type,
+                    canonical_type="",
+                    profile_id="ambiguous",
+                    source=first.source,
+                    provenance=", ".join(sorted({item.profile_id for item in items if item.profile_id})),
+                    confidence=min(0.54, first.confidence),
+                    effective_mode=MODE_REPORT_ONLY,
+                    blockers=["ambiguous_profile_match"],
+                    apply_to_preview=False,
+                    apply_to_idb=False,
+                )
+            )
+            continue
+
+        selected = sorted(
+            items,
+            key=lambda item: (not item.apply_to_preview, -item.confidence, item.profile_id),
+        )[0]
+        result.append(selected)
+    return result
 
 
 def _parameter_match(
@@ -997,6 +1123,19 @@ def _safe_type_text(value: Any) -> str:
         return "unknown"
     if re.search(r"[^A-Za-z0-9_\s\*\:]", text):
         return "unknown"
+    return text
+
+
+def _safe_type_correction_text(value: Any) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text or len(text) > 96:
+        return ""
+    if not text.isascii():
+        return ""
+    if re.search(r"[^A-Za-z0-9_\s\*\:]", text):
+        return ""
+    if not re.search(r"[A-Za-z_]", text):
+        return ""
     return text
 
 

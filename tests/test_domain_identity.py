@@ -8,6 +8,7 @@ from pathlib import Path
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.field_layout_hints import field_layout_comments
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -83,6 +84,104 @@ class DomainIdentityProfileFrameworkTests(unittest.TestCase):
         self.assertIn("missing_source_identity", identity["blockers"])
         self.assertEqual([], identity["fields"])
         self.assertEqual([], ready)
+
+    def test_profile_backed_type_correction_uses_canonical_type_in_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _type_correction_pack_payload())
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall IopExample(__int64 a1, __int64 a2)
+{
+  return a1 + a2;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(2, len(plan.type_corrections))
+        self.assertTrue(all(item.apply_to_preview for item in plan.type_corrections))
+        self.assertEqual("__int64", plan.type_corrections[0].old_type)
+        self.assertEqual("PDEVICE_OBJECT", plan.type_corrections[0].canonical_type)
+        self.assertEqual("PIRP", plan.type_corrections[1].canonical_type)
+        self.assertIn("__int64 __fastcall IopExample(PDEVICE_OBJECT deviceObject, PIRP irp)", rendered)
+        self.assertNotIn("__int64 deviceObject", rendered)
+
+    def test_type_correction_build_mismatch_is_diagnostic_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _type_correction_pack_payload())
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall IopExample(__int64 a1, __int64 a2)
+{
+  return a1 + a2;
+}
+""",
+                profile_context={**_matching_context(), "build": "99999.1"},
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(2, len(plan.type_corrections))
+        self.assertTrue(all("build_mismatch" in item.blockers for item in plan.type_corrections))
+        self.assertFalse(any(item.apply_to_preview for item in plan.type_corrections))
+        self.assertIn("__int64 __fastcall IopExample(__int64 argument0, __int64 argument1)", rendered)
+        self.assertIn("Parameter type corrections: 0 applied, 2 blocked.", rendered)
+        self.assertIn("build_mismatch=2", rendered)
+
+    def test_invalid_canonical_type_is_reported_without_rendering(self) -> None:
+        payload = _type_correction_pack_payload(canonical_type0="PDEVICE_OBJECT[bad]")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, payload)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall IopExample(__int64 a1, __int64 a2)
+{
+  return a1 + a2;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        blocked = [item for item in plan.type_corrections if "invalid_canonical_type" in item.blockers]
+        self.assertEqual(1, len(blocked))
+        self.assertFalse(blocked[0].apply_to_preview)
+        self.assertIn("__int64 __fastcall IopExample(__int64 deviceObject, PIRP irp)", rendered)
+        self.assertIn("invalid_canonical_type=1", rendered)
+
+    def test_ambiguous_type_correction_leaves_signature_unchanged(self) -> None:
+        first = _type_correction_profile("test.type.a", "PDEVICE_OBJECT", "deviceObject")
+        second = _type_correction_profile("test.type.b", "PVOID", "object")
+        payload = _type_correction_pack_payload(profiles=[first, second])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, payload)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall IopExample(__int64 a1, __int64 a2)
+{
+  return a1 + a2;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(1, len(plan.type_corrections))
+        self.assertEqual("ambiguous", plan.type_corrections[0].profile_id)
+        self.assertIn("ambiguous_profile_match", plan.type_corrections[0].blockers)
+        self.assertIn("__int64 __fastcall IopExample(__int64 argument0, __int64 argument1)", rendered)
 
     def test_image_hash_constraint_can_match_context_alias(self) -> None:
         profile = _pack_payload()
@@ -283,6 +382,64 @@ def _pack_payload(
             "pdb_guid_age": "abcdef0123456789-1",
         },
         "profiles": [profile],
+    }
+
+
+def _type_correction_pack_payload(
+    canonical_type0: str = "PDEVICE_OBJECT",
+    profiles: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    if profiles is None:
+        profiles = [
+            _type_correction_profile("test.type.device", canonical_type0, "deviceObject"),
+            {
+                **_type_correction_profile("test.type.irp", "PIRP", "irp"),
+                "parameters": [
+                    {
+                        **_type_correction_profile("test.type.irp", "PIRP", "irp")["parameters"][0],
+                        "parameter_index": 1,
+                    }
+                ],
+            },
+        ]
+    return {
+        "schema": "domain_identity_profiles_v1",
+        "profile_version": "v1-test",
+        "metadata": {
+            "image": "ntoskrnl.exe",
+            "arch": "x64",
+            "build": "26200.8457",
+            "pdb_guid_age": "abcdef0123456789-1",
+        },
+        "profiles": profiles,
+    }
+
+
+def _type_correction_profile(
+    profile_id: str,
+    canonical_type: str,
+    canonical_name: str,
+) -> dict[str, object]:
+    return {
+        "id": profile_id,
+        "source": "type-correction-test",
+        "function_names": ["IopExample"],
+        "parameter_count": 2,
+        "parameters": [
+            {
+                "parameter_index": 0,
+                "rename_to": canonical_name,
+                "role": canonical_name,
+                "structure": "TEST_TYPE",
+                "mode": "report-only",
+                "confidence": 0.91,
+                "accepted_types": ["__int64", "_QWORD"],
+                "canonical_type": canonical_type,
+                "canonical_name": canonical_name,
+                "type_source": "unit-test-profile",
+                "type_confidence": 0.93,
+            }
+        ],
     }
 
 

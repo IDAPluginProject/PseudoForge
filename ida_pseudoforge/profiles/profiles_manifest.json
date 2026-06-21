@@ -218,7 +218,7 @@
       "source": "PseudoForge curated ntoskrnl I/O Manager driver/device/IRP role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "CE18D0700CA2643613B9802D014406CB143BBDABE6A2D24DC1D73BF4EC916BCF",
+      "sha256": "48EACEC8222328183B2D8A2E1667C1A453B40E67A7B58C6A38A53BC0C0DA8F49",
       "counts": {
         "profiles": 25
       }

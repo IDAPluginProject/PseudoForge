@@ -57,6 +57,14 @@ LONG_PTR __stdcall ObfDereferenceObject(PVOID referencedObject)
 """
 
 
+IO_DELETE_TYPE_EXPORT_SAMPLE = """
+void __stdcall IoDeleteDevice(__int64 a1)
+{
+  IopCompleteUnloadOrDelete((ULONG_PTR)a1);
+}
+"""
+
+
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
         profile_loader.clear_profile_caches()
@@ -230,6 +238,31 @@ class ExportBundleTests(unittest.TestCase):
                         for item in rename_payload["comments"]
                     )
                 )
+        finally:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
+    def test_write_export_bundle_includes_parameter_type_corrections(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                capture = capture_from_pseudocode(
+                    IO_DELETE_TYPE_EXPORT_SAMPLE,
+                    ea=0x140004000,
+                    source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe.i64",
+                )
+                plan = build_clean_plan(capture)
+
+                artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+                summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+                rename_payload = json.loads(Path(artifacts["rename_map"]).read_text(encoding="utf-8"))
+                cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+
+                self.assertEqual(1, len(summary["parameter_type_corrections"]))
+                self.assertEqual("PDEVICE_OBJECT", summary["parameter_type_corrections"][0]["canonical_type"])
+                self.assertFalse(summary["parameter_type_corrections"][0]["apply_to_idb"])
+                self.assertEqual(1, len(rename_payload["type_corrections"]))
+                self.assertIn("IoDeleteDevice(PDEVICE_OBJECT deviceObject)", cleaned)
         finally:
             profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
 

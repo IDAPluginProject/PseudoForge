@@ -57,6 +57,7 @@ from ida_pseudoforge.core.render_signatures import (
     apply_known_callback_signature as _apply_known_callback_signature,
     apply_known_function_signature as _apply_known_function_signature,
     apply_known_signature_body_rewrites as _apply_known_signature_body_rewrites,
+    apply_profile_parameter_type_corrections as _apply_profile_parameter_type_corrections,
     find_signature_end as _find_signature_end,
 )
 from ida_pseudoforge.core.render_warnings import (
@@ -103,6 +104,7 @@ def render_cleaned_pseudocode(capture: FunctionCapture, plan: CleanPlan) -> str:
     text = apply_generic_render_cleanups(text, scratch_sinks=_scratch_sink_names(plan))
     text = _upgrade_kernel_status_types(text, capture, plan)
     text = _apply_known_function_signature(text, capture)
+    text = _apply_profile_parameter_type_corrections(text, capture, plan)
     text = _apply_known_callback_signature(text, capture)
     text = _apply_known_signature_body_rewrites(text, capture)
     text = apply_known_kernel_struct_rewrites(text, capture)

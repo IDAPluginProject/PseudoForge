@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from ida_pseudoforge.core.buffer_contracts import (
@@ -199,6 +200,7 @@ def _export_summary_payload(
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),
         "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
         "domain_identity_summary": domain_identity_summary_payload(plan),
+        "parameter_type_corrections": [asdict(item) for item in plan.type_corrections],
         "profile_root": active_profile_root(),
         "active_profiles": active_profile_names(),
         "profile_warnings": profile_load_warnings(),

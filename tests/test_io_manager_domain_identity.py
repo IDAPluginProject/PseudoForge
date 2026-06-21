@@ -126,6 +126,32 @@ __int64 __fastcall IoCreateDeviceSecure(PDRIVER_OBJECT DriverObject, ULONG Exten
         self.assertEqual("UNICODE_STRING", roles["securityDescriptorString"])
         self.assertEqual("DEVICE_OBJECT_OUTPUT", roles["deviceObjectOutput"])
 
+    def test_delete_device_profile_corrects_generic_parameter_type_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+void __stdcall IoDeleteDevice(__int64 a1)
+{
+  IopCompleteUnloadOrDelete((ULONG_PTR)a1);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(1, len(plan.type_corrections))
+        self.assertEqual("windows.io_manager.delete_device", plan.type_corrections[0].profile_id)
+        self.assertEqual("__int64", plan.type_corrections[0].old_type)
+        self.assertEqual("PDEVICE_OBJECT", plan.type_corrections[0].canonical_type)
+        self.assertTrue(plan.type_corrections[0].apply_to_preview)
+        self.assertFalse(plan.type_corrections[0].apply_to_idb)
+        self.assertIn("void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)", rendered)
+        self.assertIn("IopCompleteUnloadOrDelete((ULONG_PTR)deviceObject);", rendered)
+        self.assertNotIn("__int64 deviceObject", rendered)
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
+        )
+
     def test_attach_detach_and_attached_reference_roles(self) -> None:
         attach_plan = self._plan(
             """
@@ -716,6 +742,9 @@ void __stdcall IoDeleteDevice(PDEVICE_OBJECT DeviceObject)
         self.assertIn("build_mismatch", identity["forced_report_only_reasons"])
         self.assertIn("build_mismatch", identity["blockers"])
         self.assertEqual([], identity["fields"])
+        self.assertEqual(1, len(plan.type_corrections))
+        self.assertIn("build_mismatch", plan.type_corrections[0].blockers)
+        self.assertFalse(plan.type_corrections[0].apply_to_preview)
 
     def test_accepted_type_guard_blocks_wrong_driver_object_type(self) -> None:
         plan = self._plan(

@@ -63,6 +63,11 @@ def render_header_lines(
         for line in domain_summary.splitlines():
             header.append(f"    {line}")
 
+    type_summary = _parameter_type_correction_summary(plan)
+    if type_summary:
+        for line in type_summary:
+            header.append(f"    {line}")
+
     if plan.comments:
         header.append("    Kernel insights:")
         for comment in _kernel_insight_comments(plan):
@@ -142,6 +147,31 @@ def kernel_semantic_rewrite_count(plan: CleanPlan) -> int:
     if _has_status_accumulator(plan):
         count += 1
     return count
+
+
+def _parameter_type_correction_summary(plan: CleanPlan) -> list[str]:
+    corrections = list(plan.type_corrections)
+    if not corrections:
+        return []
+    applied = [item for item in corrections if item.apply_to_preview and not item.blockers]
+    blocked = [item for item in corrections if item.blockers or not item.apply_to_preview]
+    lines = [
+        "Parameter type corrections: %d applied, %d blocked." % (len(applied), len(blocked))
+    ]
+    blocker_counts: dict[str, int] = {}
+    for item in blocked:
+        blockers = item.blockers or (["preview_disabled"] if not item.apply_to_preview else [])
+        for blocker in blockers:
+            blocker_counts[blocker] = blocker_counts.get(blocker, 0) + 1
+    if blocker_counts:
+        lines.append(
+            "Type correction blockers: %s."
+            % ", ".join(
+                "%s=%d" % (key, blocker_counts[key])
+                for key in sorted(blocker_counts)
+            )
+        )
+    return lines
 
 
 def _ascii_comment_text(text: str) -> str:

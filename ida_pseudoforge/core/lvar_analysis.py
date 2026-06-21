@@ -12,7 +12,10 @@ from ida_pseudoforge.core.deterministic.emitters import emissions_to_comments, e
 from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.loader import load_default_rule_packs
 from ida_pseudoforge.core.deterministic.schema import RuleReport
-from ida_pseudoforge.core.domain_identity import domain_identity_parameter_renames
+from ida_pseudoforge.core.domain_identity import (
+    domain_identity_parameter_renames,
+    domain_identity_parameter_type_corrections,
+)
 from ida_pseudoforge.core.flow_recovery import recover_flow
 from ida_pseudoforge.core.kernel_api import kernel_function_metadata
 from ida_pseudoforge.core.kernel_semantics import (
@@ -81,6 +84,10 @@ def build_clean_plan(
         kernel_comments(capture, rename_map)
         + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
     )
+    type_corrections = domain_identity_parameter_type_corrections(
+        capture.pseudocode,
+        profile_context=capture.profile_context,
+    )
     _rule_call_arg_rewrite_report(capture, rename_map, rule_engine, rule_report)
     _rule_flow_rewrite_report(capture, rename_map, flow_rewrites, rule_engine, rule_report)
     _rule_text_rewrite_report(capture, rename_map, comments, rule_engine, rule_report)
@@ -110,6 +117,7 @@ def build_clean_plan(
         comments=comments,
         warnings=combined_warnings,
         rule_report=rule_report_payload,
+        type_corrections=type_corrections,
     )
 
 

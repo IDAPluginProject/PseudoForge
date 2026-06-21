@@ -80,6 +80,23 @@ class CleanupLabel:
 
 
 @dataclass(slots=True)
+class ParameterTypeCorrection:
+    parameter_index: int
+    old_name: str
+    new_name: str
+    old_type: str
+    canonical_type: str
+    profile_id: str
+    source: str = ""
+    provenance: str = ""
+    confidence: float = 0.0
+    effective_mode: str = ""
+    blockers: list[str] = field(default_factory=list)
+    apply_to_preview: bool = True
+    apply_to_idb: bool = False
+
+
+@dataclass(slots=True)
 class BufferSizeConstraint:
     buffer: str
     length: str
@@ -177,6 +194,7 @@ class CleanPlan:
     comments: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     rule_report: dict[str, Any] = field(default_factory=dict)
+    type_corrections: list[ParameterTypeCorrection] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -4,10 +4,14 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import FunctionCapture
+from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, ParameterTypeCorrection
 from ida_pseudoforge.core.render import _find_signature_end as legacy_find_signature_end
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
-from ida_pseudoforge.core.render_signatures import apply_known_function_signature, find_signature_end
+from ida_pseudoforge.core.render_signatures import (
+    apply_known_function_signature,
+    apply_profile_parameter_type_corrections,
+    find_signature_end,
+)
 
 
 NTSET_TYPED_ACCESS_SAMPLE = r"""
@@ -94,6 +98,40 @@ class RenderSignatureTests(unittest.TestCase):
         self.assertNotIn("systemInformation[1]", rendered)
         self.assertNotIn("*systemInformation", rendered)
         self.assertNotIn("systemInformationClass = &", rendered)
+
+    def test_profile_type_correction_only_rewrites_signature_parameter(self) -> None:
+        text = """
+__int64 __fastcall IopExample(__int64 a1)
+{
+  __int64 local;
+
+  local = (__int64)a1;
+  return local;
+}
+""".lstrip()
+        capture = capture_from_pseudocode(text)
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="IopExample",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="a1",
+                    old_type="__int64",
+                    canonical_type="PDEVICE_OBJECT",
+                    profile_id="test.type",
+                    confidence=0.91,
+                    effective_mode="report-only",
+                )
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn("__int64 __fastcall IopExample(PDEVICE_OBJECT a1)", rendered)
+        self.assertIn("local = (__int64)a1;", rendered)
 
     def test_find_signature_end_handles_multiline_signatures(self) -> None:
         lines = [
