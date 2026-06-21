@@ -4233,23 +4233,32 @@ __int64 __fastcall AllocationNullMergeLayout(__int64 size, int useFallback)
     v22 = 0LL;
     v22 = (_OWORD *)ExAllocatePool2(0x100uLL, 0x30uLL, 0x20534C53u);
   }
-  return *(_QWORD *)(v22 + 16)
-       + *(_QWORD *)(v22 + 24)
-       + *(_QWORD *)(v22 + 32)
-       + *(_QWORD *)(v22 + 40)
-       + *(_QWORD *)(v22 + 48)
-       + *(_QWORD *)(v22 + 56)
-       + *(_QWORD *)(v22 + 64)
-       + *(_QWORD *)(v22 + 72)
-       + *(_QWORD *)(v22 + 16)
-       + *(_QWORD *)(v22 + 24)
-       + *(_QWORD *)(v22 + 32)
-       + *(_QWORD *)(v22 + 40);
+  if ( v22 )
+  {
+    return *(_QWORD *)(v22 + 16)
+         + *(_QWORD *)(v22 + 24)
+         + *(_QWORD *)(v22 + 32)
+         + *(_QWORD *)(v22 + 40)
+         + *(_QWORD *)(v22 + 48)
+         + *(_QWORD *)(v22 + 56)
+         + *(_QWORD *)(v22 + 64)
+         + *(_QWORD *)(v22 + 72)
+         + *(_QWORD *)(v22 + 16)
+         + *(_QWORD *)(v22 + 24)
+         + *(_QWORD *)(v22 + 32)
+         + *(_QWORD *)(v22 + 40);
+  }
+  return 0LL;
 }
 """
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+        dominance = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_allocation_null_merge_dominance"
+        ]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
@@ -4265,6 +4274,13 @@ __int64 __fastcall AllocationNullMergeLayout(__int64 size, int useFallback)
         self.assertEqual("allocation_null_branch", merge[0]["merge_shape"])
         self.assertEqual("medium", merge[0]["merge_risk"])
         self.assertIn("allocation/null guard dominance", merge[0]["recommended_next"])
+        self.assertEqual(1, len(dominance))
+        self.assertEqual("v22", dominance[0]["base"])
+        self.assertEqual(2, dominance[0]["allocation_initializer_count"])
+        self.assertEqual(1, dominance[0]["null_initializer_count"])
+        self.assertTrue(dominance[0]["first_layout_access_guarded"])
+        self.assertEqual("v22", dominance[0]["guard_condition"])
+        self.assertIn("first layout access is dominated", dominance[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_cast_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:

@@ -243,6 +243,13 @@ def field_layout_comments(
                 merge = _field_base_merge_evidence_comment(text or "", item, blocker, stability)
                 if merge:
                     comments.append(merge)
+                    allocation_null = _field_allocation_null_merge_dominance_comment(
+                        text or "",
+                        item,
+                        merge,
+                    )
+                    if allocation_null:
+                        comments.append(allocation_null)
                 relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
                 if relocation:
                     comments.append(relocation)
@@ -1460,6 +1467,67 @@ def _base_merge_recommended_next(merge_shape: str) -> str:
     if merge_shape == "bugcheck_parameter_branch":
         return "resolve bugcheck parameter domain identity"
     return "review path-sensitive source dominance"
+
+
+def _field_allocation_null_merge_dominance_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    merge: dict[str, Any],
+) -> dict[str, Any] | None:
+    if merge.get("merge_shape") != "allocation_null_branch":
+        return None
+    kind_counts = _coerce_counter_dict(merge.get("source_candidate_kind_counts"))
+    allocation_count = int(kind_counts.get("allocation_call_result", 0) or 0)
+    null_count = int(kind_counts.get("null", 0) or 0)
+    if allocation_count <= 0 or null_count <= 0:
+        return None
+    first_access = _first_layout_access_start(text, layout.base)
+    guard = _truthiness_guard_dominating_offset(text, layout.base, first_access)
+    guarded_text = "is"
+    guard_condition_text = ""
+    confidence = 0.67
+    if not guard:
+        guarded_text = "is not"
+        confidence = 0.63
+    else:
+        guard_condition_text = " Guard condition %s." % guard["condition"]
+    return {
+        "kind": "inferred_offset_allocation_null_merge_dominance",
+        "text": (
+            "Allocation/null merge dominance for %s: %d allocation initializer(s), "
+            "%d null initializer(s), first layout access %s dominated by a base truthiness guard.%s "
+            "Keep canonical rewrite blocked until allocation object equivalence and guard dominance are validated."
+            % (
+                layout.base,
+                allocation_count,
+                null_count,
+                guarded_text,
+                guard_condition_text,
+            )
+        ),
+        "confidence": confidence,
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "allocation_initializer_count": allocation_count,
+        "null_initializer_count": null_count,
+        "first_layout_access_guarded": bool(guard),
+        "guard_condition": str(guard.get("condition", "") if guard else ""),
+        "guard_start": int(guard.get("start", -1) if guard else -1),
+        "guard_end": int(guard.get("end", -1) if guard else -1),
+        "merge_shape": "allocation_null_branch",
+    }
+
+
+def _coerce_counter_dict(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, int] = {}
+    for key, item in value.items():
+        try:
+            result[str(key)] = int(item)
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _base_merge_source_family_root(value: str) -> str:
@@ -4295,6 +4363,92 @@ def _only_trivia_between(text: str, start: int, end: int) -> bool:
     segment = re.sub(r"//[^\n]*", "", segment)
     segment = re.sub(r"/\*.*?\*/", "", segment, flags=re.S)
     return not segment.strip()
+
+
+def _truthiness_guard_dominating_offset(text: str, base: str, offset: int) -> dict[str, Any]:
+    if offset < 0 or not base:
+        return {}
+    value = str(text or "")
+    escaped = re.escape(base)
+    base_pattern = r"\b%s\b" % escaped
+    guard_pattern = re.compile(
+        r"\bif\s*\(\s*(?P<condition>"
+        r"%s"
+        r"|%s\s*!=\s*(?:0|0LL|0i64|nullptr|NULL)"
+        r"|(?:0|0LL|0i64|nullptr|NULL)\s*!=\s*%s"
+        r")\s*\)"
+        % (base_pattern, base_pattern, base_pattern)
+    )
+    for match in guard_pattern.finditer(value):
+        if match.start() >= offset:
+            break
+        block_start = value.find("{", match.end(), offset)
+        if block_start < 0:
+            continue
+        block_end = _matching_brace_end(value, block_start)
+        if block_end >= offset:
+            return {
+                "condition": match.group("condition").strip(),
+                "start": match.start(),
+                "end": block_end,
+            }
+    return {}
+
+
+def _matching_brace_end(text: str, open_offset: int) -> int:
+    value = str(text or "")
+    if open_offset < 0 or open_offset >= len(value) or value[open_offset] != "{":
+        return -1
+    depth = 0
+    quote = ""
+    escaped = False
+    line_comment = False
+    block_comment = False
+    index = open_offset
+    while index < len(value):
+        char = value[index]
+        next_char = value[index + 1] if index + 1 < len(value) else ""
+        if line_comment:
+            if char == "\n":
+                line_comment = False
+            index += 1
+            continue
+        if block_comment:
+            if char == "*" and next_char == "/":
+                block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            line_comment = True
+            index += 2
+            continue
+        if char == "/" and next_char == "*":
+            block_comment = True
+            index += 2
+            continue
+        if char in {'"', "'"}:
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+            if depth < 0:
+                return -1
+        index += 1
+    return -1
 
 
 def _brace_depth_at(text: str, offset: int) -> int:

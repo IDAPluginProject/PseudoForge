@@ -550,6 +550,8 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         merge_shape,
                         effective_recommended_next,
                     )
+                    if merge_shape == "allocation_null_branch":
+                        effective_disposition = "allocation_null_dominance_review"
                 rows.append(
                     {
                         "function": str(item.get("name", "") or ""),
@@ -1404,6 +1406,7 @@ def _score_model() -> dict[str, Any]:
             "min_offset_derefs": SOURCE_IDENTITY_QUEUE_MIN_OFFSET_DEREFS,
             "merge_evidence_disposition": "path_sensitive_merge_review",
             "same_source_family_merge_disposition": "same_source_family_merge_review",
+            "allocation_null_merge_disposition": "allocation_null_dominance_review",
             "source_kinds": [
                 "source_identity_blocked",
                 "context",

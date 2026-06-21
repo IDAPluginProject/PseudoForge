@@ -815,6 +815,55 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("same_source_family_merge_review", markdown)
             self.assertIn("same_source_family", markdown)
 
+    def test_replay_plan_marks_allocation_null_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            allocation_null_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for newProviderRecord2: rewrite offset threshold requires at least 8 offsets; base has multiple initializers before layout access; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for newProviderRecord2: 23 initializer(s) before first layout access across 3 source candidate(s): ExAllocatePool2(0x100uLL, size, 0x20534C53u); 0LL; (_OWORD *)ExAllocatePool2(0x100uLL, 0x30uLL, 0x20534C53u). Candidate classes call_result=1, expression=2. Source families call_result:ExAllocatePool2=1, expression:0LL=1; disposition distinct_source_family_review. Candidate kinds allocation_call_result=2, null=1. Merge shape allocation_null_branch (medium risk); next review allocation/null guard dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.71",
+                    "*/",
+                    "__int64 __fastcall AllocationNullMerge(__int64 size)",
+                    "{",
+                    "  newProviderRecord2 = ExAllocatePool2(0x100uLL, size, 0x20534C53u);",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(newProviderRecord2 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x14094DF10",
+                name="AllocationNullMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=allocation_null_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("AllocationNullMerge", source_queue[0]["function"])
+            self.assertEqual("newProviderRecord2", source_queue[0]["base"])
+            self.assertEqual("allocation_null_branch", source_queue[0]["merge_shape"])
+            self.assertEqual("medium", source_queue[0]["merge_risk"])
+            self.assertEqual("allocation_null_dominance_review", source_queue[0]["disposition"])
+            self.assertIn("allocation/null guard dominance", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "allocation_null_dominance_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "allocation_null_merge_disposition"
+                ],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("allocation_null_dominance_review", markdown)
+            self.assertIn("allocation_null_branch", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
