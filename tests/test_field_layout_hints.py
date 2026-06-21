@@ -3995,6 +3995,10 @@ __int64 __fastcall MultiInitializerLayout(__int64 a1, __int64 a2)
             merge[0]["source_family_counts"],
         )
         self.assertEqual("distinct_source_family_review", merge[0]["source_family_disposition"])
+        self.assertEqual(["parameter_root", "parameter_root"], merge[0]["source_candidate_kinds"])
+        self.assertEqual({"parameter_root": 2}, merge[0]["source_candidate_kind_counts"])
+        self.assertEqual("parameter_branch", merge[0]["merge_shape"])
+        self.assertEqual("high", merge[0]["merge_risk"])
         self.assertIn("branch-merged layout base", merge[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
@@ -4085,6 +4089,9 @@ __int64 __fastcall DifferentCallResultInitializerLayout(__int64 context, int rel
             merge[0]["source_family_counts"],
         )
         self.assertEqual("distinct_source_family_review", merge[0]["source_family_disposition"])
+        self.assertEqual(["call_result", "call_result"], merge[0]["source_candidate_kinds"])
+        self.assertEqual("call_result_branch", merge[0]["merge_shape"])
+        self.assertEqual("medium_high", merge[0]["merge_risk"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_alias_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
@@ -4169,6 +4176,7 @@ __int64 __fastcall AliasDifferentInitializerLayout(__int64 a1, __int64 a2)
         self.assertEqual({"identifier": 2}, merge[0]["candidate_classes"])
         self.assertEqual(["parameter:a1", "parameter:a2"], merge[0]["source_families"])
         self.assertEqual("distinct_source_family_review", merge[0]["source_family_disposition"])
+        self.assertEqual("parameter_branch", merge[0]["merge_shape"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_same_parameter_family_merge_reports_review_disposition(self) -> None:
@@ -4205,7 +4213,58 @@ __int64 __fastcall SameParameterFamilyMergeLayout(__int64 eaBuffer)
         self.assertEqual(["parameter:eaBuffer", "parameter:eaBuffer"], merge[0]["source_families"])
         self.assertEqual({"parameter:eaBuffer": 2}, merge[0]["source_family_counts"])
         self.assertEqual("same_source_family_review", merge[0]["source_family_disposition"])
+        self.assertEqual(["parameter_root", "parameter_root"], merge[0]["source_candidate_kinds"])
+        self.assertEqual("same_source_family", merge[0]["merge_shape"])
+        self.assertEqual("medium", merge[0]["merge_risk"])
         self.assertIn("disposition same_source_family_review", merge[0]["text"])
+        self.assertIn("Merge shape same_source_family", merge[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_allocation_null_merge_reports_shape(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall AllocationNullMergeLayout(__int64 size, int useFallback)
+{
+  __int64 v22;
+
+  v22 = ExAllocatePool2(0x100uLL, size, 0x20534C53u);
+  if ( useFallback )
+  {
+    v22 = 0LL;
+    v22 = (_OWORD *)ExAllocatePool2(0x100uLL, 0x30uLL, 0x20534C53u);
+  }
+  return *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40)
+       + *(_QWORD *)(v22 + 48)
+       + *(_QWORD *)(v22 + 56)
+       + *(_QWORD *)(v22 + 64)
+       + *(_QWORD *)(v22 + 72)
+       + *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual(
+            ["allocation_call_result", "null", "allocation_call_result"],
+            merge[0]["source_candidate_kinds"],
+        )
+        self.assertEqual(
+            {"allocation_call_result": 2, "null": 1},
+            merge[0]["source_candidate_kind_counts"],
+        )
+        self.assertEqual("allocation_null_branch", merge[0]["merge_shape"])
+        self.assertEqual("medium", merge[0]["merge_risk"])
+        self.assertIn("allocation/null guard dominance", merge[0]["recommended_next"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_cast_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:

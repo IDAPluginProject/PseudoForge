@@ -768,7 +768,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                     "    Kernel insights:",
                     "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v22: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
                     "      - inferred_offset_base_stability: Base stability evidence for v22: 2 initializer(s) before first layout access across 2 distinct RHS (eaBuffer; *(_QWORD *)(eaBuffer + 8)); 0 post-access assignment(s), 0 followed by later layout access. Review initializer dominance before enabling canonical rewrite. confidence=0.67",
-                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v22: 2 initializer(s) before first layout access across 2 source candidate(s): eaBuffer; *(_QWORD *)(eaBuffer + 8). Candidate classes expression=1, identifier=1. Source families parameter:eaBuffer=2; disposition same_source_family_review. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.68",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v22: 2 initializer(s) before first layout access across 2 source candidate(s): eaBuffer; *(_QWORD *)(eaBuffer + 8). Candidate classes expression=1, identifier=1. Source families parameter:eaBuffer=2; disposition same_source_family_review. Candidate kinds parameter_root=2. Merge shape same_source_family (medium risk); next review same-source-family branch dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.68",
                     "*/",
                     "__int64 __fastcall SameFamilyMerge(__int64 eaBuffer)",
                     "{",
@@ -801,8 +801,10 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
             self.assertEqual("SameFamilyMerge", source_queue[0]["function"])
             self.assertEqual("v22", source_queue[0]["base"])
+            self.assertEqual("same_source_family", source_queue[0]["merge_shape"])
+            self.assertEqual("medium", source_queue[0]["merge_risk"])
             self.assertEqual("same_source_family_merge_review", source_queue[0]["disposition"])
-            self.assertIn("same-source-family branch shapes", source_queue[0]["recommended_next"])
+            self.assertIn("same-source-family branch dominance", source_queue[0]["recommended_next"])
             self.assertEqual(
                 "same_source_family_merge_review",
                 plan["score_model"]["source_identity_review_queues"][
@@ -811,6 +813,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             )
             markdown = render_replay_plan_markdown(plan)
             self.assertIn("same_source_family_merge_review", markdown)
+            self.assertIn("same_source_family", markdown)
 
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -104,6 +104,12 @@ FIELD_BASE_MERGE_FAMILY_DISPOSITION_RE = re.compile(
     r"\bSource families\s+[^\n]*?;\s+disposition\s+"
     r"(?P<disposition>[a-z_]+)\."
 )
+FIELD_BASE_MERGE_SHAPE_RE = re.compile(
+    r"-\s+inferred_offset_base_merge_evidence:\s+Base merge evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:[^\n]*?"
+    r"\bMerge shape\s+(?P<shape>[a-z_]+)"
+    r"\s+\((?P<risk>[a-z_]+)\s+risk\)"
+)
 SCALAR_OFFSET_DOMAIN_STRUCTURES = {
     "VIRTUAL_ADDRESS",
 }
@@ -318,15 +324,15 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
         lines.append(
             (
                 "| Function | EA | Base | Offset derefs | Projected hot cluster accesses | "
-                "Function layout offsets | Function blockers | Disposition |"
+                "Function layout offsets | Function blockers | Merge shape | Disposition |"
             )
         )
-        lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- |")
+        lines.append("| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |")
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             lines.append(
-                "| `%s` | `%s` | `%s` | %d | %d | %d | %d | `%s` |"
+                "| `%s` | `%s` | `%s` | %d | %d | %d | %d | `%s` | `%s` |"
                 % (
                     entry.get("function", ""),
                     entry.get("ea", ""),
@@ -335,6 +341,7 @@ def _render_source_identity_review_queues(plan: dict[str, Any]) -> list[str]:
                     int(entry.get("projected_hot_cluster_accesses", 0) or 0),
                     int(entry.get("layout_actionable_offset_derefs", 0) or 0),
                     int(entry.get("layout_blockers", 0) or 0),
+                    entry.get("merge_shape", ""),
                     entry.get("disposition", ""),
                 )
             )
@@ -500,6 +507,8 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 for entry in offset_base_counts.get("base_merge_same_source_family", []) or []
                 if isinstance(entry, dict)
             }
+            base_merge_shapes = _coerce_dict(item.get("base_merge_shapes", {}))
+            base_merge_risks = _coerce_dict(item.get("base_merge_risks", {}))
             projected_hot_cluster_accesses = {
                 str(entry.get("base", "") or ""): int(entry.get("count", 0) or 0)
                 for entry in offset_base_counts.get("projected_hot_cluster", []) or []
@@ -521,7 +530,11 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 )
                 effective_disposition = disposition
                 effective_recommended_next = recommended_next
+                merge_shape = ""
+                merge_risk = ""
                 if has_base_merge_evidence:
+                    merge_shape = str(base_merge_shapes.get(base, "") or "unknown")
+                    merge_risk = str(base_merge_risks.get(base, "") or "")
                     effective_disposition = "path_sensitive_merge_review"
                     effective_recommended_next = (
                         "Review branch/call-result source dominance before promoting this "
@@ -533,6 +546,10 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                             "Review same-source-family branch shapes before promoting this "
                             "merged layout base."
                         )
+                    effective_recommended_next = _merge_shape_recommended_next(
+                        merge_shape,
+                        effective_recommended_next,
+                    )
                 rows.append(
                     {
                         "function": str(item.get("name", "") or ""),
@@ -556,6 +573,8 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                             metrics.get("layout_base_stability", 0) or 0
                         ),
                         "layout_base_merge_evidence": 1 if has_base_merge_evidence else 0,
+                        "merge_shape": merge_shape,
+                        "merge_risk": merge_risk,
                         "disposition": effective_disposition,
                         "recommended_next": effective_recommended_next,
                     }
@@ -602,6 +621,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_actionable_bases = _layout_actionable_bases(analysis_text)
     base_merge_evidence_bases = _base_merge_evidence_bases(analysis_text)
     base_merge_family_dispositions = _base_merge_family_dispositions(analysis_text)
+    base_merge_shapes, base_merge_risks = _base_merge_shapes_and_risks(analysis_text)
     domain_identified_bases = _domain_identified_offset_bases(analysis_text)
     annotated_scalar_bases = _annotated_scalar_offset_bases(analysis_text)
     domain_identified_residual_bases = (
@@ -890,6 +910,8 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
                 len(projected_hot_field_cluster_base_counts),
             ),
         },
+        "base_merge_shapes": base_merge_shapes,
+        "base_merge_risks": base_merge_risks,
         "summary_path": str(summary_path),
     }
 
@@ -1024,6 +1046,39 @@ def _base_merge_family_dispositions(text: str) -> dict[str, str]:
         if base and disposition:
             dispositions[base] = disposition
     return dispositions
+
+
+def _base_merge_shapes_and_risks(text: str) -> tuple[dict[str, str], dict[str, str]]:
+    shapes: dict[str, str] = {}
+    risks: dict[str, str] = {}
+    for match in FIELD_BASE_MERGE_SHAPE_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        shape = str(match.groupdict().get("shape") or "")
+        risk = str(match.groupdict().get("risk") or "")
+        if base and shape:
+            shapes[base] = shape
+        if base and risk:
+            risks[base] = risk
+    return shapes, risks
+
+
+def _merge_shape_recommended_next(merge_shape: str, fallback: str) -> str:
+    shape = str(merge_shape or "")
+    if shape == "same_source_family":
+        return "Review same-source-family branch dominance before promoting this merged layout base."
+    if shape == "allocation_null_branch":
+        return "Review allocation/null guard dominance before promoting this merged layout base."
+    if shape == "allocation_call_result_branch":
+        return "Review allocation result equivalence before promoting this merged layout base."
+    if shape == "call_result_branch":
+        return "Review call-result object equivalence before promoting this merged layout base."
+    if shape == "call_result_parameter_branch":
+        return "Review parameter/call-result path dominance before promoting this merged layout base."
+    if shape == "call_result_temporary_branch":
+        return "Trace temporary/call-result dominance before promoting this merged layout base."
+    if shape == "bugcheck_parameter_branch":
+        return "Resolve bugcheck parameter domain identity before promoting this merged layout base."
+    return fallback
 
 
 def _trusted_source_identity_alias_bases(text: str) -> set[str]:

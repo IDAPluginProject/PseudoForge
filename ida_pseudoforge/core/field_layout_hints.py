@@ -1299,6 +1299,15 @@ def _field_base_merge_evidence_comment(
     source_family_disposition = "distinct_source_family_review"
     if len(source_family_counts) == 1:
         source_family_disposition = "same_source_family_review"
+    source_candidate_kinds = [_base_merge_source_candidate_kind(text, item) for item in rhs_values]
+    source_candidate_kind_counts = Counter(source_candidate_kinds)
+    source_candidate_kind_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(source_candidate_kind_counts.items())
+    )
+    merge_shape = _base_merge_shape(source_family_counts, source_candidate_kind_counts)
+    merge_risk = _base_merge_shape_risk(merge_shape)
+    recommended_next = _base_merge_recommended_next(merge_shape)
     source_text = "; ".join(rhs_values)
     confidence = min(
         0.76,
@@ -1311,7 +1320,8 @@ def _field_base_merge_evidence_comment(
         "text": (
             "Base merge evidence for %s: %d initializer(s) before first layout access across "
             "%d source candidate(s): %s. Candidate classes %s. "
-            "Source families %s; disposition %s. "
+            "Source families %s; disposition %s. Candidate kinds %s. "
+            "Merge shape %s (%s risk); next %s. "
             "Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available."
             % (
                 layout.base,
@@ -1321,6 +1331,10 @@ def _field_base_merge_evidence_comment(
                 class_text,
                 source_family_text,
                 source_family_disposition,
+                source_candidate_kind_text,
+                merge_shape,
+                merge_risk,
+                recommended_next,
             )
         ),
         "confidence": round(confidence, 2),
@@ -1333,6 +1347,11 @@ def _field_base_merge_evidence_comment(
         "source_families": source_families,
         "source_family_counts": dict(sorted(source_family_counts.items())),
         "source_family_disposition": source_family_disposition,
+        "source_candidate_kinds": source_candidate_kinds,
+        "source_candidate_kind_counts": dict(sorted(source_candidate_kind_counts.items())),
+        "merge_shape": merge_shape,
+        "merge_risk": merge_risk,
+        "recommended_next": recommended_next,
     }
 
 
@@ -1359,6 +1378,88 @@ def _base_merge_source_family(text: str, value: str) -> str:
     if call_name:
         return "call_result:%s" % call_name
     return "%s:%s" % (_base_merge_rhs_class(rhs), rhs[:64])
+
+
+def _base_merge_source_candidate_kind(text: str, value: str) -> str:
+    rhs = _normalize_assignment_rhs(value)
+    if not rhs:
+        return "empty"
+    if _is_null_initializer(rhs):
+        return "null"
+    if _layout_rhs_kind(rhs) == "call_result":
+        call_name = _parse_any_direct_call_result_name(rhs)
+        if _is_allocation_like_call_result_name(call_name):
+            return "allocation_call_result"
+        if call_name.startswith("guard_dispatch_"):
+            return "indirect_call_result"
+        if call_name.startswith("sub_"):
+            return "opaque_call_result"
+        return "call_result"
+    root = _base_merge_source_family_root(rhs)
+    if root:
+        root_kind = _layout_source_kind(root)
+        if _base_is_function_parameter(text, root):
+            root_kind = "parameter"
+        return "%s_root" % root_kind
+    return _base_merge_rhs_class(rhs)
+
+
+def _base_merge_shape(
+    source_family_counts: Counter[str],
+    source_candidate_kind_counts: Counter[str],
+) -> str:
+    kinds = set(source_candidate_kind_counts)
+    non_null_kinds = kinds - {"null"}
+    if len(source_family_counts) == 1:
+        return "same_source_family"
+    if kinds and non_null_kinds and non_null_kinds <= {"allocation_call_result"}:
+        if "null" in kinds:
+            return "allocation_null_branch"
+        return "allocation_call_result_branch"
+    call_kinds = {"allocation_call_result", "call_result", "indirect_call_result", "opaque_call_result"}
+    if non_null_kinds and non_null_kinds <= call_kinds:
+        return "call_result_branch"
+    if kinds & call_kinds:
+        if "parameter_root" in kinds:
+            return "call_result_parameter_branch"
+        if "temporary_root" in kinds:
+            return "call_result_temporary_branch"
+        if "named_root" in kinds:
+            return "call_result_named_branch"
+        return "call_result_mixed_branch"
+    if "bugcheck_root" in kinds:
+        return "bugcheck_parameter_branch"
+    if non_null_kinds and non_null_kinds <= {"temporary_root"}:
+        return "temporary_branch"
+    if non_null_kinds and non_null_kinds <= {"parameter_root"}:
+        return "parameter_branch"
+    return "mixed_source_family"
+
+
+def _base_merge_shape_risk(merge_shape: str) -> str:
+    if merge_shape in {"same_source_family", "allocation_null_branch"}:
+        return "medium"
+    if merge_shape in {"allocation_call_result_branch", "call_result_branch"}:
+        return "medium_high"
+    return "high"
+
+
+def _base_merge_recommended_next(merge_shape: str) -> str:
+    if merge_shape == "same_source_family":
+        return "review same-source-family branch dominance"
+    if merge_shape == "allocation_null_branch":
+        return "review allocation/null guard dominance"
+    if merge_shape == "allocation_call_result_branch":
+        return "review allocation result equivalence"
+    if merge_shape == "call_result_branch":
+        return "review call-result object equivalence"
+    if merge_shape == "call_result_parameter_branch":
+        return "review parameter/call-result path dominance"
+    if merge_shape == "call_result_temporary_branch":
+        return "trace temporary/call-result dominance"
+    if merge_shape == "bugcheck_parameter_branch":
+        return "resolve bugcheck parameter domain identity"
+    return "review path-sensitive source dominance"
 
 
 def _base_merge_source_family_root(value: str) -> str:
@@ -3716,12 +3817,8 @@ def _allocation_source_root_before(
 
 def _is_allocation_result_rhs(rhs: str) -> bool:
     value = _normalize_assignment_rhs(rhs)
-    return bool(
-        re.match(
-            r"(?:ExAllocatePool2|ExAllocateFromNPagedLookasideList)\s*\(",
-            value,
-        )
-    )
+    call_name = _parse_any_direct_call_result_name(value)
+    return _is_allocation_like_call_result_name(call_name)
 
 
 def _scaled_pointer_arithmetic_offset(text: str, parent: str, offset: int) -> int:
@@ -4264,6 +4361,25 @@ def _parse_direct_call_result_name(source: str) -> str:
     return name
 
 
+def _parse_any_direct_call_result_name(source: str) -> str:
+    match = re.fullmatch(
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_:~]*)\s*\([^;\n]*\)",
+        str(source or "").strip(),
+    )
+    if not match:
+        return ""
+    return match.group("name")
+
+
+def _is_allocation_like_call_result_name(name: str) -> bool:
+    return str(name or "") in {
+        "ExAllocateFromLookasideListEx",
+        "ExAllocateFromNPagedLookasideList",
+        "ExAllocatePool2",
+        "MiAllocatePool",
+    }
+
+
 def _trusted_stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
     identity = _stable_base_source_identity(text, base)
     if not identity:
@@ -4371,6 +4487,7 @@ def _looks_like_cast_type(value: str) -> bool:
         "__int64",
         "_byte",
         "_dword",
+        "_oword",
         "_qword",
         "_word",
         "char",
@@ -4378,6 +4495,7 @@ def _looks_like_cast_type(value: str) -> bool:
         "dword",
         "int",
         "long",
+        "oword",
         "short",
         "signed",
         "size_t",
@@ -4386,6 +4504,7 @@ def _looks_like_cast_type(value: str) -> bool:
         "unsigned",
         "void",
         "word",
+        "xmmword",
     }
     if lowered.intersection(type_words):
         return True
