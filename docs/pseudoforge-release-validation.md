@@ -26,6 +26,7 @@ Generated validation outputs belong under `pseudoforge_out\` or another ignored
 workspace. Do not commit:
 
 - IDA batch output directories
+- `pseudoforge_cleanup_integrity.py` reports
 - `pseudoforge_corpus_quality.py` reports
 - LLM candidate cache or replay directories
 - large source corpora
@@ -78,6 +79,7 @@ $Target = "D:\bin\os\26200.8457\ntoskrnl.exe"
 $PdbPath = "C:\symbols"
 $EaFile = "F:\kernullist\PseudoForge\pseudoforge_out\pascalcase-rerun-top100-eas.txt"
 $Out = "F:\kernullist\PseudoForge\pseudoforge_out\release-validation-top30-nollm"
+$IntegrityOut = "F:\kernullist\PseudoForge\pseudoforge_out\release-validation-top30-nollm-integrity"
 $QualityOut = "F:\kernullist\PseudoForge\pseudoforge_out\release-validation-top30-nollm-quality"
 
 python -B .\tools\pseudoforge_ida_cli.py `
@@ -91,6 +93,12 @@ python -B .\tools\pseudoforge_ida_cli.py `
   --max-functions 30 `
   --no-index
 
+python -B .\tools\pseudoforge_cleanup_integrity.py `
+  --corpus-root $Out `
+  --out $IntegrityOut `
+  --format both `
+  --fail-on-issues
+
 python -B .\tools\pseudoforge_corpus_quality.py `
   --corpus-root $Out `
   --out $QualityOut `
@@ -103,6 +111,8 @@ Required checks:
 - `pseudoforge-ida-summary.json` reports `failed=0`
 - JSONL progress has one `status=ok` function record per selected EA
 - `llm_statuses` are all `disabled`
+- `pseudoforge_cleanup_integrity.py` reports zero syntactic/artifact integrity
+  issues before manual review or metric comparison
 - `pseudoforge_corpus_quality.py` writes both JSON and Markdown reports
 - no new rule load or validation errors appear
 
@@ -112,6 +122,10 @@ Hard failures:
 - `llm_status` is anything other than `disabled`
 - missing cleaned pseudocode, rename map, rule report, warnings, or summary
   artifacts for successful functions
+- cleanup integrity QA reports standalone braces in multi-line calls,
+  unmatched braces/parentheses, local allocation-failed comments,
+  declared-but-never-assigned local rename warnings, or fallback summaries with
+  stale LLM candidate-cache artifacts
 - corpus quality analyzer cannot parse the output
 
 ### Building A Large Replay Set

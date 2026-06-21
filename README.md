@@ -2010,6 +2010,13 @@ For release-quality validation, including deterministic IDA replay and corpus
 quality metric comparison, use
 [docs/pseudoforge-release-validation.md](docs/pseudoforge-release-validation.md).
 
+Run cleanup integrity QA before manual review or corpus-quality metric
+comparison on a replay output:
+
+```powershell
+python -B .\tools\pseudoforge_cleanup_integrity.py --corpus-root .\pseudoforge_out\release-validation-top30-nollm --out .\pseudoforge_out\release-validation-top30-nollm-integrity --format both --fail-on-issues
+```
+
 Unit tests:
 
 ```powershell
