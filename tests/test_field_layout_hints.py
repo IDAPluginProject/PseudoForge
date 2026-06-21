@@ -4164,6 +4164,65 @@ __int64 __fastcall CallResultIndirectFallbackLayout(__int64 P, __int64 L, int re
         self.assertIn("direct_call_with_indirect_fallback", equivalence[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_call_result_temporary_merge_reports_provenance(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall CallResultTemporaryMergeLayout(__int64 CacheMap, int reuse)
+{
+  __int64 v20;
+  __int64 v29;
+
+  v29 = CacheMap;
+  v20 = ExAllocateFromLookasideListEx(&CcSharedCacheMapLookasideList);
+  if ( reuse )
+  {
+    v20 = *(_QWORD *)(v29 + 8);
+  }
+  return *(_QWORD *)(v20 + 16)
+       + *(_QWORD *)(v20 + 24)
+       + *(_QWORD *)(v20 + 32)
+       + *(_QWORD *)(v20 + 40)
+       + *(_QWORD *)(v20 + 48)
+       + *(_QWORD *)(v20 + 56)
+       + *(_QWORD *)(v20 + 64)
+       + *(_QWORD *)(v20 + 72)
+       + *(_QWORD *)(v20 + 16)
+       + *(_QWORD *)(v20 + 24)
+       + *(_QWORD *)(v20 + 32)
+       + *(_QWORD *)(v20 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+        provenance = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_call_result_temporary_merge_provenance"
+        ]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual("call_result_temporary_branch", merge[0]["merge_shape"])
+        self.assertEqual(["allocation_call_result", "temporary_root"], merge[0]["source_candidate_kinds"])
+        self.assertEqual(1, len(provenance))
+        self.assertEqual("v20", provenance[0]["base"])
+        self.assertEqual("allocation_call_with_parameter_temporary", provenance[0]["provenance_class"])
+        self.assertEqual(1, provenance[0]["call_result_initializer_count"])
+        self.assertEqual(1, provenance[0]["temporary_root_candidate_count"])
+        self.assertEqual({"ExAllocateFromLookasideListEx": 1}, provenance[0]["call_name_counts"])
+        self.assertEqual(["v29"], provenance[0]["temporary_roots"])
+        self.assertEqual(0, provenance[0]["unresolved_temporary_root_count"])
+        temporary = provenance[0]["temporary_root_candidates"][0]
+        self.assertEqual("*(_QWORD *)(v29 + 8)", temporary["source"])
+        self.assertEqual("v29", temporary["temporary_root"])
+        self.assertEqual("CacheMap", temporary["stable_source"])
+        self.assertEqual("parameter", temporary["stable_source_kind"])
+        self.assertTrue(temporary["has_stable_source"])
+        self.assertIn("allocation_call_with_parameter_temporary", provenance[0]["text"])
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
     def test_alias_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
             """

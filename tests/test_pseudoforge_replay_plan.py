@@ -913,6 +913,55 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("call_result_equivalence_review", markdown)
             self.assertIn("call_result_branch", markdown)
 
+    def test_replay_plan_marks_call_result_temporary_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            call_result_temporary_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v20: base is a decompiler temporary; base has multiple initializers before layout access; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v20: 2 initializer(s) before first layout access across 2 source candidate(s): ExAllocateFromLookasideListEx(&CcSharedCacheMapLookasideList); *(_QWORD *)(v29 + 8). Candidate classes call_result=1, expression=1. Source families call_result:ExAllocateFromLookasideListEx=1, temporary:v29=1; disposition distinct_source_family_review. Candidate kinds allocation_call_result=1, temporary_root=1. Merge shape call_result_temporary_branch (high risk); next trace temporary/call-result dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "*/",
+                    "__int64 __fastcall CallResultTemporaryMerge(__int64 CacheMap)",
+                    "{",
+                    "  v20 = ExAllocateFromLookasideListEx(&CcSharedCacheMapLookasideList);",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v20 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140450360",
+                name="CallResultTemporaryMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=call_result_temporary_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("CallResultTemporaryMerge", source_queue[0]["function"])
+            self.assertEqual("v20", source_queue[0]["base"])
+            self.assertEqual("call_result_temporary_branch", source_queue[0]["merge_shape"])
+            self.assertEqual("high", source_queue[0]["merge_risk"])
+            self.assertEqual("temporary_provenance_review", source_queue[0]["disposition"])
+            self.assertIn("temporary/call-result dominance", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "temporary_provenance_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "call_result_temporary_merge_disposition"
+                ],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("temporary_provenance_review", markdown)
+            self.assertIn("call_result_temporary_branch", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

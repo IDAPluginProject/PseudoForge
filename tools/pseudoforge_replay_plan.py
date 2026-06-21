@@ -554,6 +554,8 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         effective_disposition = "allocation_null_dominance_review"
                     elif merge_shape == "call_result_branch":
                         effective_disposition = "call_result_equivalence_review"
+                    elif merge_shape == "call_result_temporary_branch":
+                        effective_disposition = "temporary_provenance_review"
                 rows.append(
                     {
                         "function": str(item.get("name", "") or ""),
@@ -1410,6 +1412,7 @@ def _score_model() -> dict[str, Any]:
             "same_source_family_merge_disposition": "same_source_family_merge_review",
             "allocation_null_merge_disposition": "allocation_null_dominance_review",
             "call_result_merge_disposition": "call_result_equivalence_review",
+            "call_result_temporary_merge_disposition": "temporary_provenance_review",
             "source_kinds": [
                 "source_identity_blocked",
                 "context",

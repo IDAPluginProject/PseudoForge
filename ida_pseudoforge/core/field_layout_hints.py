@@ -257,6 +257,13 @@ def field_layout_comments(
                     )
                     if call_result_equivalence:
                         comments.append(call_result_equivalence)
+                    temporary_provenance = _field_call_result_temporary_merge_provenance_comment(
+                        text or "",
+                        item,
+                        merge,
+                    )
+                    if temporary_provenance:
+                        comments.append(temporary_provenance)
                 relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
                 if relocation:
                     comments.append(relocation)
@@ -1585,6 +1592,213 @@ def _field_call_result_merge_equivalence_comment(
         "same_direct_call_family": len(set(direct_names)) == 1 and bool(direct_names),
         "equivalence_class": equivalence_class,
     }
+
+
+def _field_call_result_temporary_merge_provenance_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    merge: dict[str, Any],
+) -> dict[str, Any] | None:
+    if merge.get("merge_shape") != "call_result_temporary_branch":
+        return None
+    candidates = list(merge.get("source_candidates", []) or [])
+    call_candidates = _call_result_merge_candidates(text, candidates)
+    temporary_candidates = _temporary_root_merge_candidates(text, candidates, layout.base)
+    if not call_candidates or not temporary_candidates:
+        return None
+    call_name_counts = Counter(str(item["call_name"]) for item in call_candidates if item.get("call_name"))
+    call_kind_counts = Counter(str(item["candidate_kind"]) for item in call_candidates if item.get("candidate_kind"))
+    temporary_details = [
+        _temporary_root_provenance_before_layout_access(text, layout.base, item)
+        for item in temporary_candidates
+    ]
+    provenance_class = _call_result_temporary_provenance_class(call_kind_counts, temporary_details)
+    call_name_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(call_name_counts.items())
+    )
+    temporary_text = "; ".join(
+        "%s stable=%s" % (
+            _comment_safe_snippet(str(item.get("temporary_root", "") or "")),
+            _comment_safe_snippet(str(item.get("stable_source", "") or "unknown")),
+        )
+        for item in temporary_details[:4]
+    )
+    confidence = 0.64
+    if provenance_class == "allocation_call_with_parameter_temporary":
+        confidence = 0.66
+    elif provenance_class == "call_result_with_unresolved_temporary":
+        confidence = 0.61
+    return {
+        "kind": "inferred_offset_call_result_temporary_merge_provenance",
+        "text": (
+            "Call-result/temporary merge provenance for %s: %d call-result initializer(s), "
+            "%d temporary-root candidate(s). Call families %s. Temporary roots %s. "
+            "Provenance class %s. Keep canonical rewrite blocked until temporary source dominance is validated."
+            % (
+                layout.base,
+                len(call_candidates),
+                len(temporary_details),
+                call_name_text,
+                temporary_text,
+                provenance_class,
+            )
+        ),
+        "confidence": confidence,
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "merge_shape": "call_result_temporary_branch",
+        "call_result_initializer_count": len(call_candidates),
+        "temporary_root_candidate_count": len(temporary_details),
+        "call_name_counts": dict(sorted(call_name_counts.items())),
+        "call_candidate_kind_counts": dict(sorted(call_kind_counts.items())),
+        "call_result_candidates": call_candidates,
+        "temporary_root_candidates": temporary_details,
+        "temporary_roots": [
+            str(item.get("temporary_root", "") or "")
+            for item in temporary_details
+            if item.get("temporary_root")
+        ],
+        "unresolved_temporary_root_count": sum(
+            1
+            for item in temporary_details
+            if not str(item.get("stable_source", "") or "")
+        ),
+        "provenance_class": provenance_class,
+    }
+
+
+def _temporary_root_merge_candidates(
+    text: str,
+    values: Any,
+    target_base: str,
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for value in values or []:
+        source = _normalize_assignment_rhs(str(value))
+        root = _base_merge_source_family_root(source)
+        if not root or root == target_base:
+            continue
+        root_kind = _layout_source_kind(root)
+        if _base_is_function_parameter(text, root):
+            root_kind = "parameter"
+        if root_kind != "temporary":
+            continue
+        key = (source, root)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "source": source,
+                "temporary_root": root,
+                "source_rhs_kind": _layout_rhs_kind(source),
+                "candidate_kind": "temporary_root",
+            }
+        )
+    return candidates
+
+
+def _temporary_root_provenance_before_layout_access(
+    text: str,
+    target_base: str,
+    candidate: dict[str, str],
+) -> dict[str, Any]:
+    temporary_root = str(candidate.get("temporary_root", "") or "")
+    first_access = _first_layout_access_start(text, target_base)
+    trace = _stable_assignment_source_before_offset(text, temporary_root, first_access)
+    detail: dict[str, Any] = dict(candidate)
+    detail.update(trace)
+    trusted_identity = _trusted_stable_base_source_identity(text, temporary_root)
+    if trusted_identity:
+        detail["trusted_source"] = str(trusted_identity.get("source", "") or "")
+        detail["trusted_source_kind"] = str(trusted_identity.get("source_kind", "") or "")
+        detail["trusted_source_provenance"] = str(trusted_identity.get("source_provenance", "") or "")
+    return detail
+
+
+def _stable_assignment_source_before_offset(text: str, name: str, before: int) -> dict[str, Any]:
+    if not name or before < 0:
+        return {
+            "pre_access_assignment_count": 0,
+            "distinct_pre_access_rhs_count": 0,
+            "distinct_pre_access_rhs": [],
+            "stable_source": "",
+            "stable_source_kind": "",
+            "stable_source_rhs_kind": "",
+            "immediate_source": "",
+            "has_stable_source": False,
+        }
+    assignments = [
+        item
+        for item in _base_direct_assignments(text, name)
+        if item.start() < before and item.group("op") == "="
+    ]
+    rhs_values = [
+        _canonical_pre_access_initializer_rhs(text, item.group("rhs"), item.start(), {name})
+        for item in assignments
+    ]
+    effective_rhs = _effective_pre_access_initializer_rhs(rhs_values)
+    distinct_rhs = list(dict.fromkeys(item for item in effective_rhs if item))
+    stable_source = ""
+    if len(distinct_rhs) == 1:
+        stable_source = distinct_rhs[0]
+    elif distinct_rhs:
+        stable_source = _same_call_result_family_pre_access_rhs(effective_rhs)
+    if _is_null_initializer(stable_source):
+        stable_source = ""
+    immediate_source = ""
+    if assignments:
+        immediate_source = _normalize_assignment_rhs(assignments[-1].group("rhs"))
+    stable_source_kind = _layout_source_kind(stable_source) if stable_source else ""
+    if stable_source and _base_is_function_parameter(text, stable_source):
+        stable_source_kind = "parameter"
+    stable_source_rhs_kind = _layout_rhs_kind(stable_source) if stable_source else ""
+    return {
+        "pre_access_assignment_count": len(assignments),
+        "distinct_pre_access_rhs_count": len(distinct_rhs),
+        "distinct_pre_access_rhs": distinct_rhs[:_MAX_BASE_STABILITY_RHS_SAMPLES],
+        "stable_source": stable_source,
+        "stable_source_kind": stable_source_kind,
+        "stable_source_rhs_kind": stable_source_rhs_kind,
+        "immediate_source": immediate_source,
+        "has_stable_source": bool(stable_source),
+    }
+
+
+def _call_result_temporary_provenance_class(
+    call_kind_counts: Counter[str],
+    temporary_details: list[dict[str, Any]],
+) -> str:
+    call_kinds = set(call_kind_counts)
+    stable_kinds = {
+        str(item.get("stable_source_kind", "") or "")
+        for item in temporary_details
+        if str(item.get("stable_source", "") or "")
+    }
+    unresolved_count = sum(
+        1
+        for item in temporary_details
+        if not str(item.get("stable_source", "") or "")
+    )
+    if "opaque_call_result" in call_kinds:
+        return "opaque_call_with_temporary"
+    if "allocation_call_result" in call_kinds:
+        if stable_kinds.intersection({"argument", "parameter", "named"}):
+            return "allocation_call_with_parameter_temporary"
+        if unresolved_count:
+            return "allocation_call_with_unresolved_temporary"
+        return "allocation_call_with_temporary"
+    if stable_kinds.intersection({"argument", "parameter", "named"}):
+        return "call_result_with_parameter_temporary"
+    if unresolved_count:
+        return "call_result_with_unresolved_temporary"
+    return "call_result_with_temporary"
+
+
+def _comment_safe_snippet(value: str) -> str:
+    return str(value or "").replace("/*", "/ *").replace("*/", "* /")
 
 
 def _call_result_merge_candidates(text: str, values: Any) -> list[dict[str, Any]]:
