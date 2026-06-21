@@ -35,7 +35,7 @@ from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
 from ida_pseudoforge.core.rename_normalization import normalize_rename_suggestions
 from ida_pseudoforge.core.registry_domain import registry_domain_renames
-from ida_pseudoforge.core.validation import validate_renames
+from ida_pseudoforge.core.validation import unassigned_local_usage_warnings, validate_renames
 
 
 def build_clean_plan(
@@ -86,7 +86,11 @@ def build_clean_plan(
     _rule_text_rewrite_report(capture, rename_map, comments, rule_engine, rule_report)
     combined_warnings = _dedupe_warnings(
         _filter_shadowed_rename_warnings(
-            kernel_warnings(capture) + llm_warnings + warnings + _rule_report_warnings(rule_report),
+            kernel_warnings(capture)
+            + llm_warnings
+            + warnings
+            + unassigned_local_usage_warnings(capture, validated)
+            + _rule_report_warnings(rule_report),
             validated,
         )
     )

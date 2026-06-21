@@ -5,7 +5,9 @@ import unittest
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.plan_schema import RenameSuggestion
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.core.validation import unassigned_local_usage_warnings
 from tests.helpers import JsonRenameProvider
 
 
@@ -83,6 +85,32 @@ __int64 __fastcall PointerBoundRenameSample(void *a1, unsigned __int16 a2)
   if ( (unsigned __int64)v93 > 0x7FFFFFFF0000LL || v93 < Src[1] )
     return 0;
   return a2;
+}
+"""
+
+
+MIOBTAIN_SYSTEM_VA_SAMPLE = r"""
+__int64 __fastcall MiObtainSystemVa(__int64 a1, unsigned int a2)
+{
+  __int64 v2;
+  unsigned int v3;
+
+  v2 = MiSystemVaToDynamicBitmap(a2);
+  return MiObtainDynamicVa(v2, v3);
+}
+"""
+
+
+OUT_PARAM_LOCAL_SAMPLE = r"""
+NTSTATUS __fastcall OutParamLocalSample(HANDLE a1)
+{
+  NTSTATUS status;
+  void *v1;
+
+  status = PsLookupProcessByProcessId(a1, (PEPROCESS *)&v1);
+  if ( status >= 0 )
+    ObDereferenceObject(v1);
+  return status;
 }
 """
 
@@ -418,6 +446,90 @@ __int64 __fastcall LargeHandleDispatcher(int a1)
         self.assertIn("Skipped pointer-bound rename v93->destinationBuffer", plan.warnings)
         self.assertIn("char *v93;", rendered)
         self.assertNotIn("destinationBuffer", body)
+
+    def test_unassigned_call_argument_llm_rename_is_rejected(self) -> None:
+        capture = capture_from_pseudocode(MIOBTAIN_SYSTEM_VA_SAMPLE)
+        provider = JsonRenameProvider(
+            {
+                "renames": [
+                    {
+                        "old": "v2",
+                        "new": "dynamicBitmapPtr",
+                        "confidence": 0.91,
+                        "reason": "result of MiSystemVaToDynamicBitmap",
+                    },
+                    {
+                        "old": "v3",
+                        "new": "allocationSize",
+                        "confidence": 0.91,
+                        "reason": "second argument to MiObtainDynamicVa",
+                    },
+                ]
+            }
+        )
+        plan = build_clean_plan(capture, rename_provider=provider)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+
+        self.assertEqual("dynamicBitmapPtr", rename_map["v2"])
+        self.assertNotIn("v3", rename_map)
+        self.assertTrue(
+            any(
+                warning.startswith(
+                    "Uninitialized local risk: skipped LLM rename v3->allocationSize"
+                )
+                for warning in plan.warnings
+            )
+        )
+        self.assertIn("__int64 dynamicBitmapPtr;", rendered)
+        self.assertIn("unsigned int v3;", rendered)
+        self.assertIn("MiObtainDynamicVa(dynamicBitmapPtr, v3)", body)
+        self.assertNotIn("allocationSize", body)
+
+    def test_address_taken_unassigned_out_param_llm_rename_is_allowed(self) -> None:
+        capture = capture_from_pseudocode(OUT_PARAM_LOCAL_SAMPLE)
+        provider = JsonRenameProvider(
+            {
+                "renames": [
+                    {
+                        "old": "v1",
+                        "new": "process",
+                        "confidence": 0.91,
+                        "reason": "receives process object through out parameter",
+                    }
+                ]
+            }
+        )
+        plan = build_clean_plan(capture, rename_provider=provider)
+        rename_map = {item.old: item.new for item in plan.renames if item.apply}
+
+        self.assertEqual("process", rename_map["v1"])
+        self.assertFalse(any("Uninitialized local risk" in warning for warning in plan.warnings))
+
+    def test_unassigned_local_warning_preserves_non_llm_rename(self) -> None:
+        capture = capture_from_pseudocode(MIOBTAIN_SYSTEM_VA_SAMPLE)
+        renames = [
+            RenameSuggestion(
+                kind="lvar",
+                old="v3",
+                new="allocationSize",
+                confidence=0.91,
+                source="kernel-api",
+                evidence="api parameter role",
+                apply=True,
+            )
+        ]
+
+        warnings = unassigned_local_usage_warnings(capture, renames)
+
+        self.assertTrue(renames[0].apply)
+        self.assertTrue(
+            any(
+                "v3 renamed to allocationSize by kernel-api" in warning
+                for warning in warnings
+            )
+        )
 
     def test_pascalcase_llm_local_renames_are_style_normalized(self) -> None:
         capture = capture_from_pseudocode(

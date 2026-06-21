@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import keyword
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP
 from ida_pseudoforge.core.normalize import extract_identifiers
@@ -151,6 +151,32 @@ DISAMBIGUATED_DUPLICATE_TARGET_SOURCES = {
     "kernel-pool",
     "pattern",
 }
+CALL_PARSE_SKIP_NAMES = {
+    "catch",
+    "for",
+    "if",
+    "return",
+    "sizeof",
+    "switch",
+    "while",
+}
+UNASSIGNED_LOCAL_SIZE_COUNT_WORDS = {
+    "allocation",
+    "bytes",
+    "count",
+    "counts",
+    "length",
+    "page",
+    "pages",
+    "size",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _UnassignedLocalUsageRisk:
+    name: str
+    usage: str
+    evidence: str
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -161,6 +187,40 @@ def is_valid_c_identifier(name: str) -> bool:
     if name in C_RESERVED:
         return False
     return True
+
+
+def unassigned_local_usage_warnings(
+    capture: FunctionCapture,
+    renames: list[RenameSuggestion],
+) -> list[str]:
+    risks = _unassigned_local_usage_risks(capture)
+    if not risks:
+        return []
+
+    suppressed_llm_names = {
+        item.old
+        for item in renames
+        if item.old in risks and item.source == "llm" and not item.apply
+    }
+    active_renames = {
+        item.old: item
+        for item in renames
+        if item.old in risks and item.apply
+    }
+    warnings = []
+    for name in sorted(risks):
+        if name in suppressed_llm_names:
+            continue
+        risk = risks[name]
+        active = active_renames.get(name)
+        if active:
+            warnings.append(
+                "Uninitialized local risk: %s renamed to %s by %s, but %s"
+                % (name, active.new, active.source, risk.evidence)
+            )
+        else:
+            warnings.append("Uninitialized local risk: %s" % risk.evidence)
+    return warnings
 
 
 def validate_renames(
@@ -183,6 +243,7 @@ def validate_renames(
         for item in suggestions
         if item.old in known_names and item.new == STATUS_RENAME_TARGET
     }
+    unassigned_local_risks = _unassigned_local_usage_risks(capture)
     accepted = []
     warnings = []
     used_new_names = set()
@@ -247,6 +308,12 @@ def validate_renames(
         ):
             item.apply = False
             warnings.append(f"Skipped unsupported saved-argument rename {item.old}->{item.new}")
+        elif item.source == "llm" and _is_risky_unassigned_local_llm_rename(item, unassigned_local_risks):
+            risk = unassigned_local_risks[item.old]
+            item.apply = False
+            item.confidence = min(item.confidence, 0.55)
+            item.evidence = _append_evidence(item.evidence, risk.evidence)
+            warnings.append(_format_unassigned_local_llm_skip_warning(item, risk))
         elif item.source == "llm" and _is_inconsistent_invariant_name(capture.pseudocode, item.old, item.new):
             item.apply = False
             warnings.append(f"Skipped value-invariant rename {item.old}->{item.new}")
@@ -291,6 +358,187 @@ def validate_renames(
         known_names,
     )
     return accepted, warnings
+
+
+def _is_risky_unassigned_local_llm_rename(
+    item: RenameSuggestion,
+    risks: dict[str, _UnassignedLocalUsageRisk],
+) -> bool:
+    if not item.apply:
+        return False
+    if (item.kind or "").lower() not in LLM_LOCAL_RENAME_KINDS:
+        return False
+    return item.old in risks
+
+
+def _format_unassigned_local_llm_skip_warning(
+    item: RenameSuggestion,
+    risk: _UnassignedLocalUsageRisk,
+) -> str:
+    semantic_note = ""
+    if _is_size_count_semantic_name(item.new):
+        semantic_note = "; proposed name has size/count semantics"
+    return (
+        "Uninitialized local risk: skipped LLM rename %s->%s: %s%s"
+        % (item.old, item.new, risk.evidence, semantic_note)
+    )
+
+
+def _is_size_count_semantic_name(name: str) -> bool:
+    return bool(_split_identifier_words(name) & UNASSIGNED_LOCAL_SIZE_COUNT_WORDS)
+
+
+def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _UnassignedLocalUsageRisk]:
+    text = capture.pseudocode or ""
+    risks = {}
+    for var in capture.lvars:
+        name = var.name or ""
+        if not _is_unassigned_local_risk_candidate(text, name, var.type, var.is_arg):
+            continue
+        usage = _unassigned_local_usage(text, name)
+        if not usage:
+            continue
+        risks[name] = _UnassignedLocalUsageRisk(
+            name=name,
+            usage=usage,
+            evidence="%s is declared but has no direct assignment before use as %s"
+            % (name, usage),
+        )
+    return risks
+
+
+def _is_unassigned_local_risk_candidate(
+    text: str,
+    name: str,
+    type_text: str,
+    is_arg: bool,
+) -> bool:
+    if not name or is_arg:
+        return False
+    if _is_argument_identifier(name):
+        return False
+    if not is_valid_c_identifier(name):
+        return False
+    declaration = _declaration_line_for_name(text, name)
+    if not declaration:
+        return False
+    if _declaration_has_initializer(declaration, name):
+        return False
+    if _declaration_is_array_or_nonpointer_aggregate(declaration, type_text):
+        return False
+    if _assigned_expressions(text, name):
+        return False
+    if _address_taken(text, name):
+        return False
+    return True
+
+
+def _declaration_line_for_name(text: str, name: str) -> str:
+    target = re.escape(name)
+    pattern = re.compile(
+        r"^\s*(?:const\s+)?[A-Za-z_][A-Za-z0-9_:\s\*\&<>]*?\s+"
+        r"(?:[\*\&][\*\&\s]*)?"
+        + target
+        + r"\b[^\n;]*(?:;|=|,|\[)",
+        re.MULTILINE,
+    )
+    match = pattern.search(text or "")
+    return match.group(0).strip() if match else ""
+
+
+def _declaration_has_initializer(declaration: str, name: str) -> bool:
+    return bool(re.search(r"\b%s\b\s*(?:\[[^\]]*\]\s*)?=" % re.escape(name), declaration or ""))
+
+
+def _declaration_is_array_or_nonpointer_aggregate(declaration: str, type_text: str) -> bool:
+    if "[" in (declaration or ""):
+        return True
+    normalized_type = (type_text or "").strip().lower()
+    if not normalized_type.startswith(("struct ", "union ")):
+        return False
+    return "*" not in normalized_type and "&" not in normalized_type
+
+
+def _address_taken(text: str, name: str) -> bool:
+    return bool(re.search(r"&\s*%s\b" % re.escape(name), text or ""))
+
+
+def _unassigned_local_usage(text: str, name: str) -> str:
+    usages = []
+    call_usage = _call_argument_usage(text, name)
+    if call_usage:
+        usages.append(call_usage)
+    if _return_expression_usage(text, name):
+        usages.append("return expression")
+    if _pointer_arithmetic_usage(text, name):
+        usages.append("pointer arithmetic expression")
+    return ", ".join(_dedupe_sequence(usages[:3]))
+
+
+def _call_argument_usage(text: str, name: str) -> str:
+    call_pattern = re.compile(r"\b(?P<call>[A-Za-z_][A-Za-z0-9_]*)\s*\(")
+    for match in call_pattern.finditer(text or ""):
+        call_name = match.group("call")
+        if call_name.lower() in CALL_PARSE_SKIP_NAMES:
+            continue
+        open_index = match.end() - 1
+        close_index = _matching_paren_index(text, open_index)
+        if close_index < 0:
+            continue
+        for argument in _split_call_arguments(text[open_index + 1 : close_index]):
+            if _argument_mentions_name_by_value(argument, name):
+                return "call argument to %s" % call_name
+    return ""
+
+
+def _matching_paren_index(text: str, open_index: int) -> int:
+    depth = 0
+    for index in range(open_index, len(text or "")):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return -1
+
+
+def _split_call_arguments(arguments_text: str) -> list[str]:
+    result = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(arguments_text or ""):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            result.append(arguments_text[start:index].strip())
+            start = index + 1
+    tail = (arguments_text or "")[start:].strip()
+    if tail:
+        result.append(tail)
+    return result
+
+
+def _argument_mentions_name_by_value(argument: str, name: str) -> bool:
+    target = re.escape(name)
+    if not re.search(r"\b%s\b" % target, argument or ""):
+        return False
+    return not bool(re.search(r"&\s*%s\b" % target, argument or ""))
+
+
+def _return_expression_usage(text: str, name: str) -> bool:
+    return bool(re.search(r"\breturn\s+[^;\n]*\b%s\b[^;\n]*;" % re.escape(name), text or ""))
+
+
+def _pointer_arithmetic_usage(text: str, name: str) -> bool:
+    target = re.escape(name)
+    return bool(
+        re.search(r"\b%s\b\s*(?:\+|-)\s*[^;\n]+" % target, text or "")
+        or re.search(r"[^;\n]+(?:\+|-)\s*\b%s\b" % target, text or "")
+    )
 
 
 def _status_carrier_evidence_by_name(text: str, names: set[str]) -> dict[str, list[str]]:

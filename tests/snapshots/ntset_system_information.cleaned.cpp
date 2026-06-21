@@ -7,13 +7,15 @@
     Rename candidates: 9
     Flow rewrites: 1
     Kernel semantic rewrites: 1
-    Warnings: 0
+    Warnings: 1
     Flow: switch_recovery dispatcher=infoClass cases=[9, 113, 194, 235, 243] confidence=0.60
     Kernel insights:
       - object_reference: Kernel object/context reference ownership changes are present confidence=0.84
     Label roles:
       - LABEL_214: dereference_object_and_return confidence=0.93 (Dereferences an object reference and returns status)
       - LABEL_421: cleanup_captured_unicode_string_and_return confidence=0.94 (Calls VfFreeCapturedUnicodeString and returns from the function)
+    Warning detail:
+      - Uninitialized local risk: Object renamed to referencedObject by semantic-rule, but Object is declared but has no direct assignment before use as call argument to ObfDereferenceObject
     Renames: Object->referencedObject(0.92,semantic-rule), PreviousMode->previousMode(0.99,semantic-rule), a1->systemInformationClass(0.99,prototype), a2->systemInformation(0.99,prototype), a3->systemInformationLength(0.99,prototype), updated->status(0.95,semantic-rule), v3->inputLength(0.93,pattern), v4->systemInfo128(0.90,pattern), v5->infoClass(0.97,pattern)
 */
 
