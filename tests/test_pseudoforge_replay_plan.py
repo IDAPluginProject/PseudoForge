@@ -977,7 +977,20 @@ __int64 __fastcall ValidatedPartial(__int64 context)
 
             item = plan["items"][0]
             self.assertEqual(1, item["metrics"]["layout_call_result_temporary_merge_provenance"])
+            self.assertEqual(
+                1,
+                item["metrics"]["layout_call_result_temporary_merge_provenance_traced"],
+            )
+            self.assertEqual(
+                0,
+                item["metrics"]["layout_call_result_temporary_merge_provenance_unresolved"],
+            )
             self.assertIn("layout_call_result_temporary_merge_provenance", item["reasons"])
+            self.assertIn("layout_call_result_temporary_provenance_traced", item["reasons"])
+            self.assertEqual(
+                "allocation_call_with_temporary",
+                item["base_merge_provenance_classes"]["call_result_temporary"]["v20"],
+            )
             self.assertEqual(
                 "v20",
                 item["offset_base_counts"]["call_result_temporary_merge_provenance"][0]["base"],
@@ -987,6 +1000,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual("v20", source_queue[0]["base"])
             self.assertEqual("call_result_temporary_branch", source_queue[0]["merge_shape"])
             self.assertEqual("high", source_queue[0]["merge_risk"])
+            self.assertEqual("allocation_call_with_temporary", source_queue[0]["provenance_class"])
             self.assertEqual("temporary_provenance_review", source_queue[0]["disposition"])
             self.assertIn("temporary/call-result path dominance", source_queue[0]["recommended_next"])
             self.assertEqual(
@@ -998,6 +1012,57 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             markdown = render_replay_plan_markdown(plan)
             self.assertIn("temporary_provenance_review", markdown)
             self.assertIn("call_result_temporary_branch", markdown)
+            self.assertIn("allocation_call_with_temporary", markdown)
+
+    def test_replay_plan_marks_unresolved_call_result_temporary_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            call_result_temporary_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v20: base is a decompiler temporary; base has multiple initializers before layout access; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v20: 2 initializer(s) before first layout access across 2 source candidate(s): MiAllocatePool(size); *(_QWORD *)(v14 + 8). Candidate classes call_result=1, expression=1. Source families call_result:MiAllocatePool=1, temporary:v14=1; disposition distinct_source_family_review. Candidate kinds allocation_call_result=1, temporary_root=1. Merge shape call_result_temporary_branch (high risk); next trace temporary/call-result dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "      - inferred_offset_call_result_temporary_merge_provenance: Call-result/temporary merge provenance for v20: 1 call-result initializer(s), 1 temporary-root candidate(s). Call families MiAllocatePool=1. Temporary roots v14 stable=unknown. Provenance class allocation_call_with_unresolved_temporary. Keep canonical rewrite blocked until temporary source dominance is validated. confidence=0.64",
+                    "*/",
+                    "__int64 __fastcall UnresolvedCallResultTemporaryMerge(__int64 size)",
+                    "{",
+                    "  v20 = MiAllocatePool(size);",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v20 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140932C70",
+                name="UnresolvedCallResultTemporaryMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=call_result_temporary_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            item = plan["items"][0]
+            self.assertEqual(
+                0,
+                item["metrics"]["layout_call_result_temporary_merge_provenance_traced"],
+            )
+            self.assertEqual(
+                1,
+                item["metrics"]["layout_call_result_temporary_merge_provenance_unresolved"],
+            )
+            self.assertIn("layout_call_result_temporary_provenance_unresolved", item["reasons"])
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual(
+                "allocation_call_with_unresolved_temporary",
+                source_queue[0]["provenance_class"],
+            )
+            self.assertIn("Resolve temporary source identity", source_queue[0]["recommended_next"])
 
     def test_replay_plan_marks_call_result_parameter_merge_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1034,7 +1099,16 @@ __int64 __fastcall ValidatedPartial(__int64 context)
 
             item = plan["items"][0]
             self.assertEqual(1, item["metrics"]["layout_call_result_parameter_merge_provenance"])
+            self.assertEqual(
+                1,
+                item["metrics"]["layout_call_result_parameter_merge_provenance_linked"],
+            )
             self.assertIn("layout_call_result_parameter_merge_provenance", item["reasons"])
+            self.assertIn("layout_call_result_parameter_provenance_linked", item["reasons"])
+            self.assertEqual(
+                "call_result_with_parameter_root_linked_arguments_pointer_deref",
+                item["base_merge_provenance_classes"]["call_result_parameter"]["v47"],
+            )
             self.assertEqual(
                 "v47",
                 item["offset_base_counts"]["call_result_parameter_merge_provenance"][0]["base"],
@@ -1044,6 +1118,10 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertEqual("v47", source_queue[0]["base"])
             self.assertEqual("call_result_parameter_branch", source_queue[0]["merge_shape"])
             self.assertEqual("high", source_queue[0]["merge_risk"])
+            self.assertEqual(
+                "call_result_with_parameter_root_linked_arguments_pointer_deref",
+                source_queue[0]["provenance_class"],
+            )
             self.assertEqual("parameter_provenance_review", source_queue[0]["disposition"])
             self.assertIn("parameter/call-result path dominance", source_queue[0]["recommended_next"])
             self.assertEqual(
@@ -1055,6 +1133,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             markdown = render_replay_plan_markdown(plan)
             self.assertIn("parameter_provenance_review", markdown)
             self.assertIn("call_result_parameter_branch", markdown)
+            self.assertIn("call_result_with_parameter_root_linked_arguments_pointer_deref", markdown)
 
     def test_replay_plan_marks_bugcheck_parameter_merge_queue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
