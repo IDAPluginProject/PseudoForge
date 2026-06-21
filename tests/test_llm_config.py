@@ -242,6 +242,66 @@ __int64 __fastcall CacheSample(int a1)
             self.assertEqual(raw, replay.suggest_renames(capture))
             self.assertEqual(str(cache_path), replay.last_candidate_replay_path)
 
+    def test_llm_candidate_cache_clears_last_artifact_on_failure(self) -> None:
+        class MixedProvider:
+            def suggest_renames(self, capture):
+                if capture.name == "TimeoutCacheSample":
+                    raise TimeoutError("request timed out")
+                return '{"renames":[{"old":"v1","new":"cachedValue","confidence":0.95,"reason":"fixture"}]}'
+
+        ok_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CacheSample(int a1)
+{
+  int v1;
+
+  v1 = a1 + 1;
+  return v1;
+}
+""",
+            name="CacheSample",
+            ea=0x140001000,
+        )
+        timeout_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall TimeoutCacheSample(int a1)
+{
+  int v1;
+
+  v1 = a1 + 2;
+  return v1;
+}
+""",
+            name="TimeoutCacheSample",
+            ea=0x140002000,
+        )
+        missing_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MissingReplaySample(int a1)
+{
+  return a1;
+}
+""",
+            name="MissingReplaySample",
+            ea=0x140003000,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = LlmCandidateRecordingProvider(MixedProvider(), temp_dir)
+            recorder.suggest_renames(ok_capture)
+            self.assertTrue(recorder.last_candidate_cache_path)
+
+            with self.assertRaises(TimeoutError):
+                recorder.suggest_renames(timeout_capture)
+            self.assertEqual("", recorder.last_candidate_cache_path)
+
+            replay = LlmCandidateReplayProvider(temp_dir)
+            replay.suggest_renames(ok_capture)
+            self.assertTrue(replay.last_candidate_replay_path)
+
+            with self.assertRaises(FileNotFoundError):
+                replay.suggest_renames(missing_capture)
+            self.assertEqual("", replay.last_candidate_replay_path)
+
     def test_large_dispatcher_llm_raises_confidence_floor_and_hides_low_confidence_warnings(self) -> None:
         class FakeProvider:
             def suggest_renames(self, capture):

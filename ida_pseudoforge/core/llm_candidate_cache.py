@@ -25,6 +25,7 @@ class LlmCandidateRecordingProvider:
         self.strict_replay = bool(getattr(inner, "strict_replay", False))
 
     def suggest_renames(self, capture: FunctionCapture) -> str:
+        self.last_candidate_cache_path = ""
         raw_response = self.inner.suggest_renames(capture)
         cache_path = write_llm_candidate_cache(
             self.cache_dir,
@@ -49,6 +50,8 @@ class LlmCandidateReplayProvider:
         self.last_candidate_cache_path = ""
 
     def suggest_renames(self, capture: FunctionCapture) -> str:
+        self.last_candidate_replay_path = ""
+        self.last_candidate_cache_path = ""
         cache_path = find_llm_candidate_cache(self.replay_dir, capture)
         if cache_path is None:
             raise FileNotFoundError(

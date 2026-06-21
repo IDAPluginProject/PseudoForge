@@ -19,6 +19,7 @@ from tools.pseudoforge_ida_batch import (
     _build_plan_with_optional_llm,
     _cancel_file_requested,
     _function_file_stem,
+    _llm_candidate_artifacts,
     _render_cleaned_with_ida_postprocess,
     _write_compare_artifacts,
     _write_export_artifacts,
@@ -246,6 +247,89 @@ __int64 __fastcall LlmBatchSample(int a1)
         self.assertEqual(error_summary, "provider cyber policy block request_id=req_policy_123")
         self.assertIn("blocked by provider cyber policy", plan.warnings[0])
 
+    def test_ida_batch_timeout_fallback_does_not_reuse_previous_candidate_artifact(self) -> None:
+        class MixedProvider:
+            def suggest_renames(self, capture):
+                if capture.name == "TimeoutCandidate":
+                    raise TimeoutError("LLM request timed out after 7 seconds")
+                return '{"renames":[{"old":"v1","new":"cachedValue","confidence":0.95,"reason":"fixture"}]}'
+
+        ok_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall OkCandidate(int a1)
+{
+  int v1;
+
+  v1 = a1 + 1;
+  return v1;
+}
+""",
+            name="OkCandidate",
+            ea=0x140001000,
+        )
+        timeout_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall TimeoutCandidate(int a1)
+{
+  int v1;
+
+  v1 = a1 + 2;
+  return v1;
+}
+""",
+            name="TimeoutCandidate",
+            ea=0x140002000,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = ida_batch_module.LlmCandidateRecordingProvider(
+                MixedProvider(),
+                Path(temp_dir) / "llm-cache",
+                provider_info={"provider": "fixture", "timeout_seconds": 7},
+            )
+            ok_plan, ok_status, _ok_error, _ok_error_class, _ok_error_summary = _build_plan_with_optional_llm(
+                ok_capture,
+                provider,
+            )
+            ok_artifacts = _llm_candidate_artifacts(provider, ok_capture)
+
+            timeout_plan, timeout_status, timeout_error, timeout_error_class, timeout_error_summary = (
+                _build_plan_with_optional_llm(timeout_capture, provider)
+            )
+            timeout_artifacts = _llm_candidate_artifacts(provider, timeout_capture)
+            cleaned = render_cleaned_pseudocode(timeout_capture, timeout_plan)
+            export = _write_export_artifacts(
+                Path(temp_dir) / "functions",
+                timeout_capture,
+                timeout_plan,
+                cleaned,
+                aliases={},
+                llm_status=timeout_status,
+                llm_error=timeout_error,
+                llm_error_class=timeout_error_class,
+                llm_error_summary=timeout_error_summary,
+                llm_info={"enabled": True, "provider": "fixture", "model": "test", "timeout_seconds": 7},
+                llm_candidate_artifacts=timeout_artifacts,
+            )
+
+            summary = json.loads(Path(export["artifacts"]["summary"]).read_text(encoding="utf-8"))
+            ok_cache_exists = Path(ok_artifacts["llm_candidate_cache"]).exists()
+
+        self.assertEqual("ok", ok_status)
+        self.assertTrue(ok_plan.active_renames())
+        self.assertIn("llm_candidate_cache", ok_artifacts)
+        self.assertTrue(ok_cache_exists)
+        self.assertEqual("fallback", timeout_status)
+        self.assertIn("timed out", timeout_error)
+        self.assertEqual("timeout", timeout_error_class)
+        self.assertIn("timed out", timeout_error_summary)
+        self.assertIn("LLM rename assist failed; deterministic fallback used", timeout_plan.warnings[0])
+        self.assertEqual({}, timeout_artifacts)
+        self.assertEqual("fallback", summary["llm_status"])
+        self.assertEqual("timeout", summary["llm_error_class"])
+        self.assertEqual(7, summary["llm_timeout_seconds"])
+        self.assertNotIn("llm_candidate_artifacts", summary)
+        self.assertNotIn("llm_candidate_cache", summary["artifacts"])
+
     def test_ida_batch_replay_missing_candidate_cache_is_strict(self) -> None:
         capture = capture_from_pseudocode(BATCH_BOOLEAN_SAMPLE, name="MissingReplay", ea=0x140001000)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -359,6 +443,45 @@ __int64 __fastcall LlmBatchSample(int a1)
         self.assertEqual(info["model"], "local-test-model")
         self.assertEqual(info["timeout_seconds"], 77)
         self.assertEqual(provider_configs[0].base_url, "http://localhost:1234/v1")
+
+    def test_ida_batch_llm_context_clamps_reported_provider_timeout(self) -> None:
+        old_load = ida_batch_module.load_config
+        old_provider = ida_batch_module.build_rename_provider
+        provider_configs = []
+
+        ida_batch_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(
+                enabled=True,
+                provider="ollama",
+                timeout_seconds=77,
+            )
+        )
+        ida_batch_module.build_rename_provider = (
+            lambda config, api_key="": provider_configs.append(config) or object()
+        )
+        try:
+            args = argparse.Namespace(
+                llm_renames=True,
+                llm_renames_auto=False,
+                require_configured_llm=False,
+                llm_provider="",
+                llm_api_key="",
+                llm_base_url="",
+                llm_model="",
+                llm_command="",
+                llm_timeout=999,
+                llm_candidate_cache_dir="",
+                llm_candidate_replay_dir="",
+            )
+
+            provider, info = ida_batch_module._build_llm_context(args)
+        finally:
+            ida_batch_module.load_config = old_load
+            ida_batch_module.build_rename_provider = old_provider
+
+        self.assertIsNotNone(provider)
+        self.assertEqual(600, info["timeout_seconds"])
+        self.assertEqual(600, provider_configs[0].timeout_seconds)
 
     def test_ida_batch_llm_context_auto_fails_when_required_and_disabled(self) -> None:
         old_load = ida_batch_module.load_config

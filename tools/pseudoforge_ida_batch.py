@@ -5,6 +5,7 @@ import difflib
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -46,6 +47,7 @@ from ida_pseudoforge.core.llm_failures import (
 from ida_pseudoforge.core.llm_candidate_cache import (
     LlmCandidateRecordingProvider,
     LlmCandidateReplayProvider,
+    llm_candidate_cache_path,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
@@ -371,7 +373,7 @@ def _analyze_function(
             capture,
             rename_provider,
         )
-        llm_candidate_artifacts = _llm_candidate_artifacts(rename_provider)
+        llm_candidate_artifacts = _llm_candidate_artifacts(rename_provider, capture)
         render_result = _render_cleaned_with_ida_postprocess(capture, plan)
         plan = render_result.plan
         cleaned = render_result.cleaned
@@ -400,6 +402,7 @@ def _analyze_function(
         if llm_info.get("enabled"):
             result["llm_provider"] = llm_info.get("provider", "")
             result["llm_model"] = llm_info.get("model", "")
+            result["llm_timeout_seconds"] = _llm_timeout_seconds(llm_info)
         if llm_candidate_artifacts:
             result["llm_candidate_artifacts"] = dict(llm_candidate_artifacts)
         if llm_error:
@@ -566,21 +569,76 @@ def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
             raise
         plan = build_clean_plan(capture)
         plan.warnings.insert(0, format_llm_fallback_warning(exc))
-        error_class = "cyber_policy_block" if is_llm_provider_cyber_policy_block(exc) else "provider_failure"
+        error_class = _llm_error_class(exc)
         return plan, "fallback", str(exc), error_class, summarize_llm_failure(exc)
 
 
-def _llm_candidate_artifacts(rename_provider: Any | None) -> dict[str, str]:
+def _llm_error_class(error: object) -> str:
+    if is_llm_provider_cyber_policy_block(error):
+        return "cyber_policy_block"
+    if _is_llm_timeout_error(error):
+        return "timeout"
+    return "provider_failure"
+
+
+def _is_llm_timeout_error(error: object) -> bool:
+    if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)):
+        return True
+    class_name = type(error).__name__.lower()
+    if "timeout" in class_name:
+        return True
+    text = str(error or "").lower()
+    return "timed out" in text or "timeout" in text
+
+
+def _llm_candidate_artifacts(
+    rename_provider: Any | None,
+    capture: FunctionCapture | None = None,
+) -> dict[str, str]:
     if rename_provider is None:
         return {}
     result: dict[str, str] = {}
     cache_path = str(getattr(rename_provider, "last_candidate_cache_path", "") or "")
     replay_path = str(getattr(rename_provider, "last_candidate_replay_path", "") or "")
-    if cache_path:
+    if cache_path and _is_current_llm_candidate_artifact(cache_path, capture):
         result["llm_candidate_cache"] = cache_path
-    if replay_path:
+    if replay_path and _is_current_llm_candidate_artifact(replay_path, capture):
         result["llm_candidate_replay"] = replay_path
     return result
+
+
+def _is_current_llm_candidate_artifact(path_text: str, capture: FunctionCapture | None) -> bool:
+    if not path_text:
+        return False
+    path = Path(path_text)
+    if not path.exists():
+        return False
+    if capture is None:
+        return True
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return _candidate_path_name_matches_capture(path, capture)
+    if isinstance(payload, dict) and payload.get("schema") == "pseudoforge_llm_candidate_cache_v1":
+        return (
+            str(payload.get("function_ea", "")).lower() == ("0x%X" % capture.ea).lower()
+            and str(payload.get("input_fingerprint", "")) == capture.input_fingerprint()
+        )
+    return _candidate_path_name_matches_capture(path, capture)
+
+
+def _candidate_path_name_matches_capture(path: Path, capture: FunctionCapture) -> bool:
+    exact = llm_candidate_cache_path(path.parent, capture)
+    if path.name == exact.name:
+        return True
+    return path.name.startswith("%016X_" % int(capture.ea or 0))
+
+
+def _llm_timeout_seconds(llm_info: dict[str, Any]) -> int:
+    try:
+        return int(llm_info.get("timeout_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _render_cleaned_with_ida_postprocess(
