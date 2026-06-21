@@ -54,6 +54,7 @@ from ida_pseudoforge.ida.disasm_capture import capture_disasm_case_slice
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
 from ida_pseudoforge.ida.preview_config_dialog import ask_preview_config, format_preview_summary
 from ida_pseudoforge.ida.profile_config_dialog import ask_profile_dir, format_profile_summary
+from ida_pseudoforge.ida.source_context import format_source_context_summary
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 from ida_pseudoforge.ida.ui_preview import (
     build_save_as_filename,
@@ -638,6 +639,7 @@ class ShowSettingsHandler(idaapi.action_handler_t if idaapi else object):
                 "Config: %s\n"
                 "%s\n"
                 "%s\n"
+                "%s\n"
                 "LLM rename assist: %s\n"
                 "%s"
                 % (
@@ -645,6 +647,7 @@ class ShowSettingsHandler(idaapi.action_handler_t if idaapi else object):
                     _safe_config_path_text(),
                     format_profile_summary(config.profile_dir),
                     format_preview_summary(config.preview),
+                    _current_source_context_summary(config.profile_dir),
                     state,
                     format_llm_summary(config.llm, config),
                 )
@@ -756,6 +759,27 @@ def _set_capture_source_path(capture: FunctionCapture) -> None:
 def _target_and_forge_paths() -> tuple[Path, Path]:
     target_path = _target_file_path()
     return target_path, target_path.with_suffix(".forge")
+
+
+def _current_source_context_summary(configured_profile_dir: str) -> str:
+    target_path = ""
+    idb_path = ""
+    if ida_nalt is not None or idaapi is not None:
+        try:
+            target_path = str(_target_file_path())
+        except Exception:
+            target_path = ""
+        try:
+            path = _idb_path()
+            idb_path = str(path) if path is not None else ""
+        except Exception:
+            idb_path = ""
+    return format_source_context_summary(
+        source_path=target_path,
+        idb_path=idb_path,
+        configured_profile_dir=configured_profile_dir,
+        active_profile_root=active_profile_root(),
+    )
 
 
 def _target_file_path() -> Path:

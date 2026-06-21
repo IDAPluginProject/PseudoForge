@@ -32,6 +32,7 @@ from ida_pseudoforge.ida import plugin as plugin_module
 from ida_pseudoforge.ida import ui_preview as ui_preview_module
 from ida_pseudoforge.ida.action_registry import ActionRegistry
 from ida_pseudoforge.ida.analysis_state import PluginAnalysisSession, PluginAnalysisState, normalize_source_identity
+from ida_pseudoforge.ida.source_context import format_source_context_summary
 from ida_pseudoforge.models.provider_registry import (
     PROVIDER_CODEX_CLI,
     PROVIDER_LLAMA_CPP,
@@ -368,6 +369,56 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertEqual("ntoskrnl.exe", capture.profile_context["image"])
         self.assertEqual("26200.8457", capture.profile_context["build"])
         self.assertEqual("x64", capture.profile_context["arch"])
+
+    def test_format_source_context_summary_reports_build_bound_ntoskrnl(self):
+        summary = format_source_context_summary(
+            source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe.i64",
+            idb_path=r"D:\bin\os\26200.8457\ntoskrnl.exe.i64",
+            configured_profile_dir="",
+            active_profile_root=r"F:\kernullist\PseudoForge\ida_pseudoforge\profiles",
+        )
+
+        self.assertIn("Target path: D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", summary)
+        self.assertIn("IDB path: D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", summary)
+        self.assertIn("Context basis: target path", summary)
+        self.assertIn("Inferred image: ntoskrnl.exe", summary)
+        self.assertIn("Inferred arch: x64", summary)
+        self.assertIn("Inferred build: 26200.8457", summary)
+        self.assertIn("Context status: complete", summary)
+        self.assertIn("Configured profile dir: (default/env)", summary)
+        self.assertIn("Active profile root: F:\\kernullist\\PseudoForge\\ida_pseudoforge\\profiles", summary)
+
+    def test_format_source_context_summary_reports_missing_build_for_plain_idb_path(self):
+        summary = format_source_context_summary(
+            source_path="",
+            idb_path=r"D:\scratch\ntoskrnl.exe.i64",
+            configured_profile_dir=r"F:\profiles\wdk26100",
+            active_profile_root=r"F:\profiles\wdk26100",
+        )
+
+        self.assertIn("Target path: (unavailable)", summary)
+        self.assertIn("IDB path: D:\\scratch\\ntoskrnl.exe.i64", summary)
+        self.assertIn("Context basis: IDB path fallback", summary)
+        self.assertIn("Inferred image: ntoskrnl.exe", summary)
+        self.assertIn("Inferred arch: x64", summary)
+        self.assertIn("Inferred build: (missing)", summary)
+        self.assertIn("Context status: missing build", summary)
+
+    def test_format_source_context_summary_reports_unavailable_source(self):
+        summary = format_source_context_summary(
+            source_path="",
+            idb_path="",
+            configured_profile_dir="",
+            active_profile_root="",
+        )
+
+        self.assertIn("Target path: (unavailable)", summary)
+        self.assertIn("IDB path: (unavailable)", summary)
+        self.assertIn("Context basis: (none)", summary)
+        self.assertIn("Inferred image: (missing)", summary)
+        self.assertIn("Inferred arch: (missing)", summary)
+        self.assertIn("Inferred build: (missing)", summary)
+        self.assertIn("Context status: missing source_path, image, arch, build", summary)
 
     def test_preflight_rejects_invalid_colliding_and_unselected_renames(self):
         capture = _capture()
@@ -1698,6 +1749,46 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertIn("Version: %s" % VERSION, messages[0])
         self.assertIn("Profile directory:", messages[0])
         self.assertIn("Preview mode:", messages[0])
+
+    def test_show_settings_includes_source_context(self):
+        handler = actions_module.ShowSettingsHandler()
+        old_load = actions_module.load_config
+        old_info = actions_module.info
+        old_warning = actions_module.warning
+        old_target = actions_module._target_file_path
+        old_idb = actions_module._idb_path
+        old_active = actions_module.active_profile_root
+        old_ida_nalt = actions_module.ida_nalt
+        messages = []
+        warnings = []
+        actions_module.load_config = lambda: PseudoForgeConfig(
+            llm=LlmConfig(enabled=False),
+            profile_dir=r"F:\profiles\wdk26100",
+        )
+        actions_module.info = messages.append
+        actions_module.warning = warnings.append
+        actions_module._target_file_path = lambda: Path(r"D:\bin\os\26200.8457\ntoskrnl.exe.i64")
+        actions_module._idb_path = lambda: Path(r"D:\bin\os\26200.8457\ntoskrnl.exe.i64")
+        actions_module.active_profile_root = lambda: r"F:\profiles\wdk26100"
+        actions_module.ida_nalt = object()
+        try:
+            self.assertEqual(handler.activate(None), 1)
+        finally:
+            actions_module.load_config = old_load
+            actions_module.info = old_info
+            actions_module.warning = old_warning
+            actions_module._target_file_path = old_target
+            actions_module._idb_path = old_idb
+            actions_module.active_profile_root = old_active
+            actions_module.ida_nalt = old_ida_nalt
+
+        self.assertFalse(warnings)
+        self.assertEqual(len(messages), 1)
+        self.assertIn("Source context:", messages[0])
+        self.assertIn("Target path: D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", messages[0])
+        self.assertIn("Inferred image: ntoskrnl.exe", messages[0])
+        self.assertIn("Inferred build: 26200.8457", messages[0])
+        self.assertIn("Context status: complete", messages[0])
 
 
 if __name__ == "__main__":
