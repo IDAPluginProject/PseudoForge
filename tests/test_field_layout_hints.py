@@ -4092,6 +4092,76 @@ __int64 __fastcall DifferentCallResultInitializerLayout(__int64 context, int rel
         self.assertEqual(["call_result", "call_result"], merge[0]["source_candidate_kinds"])
         self.assertEqual("call_result_branch", merge[0]["merge_shape"])
         self.assertEqual("medium_high", merge[0]["merge_risk"])
+        equivalence = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_call_result_merge_equivalence"
+        ]
+        self.assertEqual(1, len(equivalence))
+        self.assertEqual("mixed_direct_call_families", equivalence[0]["equivalence_class"])
+        self.assertEqual(
+            {"MakeFallbackLayoutSource": 1, "MakePrimaryLayoutSource": 1},
+            equivalence[0]["call_name_counts"],
+        )
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
+
+    def test_call_result_merge_with_indirect_fallback_reports_equivalence(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall CallResultIndirectFallbackLayout(__int64 P, __int64 L, int reload)
+{
+  __int64 v21;
+
+  v21 = RtlpInterlockedPopEntrySList(&P->ListHead);
+  if ( reload )
+  {
+    v21 = RtlpInterlockedPopEntrySList(&L->ListHead);
+  }
+  if ( !v21 )
+  {
+    v21 = guard_dispatch_icall_no_overrides((unsigned int)L->Type, L->Size);
+  }
+  return *(_QWORD *)(v21 + 16)
+       + *(_QWORD *)(v21 + 24)
+       + *(_QWORD *)(v21 + 32)
+       + *(_QWORD *)(v21 + 40)
+       + *(_QWORD *)(v21 + 48)
+       + *(_QWORD *)(v21 + 56)
+       + *(_QWORD *)(v21 + 64)
+       + *(_QWORD *)(v21 + 72)
+       + *(_QWORD *)(v21 + 16)
+       + *(_QWORD *)(v21 + 24)
+       + *(_QWORD *)(v21 + 32)
+       + *(_QWORD *)(v21 + 40);
+}
+"""
+        )
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+        equivalence = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_call_result_merge_equivalence"
+        ]
+
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
+        self.assertEqual(1, len(merge))
+        self.assertEqual("call_result_branch", merge[0]["merge_shape"])
+        self.assertEqual(["call_result", "call_result", "indirect_call_result"], merge[0]["source_candidate_kinds"])
+        self.assertEqual(1, len(equivalence))
+        self.assertEqual("v21", equivalence[0]["base"])
+        self.assertEqual("direct_call_with_indirect_fallback", equivalence[0]["equivalence_class"])
+        self.assertEqual(3, equivalence[0]["call_result_initializer_count"])
+        self.assertEqual(2, equivalence[0]["direct_call_result_count"])
+        self.assertEqual(1, equivalence[0]["indirect_call_result_count"])
+        self.assertEqual(
+            {"RtlpInterlockedPopEntrySList": 2, "guard_dispatch_icall_no_overrides": 1},
+            equivalence[0]["call_name_counts"],
+        )
+        self.assertEqual(["RtlpInterlockedPopEntrySList"], equivalence[0]["direct_call_names"])
+        self.assertTrue(equivalence[0]["same_direct_call_family"])
+        self.assertIn("direct_call_with_indirect_fallback", equivalence[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_alias_equivalent_initializers_before_layout_access_do_not_block_rewrite(self) -> None:

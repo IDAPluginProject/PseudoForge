@@ -250,6 +250,13 @@ def field_layout_comments(
                     )
                     if allocation_null:
                         comments.append(allocation_null)
+                    call_result_equivalence = _field_call_result_merge_equivalence_comment(
+                        text or "",
+                        item,
+                        merge,
+                    )
+                    if call_result_equivalence:
+                        comments.append(call_result_equivalence)
                 relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
                 if relocation:
                     comments.append(relocation)
@@ -1516,6 +1523,105 @@ def _field_allocation_null_merge_dominance_comment(
         "guard_end": int(guard.get("end", -1) if guard else -1),
         "merge_shape": "allocation_null_branch",
     }
+
+
+def _field_call_result_merge_equivalence_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    merge: dict[str, Any],
+) -> dict[str, Any] | None:
+    if merge.get("merge_shape") != "call_result_branch":
+        return None
+    candidates = _call_result_merge_candidates(text, merge.get("source_candidates"))
+    if len(candidates) < 2:
+        return None
+    call_name_counts = Counter(str(item["call_name"]) for item in candidates if item.get("call_name"))
+    kind_counts = Counter(str(item["candidate_kind"]) for item in candidates if item.get("candidate_kind"))
+    direct_names = [
+        str(item["call_name"])
+        for item in candidates
+        if item.get("candidate_kind") == "call_result"
+    ]
+    equivalence_class = _call_result_merge_equivalence_class(kind_counts, direct_names)
+    call_name_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(call_name_counts.items())
+    )
+    confidence = 0.66
+    if equivalence_class == "single_direct_call_family":
+        confidence = 0.70
+    elif equivalence_class == "direct_call_with_indirect_fallback":
+        confidence = 0.64
+    return {
+        "kind": "inferred_offset_call_result_merge_equivalence",
+        "text": (
+            "Call-result merge equivalence for %s: %d call-result initializer(s), "
+            "%d direct call(s), %d indirect dispatch call(s), %d opaque call(s). "
+            "Call families %s; equivalence class %s. "
+            "Keep canonical rewrite blocked until call-result object equivalence is validated."
+            % (
+                layout.base,
+                len(candidates),
+                int(kind_counts.get("call_result", 0) or 0),
+                int(kind_counts.get("indirect_call_result", 0) or 0),
+                int(kind_counts.get("opaque_call_result", 0) or 0),
+                call_name_text,
+                equivalence_class,
+            )
+        ),
+        "confidence": confidence,
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "merge_shape": "call_result_branch",
+        "call_result_initializer_count": len(candidates),
+        "direct_call_result_count": int(kind_counts.get("call_result", 0) or 0),
+        "indirect_call_result_count": int(kind_counts.get("indirect_call_result", 0) or 0),
+        "opaque_call_result_count": int(kind_counts.get("opaque_call_result", 0) or 0),
+        "allocation_call_result_count": int(kind_counts.get("allocation_call_result", 0) or 0),
+        "call_name_counts": dict(sorted(call_name_counts.items())),
+        "candidate_kind_counts": dict(sorted(kind_counts.items())),
+        "call_result_candidates": candidates,
+        "direct_call_names": list(dict.fromkeys(direct_names)),
+        "same_direct_call_family": len(set(direct_names)) == 1 and bool(direct_names),
+        "equivalence_class": equivalence_class,
+    }
+
+
+def _call_result_merge_candidates(text: str, values: Any) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for value in values or []:
+        rhs = _normalize_assignment_rhs(str(value))
+        if _layout_rhs_kind(rhs) != "call_result":
+            continue
+        call_name = _parse_any_direct_call_result_name(rhs)
+        if not call_name:
+            continue
+        candidates.append(
+            {
+                "source": rhs,
+                "call_name": call_name,
+                "candidate_kind": _base_merge_source_candidate_kind(text, rhs),
+            }
+        )
+    return candidates
+
+
+def _call_result_merge_equivalence_class(
+    kind_counts: Counter[str],
+    direct_names: list[str],
+) -> str:
+    kinds = set(kind_counts)
+    if kinds == {"call_result"} and len(set(direct_names)) == 1:
+        return "single_direct_call_family"
+    if "indirect_call_result" in kinds and "call_result" in kinds:
+        return "direct_call_with_indirect_fallback"
+    if "opaque_call_result" in kinds and "call_result" in kinds:
+        return "direct_call_with_opaque_fallback"
+    if kinds == {"call_result"} and len(set(direct_names)) > 1:
+        return "mixed_direct_call_families"
+    if "allocation_call_result" in kinds:
+        return "allocation_call_result_mixed"
+    return "mixed_call_result_sources"
 
 
 def _coerce_counter_dict(value: Any) -> dict[str, int]:

@@ -864,6 +864,55 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             self.assertIn("allocation_null_dominance_review", markdown)
             self.assertIn("allocation_null_branch", markdown)
 
+    def test_replay_plan_marks_call_result_merge_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            call_result_body = "\n".join(
+                [
+                    "/*",
+                    "    Kernel insights:",
+                    "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v21: base is a decompiler temporary; one or more offsets mix irregular field access widths; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
+                    "      - inferred_offset_base_merge_evidence: Base merge evidence for v21: 3 initializer(s) before first layout access across 3 source candidate(s): RtlpInterlockedPopEntrySList(&P->ListHead); RtlpInterlockedPopEntrySList(&L->ListHead); guard_dispatch_icall_no_overrides((unsigned int)L->Type, L->Size). Candidate classes call_result=3. Source families call_result:RtlpInterlockedPopEntrySList=2, call_result:guard_dispatch_icall_no_overrides((unsigned int)L->Type, L->Size=1; disposition distinct_source_family_review. Candidate kinds call_result=2, indirect_call_result=1. Merge shape call_result_branch (medium_high risk); next review call-result object equivalence. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.71",
+                    "*/",
+                    "__int64 __fastcall CallResultMerge(__int64 P, __int64 L)",
+                    "{",
+                    "  v21 = RtlpInterlockedPopEntrySList(&P->ListHead);",
+                ]
+                + [
+                    "  field%d = *(_QWORD *)(v21 + %d);" % (index, 256 + index * 8)
+                    for index in range(12)
+                ]
+                + ["  return field0;", "}"]
+            )
+            _write_function(
+                root,
+                ea="0x140967410",
+                name="CallResultMerge",
+                warnings=0,
+                rename_candidates=1,
+                renames=1,
+                cleaned_body=call_result_body,
+            )
+
+            plan = build_replay_plan(root, limit=1)
+
+            source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
+            self.assertEqual("CallResultMerge", source_queue[0]["function"])
+            self.assertEqual("v21", source_queue[0]["base"])
+            self.assertEqual("call_result_branch", source_queue[0]["merge_shape"])
+            self.assertEqual("medium_high", source_queue[0]["merge_risk"])
+            self.assertEqual("call_result_equivalence_review", source_queue[0]["disposition"])
+            self.assertIn("call-result object equivalence", source_queue[0]["recommended_next"])
+            self.assertEqual(
+                "call_result_equivalence_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "call_result_merge_disposition"
+                ],
+            )
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("call_result_equivalence_review", markdown)
+            self.assertIn("call_result_branch", markdown)
+
     def test_replay_plan_trusts_allocation_stable_source_for_temp_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
