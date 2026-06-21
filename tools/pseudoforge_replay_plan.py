@@ -19,6 +19,7 @@ from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     FIELD_BUGCHECK_PARAMETER_MERGE_IDENTITY_RE,
     FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_RE,
+    FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_RE,
     FIELD_BASE_MERGE_EVIDENCE_RE,
     FIELD_BASE_STABILITY_DETAIL_RE,
     FIELD_BASE_STABILITY_RE,
@@ -121,6 +122,11 @@ FIELD_BUGCHECK_PARAMETER_MERGE_IDENTITY_DETAIL_RE = re.compile(
 FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_call_result_parameter_merge_provenance:\s+"
     r"Call-result/parameter merge provenance for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
+)
+FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_call_result_temporary_merge_provenance:\s+"
+    r"Call-result/temporary merge provenance for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:"
 )
 FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_DETAIL_RE = re.compile(
@@ -543,6 +549,15 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                 or []
                 if isinstance(entry, dict)
             }
+            call_result_temporary_provenance_bases = {
+                str(entry.get("base", "") or "")
+                for entry in offset_base_counts.get(
+                    "call_result_temporary_merge_provenance",
+                    [],
+                )
+                or []
+                if isinstance(entry, dict)
+            }
             same_source_family_dominance_bases = {
                 str(entry.get("base", "") or "")
                 for entry in offset_base_counts.get(
@@ -616,6 +631,12 @@ def _source_identity_review_queues(items: list[dict[str, Any]]) -> dict[str, lis
                         effective_disposition = "parameter_provenance_review"
                         effective_recommended_next = (
                             "Validate parameter/call-result path dominance before "
+                            "promoting this merged layout base."
+                        )
+                    if base in call_result_temporary_provenance_bases:
+                        effective_disposition = "temporary_provenance_review"
+                        effective_recommended_next = (
+                            "Validate temporary/call-result path dominance before "
                             "promoting this merged layout base."
                         )
                     if has_same_source_family_dominance:
@@ -701,6 +722,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     )
     call_result_parameter_merge_provenance_bases = (
         _call_result_parameter_merge_provenance_bases(analysis_text)
+    )
+    call_result_temporary_merge_provenance_bases = (
+        _call_result_temporary_merge_provenance_bases(analysis_text)
     )
     same_source_family_merge_dominance_bases = _same_source_family_merge_dominance_bases(
         analysis_text,
@@ -836,6 +860,9 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
     layout_call_result_parameter_merge_provenance = len(
         FIELD_CALL_RESULT_PARAMETER_MERGE_PROVENANCE_RE.findall(analysis_text)
     )
+    layout_call_result_temporary_merge_provenance = len(
+        FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_RE.findall(analysis_text)
+    )
     layout_same_source_family_merge_dominance = len(
         FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_RE.findall(analysis_text)
     )
@@ -851,6 +878,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         + layout_base_merge_evidence
         + layout_bugcheck_parameter_merge_identity
         + layout_call_result_parameter_merge_provenance
+        + layout_call_result_temporary_merge_provenance
         + layout_same_source_family_merge_dominance
         + layout_stable_base_sources
         + layout_hot_field_clusters
@@ -933,6 +961,7 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
         "layout_base_merge_evidence": layout_base_merge_evidence,
         "layout_bugcheck_parameter_merge_identity": layout_bugcheck_parameter_merge_identity,
         "layout_call_result_parameter_merge_provenance": layout_call_result_parameter_merge_provenance,
+        "layout_call_result_temporary_merge_provenance": layout_call_result_temporary_merge_provenance,
         "layout_same_source_family_merge_dominance": layout_same_source_family_merge_dominance,
         "layout_stable_base_sources": layout_stable_base_sources,
         "layout_hot_field_clusters": layout_hot_field_clusters,
@@ -978,6 +1007,10 @@ def _score_summary(summary_path: Path) -> dict[str, Any] | None:
             "call_result_parameter_merge_provenance": _top_counter_items(
                 Counter({base: 1 for base in call_result_parameter_merge_provenance_bases}),
                 len(call_result_parameter_merge_provenance_bases),
+            ),
+            "call_result_temporary_merge_provenance": _top_counter_items(
+                Counter({base: 1 for base in call_result_temporary_merge_provenance_bases}),
+                len(call_result_temporary_merge_provenance_bases),
             ),
             "same_source_family_merge_dominance": _top_counter_items(
                 Counter({base: 1 for base in same_source_family_merge_dominance_bases}),
@@ -1190,6 +1223,15 @@ def _call_result_parameter_merge_provenance_bases(text: str) -> set[str]:
     return bases
 
 
+def _call_result_temporary_merge_provenance_bases(text: str) -> set[str]:
+    bases: set[str] = set()
+    for match in FIELD_CALL_RESULT_TEMPORARY_MERGE_PROVENANCE_DETAIL_RE.finditer(text or ""):
+        base = str(match.groupdict().get("base") or "")
+        if base:
+            bases.add(base)
+    return bases
+
+
 def _same_source_family_merge_dominance_bases(text: str) -> set[str]:
     bases: set[str] = set()
     for match in FIELD_SAME_SOURCE_FAMILY_MERGE_DOMINANCE_DETAIL_RE.finditer(text or ""):
@@ -1340,6 +1382,7 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
     score += metrics["layout_base_merge_evidence"] * 6.0
     score += metrics["layout_bugcheck_parameter_merge_identity"] * 4.0
     score += metrics["layout_call_result_parameter_merge_provenance"] * 4.0
+    score += metrics["layout_call_result_temporary_merge_provenance"] * 4.0
     score += metrics["layout_same_source_family_merge_dominance"] * 4.0
     score += metrics["layout_stable_base_sources"] * 4.0
     score += metrics["layout_hot_field_clusters"] * 4.0
@@ -1407,6 +1450,8 @@ def _score_metrics(metrics: dict[str, int], warning_classes: Counter[str]) -> tu
         reasons.append("layout_bugcheck_parameter_merge_identity")
     if metrics["layout_call_result_parameter_merge_provenance"]:
         reasons.append("layout_call_result_parameter_merge_provenance")
+    if metrics["layout_call_result_temporary_merge_provenance"]:
+        reasons.append("layout_call_result_temporary_merge_provenance")
     if metrics["layout_same_source_family_merge_dominance"]:
         reasons.append("layout_same_source_family_merge_dominance")
     if metrics["layout_hot_field_clusters"]:
@@ -1490,6 +1535,7 @@ def _score_model() -> dict[str, Any]:
                 "layout_base_merge_evidence",
                 "layout_bugcheck_parameter_merge_identity",
                 "layout_call_result_parameter_merge_provenance",
+                "layout_call_result_temporary_merge_provenance",
                 "layout_same_source_family_merge_dominance",
                 "layout_stable_base_sources",
                 "layout_hot_field_clusters",

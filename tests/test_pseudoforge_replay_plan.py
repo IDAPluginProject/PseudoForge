@@ -935,6 +935,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                     "    Kernel insights:",
                     "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v20: base is a decompiler temporary; base has multiple initializers before layout access; base is reassigned after layout access. Review-only aliases remain available. confidence=0.74",
                     "      - inferred_offset_base_merge_evidence: Base merge evidence for v20: 2 initializer(s) before first layout access across 2 source candidate(s): ExAllocateFromLookasideListEx(&CcSharedCacheMapLookasideList); *(_QWORD *)(v29 + 8). Candidate classes call_result=1, expression=1. Source families call_result:ExAllocateFromLookasideListEx=1, temporary:v29=1; disposition distinct_source_family_review. Candidate kinds allocation_call_result=1, temporary_root=1. Merge shape call_result_temporary_branch (high risk); next trace temporary/call-result dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.69",
+                    "      - inferred_offset_call_result_temporary_merge_provenance: Call-result/temporary merge provenance for v20: 1 call-result initializer(s), 1 temporary-root candidate(s). Call families ExAllocateFromLookasideListEx=1. Temporary roots v29 stable=deref(_QWORD,referencedObject@0x28). Provenance class allocation_call_with_temporary. Keep canonical rewrite blocked until temporary source dominance is validated. confidence=0.64",
                     "*/",
                     "__int64 __fastcall CallResultTemporaryMerge(__int64 CacheMap)",
                     "{",
@@ -958,13 +959,20 @@ __int64 __fastcall ValidatedPartial(__int64 context)
 
             plan = build_replay_plan(root, limit=1)
 
+            item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_call_result_temporary_merge_provenance"])
+            self.assertIn("layout_call_result_temporary_merge_provenance", item["reasons"])
+            self.assertEqual(
+                "v20",
+                item["offset_base_counts"]["call_result_temporary_merge_provenance"][0]["base"],
+            )
             source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
             self.assertEqual("CallResultTemporaryMerge", source_queue[0]["function"])
             self.assertEqual("v20", source_queue[0]["base"])
             self.assertEqual("call_result_temporary_branch", source_queue[0]["merge_shape"])
             self.assertEqual("high", source_queue[0]["merge_risk"])
             self.assertEqual("temporary_provenance_review", source_queue[0]["disposition"])
-            self.assertIn("temporary/call-result dominance", source_queue[0]["recommended_next"])
+            self.assertIn("temporary/call-result path dominance", source_queue[0]["recommended_next"])
             self.assertEqual(
                 "temporary_provenance_review",
                 plan["score_model"]["source_identity_review_queues"][
