@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ida_pseudoforge.core.dense_structural_hints import dense_structural_comments
 from ida_pseudoforge.core.field_layout_hints import domain_identity_role_comments, field_layout_comments
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, parse_c_integer_literal
 from ida_pseudoforge.core.normalize import (
@@ -346,6 +347,7 @@ def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> lis
         )
 
     comments.extend(registry_domain_comments(capture, rename_map))
+    comments.extend(dense_structural_comments(capture, text))
     layout_comments = field_layout_comments(text, profile_context=capture.profile_context)
     layout_identity_bases = {
         str(comment.get("base", ""))
