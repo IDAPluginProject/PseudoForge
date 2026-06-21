@@ -76,6 +76,13 @@ class ProfileLoaderTests(unittest.TestCase):
             names = profile_loader.available_domain_identity_profile_names()
             manifests = profile_loader.available_domain_identity_profile_manifests()
             summary = format_profile_summary("")
+            subsystem_expectations = {
+                "windows.object_manager.dereference_object": "Object Manager",
+                "windows.io_manager.delete_device": "I/O Manager",
+                "windows.registry_config.nt_open_key": "Registry/Configuration",
+                "windows.memory_manager.locate_address": "Memory Manager",
+                "windows.token_security.reference_primary_token": "Token/Security",
+            }
 
             self.assertIn("domain_identity.json", names)
             self.assertIn("domain_identity/io_manager.json", names)
@@ -83,6 +90,11 @@ class ProfileLoaderTests(unittest.TestCase):
             self.assertTrue(
                 any(item.get("name") == "domain_identity/io_manager.json" for item in manifests)
             )
+            for profile_id, subsystem in subsystem_expectations.items():
+                self.assertEqual(
+                    subsystem,
+                    profile_loader.subsystem_identity_metadata(profile_id).get("subsystem"),
+                )
             self.assertIn("Available domain packs:", summary)
             self.assertIn("Domain pack files:", summary)
             self.assertIn("Domain pack source versions: 10.0.26200.8457", summary)
@@ -130,6 +142,80 @@ class ProfileLoaderTests(unittest.TestCase):
                 self.assertIn("Available domain packs: 1", summary)
                 self.assertIn("Domain pack files: domain_identity/custom.json", summary)
                 self.assertIn("Domain pack source versions: unit-build", summary)
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_subsystem_identity_index_expands_only_existing_profile_ids(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "domain_identity"
+            pack_dir.mkdir()
+            (pack_dir / "custom.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "domain_identity_profiles_v1",
+                        "profiles": [
+                            {"id": "windows.io_manager.unit_one", "parameters": []},
+                            {"id": "windows.io_manager.unit_two", "parameters": []},
+                            {"id": "windows.object_manager.unit", "parameters": []},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (temp_path / profile_loader.SUBSYSTEM_IDENTITY_INDEX_NAME).write_text(
+                json.dumps(
+                    {
+                        "schema": "subsystem_identity_index_v1",
+                        "source_version": "unit-build",
+                        "entries": [
+                            {
+                                "profile_id_prefix": "windows.io_manager.",
+                                "subsystem": "I/O Manager",
+                                "role_group": "unit roles",
+                                "description": "Unit I/O identities.",
+                            },
+                            {
+                                "profile_id": "windows.io_manager.missing",
+                                "subsystem": "I/O Manager",
+                                "role_group": "missing roles",
+                                "description": "Missing identity.",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+
+                entries = profile_loader.subsystem_identity_index_entries()
+
+                self.assertEqual(
+                    sorted(entries),
+                    ["windows.io_manager.unit_one", "windows.io_manager.unit_two"],
+                )
+                self.assertEqual(entries["windows.io_manager.unit_one"]["profile_id"], "windows.io_manager.unit_one")
+                self.assertEqual(entries["windows.io_manager.unit_one"]["subsystem"], "I/O Manager")
+                self.assertEqual(entries["windows.io_manager.unit_one"]["role_group"], "unit roles")
+                self.assertEqual(entries["windows.io_manager.unit_one"]["source_version"], "unit-build")
+                self.assertNotIn("windows.io_manager.missing", entries)
+                self.assertEqual(profile_loader.profile_load_warnings(), [])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_missing_subsystem_identity_index_does_not_warn(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            profile_loader.PROFILE_DIR = Path(temp_dir)
+            profile_loader.clear_profile_caches()
+            try:
+                self.assertEqual(profile_loader.subsystem_identity_index_entries(), {})
+                self.assertEqual(profile_loader.subsystem_identity_metadata("windows.io_manager.unit"), {})
+                self.assertEqual(profile_loader.profile_load_warnings(), [])
             finally:
                 profile_loader.PROFILE_DIR = original_dir
                 profile_loader.clear_profile_caches()

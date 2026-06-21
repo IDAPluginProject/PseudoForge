@@ -9,6 +9,7 @@ from ida_pseudoforge.core.domain_identity import (
     MODE_REPORT_ONLY,
 )
 from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.profiles import loader as profile_loader
 
 
 DOMAIN_IDENTITY_COMMENT_KIND = "domain_structure_identity"
@@ -30,6 +31,8 @@ def domain_identity_summary_payload(plan: CleanPlan, top_profile_limit: int = 5)
             blocker_counts[blocker] += 1
 
     sorted_profiles = sorted(profile_counts.items(), key=lambda item: (-item[1], item[0]))
+    subsystem_counts = _subsystem_counts(profile_counts)
+    sorted_subsystems = sorted(subsystem_counts.items(), key=lambda item: (-item[1], item[0]))
     sorted_blockers = sorted(blocker_counts.items(), key=lambda item: item[0])
     sorted_profile_counts = sorted(profile_counts.items(), key=lambda item: item[0])
     top_limit = max(1, int(top_profile_limit or 0))
@@ -41,6 +44,8 @@ def domain_identity_summary_payload(plan: CleanPlan, top_profile_limit: int = 5)
         "blocker_counts": {key: value for key, value in sorted_blockers},
         "top_profile_ids": [key for key, _value in sorted_profiles[:top_limit]],
         "profile_counts": {key: value for key, value in sorted_profile_counts},
+        "top_subsystems": [key for key, _value in sorted_subsystems[:top_limit]],
+        "subsystem_counts": {key: value for key, value in sorted(subsystem_counts.items())},
     }
 
 
@@ -70,6 +75,15 @@ def format_domain_identity_summary_payload(payload: dict[str, Any]) -> str:
     top_profiles = [str(item) for item in payload.get("top_profile_ids", []) if str(item)]
     if top_profiles:
         lines.append("Top profiles: %s." % ", ".join(top_profiles[:5]))
+    subsystem_counts = payload.get("subsystem_counts", {})
+    if isinstance(subsystem_counts, dict) and subsystem_counts:
+        lines.append(
+            "Top subsystems: %s."
+            % ", ".join(
+                "%s=%d" % (name, _int_value(subsystem_counts.get(name)))
+                for name in _ordered_top_names(payload.get("top_subsystems", []), subsystem_counts)
+            )
+        )
     blocker_counts = payload.get("blocker_counts", {})
     if isinstance(blocker_counts, dict) and blocker_counts:
         lines.append(
@@ -108,6 +122,33 @@ def _comment_blockers(comment: dict[str, Any]) -> list[str]:
             if text:
                 values.append(text)
     return list(dict.fromkeys(values))
+
+
+def _subsystem_counts(profile_counts: Counter[str]) -> Counter[str]:
+    result: Counter[str] = Counter()
+    for profile_id, count in profile_counts.items():
+        metadata = profile_loader.subsystem_identity_metadata(profile_id)
+        subsystem = str(metadata.get("subsystem", "")).strip()
+        if subsystem:
+            result[subsystem] += count
+    return result
+
+
+def _ordered_top_names(top_names: object, counts: dict[str, Any]) -> list[str]:
+    ordered = [
+        str(item).strip()
+        for item in top_names or []
+        if str(item).strip() and str(item).strip() in counts
+    ]
+    if ordered:
+        return ordered[:5]
+    return [
+        key
+        for key, _value in sorted(
+            ((str(key), _int_value(value)) for key, value in counts.items()),
+            key=lambda item: (-item[1], item[0]),
+        )[:5]
+    ]
 
 
 def _int_value(value: object) -> int:

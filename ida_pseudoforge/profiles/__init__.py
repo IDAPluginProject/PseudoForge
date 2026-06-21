@@ -18,6 +18,8 @@ from ida_pseudoforge.profiles.loader import (
     load_profiles_manifest,
     profile_manifest,
     profile_load_warnings,
+    subsystem_identity_index_entries,
+    subsystem_identity_metadata,
 )
 
 __all__ = [
@@ -40,4 +42,6 @@ __all__ = [
     "load_profiles_manifest",
     "profile_manifest",
     "profile_load_warnings",
+    "subsystem_identity_index_entries",
+    "subsystem_identity_metadata",
 ]

@@ -74,7 +74,10 @@ NTSTATUS __stdcall IoCreateDevice(PDRIVER_OBJECT DriverObject, ULONG DeviceExten
         self.assertEqual(0, summary["canonical_rewrite_eligible_hits"])
         self.assertEqual(len(identities), summary["blocker_counts"]["profile_report_only"])
         self.assertIn("windows.io_manager.create_device", summary["top_profile_ids"])
+        self.assertIn("I/O Manager", summary["top_subsystems"])
+        self.assertEqual(len(identities), summary["subsystem_counts"]["I/O Manager"])
         self.assertIn("Domain identities:", summary_text)
+        self.assertIn("Top subsystems: I/O Manager=", summary_text)
         self.assertIn("profile_report_only=", summary_text)
         self.assertIn("Domain identities:", rendered)
 

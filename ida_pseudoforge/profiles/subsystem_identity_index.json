@@ -1,0 +1,154 @@
+{
+  "schema": "subsystem_identity_index_v1",
+  "source": "PseudoForge curated packaged subsystem identity index",
+  "source_version": "10.0.26200.8457",
+  "entries": [
+    {
+      "profile_id_prefix": "windows.alpc_port.",
+      "subsystem": "ALPC Port",
+      "role_group": "port, message, section, reserve, view, and security context roles",
+      "source_version": "10.0.26200.8457",
+      "description": "ALPC port, message, resource, view, and security context identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.dispatcher_synchronization.",
+      "subsystem": "Dispatcher/Synchronization",
+      "role_group": "dispatcher object, wait, lock, resource, rundown, and spin lock roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Dispatcher object, wait, lock, resource, rundown, and spin lock identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.devpropkey.",
+      "subsystem": "PnP/Power",
+      "role_group": "device property and configuration roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Device property and configuration manager identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.etw.",
+      "subsystem": "ETW/WMI Telemetry",
+      "role_group": "event builder and telemetry roles",
+      "source_version": "10.0.26200.8457",
+      "description": "ETW event builder and telemetry identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.etw_wmi_telemetry.",
+      "subsystem": "ETW/WMI Telemetry",
+      "role_group": "provider, trace, callback, notification, and WMI IRP roles",
+      "source_version": "10.0.26200.8457",
+      "description": "ETW and WMI provider, trace, callback, notification, and IRP identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.exception_unwind.",
+      "subsystem": "Exception/Unwind",
+      "role_group": "context and unwind roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Exception dispatch and virtual unwind identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.executive_async.",
+      "subsystem": "Executive/Async",
+      "role_group": "work item, DPC, APC, and timer roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Executive work item, DPC, APC, and timer identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.file_cache_section.",
+      "subsystem": "File Cache/Section",
+      "role_group": "file object, section object, mapped view, and cache manager roles",
+      "source_version": "10.0.26200.8457",
+      "description": "File, section, mapped view, and cache manager identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.handle_table.",
+      "subsystem": "Handle Table",
+      "role_group": "handle table, handle entry, object pointer, process, thread, and CID roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Handle table, object pointer, process, thread, and CID identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.image_code_integrity.",
+      "subsystem": "Image/Code Integrity",
+      "role_group": "image load, module table, image notify, code integrity, and driver block roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Image load, module table, image notification, code integrity, and driver block identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.io_manager.",
+      "subsystem": "I/O Manager",
+      "role_group": "driver, device, IRP, interrupt, and symbolic link roles",
+      "source_version": "10.0.26200.8457",
+      "description": "I/O Manager driver, device, IRP, stack, interrupt, and symbolic link identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.memory_manager.",
+      "subsystem": "Memory Manager",
+      "role_group": "VAD, address-space, page fault, and virtual address roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Memory Manager VAD, address-space, page fault, and virtual address identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.object_manager.",
+      "subsystem": "Object Manager",
+      "role_group": "object body, object type, object name, handle, reference, and security roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Object Manager object, handle, reference, name lookup, and security identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.pnp_power.",
+      "subsystem": "PnP/Power",
+      "role_group": "devnode, device action, relation query, eject, power IRP, and power state roles",
+      "source_version": "10.0.26200.8457",
+      "description": "PnP and Power Manager device lifecycle, power IRP, and power state identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.process_thread.",
+      "subsystem": "Process/Thread",
+      "role_group": "process, thread, lifecycle, insert, exit, terminate, and notify roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Process and thread lifecycle, insert, exit, terminate, and notify identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.process_thread_notify.",
+      "subsystem": "Process/Thread Notify",
+      "role_group": "process and thread notify callback roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Process and thread notify callback registration and dispatch identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.registry_config.",
+      "subsystem": "Registry/Configuration",
+      "role_group": "registry key, value, parse, enumerate, query, set, delete, and notify roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Configuration Manager registry key, value, parse, query, set, delete, and notify identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.security_descriptor_acl.",
+      "subsystem": "Security Descriptor/ACL",
+      "role_group": "security descriptor, ACL, SID, QoS, assignment, query, and validation roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Security descriptor, ACL, SID, QoS, assignment, query, and validation identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.token_security.",
+      "subsystem": "Token/Security",
+      "role_group": "subject context, token, access state, access check, and audit roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Token, subject context, access state, access check, and audit identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.trap_processor_state.",
+      "subsystem": "Trap/Processor State",
+      "role_group": "trap frame, exception frame, context, PRCB, processor state, idle, and swap roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Trap frame, exception frame, context, PRCB, processor control state, idle, and swap identity hints."
+    },
+    {
+      "profile_id_prefix": "windows.x64_context.",
+      "subsystem": "Trap/Processor State",
+      "role_group": "x64 context copy roles",
+      "source_version": "10.0.26200.8457",
+      "description": "x64 processor context copy identity hints."
+    }
+  ]
+}

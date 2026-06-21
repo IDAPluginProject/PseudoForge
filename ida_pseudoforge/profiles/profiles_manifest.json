@@ -103,6 +103,16 @@
         "profiles": 3
       }
     },
+    "subsystem_identity_index.json": {
+      "profile_kind": "subsystem_identity_index",
+      "source": "PseudoForge curated packaged subsystem identity index",
+      "schema": "subsystem_identity_index_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "47C7B8E4F245836152D730BEA87954F8BA8C8229A06ECD6E9A341E8837048401",
+      "counts": {
+        "entries": 21
+      }
+    },
     "domain_identity/object_manager.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl Object Manager role-only identity profiles",

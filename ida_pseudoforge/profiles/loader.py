@@ -13,6 +13,7 @@ PROFILE_MANIFEST_NAME = "profiles_manifest.json"
 KERNEL_API_PROFILE_NAME = "kernel_api.json"
 DOMAIN_IDENTITY_PROFILE_NAME = "domain_identity.json"
 DOMAIN_IDENTITY_PROFILE_DIR = "domain_identity"
+SUBSYSTEM_IDENTITY_INDEX_NAME = "subsystem_identity_index.json"
 KERNEL_API_FAMILY_FILES = {
     "functions": "kernel_functions.json",
     "enums": "kernel_enums.json",
@@ -138,6 +139,47 @@ def available_domain_identity_profile_manifests() -> list[dict[str, Any]]:
     return result
 
 
+@lru_cache(maxsize=None)
+def subsystem_identity_index_entries() -> dict[str, dict[str, Any]]:
+    path = PROFILE_DIR / SUBSYSTEM_IDENTITY_INDEX_NAME
+    if not path.is_file():
+        return {}
+
+    payload = load_json_profile(SUBSYSTEM_IDENTITY_INDEX_NAME)
+    if not isinstance(payload, dict):
+        _record_profile_warning(
+            SUBSYSTEM_IDENTITY_INDEX_NAME,
+            "subsystem identity index root must be a JSON object, got %s" % type(payload).__name__,
+        )
+        return {}
+    entries = payload.get("entries", [])
+    if not isinstance(entries, list):
+        _record_profile_warning(
+            SUBSYSTEM_IDENTITY_INDEX_NAME,
+            "subsystem identity index entries must be a JSON array, got %s" % type(entries).__name__,
+        )
+        return {}
+
+    available_ids = set(_available_domain_identity_profile_ids())
+    result: dict[str, dict[str, Any]] = {}
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        for profile_id in _subsystem_index_profile_ids(item, available_ids):
+            metadata = _subsystem_index_metadata(payload, item, profile_id)
+            if metadata:
+                result[profile_id] = metadata
+    return {key: result[key] for key in sorted(result)}
+
+
+def subsystem_identity_metadata(profile_id: str) -> dict[str, Any]:
+    target = str(profile_id or "").strip()
+    if not target:
+        return {}
+    metadata = subsystem_identity_index_entries().get(target, {})
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
 def profile_manifest(name: str) -> dict[str, Any]:
     profiles = _profiles_manifest_entries()
     entry = profiles.get(name)
@@ -152,6 +194,8 @@ def clear_profile_caches() -> None:
     load_json_profile.cache_clear()
     load_profile.cache_clear()
     load_kernel_api_family.cache_clear()
+    subsystem_identity_index_entries.cache_clear()
+    _available_domain_identity_profile_ids.cache_clear()
     load_profiles_manifest.cache_clear()
     get_kernel_enum_member_name.cache_clear()
     get_kernel_enum_member_value.cache_clear()
@@ -195,6 +239,67 @@ def _profiles_manifest_entries() -> dict[str, Any]:
     manifest = load_profiles_manifest()
     profiles = manifest.get("profiles", {}) if isinstance(manifest, dict) else {}
     return profiles if isinstance(profiles, dict) else {}
+
+
+@lru_cache(maxsize=None)
+def _available_domain_identity_profile_ids() -> tuple[str, ...]:
+    result: list[str] = []
+    for name in available_domain_identity_profile_names():
+        data = load_json_profile(name)
+        if not isinstance(data, dict):
+            continue
+        profiles = data.get("profiles", [])
+        if not isinstance(profiles, list) and _looks_like_domain_profile(data):
+            profiles = [data]
+        if not isinstance(profiles, list):
+            continue
+        for item in profiles:
+            if not isinstance(item, dict):
+                continue
+            profile_id = str(item.get("id", "")).strip()
+            if profile_id:
+                result.append(profile_id)
+    return tuple(sorted(dict.fromkeys(result)))
+
+
+def _looks_like_domain_profile(payload: dict[str, Any]) -> bool:
+    return bool(payload.get("id") or payload.get("name")) and bool(payload.get("parameters"))
+
+
+def _subsystem_index_profile_ids(item: dict[str, Any], available_ids: set[str]) -> list[str]:
+    result: list[str] = []
+    profile_id = str(item.get("profile_id", "")).strip()
+    if profile_id and profile_id in available_ids:
+        result.append(profile_id)
+
+    profile_ids = item.get("profile_ids", [])
+    if isinstance(profile_ids, list):
+        for value in profile_ids:
+            candidate = str(value or "").strip()
+            if candidate and candidate in available_ids:
+                result.append(candidate)
+
+    profile_id_prefix = str(item.get("profile_id_prefix", "")).strip()
+    if profile_id_prefix:
+        result.extend(profile_id for profile_id in sorted(available_ids) if profile_id.startswith(profile_id_prefix))
+    return list(dict.fromkeys(result))
+
+
+def _subsystem_index_metadata(
+    root: dict[str, Any],
+    item: dict[str, Any],
+    profile_id: str,
+) -> dict[str, Any]:
+    subsystem = str(item.get("subsystem", "")).strip()
+    if not subsystem:
+        return {}
+    return {
+        "profile_id": profile_id,
+        "subsystem": subsystem,
+        "role_group": str(item.get("role_group", "")).strip(),
+        "source_version": str(item.get("source_version") or root.get("source_version") or "").strip(),
+        "description": str(item.get("description", "")).strip(),
+    }
 
 
 def _load_kernel_api_family_file(name: str, family: str) -> dict[str, Any]:
