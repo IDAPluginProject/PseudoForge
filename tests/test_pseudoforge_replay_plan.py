@@ -769,6 +769,7 @@ __int64 __fastcall ValidatedPartial(__int64 context)
                     "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v22: base is a decompiler temporary; base has multiple initializers before layout access. Review-only aliases remain available. confidence=0.74",
                     "      - inferred_offset_base_stability: Base stability evidence for v22: 2 initializer(s) before first layout access across 2 distinct RHS (eaBuffer; *(_QWORD *)(eaBuffer + 8)); 0 post-access assignment(s), 0 followed by later layout access. Review initializer dominance before enabling canonical rewrite. confidence=0.67",
                     "      - inferred_offset_base_merge_evidence: Base merge evidence for v22: 2 initializer(s) before first layout access across 2 source candidate(s): eaBuffer; *(_QWORD *)(eaBuffer + 8). Candidate classes expression=1, identifier=1. Source families parameter:eaBuffer=2; disposition same_source_family_review. Candidate kinds parameter_root=2. Merge shape same_source_family (medium risk); next review same-source-family branch dominance. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.68",
+                    "      - inferred_offset_same_source_family_merge_dominance: Same-source-family merge dominance for v22: 2 initializer candidate(s) share parameter root eaBuffer. Branch shapes direct_root=1, field_pointer=1; source offsets 0x0, 0x8; first layout access is not dominated by a base truthiness guard. Candidate sources eaBuffer [direct_root 0x0]; *(_QWORD *)(eaBuffer + 8) [field_pointer 0x8]. Dominance class parameter_root_direct_field_branch. Keep canonical rewrite blocked until path-specific initializer dominance is validated. confidence=0.63",
                     "*/",
                     "__int64 __fastcall SameFamilyMerge(__int64 eaBuffer)",
                     "{",
@@ -793,26 +794,38 @@ __int64 __fastcall ValidatedPartial(__int64 context)
             plan = build_replay_plan(root, limit=1)
 
             item = plan["items"][0]
+            self.assertEqual(1, item["metrics"]["layout_same_source_family_merge_dominance"])
+            self.assertIn("layout_same_source_family_merge_dominance", item["reasons"])
             self.assertEqual("v22", item["offset_base_counts"]["base_merge_evidence"][0]["base"])
             self.assertEqual(
                 "v22",
                 item["offset_base_counts"]["base_merge_same_source_family"][0]["base"],
+            )
+            self.assertEqual(
+                "v22",
+                item["offset_base_counts"]["same_source_family_merge_dominance"][0]["base"],
             )
             source_queue = plan["source_identity_review_queues"]["source_identity_blocked"]
             self.assertEqual("SameFamilyMerge", source_queue[0]["function"])
             self.assertEqual("v22", source_queue[0]["base"])
             self.assertEqual("same_source_family", source_queue[0]["merge_shape"])
             self.assertEqual("medium", source_queue[0]["merge_risk"])
-            self.assertEqual("same_source_family_merge_review", source_queue[0]["disposition"])
-            self.assertIn("same-source-family branch dominance", source_queue[0]["recommended_next"])
+            self.assertEqual("same_source_family_dominance_review", source_queue[0]["disposition"])
+            self.assertIn("same-root branch dominance", source_queue[0]["recommended_next"])
             self.assertEqual(
                 "same_source_family_merge_review",
                 plan["score_model"]["source_identity_review_queues"][
                     "same_source_family_merge_disposition"
                 ],
             )
+            self.assertEqual(
+                "same_source_family_dominance_review",
+                plan["score_model"]["source_identity_review_queues"][
+                    "same_source_family_dominance_disposition"
+                ],
+            )
             markdown = render_replay_plan_markdown(plan)
-            self.assertIn("same_source_family_merge_review", markdown)
+            self.assertIn("same_source_family_dominance_review", markdown)
             self.assertIn("same_source_family", markdown)
 
     def test_replay_plan_marks_allocation_null_merge_queue(self) -> None:

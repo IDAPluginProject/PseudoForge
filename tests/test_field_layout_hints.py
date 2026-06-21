@@ -4334,6 +4334,11 @@ __int64 __fastcall SameParameterFamilyMergeLayout(__int64 eaBuffer)
         )
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         merge = [item for item in comments if item.get("kind") == "inferred_offset_base_merge_evidence"]
+        dominance = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_same_source_family_merge_dominance"
+        ]
 
         self.assertEqual(1, len(blockers))
         self.assertIn("base has multiple initializers before layout access", blockers[0]["blockers"])
@@ -4347,6 +4352,22 @@ __int64 __fastcall SameParameterFamilyMergeLayout(__int64 eaBuffer)
         self.assertEqual("medium", merge[0]["merge_risk"])
         self.assertIn("disposition same_source_family_review", merge[0]["text"])
         self.assertIn("Merge shape same_source_family", merge[0]["text"])
+        self.assertEqual(1, len(dominance))
+        self.assertEqual("v22", dominance[0]["base"])
+        self.assertEqual("eaBuffer", dominance[0]["source_root"])
+        self.assertEqual("parameter", dominance[0]["source_root_kind"])
+        self.assertEqual(2, dominance[0]["candidate_count"])
+        self.assertEqual(
+            {"direct_root": 1, "field_pointer": 1},
+            dominance[0]["branch_shape_counts"],
+        )
+        self.assertEqual(["0x0", "0x8"], dominance[0]["source_offsets"])
+        self.assertFalse(dominance[0]["first_layout_access_guarded"])
+        self.assertEqual(
+            "parameter_root_direct_field_branch",
+            dominance[0]["dominance_class"],
+        )
+        self.assertIn("same-source-family merge dominance", dominance[0]["text"].lower())
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_allocation_null_merge_reports_shape(self) -> None:

@@ -250,6 +250,13 @@ def field_layout_comments(
                     )
                     if allocation_null:
                         comments.append(allocation_null)
+                    same_source_dominance = _field_same_source_family_merge_dominance_comment(
+                        text or "",
+                        item,
+                        merge,
+                    )
+                    if same_source_dominance:
+                        comments.append(same_source_dominance)
                     call_result_equivalence = _field_call_result_merge_equivalence_comment(
                         text or "",
                         item,
@@ -1530,6 +1537,190 @@ def _field_allocation_null_merge_dominance_comment(
         "guard_end": int(guard.get("end", -1) if guard else -1),
         "merge_shape": "allocation_null_branch",
     }
+
+
+def _field_same_source_family_merge_dominance_comment(
+    text: str,
+    layout: _LayoutEvidence,
+    merge: dict[str, Any],
+) -> dict[str, Any] | None:
+    if merge.get("merge_shape") != "same_source_family":
+        return None
+    candidates = list(merge.get("source_candidates", []) or [])
+    details = [
+        item
+        for item in (
+            _same_source_family_candidate_detail(text, candidate)
+            for candidate in candidates
+        )
+        if item
+    ]
+    if len(details) < 2 or len(details) != len(candidates):
+        return None
+    root_counts = Counter(str(item.get("source_root", "") or "") for item in details)
+    if len(root_counts) != 1:
+        return None
+    shared_root = next(iter(root_counts))
+    if not shared_root:
+        return None
+    root_kind_counts = Counter(str(item.get("source_root_kind", "") or "") for item in details)
+    branch_shape_counts = Counter(str(item.get("branch_shape", "") or "") for item in details)
+    source_offset_values = [
+        str(item.get("source_offset", "") or "")
+        for item in details
+        if str(item.get("source_offset", "") or "")
+    ]
+    source_offsets = list(dict.fromkeys(source_offset_values))
+    first_access = _first_layout_access_start(text, layout.base)
+    guard = _truthiness_guard_dominating_offset(text, layout.base, first_access)
+    dominance_class = _same_source_family_dominance_class(
+        root_kind_counts,
+        branch_shape_counts,
+    )
+    branch_shape_text = ", ".join(
+        "%s=%d" % (key, int(value))
+        for key, value in sorted(branch_shape_counts.items())
+    )
+    source_offset_text = ", ".join(source_offsets) if source_offsets else "none"
+    candidate_text = "; ".join(
+        "%s %s" % (
+            _comment_safe_snippet(str(item.get("source", "") or "")),
+            _same_source_family_candidate_suffix(item),
+        )
+        for item in details[:4]
+    )
+    guarded_text = "is"
+    guard_condition_text = ""
+    confidence = 0.65
+    if not guard:
+        guarded_text = "is not"
+        confidence = 0.63
+    else:
+        guard_condition_text = " Guard condition %s." % guard["condition"]
+        confidence = 0.67
+    return {
+        "kind": "inferred_offset_same_source_family_merge_dominance",
+        "text": (
+            "Same-source-family merge dominance for %s: %d initializer candidate(s) share "
+            "%s root %s. Branch shapes %s; source offsets %s; first layout access %s "
+            "dominated by a base truthiness guard.%s Candidate sources %s. "
+            "Dominance class %s. Keep canonical rewrite blocked until path-specific "
+            "initializer dominance is validated."
+            % (
+                layout.base,
+                len(details),
+                str(details[0].get("source_root_kind", "") or "unknown"),
+                shared_root,
+                branch_shape_text,
+                source_offset_text,
+                guarded_text,
+                guard_condition_text,
+                candidate_text,
+                dominance_class,
+            )
+        ),
+        "confidence": confidence,
+        "base": layout.base,
+        "base_kind": _layout_base_kind(layout.base),
+        "merge_shape": "same_source_family",
+        "source_root": shared_root,
+        "source_root_kind": str(details[0].get("source_root_kind", "") or ""),
+        "source_root_kind_counts": dict(sorted(root_kind_counts.items())),
+        "candidate_count": len(details),
+        "branch_shape_counts": dict(sorted(branch_shape_counts.items())),
+        "source_offsets": source_offsets,
+        "source_candidates": details,
+        "first_layout_access_guarded": bool(guard),
+        "guard_condition": str(guard.get("condition", "") if guard else ""),
+        "guard_start": int(guard.get("start", -1) if guard else -1),
+        "guard_end": int(guard.get("end", -1) if guard else -1),
+        "dominance_class": dominance_class,
+    }
+
+
+def _same_source_family_candidate_detail(text: str, value: Any) -> dict[str, Any]:
+    source = _normalize_assignment_rhs(str(value))
+    root = _base_merge_source_family_root(source)
+    if not source or not root:
+        return {}
+    root_kind = _layout_source_kind(root)
+    if _base_is_function_parameter(text, root):
+        root_kind = "parameter"
+    detail: dict[str, Any] = {
+        "source": source,
+        "source_root": root,
+        "source_root_kind": root_kind,
+        "source_rhs_kind": _layout_rhs_kind(source),
+        "candidate_kind": _base_merge_source_candidate_kind(text, source),
+        "branch_shape": "expression",
+    }
+    if _is_identifier_expression(source) and source == root:
+        detail["branch_shape"] = "direct_root"
+        detail["source_offset"] = "0x0"
+        return detail
+    field_pointer = _parse_field_pointer_source(source)
+    if field_pointer and str(field_pointer.get("parent", "") or "") == root:
+        detail["branch_shape"] = "field_pointer"
+        detail["source_offset"] = "0x%X" % int(field_pointer["offset"])
+        detail["source_type"] = str(field_pointer.get("type", "") or "")
+        return detail
+    indexed = _parse_parameter_indexed_source(source)
+    if indexed and str(indexed.get("parent", "") or "") == root:
+        detail["branch_shape"] = "indexed_pointer"
+        detail["source_index"] = int(indexed["index"])
+        return detail
+    back_container = _parse_parameter_back_container_source(source)
+    if back_container and str(back_container.get("parent", "") or "") == root:
+        detail["branch_shape"] = "back_container_pointer_arithmetic"
+        detail["source_offset"] = "-0x%X" % int(back_container["offset"])
+        detail["source_container_offset"] = "0x%X" % int(back_container["offset"])
+        return detail
+    subobject = _parse_parameter_subobject_source(source)
+    if subobject and str(subobject.get("parent", "") or "") == root:
+        detail["branch_shape"] = "pointer_arithmetic"
+        detail["source_offset"] = "0x%X" % int(subobject["offset"])
+        return detail
+    indirect = _parse_parameter_indirect_pointer_source(source)
+    if indirect and str(indirect.get("parent", "") or "") == root:
+        detail["branch_shape"] = "pointer_deref"
+        if indirect.get("type"):
+            detail["source_type"] = str(indirect["type"])
+        return detail
+    detail["branch_shape"] = detail["source_rhs_kind"]
+    return detail
+
+
+def _same_source_family_candidate_suffix(item: dict[str, Any]) -> str:
+    branch_shape = str(item.get("branch_shape", "") or "unknown")
+    source_offset = str(item.get("source_offset", "") or "")
+    if source_offset:
+        return "[%s %s]" % (branch_shape, source_offset)
+    if item.get("source_index") is not None:
+        return "[%s index=%d]" % (branch_shape, int(item["source_index"]))
+    return "[%s]" % branch_shape
+
+
+def _same_source_family_dominance_class(
+    root_kind_counts: Counter[str],
+    branch_shape_counts: Counter[str],
+) -> str:
+    root_kind = "mixed"
+    if len(root_kind_counts) == 1:
+        root_kind = next(iter(root_kind_counts))
+    shapes = set(branch_shape_counts)
+    if shapes <= {"direct_root"}:
+        return "%s_root_direct_branch" % root_kind
+    if {"direct_root", "field_pointer"} <= shapes:
+        return "%s_root_direct_field_branch" % root_kind
+    if {"direct_root", "pointer_arithmetic"} <= shapes:
+        return "%s_root_direct_subobject_branch" % root_kind
+    if "back_container_pointer_arithmetic" in shapes:
+        return "%s_root_back_container_branch" % root_kind
+    if "indexed_pointer" in shapes:
+        return "%s_root_indexed_branch" % root_kind
+    if "pointer_deref" in shapes:
+        return "%s_root_pointer_deref_branch" % root_kind
+    return "%s_root_same_family_branch" % root_kind
 
 
 def _field_call_result_merge_equivalence_comment(

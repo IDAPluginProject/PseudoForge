@@ -38,6 +38,7 @@ CLEANED = r"""
       - inferred_offset_stable_base_source: Stable base source for v14: argument2 (argument source), 13 typed dereference(s) across 8 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68
       - inferred_offset_base_stability: Base stability evidence for v14: 2 initializer(s) before first layout access across 2 distinct RHS (argument2; argument3); 1 post-access assignment(s), 1 followed by later layout access. Post-access assignment samples: relocation-sensitive RHS argument3. Review initializer dominance before enabling canonical rewrite. confidence=0.70
       - inferred_offset_base_merge_evidence: Base merge evidence for v14: 2 initializer(s) before first layout access across 2 source candidate(s): argument2; argument3. Candidate classes identifier=2. Treat as a branch-merged layout base; keep canonical rewrite blocked until path-sensitive dominance is available. confidence=0.70
+      - inferred_offset_same_source_family_merge_dominance: Same-source-family merge dominance for v14: 2 initializer candidate(s) share argument root argument2. Branch shapes direct_root=2; source offsets 0x0; first layout access is not dominated by a base truthiness guard. Candidate sources argument2 [direct_root 0x0]; argument3 [direct_root 0x0]. Dominance class argument_root_direct_branch. Keep canonical rewrite blocked until path-specific initializer dominance is validated. confidence=0.63
       - inferred_offset_base_relocation_evidence: Base relocation evidence for v14: trusted source argument2 (direct_argument_alias), 1 post-access assignment(s), 0 stable reload(s), 1 relocation-sensitive assignment(s). relocation-sensitive RHS argument3. Treat as a moving logical layout; keep canonical rewrite blocked until segment or relocation validation is available. confidence=0.70
       - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v14: base is a decompiler temporary. Review-only aliases remain available. confidence=0.73
       - inferred_offset_generic_base_evidence: Generic base evidence for context: 20 typed dereference(s) across 10 offset(s), blocker profile generic_only. Review-only; rewrite remains blocked until the base identity is trusted. confidence=0.74
@@ -1357,6 +1358,10 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, report["text_stats"]["inferred_offset_stable_base_sources"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_base_stability"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_base_merge_evidence"])
+            self.assertEqual(
+                1,
+                report["text_stats"]["inferred_offset_same_source_family_merge_dominance"],
+            )
             self.assertEqual(1, report["text_stats"]["inferred_offset_base_relocation_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_evidence"])
             self.assertEqual(1, report["text_stats"]["inferred_offset_generic_base_trust_candidates"])
