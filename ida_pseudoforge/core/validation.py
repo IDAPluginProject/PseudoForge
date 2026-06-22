@@ -416,6 +416,8 @@ def _is_unassigned_local_risk_candidate(
 ) -> bool:
     if not name or is_arg:
         return False
+    if _is_signature_parameter_name(text, name):
+        return False
     if _is_argument_identifier(name):
         return False
     if not is_valid_c_identifier(name):
@@ -462,6 +464,28 @@ def _declaration_is_array_or_nonpointer_aggregate(declaration: str, type_text: s
 
 def _address_taken(text: str, name: str) -> bool:
     return bool(re.search(r"&\s*%s\b" % re.escape(name), text or ""))
+
+
+def _is_signature_parameter_name(text: str, name: str) -> bool:
+    header = _function_header_text(text)
+    if not header:
+        return False
+    open_index = header.find("(")
+    if open_index < 0:
+        return False
+    close_index = _matching_paren_index(header, open_index)
+    if close_index < 0:
+        return False
+    parameters = header[open_index + 1 : close_index]
+    return bool(re.search(r"\b%s\b" % re.escape(name), parameters))
+
+
+def _function_header_text(text: str) -> str:
+    source = text or ""
+    body_index = source.find("{")
+    if body_index < 0:
+        return ""
+    return source[:body_index]
 
 
 def _unassigned_local_usage(text: str, name: str) -> str:

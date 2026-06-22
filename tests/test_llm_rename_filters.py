@@ -5,7 +5,7 @@ import unittest
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import RenameSuggestion
+from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable, RenameSuggestion
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.validation import unassigned_local_usage_warnings
 from tests.helpers import JsonRenameProvider
@@ -591,6 +591,39 @@ __int64 __fastcall ApcDeliveryPlaceholderSample(__int64 context)
         self.assertFalse(any("v43 is declared but has no direct assignment" in warning for warning in warnings))
         self.assertFalse(any("v44 is declared but has no direct assignment" in warning for warning in warnings))
         self.assertFalse(any("v45 is declared but has no direct assignment" in warning for warning in warnings))
+
+    def test_signature_parameters_are_not_reported_as_unassigned_locals(self) -> None:
+        text = """
+NTSTATUS __stdcall NtReadFile(
+        HANDLE FileHandle,
+        PVOID Buffer,
+        ULONG Length)
+{
+  NTSTATUS result;
+  int Missing;
+
+  result = IopReadFile((ULONG_PTR)FileHandle, Buffer, Length, Missing);
+  return result;
+}
+"""
+        capture = FunctionCapture(
+            name="NtReadFile",
+            prototype="NTSTATUS __stdcall NtReadFile(HANDLE FileHandle, PVOID Buffer, ULONG Length)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="FileHandle", type="HANDLE", is_arg=False),
+                LocalVariable(name="Buffer", type="PVOID", is_arg=False),
+                LocalVariable(name="Length", type="ULONG", is_arg=False),
+                LocalVariable(name="Missing", type="int", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertTrue(any("Missing is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("FileHandle is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("Buffer is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("Length is declared but has no direct assignment" in warning for warning in warnings))
 
     def test_pascalcase_llm_local_renames_are_style_normalized(self) -> None:
         capture = capture_from_pseudocode(
