@@ -13,6 +13,7 @@ from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.loader import load_default_rule_packs
 from ida_pseudoforge.core.deterministic.schema import RuleReport
 from ida_pseudoforge.core.domain_identity import (
+    domain_identity_function_identity_candidates,
     domain_identity_parameter_renames,
     domain_identity_parameter_type_corrections,
 )
@@ -88,6 +89,10 @@ def build_clean_plan(
         capture.pseudocode,
         profile_context=capture.profile_context,
     )
+    function_identity_candidates = domain_identity_function_identity_candidates(
+        capture.pseudocode,
+        profile_context=capture.profile_context,
+    )
     _rule_call_arg_rewrite_report(capture, rename_map, rule_engine, rule_report)
     _rule_flow_rewrite_report(capture, rename_map, flow_rewrites, rule_engine, rule_report)
     _rule_text_rewrite_report(capture, rename_map, comments, rule_engine, rule_report)
@@ -118,6 +123,7 @@ def build_clean_plan(
         warnings=combined_warnings,
         rule_report=rule_report_payload,
         type_corrections=type_corrections,
+        function_identity_candidates=function_identity_candidates,
     )
 
 

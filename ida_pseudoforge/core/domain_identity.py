@@ -11,7 +11,7 @@ from ida_pseudoforge.core.normalize import (
     extract_function_signature,
     extract_parameters_from_signature,
 )
-from ida_pseudoforge.core.plan_schema import ParameterTypeCorrection
+from ida_pseudoforge.core.plan_schema import FunctionIdentityCandidate, ParameterTypeCorrection
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -235,6 +235,33 @@ def domain_identity_function_prototypes(
     return result
 
 
+def domain_identity_function_identity_candidates(
+    text: str,
+    profile_context: dict[str, Any] | None = None,
+) -> list[FunctionIdentityCandidate]:
+    if not domain_identity_profiles_available():
+        return []
+    signature = extract_function_signature(text or "")
+    function_name = extract_function_name(signature)
+    full_name = _extract_full_function_name(signature)
+    parameters = extract_parameters_from_signature(signature)
+    candidates: list[FunctionIdentityCandidate] = []
+    for profile in _domain_identity_profiles():
+        if not _profile_parameter_shape_matches(profile, parameters):
+            continue
+        candidate = _function_identity_candidate(
+            profile,
+            function_name,
+            full_name,
+            signature,
+            text or "",
+            profile_context,
+        )
+        if candidate:
+            candidates.append(candidate)
+    return _dedupe_function_identity_candidates(candidates)
+
+
 def domain_identity_parameter_renames(
     text: str,
     profile_context: dict[str, Any] | None = None,
@@ -418,6 +445,169 @@ def _function_matches(
     if matched and not _body_hints_match(profile, text):
         return False
     return _callee_hints_match(profile, text)
+
+
+def _function_identity_candidate(
+    profile: dict[str, Any],
+    function_name: str,
+    full_name: str,
+    signature: str,
+    text: str,
+    profile_context: dict[str, Any] | None,
+) -> FunctionIdentityCandidate | None:
+    match_kind, evidence, match_blockers = _function_identity_match_evidence(
+        profile,
+        function_name,
+        full_name,
+        signature,
+        text,
+    )
+    if not match_kind:
+        return None
+    blockers = list(match_blockers)
+    blockers.extend(_profile_context_blockers(profile, profile_context))
+    profile_report_only = _profile_is_report_only(profile)
+    if profile_report_only and "report_only_profile" not in blockers:
+        blockers.append("report_only_profile")
+    effective_mode = MODE_REPORT_ONLY if blockers else _profile_active_identity_mode(profile)
+    confidence = _function_identity_confidence(match_kind, effective_mode)
+    return FunctionIdentityCandidate(
+        profile_id=_profile_id(profile),
+        subsystem=_profile_subsystem(profile),
+        function_name=function_name or full_name,
+        match_kind=match_kind,
+        confidence=confidence,
+        evidence=evidence,
+        blockers=list(dict.fromkeys(blockers)),
+        effective_mode=effective_mode,
+        profile_source=_profile_source(profile),
+        profile_version=_profile_version(profile),
+    )
+
+
+def _function_identity_match_evidence(
+    profile: dict[str, Any],
+    function_name: str,
+    full_name: str,
+    signature: str,
+    text: str,
+) -> tuple[str, list[str], list[str]]:
+    evidence: list[str] = []
+    match_kind = ""
+    names = _string_list(profile.get("function_names"))
+    if names and function_name in names:
+        match_kind = "function_name"
+        evidence.append("function_name")
+    demangled_names = _string_list(profile.get("demangled_names"))
+    if not match_kind and demangled_names and (full_name in demangled_names or signature in demangled_names):
+        match_kind = "demangled_name"
+        evidence.append("demangled_name")
+    if not match_kind:
+        for pattern in _string_list(profile.get("function_regex")):
+            if _safe_regex_search(pattern, function_name) or _safe_regex_search(pattern, full_name):
+                match_kind = "function_regex"
+                evidence.append("function_regex")
+                break
+    if not match_kind:
+        for pattern in _string_list(profile.get("demangled_regex")):
+            if _safe_regex_search(pattern, full_name) or _safe_regex_search(pattern, signature):
+                match_kind = "demangled_regex"
+                evidence.append("demangled_regex")
+                break
+
+    body_hints = _has_body_hints(profile)
+    body_matched = _body_hints_match(profile, text)
+    if body_hints and body_matched:
+        evidence.append("body_hints")
+    if body_hints and not body_matched:
+        return "", [], []
+
+    callee_hints = _has_callee_hints(profile)
+    if callee_hints and _callee_hints_match(profile, text):
+        evidence.append("callee_hints")
+    elif callee_hints:
+        return "", [], []
+
+    if match_kind:
+        return match_kind, list(dict.fromkeys(evidence)), []
+
+    if not body_hints or not body_matched:
+        return "", [], []
+    evidence.append("body_identity")
+    if not _body_identity_match_allowed(profile):
+        return "body_identity", list(dict.fromkeys(evidence)), ["body_identity_not_allowed"]
+    return "body_identity", list(dict.fromkeys(evidence)), []
+
+
+def _has_callee_hints(profile: dict[str, Any]) -> bool:
+    return bool(
+        _string_list(profile.get("callee_names"))
+        or _string_list(profile.get("required_calls"))
+        or _string_list(profile.get("required_callees"))
+        or _string_list(profile.get("callee_regex"))
+        or _string_list(profile.get("required_call_regex"))
+        or _string_list(profile.get("required_callee_regex"))
+    )
+
+
+def _profile_is_report_only(profile: dict[str, Any]) -> bool:
+    modes = [_mode_value(parameter.get("mode")) for parameter in _profile_parameters(profile)]
+    if modes and all(mode == MODE_REPORT_ONLY for mode in modes):
+        return True
+    policy = _profile_rewrite_policy(profile)
+    prototype_parameters = _prototype_parameter_dicts(profile)
+    if prototype_parameters and not policy["signature_preview"] and not policy["body_canonical_rewrite"]:
+        return True
+    return False
+
+
+def _profile_active_identity_mode(profile: dict[str, Any]) -> str:
+    modes = [_mode_value(parameter.get("mode")) for parameter in _profile_parameters(profile)]
+    if MODE_CANONICAL_REWRITE_ELIGIBLE in modes:
+        return MODE_CANONICAL_REWRITE_ELIGIBLE
+    if MODE_PREVIEW_REWRITE in modes:
+        return MODE_PREVIEW_REWRITE
+    policy = _profile_rewrite_policy(profile)
+    if policy["signature_preview"]:
+        return MODE_PREVIEW_REWRITE
+    return MODE_REPORT_ONLY
+
+
+def _function_identity_confidence(match_kind: str, effective_mode: str) -> float:
+    base = {
+        "function_name": 0.92,
+        "demangled_name": 0.90,
+        "function_regex": 0.82,
+        "demangled_regex": 0.80,
+        "body_identity": 0.66,
+    }.get(match_kind, 0.60)
+    return round(min(base, _mode_confidence_cap(effective_mode)), 2)
+
+
+def _dedupe_function_identity_candidates(
+    candidates: list[FunctionIdentityCandidate],
+) -> list[FunctionIdentityCandidate]:
+    candidates = sorted(candidates, key=lambda item: (item.profile_id, item.match_kind))
+    active = [item for item in candidates if not item.blockers and item.profile_id != "ambiguous"]
+    if len(active) <= 1:
+        return candidates
+    profile_ids = sorted({item.profile_id for item in active})
+    first = active[0]
+    ambiguous = FunctionIdentityCandidate(
+        profile_id="ambiguous",
+        subsystem=first.subsystem,
+        function_name=first.function_name,
+        match_kind="ambiguous",
+        confidence=min(0.54, first.confidence),
+        evidence=sorted({evidence for item in active for evidence in item.evidence}),
+        blockers=["ambiguous_profile_match"],
+        effective_mode=MODE_REPORT_ONLY,
+        profile_source=first.profile_source,
+        profile_version=first.profile_version,
+        ambiguous_profile_ids=profile_ids,
+    )
+    blocked = [item for item in candidates if item.blockers]
+    return [ambiguous] + blocked
 
 
 def _body_identity_match_allowed(profile: dict[str, Any]) -> bool:
@@ -1181,6 +1371,17 @@ def _mode_confidence_cap(mode: str) -> float:
 def _profile_id(profile: dict[str, Any]) -> str:
     value = str(profile.get("id", profile.get("name", "")) or "").strip()
     return value or "domain_identity_profile"
+
+
+def _profile_subsystem(profile: dict[str, Any]) -> str:
+    for section in (profile, profile.get("metadata"), profile.get("_pack_metadata")):
+        if not isinstance(section, dict):
+            continue
+        value = str(section.get("subsystem", section.get("domain", "")) or "").strip()
+        if value:
+            return value
+    metadata = profile_loader.subsystem_identity_metadata(_profile_id(profile))
+    return str(metadata.get("subsystem", "") or "").strip()
 
 
 def _match_reason(profile_id: str, parameter_index: int, parameter_name: str) -> str:

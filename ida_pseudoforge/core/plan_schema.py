@@ -98,6 +98,21 @@ class ParameterTypeCorrection:
 
 
 @dataclass(slots=True)
+class FunctionIdentityCandidate:
+    profile_id: str
+    subsystem: str
+    function_name: str
+    match_kind: str
+    confidence: float
+    evidence: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    effective_mode: str = ""
+    profile_source: str = ""
+    profile_version: str = ""
+    ambiguous_profile_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class BufferSizeConstraint:
     buffer: str
     length: str
@@ -196,6 +211,7 @@ class CleanPlan:
     warnings: list[str] = field(default_factory=list)
     rule_report: dict[str, Any] = field(default_factory=dict)
     type_corrections: list[ParameterTypeCorrection] = field(default_factory=list)
+    function_identity_candidates: list[FunctionIdentityCandidate] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

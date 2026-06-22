@@ -6,7 +6,10 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
-from ida_pseudoforge.core.domain_identity import domain_identity_function_prototypes
+from ida_pseudoforge.core.domain_identity import (
+    domain_identity_function_identity_candidates,
+    domain_identity_function_prototypes,
+)
 from ida_pseudoforge.core.field_layout_hints import field_layout_comments
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
@@ -85,6 +88,102 @@ class DomainIdentityProfileFrameworkTests(unittest.TestCase):
         self.assertIn("missing_source_identity", identity["blockers"])
         self.assertEqual([], identity["fields"])
         self.assertEqual([], ready)
+
+    def test_function_identity_candidate_exact_match_is_active(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _pack_payload())
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                _domain_layout_sample("DomainProfileTarget"),
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+
+        self.assertEqual(1, len(plan.function_identity_candidates))
+        candidate = plan.function_identity_candidates[0]
+        self.assertEqual("test.domain_profile", candidate.profile_id)
+        self.assertEqual("function_name", candidate.match_kind)
+        self.assertEqual("canonical-rewrite-eligible", candidate.effective_mode)
+        self.assertEqual([], candidate.blockers)
+        self.assertIn("function_name", candidate.evidence)
+
+    def test_function_identity_candidate_build_mismatch_is_report_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _pack_payload())
+            profile_loader.configure_profile_dir(temp_dir)
+
+            candidates = domain_identity_function_identity_candidates(
+                _domain_layout_sample("DomainProfileTarget"),
+                profile_context={**_matching_context(), "build": "99999.1"},
+            )
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("report-only", candidates[0].effective_mode)
+        self.assertIn("build_mismatch", candidates[0].blockers)
+
+    def test_function_identity_body_only_match_is_blocked_without_explicit_allow(self) -> None:
+        profile = _pack_payload(function_names=[])
+        profile["profiles"][0]["required_body_regex"] = [
+            r"\bRequiredBodyEvidence\s*\(",
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, profile)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            candidates = domain_identity_function_identity_candidates(
+                _domain_layout_sample("UnexpectedBodyTarget", body_call="RequiredBodyEvidence();"),
+                profile_context=_matching_context(),
+            )
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("body_identity", candidates[0].match_kind)
+        self.assertEqual("report-only", candidates[0].effective_mode)
+        self.assertIn("body_identity_not_allowed", candidates[0].blockers)
+
+    def test_function_identity_body_only_match_can_be_explicitly_allowed(self) -> None:
+        profile = _pack_payload(function_names=[])
+        profile["profiles"][0]["allow_body_identity_match"] = True
+        profile["profiles"][0]["required_body_regex"] = [
+            r"\bRequiredBodyEvidence\s*\(",
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, profile)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            candidates = domain_identity_function_identity_candidates(
+                _domain_layout_sample("UnexpectedBodyTarget", body_call="RequiredBodyEvidence();"),
+                profile_context=_matching_context(),
+            )
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("body_identity", candidates[0].match_kind)
+        self.assertEqual("canonical-rewrite-eligible", candidates[0].effective_mode)
+        self.assertEqual([], candidates[0].blockers)
+
+    def test_function_identity_ambiguous_profiles_are_report_only(self) -> None:
+        first = _pack_payload()["profiles"][0]
+        second = dict(first)
+        second["id"] = "test.domain_profile.second"
+        payload = _pack_payload()
+        payload["profiles"] = [first, second]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, payload)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            candidates = domain_identity_function_identity_candidates(
+                _domain_layout_sample("DomainProfileTarget"),
+                profile_context=_matching_context(),
+            )
+
+        self.assertEqual(1, len(candidates))
+        self.assertEqual("ambiguous", candidates[0].profile_id)
+        self.assertEqual("report-only", candidates[0].effective_mode)
+        self.assertIn("ambiguous_profile_match", candidates[0].blockers)
+        self.assertEqual(
+            ["test.domain_profile", "test.domain_profile.second"],
+            candidates[0].ambiguous_profile_ids,
+        )
 
     def test_profile_backed_type_correction_uses_canonical_type_in_preview(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
