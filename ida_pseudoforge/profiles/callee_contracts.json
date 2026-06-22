@@ -1,0 +1,51 @@
+{
+  "schema": "pseudoforge_callee_contracts_v1",
+  "contracts": [
+    {
+      "id": "verifier_dif_thunk_binding_slots",
+      "callees": [
+        "ViBindDifThunkNormal"
+      ],
+      "argument_indices": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "min_callee_call_index": 1,
+      "action": "helper_thunk_slot_candidate",
+      "confidence": 0.74,
+      "evidence": "repeated verifier DIF thunk binder calls reuse table-specific argument register slots"
+    },
+    {
+      "id": "internal_lock_and_rundown_helpers",
+      "callees": [
+        "CmpAcquireShutdownRundown",
+        "CmpReleaseShutdownRundown",
+        "KiUnstackDetachProcess",
+        "MiLockWorkingSetShared",
+        "PnpReleaseDependencyRelationsLock"
+      ],
+      "action": "internal_lock_helper_residue",
+      "confidence": 0.72,
+      "evidence": "internal lock/rundown helper call residue should be reviewed as helper ABI state before adding caller parameters"
+    },
+    {
+      "id": "internal_helper_arity_residue",
+      "callees": [
+        "CmObReferenceObjectByHandle",
+        "CmpDumpKeyToBuffer",
+        "guard_dispatch_icall_no_overrides",
+        "HalpMmAllocCtxFree",
+        "KiCheckVpBackingLongSpinWaitHypercall",
+        "PipCreateDependencyNode"
+      ],
+      "callee_patterns": [
+        "Feature_*__private_IsEnabled*NoInline"
+      ],
+      "action": "callee_arity_residue_candidate",
+      "confidence": 0.68,
+      "evidence": "packaged callee contract marks this helper as likely arity or internal helper residue"
+    }
+  ]
+}

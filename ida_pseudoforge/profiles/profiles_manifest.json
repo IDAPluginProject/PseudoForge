@@ -94,6 +94,16 @@
       "source_version": "10.0.26100.0",
       "sha256": "E8F137FC12A20E06F514BB9FDEBAB7256CC31B18130178DDFDCB789A100CD43B"
     },
+    "callee_contracts.json": {
+      "profile_kind": "callee_contracts",
+      "source": "PseudoForge curated internal helper and thunk callee contracts",
+      "schema": "pseudoforge_callee_contracts_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "00D3076ABBE7EB94E368038431146FA43402FF5CD0802D04CF98FAA5C89E8897",
+      "counts": {
+        "contracts": 3
+      }
+    },
     "domain_identity.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated deterministic domain structure identity profiles",

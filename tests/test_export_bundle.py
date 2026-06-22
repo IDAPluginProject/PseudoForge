@@ -195,7 +195,10 @@ class ExportBundleTests(unittest.TestCase):
             self.assertEqual("call_argument", diagnostics[0]["usage_class"])
             self.assertEqual("r8d", diagnostics[0]["register"])
             self.assertEqual("abi_argument", diagnostics[0]["register_class"])
-            self.assertEqual("parameter_gap_candidate", diagnostics[0]["candidate_action"])
+            self.assertEqual("caller_parameter_gap_candidate", diagnostics[0]["candidate_action"])
+            self.assertEqual("parameter_gap_candidate", diagnostics[0]["legacy_candidate_action"])
+            self.assertEqual("EtwpEventWriteFull", diagnostics[0]["callee_name"])
+            self.assertEqual(0, diagnostics[0]["argument_index"])
             self.assertEqual(artifacts["warning_diagnostics"], summary["artifacts"]["warning_diagnostics"])
             self.assertEqual(1, summary["warning_diagnostics"])
 

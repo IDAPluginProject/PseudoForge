@@ -1787,6 +1787,76 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, report["warning_stats"]["all_classes"]["parameter_gap_candidate"])
             self.assertNotIn("llm_pascal_case", report["warning_stats"]["all_classes"])
 
+    def test_analyze_corpus_prefers_refined_candidate_action_over_legacy_action(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140001000_LiveIn"
+            function_dir.mkdir(parents=True)
+            diagnostics_path = function_dir / "LiveIn.warning-diagnostics.json"
+            summary_path = function_dir / "LiveIn.ida-batch-summary.json"
+            diagnostics_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "unassigned_local_live_in_register",
+                            "message": "Uninitialized local risk: v1 appears to be a live-in register value (r8d)",
+                            "symbol": "v1",
+                            "usage": "call argument to ZwQuerySystemInformation",
+                            "usage_class": "call_argument",
+                            "register": "r8d",
+                            "register_class": "abi_argument",
+                            "candidate_action": "caller_parameter_gap_candidate",
+                            "legacy_candidate_action": "parameter_gap_candidate",
+                            "callee_name": "ZwQuerySystemInformation",
+                            "call_index": 0,
+                            "argument_index": 2,
+                            "confidence": 0.78,
+                            "source": "validation.unassigned_local_usage",
+                        },
+                        {
+                            "kind": "unassigned_local_live_in_register",
+                            "message": "Uninitialized local risk: v2 appears to be a live-in register value (r8)",
+                            "symbol": "v2",
+                            "usage": "call argument to MiLockWorkingSetShared",
+                            "usage_class": "call_argument",
+                            "register": "r8",
+                            "register_class": "abi_argument",
+                            "candidate_action": "internal_lock_helper_residue",
+                            "legacy_candidate_action": "parameter_gap_candidate",
+                            "callee_name": "MiLockWorkingSetShared",
+                            "call_index": 1,
+                            "argument_index": 2,
+                            "callee_contract_action": "internal_lock_helper_residue",
+                            "callee_contract_confidence": 0.72,
+                            "confidence": 0.72,
+                            "source": "validation.unassigned_local_usage",
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "LiveIn",
+                        "function_ea": "0x140001000",
+                        "warnings": 2,
+                        "artifacts": {
+                            "warning_diagnostics": diagnostics_path.name,
+                            "summary": summary_path.name,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+
+            self.assertEqual(1, report["warning_stats"]["all_classes"]["caller_parameter_gap_candidate"])
+            self.assertEqual(1, report["warning_stats"]["all_classes"]["internal_lock_helper_residue"])
+            self.assertNotIn("parameter_gap_candidate", report["warning_stats"]["all_classes"])
+
     def test_analyze_corpus_counts_diagnostics_only_warning_totals(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

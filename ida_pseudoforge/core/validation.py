@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP
 from ida_pseudoforge.core.normalize import extract_identifiers
 from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion, WarningDiagnostic
+from ida_pseudoforge.profiles.callee_contracts import callee_contract_for_call
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -233,6 +234,23 @@ class _UnassignedLocalUsageRisk:
     register_class: str = ""
     candidate_action: str = ""
     confidence: float = 0.0
+    legacy_candidate_action: str = ""
+    callee_name: str = ""
+    call_index: int = -1
+    callee_call_index: int = -1
+    argument_index: int = -1
+    callee_contract_action: str = ""
+    callee_contract_confidence: float = 0.0
+    callee_contract_evidence: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _CallArgumentUsage:
+    usage: str
+    callee_name: str
+    call_index: int
+    callee_call_index: int
+    argument_index: int
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -294,6 +312,13 @@ def unassigned_local_usage_diagnostics(
                 candidate_action=risk.candidate_action,
                 confidence=risk.confidence,
                 source="validation.unassigned_local_usage",
+                legacy_candidate_action=risk.legacy_candidate_action,
+                callee_name=risk.callee_name,
+                call_index=risk.call_index,
+                argument_index=risk.argument_index,
+                callee_contract_action=risk.callee_contract_action,
+                callee_contract_confidence=risk.callee_contract_confidence,
+                callee_contract_evidence=risk.callee_contract_evidence,
             )
         )
     return diagnostics
@@ -493,10 +518,23 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
         usage = _unassigned_local_usage(text, name)
         if not usage:
             continue
+        call_usage = _call_argument_usage_info(text, name)
         live_in_register = _live_in_register_hint(text, name, var.location)
         usage_class = _classify_unassigned_local_usage(usage)
         register_class = _classify_live_in_register(live_in_register, usage_class) if live_in_register else ""
         candidate_action = _live_in_candidate_action(register_class, usage_class) if live_in_register else ""
+        legacy_candidate_action = _legacy_candidate_action(candidate_action)
+        callee_contract = _live_in_callee_contract(call_usage, candidate_action)
+        callee_contract_action = ""
+        callee_contract_confidence = 0.0
+        callee_contract_evidence = ""
+        if callee_contract:
+            callee_contract_action = str(callee_contract.get("action", "") or "").strip()
+            callee_contract_confidence = _float_value(callee_contract.get("confidence"), 0.0)
+            callee_contract_evidence = str(callee_contract.get("evidence", "") or "").strip()
+            candidate_action = callee_contract_action or candidate_action
+            if not legacy_candidate_action:
+                legacy_candidate_action = _legacy_candidate_action(candidate_action)
         risks[name] = _UnassignedLocalUsageRisk(
             name=name,
             usage=usage,
@@ -506,12 +544,22 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
                 live_in_register,
                 usage_class=usage_class,
                 register_class=register_class,
+                callee_contract_action=callee_contract_action,
+                callee_contract_evidence=callee_contract_evidence,
             ),
             live_in_register=live_in_register,
             usage_class=usage_class,
             register_class=register_class,
             candidate_action=candidate_action,
-            confidence=_live_in_candidate_confidence(candidate_action),
+            confidence=callee_contract_confidence or _live_in_candidate_confidence(candidate_action),
+            legacy_candidate_action=legacy_candidate_action,
+            callee_name=call_usage.callee_name if call_usage else "",
+            call_index=call_usage.call_index if call_usage else -1,
+            callee_call_index=call_usage.callee_call_index if call_usage else -1,
+            argument_index=call_usage.argument_index if call_usage else -1,
+            callee_contract_action=callee_contract_action,
+            callee_contract_confidence=callee_contract_confidence,
+            callee_contract_evidence=callee_contract_evidence,
         )
     return risks
 
@@ -522,6 +570,8 @@ def _unassigned_local_evidence(
     live_in_register: str,
     usage_class: str = "",
     register_class: str = "",
+    callee_contract_action: str = "",
+    callee_contract_evidence: str = "",
 ) -> str:
     if live_in_register:
         usage_class = usage_class or _classify_unassigned_local_usage(usage)
@@ -535,7 +585,12 @@ def _unassigned_local_evidence(
                 register_class,
                 usage_class,
                 usage,
-                _live_in_register_evidence_note(register_class, usage_class),
+                _live_in_register_evidence_note(
+                    register_class,
+                    usage_class,
+                    callee_contract_action=callee_contract_action,
+                    callee_contract_evidence=callee_contract_evidence,
+                ),
             )
         )
     return "%s is declared but has no direct assignment before use as %s" % (name, usage)
@@ -572,7 +627,17 @@ def _classify_live_in_register(register: str, usage_class: str) -> str:
     return "unknown_register"
 
 
-def _live_in_register_evidence_note(register_class: str, usage_class: str) -> str:
+def _live_in_register_evidence_note(
+    register_class: str,
+    usage_class: str,
+    callee_contract_action: str = "",
+    callee_contract_evidence: str = "",
+) -> str:
+    if callee_contract_action:
+        note = _callee_contract_evidence_note(callee_contract_action)
+        if callee_contract_evidence:
+            note += " (%s)" % callee_contract_evidence
+        return note
     if usage_class == "return_expression":
         return "Hex-Rays may have left an unrecovered return/default-path register carrier"
     if register_class == "abi_argument" and usage_class in {"call_argument", "mixed"}:
@@ -586,11 +651,21 @@ def _live_in_register_evidence_note(register_class: str, usage_class: str) -> st
     return "treat this as report-only live-in register evidence until stronger context is available"
 
 
+def _callee_contract_evidence_note(action: str) -> str:
+    if action == "helper_thunk_slot_candidate":
+        return "callee contract marks this as a repeated helper/thunk slot residue, not a caller parameter gap"
+    if action == "internal_lock_helper_residue":
+        return "callee contract marks this as internal lock/helper ABI residue, not a caller parameter gap"
+    if action == "callee_arity_residue_candidate":
+        return "callee contract marks this as callee arity/helper residue; verify the callee before adding caller parameters"
+    return "callee contract refines this live-in register evidence"
+
+
 def _live_in_candidate_action(register_class: str, usage_class: str) -> str:
     if usage_class == "return_expression":
         return "return_carrier_candidate"
     if register_class == "abi_argument" and usage_class in {"call_argument", "mixed"}:
-        return "parameter_gap_candidate"
+        return "caller_parameter_gap_candidate"
     if register_class == "syscall_thunk" and usage_class in {"call_argument", "mixed"}:
         return "thunk_input_candidate"
     if register_class == "nonvolatile_state":
@@ -600,9 +675,47 @@ def _live_in_candidate_action(register_class: str, usage_class: str) -> str:
     return "live_in_register_report_only"
 
 
+def _live_in_callee_contract(
+    call_usage: _CallArgumentUsage | None,
+    candidate_action: str,
+) -> dict[str, object]:
+    if call_usage is None:
+        return {}
+    if candidate_action not in {
+        "caller_parameter_gap_candidate",
+        "parameter_gap_candidate",
+        "thunk_input_candidate",
+        "manual_review_candidate",
+    }:
+        return {}
+    return callee_contract_for_call(
+        call_usage.callee_name,
+        call_usage.argument_index,
+        call_usage.call_index,
+        call_usage.callee_call_index,
+    )
+
+
+def _legacy_candidate_action(candidate_action: str) -> str:
+    if candidate_action == "caller_parameter_gap_candidate":
+        return "parameter_gap_candidate"
+    return ""
+
+
+def _float_value(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _live_in_candidate_confidence(candidate_action: str) -> float:
-    if candidate_action == "parameter_gap_candidate":
+    if candidate_action in {"caller_parameter_gap_candidate", "parameter_gap_candidate"}:
         return 0.78
+    if candidate_action in {"helper_thunk_slot_candidate", "internal_lock_helper_residue"}:
+        return 0.72
+    if candidate_action == "callee_arity_residue_candidate":
+        return 0.68
     if candidate_action in {"thunk_input_candidate", "return_carrier_candidate"}:
         return 0.70
     if candidate_action == "state_preservation_candidate":
@@ -754,19 +867,39 @@ def _unassigned_local_usage(text: str, name: str) -> str:
 
 
 def _call_argument_usage(text: str, name: str) -> str:
+    usage = _call_argument_usage_info(text, name)
+    return usage.usage if usage else ""
+
+
+def _call_argument_usage_info(text: str, name: str) -> _CallArgumentUsage | None:
     call_pattern = re.compile(r"\b(?P<call>[A-Za-z_][A-Za-z0-9_]*)\s*\(")
-    for match in call_pattern.finditer(text or ""):
+    source = text or ""
+    body_start = source.find("{")
+    search_start = body_start + 1 if body_start >= 0 else 0
+    call_index = 0
+    callee_call_counts: dict[str, int] = {}
+    for match in call_pattern.finditer(source, search_start):
         call_name = match.group("call")
         if call_name.lower() in CALL_PARSE_SKIP_NAMES:
             continue
+        current_call_index = call_index
+        call_index += 1
+        current_callee_call_index = callee_call_counts.get(call_name, 0)
+        callee_call_counts[call_name] = current_callee_call_index + 1
         open_index = match.end() - 1
-        close_index = _matching_paren_index(text, open_index)
+        close_index = _matching_paren_index(source, open_index)
         if close_index < 0:
             continue
-        for argument in _split_call_arguments(text[open_index + 1 : close_index]):
+        for argument_index, argument in enumerate(_split_call_arguments(source[open_index + 1 : close_index])):
             if _argument_mentions_name_by_value(argument, name):
-                return "call argument to %s" % call_name
-    return ""
+                return _CallArgumentUsage(
+                    usage="call argument to %s" % call_name,
+                    callee_name=call_name,
+                    call_index=current_call_index,
+                    callee_call_index=current_callee_call_index,
+                    argument_index=argument_index,
+                )
+    return None
 
 
 def _matching_paren_index(text: str, open_index: int) -> int:

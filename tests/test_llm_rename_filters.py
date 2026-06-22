@@ -7,7 +7,7 @@ from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable, RenameSuggestion
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
-from ida_pseudoforge.core.validation import unassigned_local_usage_warnings
+from ida_pseudoforge.core.validation import unassigned_local_usage_diagnostics, unassigned_local_usage_warnings
 from tests.helpers import JsonRenameProvider
 
 
@@ -740,6 +740,177 @@ __int64 EtwWriteKMSecurityEvent()
             any("v3 appears to be a live-in register value (r10)" in warning
                 and "Hex-Rays may have omitted a function parameter" in warning for warning in warnings)
         )
+
+    def test_true_public_abi_gap_remains_caller_parameter_gap_candidate(self) -> None:
+        text = """
+__int64 PublicAbiGapSample()
+{
+  int missingLength; // r8d
+
+  return ZwQuerySystemInformation(5, 0, missingLength, 0);
+}
+"""
+        capture = FunctionCapture(
+            name="PublicAbiGapSample",
+            prototype="__int64 PublicAbiGapSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="missingLength", type="int", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("caller_parameter_gap_candidate", diagnostics[0].candidate_action)
+        self.assertEqual("parameter_gap_candidate", diagnostics[0].legacy_candidate_action)
+        self.assertEqual("ZwQuerySystemInformation", diagnostics[0].callee_name)
+        self.assertEqual(2, diagnostics[0].argument_index)
+        self.assertFalse(diagnostics[0].callee_contract_action)
+
+    def test_repeated_dif_thunk_slots_are_helper_thunk_candidates(self) -> None:
+        text = """
+bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)
+{
+  int v3; // edx
+  int v4; // r8d
+  int v5; // r9d
+  __int64 v6; // r10
+  int v7; // edx
+  int v8; // r8d
+  int v9; // r9d
+  __int64 v10; // r10
+
+  return (unsigned __int8)ViBindDifThunkNormal((unsigned int)&VfDifThunks, argument1, argument0, argument1, argument2)
+      || (unsigned __int8)ViBindDifThunkNormal((unsigned int)&VfPoolThunks, v3, v4, v5, v6)
+      || (unsigned __int8)ViBindDifThunkNormal((unsigned int)&VfRegularThunks, v7, v8, v9, v10) != 0;
+}
+"""
+        capture = FunctionCapture(
+            name="VfBindDifDDIWrappers",
+            prototype="bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v3", type="int", is_arg=False),
+                LocalVariable(name="v4", type="int", is_arg=False),
+                LocalVariable(name="v5", type="int", is_arg=False),
+                LocalVariable(name="v6", type="__int64", is_arg=False),
+                LocalVariable(name="v7", type="int", is_arg=False),
+                LocalVariable(name="v8", type="int", is_arg=False),
+                LocalVariable(name="v9", type="int", is_arg=False),
+                LocalVariable(name="v10", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        actions = {item.symbol: item.candidate_action for item in diagnostics}
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(8, len(diagnostics))
+        self.assertEqual({"helper_thunk_slot_candidate"}, set(actions.values()))
+        self.assertTrue(all(item.callee_name == "ViBindDifThunkNormal" for item in diagnostics))
+        self.assertTrue(all(item.callee_contract_action == "helper_thunk_slot_candidate" for item in diagnostics))
+        self.assertTrue(all(item.call_index in {1, 2} for item in diagnostics))
+        self.assertTrue(all(item.argument_index in {1, 2, 3, 4} for item in diagnostics))
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+        self.assertTrue(any("repeated helper/thunk slot residue" in warning for warning in warnings))
+
+    def test_internal_lock_helpers_are_not_caller_parameter_gap_candidates(self) -> None:
+        text = """
+__int64 __fastcall InternalLockResidueSample()
+{
+  __int64 v6; // rdx
+  __int64 v7; // rcx
+  __int64 v8; // r8
+  __int64 v9; // r9
+  __int64 v12; // rcx
+
+  if ( CmpAcquireShutdownRundown(v7, v6, v8, v9) )
+    return CmpReleaseShutdownRundown(v12);
+  return 0;
+}
+"""
+        capture = FunctionCapture(
+            name="InternalLockResidueSample",
+            prototype="__int64 __fastcall InternalLockResidueSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v6", type="__int64", is_arg=False),
+                LocalVariable(name="v7", type="__int64", is_arg=False),
+                LocalVariable(name="v8", type="__int64", is_arg=False),
+                LocalVariable(name="v9", type="__int64", is_arg=False),
+                LocalVariable(name="v12", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+
+        self.assertEqual(5, len(diagnostics))
+        self.assertEqual({"internal_lock_helper_residue"}, {item.candidate_action for item in diagnostics})
+        self.assertTrue(all(item.callee_contract_confidence > 0 for item in diagnostics))
+
+    def test_io_dependency_cleanup_helpers_are_internal_lock_residue(self) -> None:
+        text = """
+NTSTATUS __fastcall IoDuplicateDependencySample()
+{
+  __int64 v5; // rdx
+  __int64 v6; // rcx
+  __int64 v7; // r8
+  __int64 v9; // rdx
+  __int64 v10; // r8
+
+  PnpReleaseDependencyRelationsLock(v6, v5, v7);
+  return PipCreateDependencyNode(0, v9, v10) != 0;
+}
+"""
+        capture = FunctionCapture(
+            name="IoDuplicateDependencySample",
+            prototype="NTSTATUS __fastcall IoDuplicateDependencySample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v5", type="__int64", is_arg=False),
+                LocalVariable(name="v6", type="__int64", is_arg=False),
+                LocalVariable(name="v7", type="__int64", is_arg=False),
+                LocalVariable(name="v9", type="__int64", is_arg=False),
+                LocalVariable(name="v10", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        actions = {item.symbol: item.candidate_action for item in diagnostics}
+
+        self.assertEqual("internal_lock_helper_residue", actions["v5"])
+        self.assertEqual("internal_lock_helper_residue", actions["v6"])
+        self.assertEqual("internal_lock_helper_residue", actions["v7"])
+        self.assertEqual("callee_arity_residue_candidate", actions["v9"])
+        self.assertEqual("callee_arity_residue_candidate", actions["v10"])
+
+    def test_repeated_working_set_lock_helpers_are_internal_lock_residue(self) -> None:
+        text = """
+NTSTATUS __fastcall MiPrepareImagePagesForHotPatchSample()
+{
+  __int64 v9; // rdx
+  __int64 v10; // r8
+  __int64 v11; // r9
+
+  return MiLockWorkingSetShared(0, v9, v10, v11);
+}
+"""
+        capture = FunctionCapture(
+            name="MiPrepareImagePagesForHotPatchSample",
+            prototype="NTSTATUS __fastcall MiPrepareImagePagesForHotPatchSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v9", type="__int64", is_arg=False),
+                LocalVariable(name="v10", type="__int64", is_arg=False),
+                LocalVariable(name="v11", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+
+        self.assertEqual(3, len(diagnostics))
+        self.assertEqual({"internal_lock_helper_residue"}, {item.candidate_action for item in diagnostics})
 
     def test_return_only_live_in_registers_are_not_parameter_gaps(self) -> None:
         text = """

@@ -124,6 +124,13 @@ class WarningDiagnostic:
     candidate_action: str
     confidence: float
     source: str = ""
+    legacy_candidate_action: str = ""
+    callee_name: str = ""
+    call_index: int = -1
+    argument_index: int = -1
+    callee_contract_action: str = ""
+    callee_contract_confidence: float = 0.0
+    callee_contract_evidence: str = ""
 
 
 @dataclass(slots=True)

@@ -153,6 +153,13 @@ class RenderWarningsTests(unittest.TestCase):
                 candidate_action="parameter_gap_candidate",
                 confidence=0.78,
                 source="validation.unassigned_local_usage",
+                legacy_candidate_action="parameter_gap_candidate",
+                callee_name="EtwpEventWriteFull",
+                call_index=0,
+                argument_index=4,
+                callee_contract_action="callee_arity_residue_candidate",
+                callee_contract_confidence=0.68,
+                callee_contract_evidence="test contract",
             )
         )
 
@@ -164,6 +171,12 @@ class RenderWarningsTests(unittest.TestCase):
         self.assertEqual("r8d", diagnostics[0]["register"])
         self.assertEqual("abi_argument", diagnostics[0]["register_class"])
         self.assertEqual("parameter_gap_candidate", diagnostics[0]["candidate_action"])
+        self.assertEqual("EtwpEventWriteFull", diagnostics[0]["callee_name"])
+        self.assertEqual(0, diagnostics[0]["call_index"])
+        self.assertEqual(4, diagnostics[0]["argument_index"])
+        self.assertEqual("callee_arity_residue_candidate", diagnostics[0]["callee_contract_action"])
+        self.assertEqual(0.68, diagnostics[0]["callee_contract_confidence"])
+        self.assertEqual("test contract", diagnostics[0]["callee_contract_evidence"])
 
 
 if __name__ == "__main__":
