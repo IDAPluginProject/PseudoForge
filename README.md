@@ -92,7 +92,7 @@ Key documentation:
 
 ## Versioning
 
-Current plugin version: `0.1.3`.
+Current plugin version: `0.1.4`.
 
 The runtime version source is `ida_pseudoforge/version.py`. The `ida-plugin.json` manifest version must match it; the unit suite enforces this parity so plugin packaging and runtime reporting do not drift.
 
