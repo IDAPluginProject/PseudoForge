@@ -23,7 +23,7 @@
           "role": "providerId",
           "structure": "GUID",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "LPCGUID",
             "const GUID *",
@@ -36,7 +36,7 @@
           "role": "enableCallback",
           "structure": "PETWENABLECALLBACK",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PETWENABLECALLBACK",
             "__int64",
@@ -62,7 +62,7 @@
           "role": "registrationHandleOutput",
           "structure": "REGHANDLE_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PREGHANDLE",
             "REGHANDLE *",
@@ -175,7 +175,7 @@
           "role": "registrationHandle",
           "structure": "REGHANDLE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "REGHANDLE",
             "__int64",
@@ -210,7 +210,7 @@
           "role": "registrationHandle",
           "structure": "REGHANDLE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "REGHANDLE",
             "__int64",
@@ -223,7 +223,7 @@
           "role": "eventDescriptor",
           "structure": "EVENT_DESCRIPTOR",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PCEVENT_DESCRIPTOR",
             "EVENT_DESCRIPTOR *",
@@ -248,7 +248,7 @@
           "role": "registrationHandle",
           "structure": "REGHANDLE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "REGHANDLE",
             "__int64",
@@ -312,7 +312,7 @@
           "role": "eventDescriptor",
           "structure": "EVENT_DESCRIPTOR",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PCEVENT_DESCRIPTOR",
             "EVENT_DESCRIPTOR *",
@@ -338,7 +338,7 @@
           "role": "writeFlags",
           "structure": "ETW_WRITE_FLAGS",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "ULONG",
             "unsigned int",
@@ -441,7 +441,7 @@
           "role": "dataBuffer",
           "structure": "EVENT_DATA_DESCRIPTOR",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int128 *",
             "PEVENT_DATA_DESCRIPTOR",
@@ -568,7 +568,7 @@
           "role": "status",
           "structure": "NTSTATUS",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "EtwpTraceMessageVa status local"
         }
       ]
@@ -614,6 +614,705 @@
             "_KTHREAD *"
           ],
           "source": "EtwpLogContextSwapEvent next thread argument forwarded to stack, context-register, and last-branch trace dispatchers"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etw_trace_cont_allocation_event",
+      "source": "Reviewed EtwTraceContAllocationEvent ntoskrnl 26200.8457 KERNEL_MEM_EVENT_CONT_ALLOCATION payload construction and EtwWriteEx call; preview-only weak private prototype.",
+      "function_names": [
+        "EtwTraceContAllocationEvent"
+      ],
+      "parameter_count": 13,
+      "required_calls": [
+        "EtwEventEnabled",
+        "EtwWriteEx"
+      ],
+      "prototype": {
+        "return_type": "BOOLEAN",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "baseAddress",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "PVOID",
+              "__int64",
+              "void *"
+            ],
+            "semantic_role": "baseAddress",
+            "type_confidence": 0.9,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "allocationId",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "unsigned __int64"
+            ],
+            "semantic_role": "allocationId",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "startPage",
+            "canonical_type": "PFN_NUMBER",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PFN_NUMBER"
+            ],
+            "semantic_role": "startPage",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "endPage",
+            "canonical_type": "PFN_NUMBER",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PFN_NUMBER"
+            ],
+            "semantic_role": "endPage",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "pageCount",
+            "canonical_type": "PFN_NUMBER",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PFN_NUMBER"
+            ],
+            "semantic_role": "pageCount",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "partitionId",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "partitionId",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "node",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "node",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 7,
+            "canonical_name": "cacheType",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "cacheType",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 8,
+            "canonical_name": "priority",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "priority",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 9,
+            "canonical_name": "flags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "flags",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 10,
+            "canonical_name": "largePage",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "unsigned __int8",
+              "BOOLEAN",
+              "char"
+            ],
+            "semantic_role": "largePageFlag",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 11,
+            "canonical_name": "extraFlags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "extraFlags",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 12,
+            "canonical_name": "startTimestamp",
+            "canonical_type": "ULONG64",
+            "accepted_types": [
+              "__int64",
+              "ULONG64",
+              "ULONGLONG"
+            ],
+            "semantic_role": "startTimestamp",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "baseAddress",
+          "rename_to": "baseAddress",
+          "rename_confidence": 0.92,
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.9,
+          "accepted_types": [
+            "PVOID",
+            "__int64",
+            "void *"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "allocationId",
+          "rename_to": "allocationId",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "ETW_MEMORY_ALLOCATION_ID",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "unsigned __int64"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "startPage",
+          "rename_to": "startPage",
+          "rename_confidence": 0.86,
+          "structure": "PFN_NUMBER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PFN_NUMBER"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 3,
+          "role": "endPage",
+          "rename_to": "endPage",
+          "rename_confidence": 0.86,
+          "structure": "PFN_NUMBER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PFN_NUMBER"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 4,
+          "role": "pageCount",
+          "rename_to": "pageCount",
+          "rename_confidence": 0.86,
+          "structure": "PFN_NUMBER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PFN_NUMBER"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 5,
+          "role": "partitionId",
+          "rename_to": "partitionId",
+          "rename_confidence": 0.8,
+          "structure": "MEMORY_PARTITION_ID",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 6,
+          "role": "node",
+          "rename_to": "node",
+          "rename_confidence": 0.8,
+          "structure": "NUMA_NODE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 7,
+          "role": "cacheType",
+          "rename_to": "cacheType",
+          "rename_confidence": 0.8,
+          "structure": "MEMORY_CACHING_TYPE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 8,
+          "role": "priority",
+          "rename_to": "priority",
+          "rename_confidence": 0.8,
+          "structure": "MEMORY_PRIORITY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 9,
+          "role": "flags",
+          "rename_to": "flags",
+          "rename_confidence": 0.8,
+          "structure": "ETW_ALLOCATION_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 10,
+          "role": "largePageFlag",
+          "rename_to": "largePage",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int8",
+            "BOOLEAN",
+            "char"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 11,
+          "role": "extraFlags",
+          "rename_to": "extraFlags",
+          "rename_confidence": 0.8,
+          "structure": "ETW_EXTRA_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 12,
+          "role": "startTimestamp",
+          "rename_to": "startTimestamp",
+          "rename_confidence": 0.84,
+          "structure": "TIMESTAMP",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "ULONG64",
+            "ULONGLONG"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "local_names": [
+            "UserData"
+          ],
+          "role": "eventData",
+          "structure": "EVENT_DATA_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "EtwTraceContAllocationEvent EVENT_DATA_DESCRIPTOR local"
+        },
+        {
+          "local_names": [
+            "physicalAddress"
+          ],
+          "role": "physicalAddress",
+          "structure": "PHYSICAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "source": "EtwTraceContAllocationEvent physical address payload local"
+        }
+      ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.dbgk_wer_capture_live_kernel_dump",
+      "source": "Reviewed DbgkWerCaptureLiveKernelDump ntoskrnl 26200.8457 wrapper that builds a live-kernel-dump option block and forwards to DbgkWerCaptureLiveKernelDump2; preview-only weak private prototype.",
+      "function_names": [
+        "DbgkWerCaptureLiveKernelDump"
+      ],
+      "parameter_count": 9,
+      "required_calls": [
+        "DbgkWerCaptureLiveKernelDump2"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "dumpFilePath",
+            "canonical_type": "PCWSTR",
+            "accepted_types": [
+              "const wchar_t *",
+              "PCWSTR",
+              "PWSTR",
+              "__int64"
+            ],
+            "semantic_role": "dumpFilePath",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "werContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "werContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "secondaryContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "secondaryContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "captureContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "captureContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "dumpType",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "dumpType",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "bugCheckData",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "bugCheckData",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "optionBlockHigh",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "optionBlockHigh",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 7,
+            "canonical_name": "optionBlockLow",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "optionBlockLow",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 8,
+            "canonical_name": "optionFlags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "optionFlags",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "dumpFilePath",
+          "rename_to": "dumpFilePath",
+          "rename_confidence": 0.9,
+          "structure": "UNICODE_STRING_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "const wchar_t *",
+            "PCWSTR",
+            "PWSTR",
+            "__int64"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "werContext",
+          "rename_to": "werContext",
+          "rename_confidence": 0.8,
+          "structure": "WER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "secondaryContext",
+          "rename_to": "secondaryContext",
+          "rename_confidence": 0.8,
+          "structure": "WER_SECONDARY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 3,
+          "role": "captureContext",
+          "rename_to": "captureContext",
+          "rename_confidence": 0.8,
+          "structure": "WER_CAPTURE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 4,
+          "role": "dumpType",
+          "rename_to": "dumpType",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "WER_LIVE_DUMP_TYPE",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 5,
+          "role": "bugCheckData",
+          "rename_to": "bugCheckData",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "WER_BUGCHECK_DATA",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 6,
+          "role": "optionBlockHigh",
+          "rename_to": "optionBlockHigh",
+          "rename_confidence": 0.8,
+          "structure": "WER_OPTION_BLOCK_HIGH",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 7,
+          "role": "optionBlockLow",
+          "rename_to": "optionBlockLow",
+          "rename_confidence": 0.8,
+          "structure": "WER_OPTION_BLOCK_LOW",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "ETW/WER exact-name parameter role"
+        },
+        {
+          "parameter_index": 8,
+          "role": "optionFlags",
+          "rename_to": "optionFlags",
+          "rename_confidence": 0.8,
+          "structure": "WER_LIVE_DUMP_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "ETW/WER exact-name parameter role"
         }
       ]
     },
@@ -672,7 +1371,7 @@
           "role": "dataBuffer",
           "structure": "TRACE_EVENT_BUFFER",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int64",
             "PVOID",
@@ -766,7 +1465,7 @@
           "role": "outputBuffer",
           "structure": "TRACE_CONTROL_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "void *",
             "PVOID",
@@ -998,7 +1697,7 @@
           "role": "registrationHandle",
           "structure": "REGHANDLE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "REGHANDLE",
             "__int64",
@@ -1052,7 +1751,7 @@
           "role": "optionalInformation",
           "structure": "EVENT_INFORMATION_BUFFER",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "EtwSetInformation optional provider-binary tracking information local"
         }
       ]
@@ -1404,7 +2103,7 @@
           "role": "spinLockHandle",
           "structure": "KLOCK_QUEUE_HANDLE",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "WmipReceiveNotifications queued spin lock handle local"
         }
       ]
@@ -1476,7 +2175,7 @@
           "role": "payloadLength",
           "structure": "BUFFER_LENGTH",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "WmipQueueNotification payload size local"
         }
       ]
@@ -1509,7 +2208,7 @@
           "role": "irp",
           "structure": "IRP",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PIRP",
             "IRP *",
@@ -1646,7 +2345,7 @@
           "role": "masterIrp",
           "structure": "IRP",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int64",
             "PIRP",
@@ -1747,7 +2446,7 @@
           "role": "previousWorkItemCount",
           "structure": "WORK_ITEM_COUNT",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "WmipEventNotification previous work item count local"
         }
       ]

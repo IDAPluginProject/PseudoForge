@@ -20,7 +20,7 @@
           "role": "referencedObject",
           "structure": "OBJECT_BODY",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PVOID",
             "void *",
@@ -114,7 +114,7 @@
           "role": "insertedObject",
           "structure": "OBJECT_BODY",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PVOID",
             "void *",
@@ -176,7 +176,7 @@
           "role": "insertedObject",
           "structure": "OBJECT_BODY",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PVOID",
             "void *",
@@ -300,7 +300,7 @@
           "role": "objectType",
           "structure": "OBJECT_TYPE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "POBJECT_TYPE",
             "struct _OBJECT_TYPE *",
@@ -339,7 +339,7 @@
           "role": "accessState",
           "structure": "ACCESS_STATE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PACCESS_STATE",
             "struct _ACCESS_STATE *",
@@ -409,7 +409,12 @@
             "canonical_name": "objectHeader",
             "canonical_type": "OBJECT_HEADER_LIKE *",
             "display_type": "OBJECT_HEADER_LIKE *",
-            "accepted_types": ["__int64", "PVOID", "void *", "OBJECT_HEADER_LIKE *"],
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *",
+              "OBJECT_HEADER_LIKE *"
+            ],
             "semantic_role": "objectHeader",
             "type_confidence": 0.86,
             "apply_to_preview": true,
@@ -423,7 +428,7 @@
           "parameter_index": 0,
           "role": "objectHeader",
           "rename_to": "objectHeader",
-          "rename_confidence": 0.90,
+          "rename_confidence": 0.9,
           "structure": "OBJECT_HEADER_LIKE",
           "mode": "report-only",
           "confidence": 0.84,
@@ -556,7 +561,9 @@
             "ULONG",
             "__int64"
           ],
-          "source": "NtQuerySecurityObject security information selector"
+          "source": "NtQuerySecurityObject security information selector",
+          "rename_to": "securityInformation",
+          "rename_confidence": 0.88
         },
         {
           "parameter_index": 2,
@@ -604,7 +611,86 @@
           "confidence": 0.78,
           "source": "NtQuerySecurityObject handle information local"
         }
-      ]
+      ],
+      "parameter_count": 5,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "handle",
+            "canonical_type": "HANDLE",
+            "accepted_types": [
+              "HANDLE",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "objectHandle",
+            "type_confidence": 0.9,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "securityInformation",
+            "canonical_type": "SECURITY_INFORMATION",
+            "accepted_types": [
+              "SECURITY_INFORMATION",
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "securityInformation",
+            "type_confidence": 0.88,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "securityDescriptor",
+            "canonical_type": "PSECURITY_DESCRIPTOR",
+            "accepted_types": [
+              "PSECURITY_DESCRIPTOR",
+              "PVOID",
+              "__int64"
+            ],
+            "semantic_role": "securityDescriptorOutput",
+            "type_confidence": 0.88,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "length",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "ULONG",
+              "int",
+              "unsigned int"
+            ],
+            "semantic_role": "securityDescriptorLength",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "lengthNeeded",
+            "canonical_type": "PULONG",
+            "accepted_types": [
+              "PULONG",
+              "_DWORD *",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "lengthNeededOutput",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      }
     },
     {
       "id": "windows.object_manager.register_callbacks",
@@ -620,15 +706,24 @@
             "index": 0,
             "canonical_name": "callbackRegistration",
             "canonical_type": "POB_CALLBACK_REGISTRATION",
-            "accepted_types": ["__int64", "PVOID", "_QWORD *", "POB_CALLBACK_REGISTRATION"],
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "_QWORD *",
+              "POB_CALLBACK_REGISTRATION"
+            ],
             "semantic_role": "callbackRegistration",
-            "type_confidence": 0.90
+            "type_confidence": 0.9
           },
           {
             "index": 1,
             "canonical_name": "registrationHandle",
             "canonical_type": "PVOID *",
-            "accepted_types": ["__int64", "_QWORD *", "PVOID *"],
+            "accepted_types": [
+              "__int64",
+              "_QWORD *",
+              "PVOID *"
+            ],
             "semantic_role": "registrationHandleOutput",
             "type_confidence": 0.88
           }
@@ -640,7 +735,7 @@
           "role": "callbackRegistration",
           "structure": "OB_CALLBACK_REGISTRATION",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "POB_CALLBACK_REGISTRATION",
             "_QWORD *",
@@ -661,6 +756,51 @@
             "__int64"
           ],
           "source": "ObRegisterCallbacks registration handle output argument"
+        }
+      ]
+    },
+    {
+      "id": "windows.object_manager.unregister_callbacks",
+      "source": "WDK ObUnRegisterCallbacks prototype plus reviewed object callback registration handle semantics; signature preview only.",
+      "function_names": [
+        "ObUnRegisterCallbacks"
+      ],
+      "parameter_count": 1,
+      "prototype": {
+        "return_type": "VOID",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "registrationHandle",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *"
+            ],
+            "semantic_role": "registrationHandle",
+            "type_confidence": 0.9,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registrationHandle",
+          "rename_to": "registrationHandle",
+          "rename_confidence": 0.92,
+          "structure": "OB_CALLBACK_REGISTRATION_HANDLE",
+          "mode": "report-only",
+          "confidence": 0.9,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "exact-name parameter role"
         }
       ]
     }

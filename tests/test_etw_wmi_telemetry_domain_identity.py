@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -251,6 +252,96 @@ char __fastcall EtwpLogContextSwapEvent(__int64 loggerSet, __int64 argument1, __
             [],
             self._profile_identities(plan, "windows.etw_wmi_telemetry.etwp_log_context_swap_event"),
         )
+
+    def test_etw_contiguous_allocation_profile_corrects_weak_private_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+BOOLEAN __fastcall EtwTraceContAllocationEvent(PVOID BaseAddress, __int64 a2, __int64 a3, __int64 a4, __int64 a5, int a6, int a7, int a8, int a9, int a10, unsigned __int8 a11, int a12, __int64 a13)
+{
+  struct _EVENT_DATA_DESCRIPTOR UserData;
+  if ( EtwEventEnabled(EtwpMemoryProvRegHandle, &KERNEL_MEM_EVENT_CONT_ALLOCATION) )
+  {
+    UserData.Ptr = (ULONGLONG)&a2;
+    return EtwWriteEx(EtwpMemoryProvRegHandle, &KERNEL_MEM_EVENT_CONT_ALLOCATION, 0, 1, 0, 0, 1, &UserData);
+  }
+  return 0;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.etw_wmi_telemetry.etw_trace_cont_allocation_event"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        roles = self._roles(plan, profile_id)
+
+        self.assertEqual(13, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn("PFN_NUMBER startPage", rendered)
+        self.assertIn("PFN_NUMBER endPage", rendered)
+        self.assertIn("ULONG partitionId", rendered)
+        self.assertIn("ULONG node", rendered)
+        self.assertIn("ULONG cacheType", rendered)
+        self.assertIn("ULONG priority", rendered)
+        self.assertIn("ULONG flags", rendered)
+        self.assertIn("BOOLEAN largePage", rendered)
+        self.assertIn("ULONG extraFlags", rendered)
+        self.assertIn("ULONG64 startTimestamp", rendered)
+        self.assertEqual("EVENT_DATA_DESCRIPTOR", roles["eventData"])
+        self.assertEqual("VIRTUAL_ADDRESS", roles["baseAddress"])
+        self.assertEqual("MEMORY_PARTITION_ID", roles["partitionId"])
+        self.assertEqual("NUMA_NODE", roles["node"])
+        self.assertEqual("MEMORY_CACHING_TYPE", roles["cacheType"])
+        self.assertEqual("MEMORY_PRIORITY", roles["priority"])
+        self.assertEqual("ETW_ALLOCATION_FLAGS", roles["flags"])
+        self.assertEqual("ETW_EXTRA_FLAGS", roles["extraFlags"])
+        self.assertEqual("TIMESTAMP", roles["startTimestamp"])
+        self.assertEqual([], plan.corrected_parameter_map)
+
+    def test_etw_contiguous_allocation_requires_trace_write_evidence(self) -> None:
+        plan = self._plan(
+            """
+BOOLEAN __fastcall EtwTraceContAllocationEvent(PVOID BaseAddress, __int64 a2, __int64 a3, __int64 a4, __int64 a5, int a6, int a7, int a8, int a9, int a10, unsigned __int8 a11, int a12, __int64 a13)
+{
+  return BaseAddress != 0;
+}
+"""
+        )
+
+        self.assertEqual(
+            [],
+            self._profile_identities(plan, "windows.etw_wmi_telemetry.etw_trace_cont_allocation_event"),
+        )
+
+    def test_dbgk_wer_live_kernel_dump_profile_corrects_wrapper_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall DbgkWerCaptureLiveKernelDump(const wchar_t *a1, __int64 a2, __int64 a3, __int64 a4, __int64 a5, __int64 a6, __int64 a7, __int64 a8, int a9)
+{
+  _DWORD options[10];
+  options[0] = 1;
+  return DbgkWerCaptureLiveKernelDump2(a1, a5, a6, (__int64)options);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.etw_wmi_telemetry.dbgk_wer_capture_live_kernel_dump"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+
+        self.assertEqual(9, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn("PCWSTR dumpFilePath", rendered)
+        self.assertIn("ULONG_PTR werContext", rendered)
+        self.assertIn("ULONG_PTR secondaryContext", rendered)
+        self.assertIn("ULONG_PTR captureContext", rendered)
+        self.assertIn("ULONG_PTR dumpType", rendered)
+        self.assertIn("ULONG_PTR bugCheckData", rendered)
+        self.assertIn("ULONG_PTR optionBlockHigh", rendered)
+        self.assertIn("ULONG_PTR optionBlockLow", rendered)
+        self.assertIn("ULONG optionFlags", rendered)
+        self.assertEqual([], plan.corrected_parameter_map)
 
     def test_trace_event_control_and_callback_roles(self) -> None:
         trace_event_plan = self._plan(

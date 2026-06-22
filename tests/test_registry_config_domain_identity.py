@@ -420,6 +420,90 @@ NTSTATUS __stdcall CmRegisterCallbackEx(__int64 a1, __int64 a2, __int64 a3, __in
         self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
+    def test_registry_security_descriptor_profile_corrects_hexrays_parameter_types(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CmpSetSecurityDescriptorInfo(ULONG_PTR a1, _DWORD *a2, size_t a3, ULONG_PTR a4, int a5, __int64 a6, __int64 a7, __int64 a8, __int64 a9)
+{
+  CmGetKCBCacheSecurity(a1, a7);
+  RtlpSetSecurityObject(0, *a2, a3, (unsigned int)&a4, 0, a5, a6, a9);
+  return CmpTraceSecurityChanging(a1, a4, *a2, a3, a4);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.registry_config.cmp_set_security_descriptor_info"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identities = self._profile_identities(plan, profile_id)
+
+        self.assertEqual(9, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertIn("PCM_KEY_CONTROL_BLOCK keyControlBlock", rendered)
+        self.assertIn("PSECURITY_INFORMATION securityInformation", rendered)
+        self.assertIn("PSECURITY_DESCRIPTOR newSecurityDescriptor", rendered)
+        self.assertIn("KPROCESSOR_MODE accessMode", rendered)
+        self.assertEqual(
+            {
+                "keyControlBlock": "CM_KEY_CONTROL_BLOCK",
+                "securityInformation": "SECURITY_INFORMATION",
+                "securityDescriptorLength": "BUFFER_LENGTH",
+                "newSecurityDescriptor": "SECURITY_DESCRIPTOR",
+                "accessMode": "KPROCESSOR_MODE",
+                "genericMapping": "GENERIC_MAPPING",
+                "transactionContext": "CM_TRANS",
+                "transactionLogEntry": "CM_TRANS_SECURITY_ENTRY",
+                "poolTypeContext": "GENERIC_MAPPING_CONTEXT",
+            },
+            {item["trusted_role"]: item["structure_name"] for item in identities},
+        )
+        self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
+        self.assertEqual([], plan.corrected_parameter_map)
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
+
+    def test_registry_security_descriptor_build_mismatch_blocks_type_preview(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall CmpSetSecurityDescriptorInfo(ULONG_PTR a1, _DWORD *a2, size_t a3, ULONG_PTR a4, int a5, __int64 a6, __int64 a7, __int64 a8, __int64 a9)
+{
+  CmGetKCBCacheSecurity(a1, a7);
+  return RtlpSetSecurityObject(0, *a2, a3, (unsigned int)&a4, 0, a5, a6, a9);
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.registry_config.cmp_set_security_descriptor_info"
+        ]
+
+        self.assertEqual(9, len(corrections))
+        self.assertTrue(all("build_mismatch" in item.blockers for item in corrections))
+        self.assertTrue(all(not item.apply_to_preview for item in corrections))
+
+    def test_cmp_find_value_by_name_profile_corrects_search_context_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CmpFindValueByName(ULONG_PTR a1)
+{
+  return CmpFindNameInListWithStatus(a1, 0, 0);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.registry_config.cmp_find_value_by_name"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+
+        self.assertEqual(1, len(corrections))
+        self.assertTrue(corrections[0].apply_to_preview)
+        self.assertIn("PCM_KEY_VALUE_SEARCH_CONTEXT valueSearchContext", rendered)
+        self.assertEqual([], plan.corrected_parameter_map)
+
     def test_report_only_registry_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """

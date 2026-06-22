@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -400,6 +401,97 @@ NTSTATUS __fastcall MiCompleteProtoPteFault(__int64 context, __int64 argument1)
         self.assertEqual("pfnEntry", identity["trusted_role"])
         self.assertEqual("report-only", identity["effective_mode"])
         self.assertEqual([], identity["fields"])
+
+    def test_private_memory_profiles_correct_weak_hexrays_parameter_types(self) -> None:
+        samples = [
+            (
+                """
+__int64 __fastcall MiCreateSlabEntry(__int64 a1, __int64 a2, int a3, unsigned __int8 a4)
+{
+  *(_QWORD *)(a2 + 40) = a1;
+  return a3 + a4;
+}
+""",
+                "windows.memory_manager.create_slab_entry",
+                [
+                    "PMI_SLAB_CONTEXT slabContext",
+                    "PMI_SLAB_ENTRY slabEntry",
+                    "ULONG slabPageCount",
+                    "BOOLEAN zeroInitialize",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(__int64 a1, unsigned __int64 a2, unsigned __int64 a3)
+{
+  return *(_QWORD *)(a1 + 24) + a2 + a3;
+}
+""",
+                "windows.memory_manager.store_work_item_process",
+                [
+                    "PST_STORE_SM_TRAITS store",
+                    "PST_WORK_ITEM workItem",
+                    "ULONG_PTR workItemContext",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall MiCreateSharedZeroPages(__int64 a1, __int64 *a2)
+{
+  *a2 = a1;
+  return 0;
+}
+""",
+                "windows.memory_manager.create_shared_zero_pages",
+                [
+                    "PMI_SHARED_ZERO_PAGE_CONTEXT sharedZeroPageContext",
+                    "PMMPFN * sharedZeroPageList",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall MiPfAllocateMdls(__int64 a1, unsigned int a2, _SLIST_ENTRY *a3, volatile signed __int64 *a4)
+{
+  return a2 + *a4 + (a3 != 0) + *(_QWORD *)(a1 + 8);
+}
+""",
+                "windows.memory_manager.pf_allocate_mdls",
+                [
+                    "PMI_PAGEFILE_MDL_CONTEXT pageFileMdlContext",
+                    "ULONG mdlCount",
+                    "PSLIST_ENTRY mdlSList",
+                    "volatile LONG64 * outstandingMdlCount",
+                ],
+            ),
+            (
+                """
+void __fastcall MiLockPageListAndLastPage(__int64 a1, __int64 a2, __int64 a3, __int64 a4)
+{
+  *(_QWORD *)(a1 + 40) = a2 + a3 + a4;
+}
+""",
+                "windows.memory_manager.lock_page_list_and_last_page",
+                [
+                    "PMI_PAGE_LIST_LOCK_CONTEXT pageListLockContext",
+                    "PMMPFN lastPage",
+                    "PMMPFN pageList",
+                    "ULONG_PTR lockFlags",
+                ],
+            ),
+        ]
+
+        for text, profile_id, expected_fragments in samples:
+            with self.subTest(profile_id=profile_id):
+                capture = capture_from_pseudocode(text, source_path=SOURCE_PATH)
+                plan = build_clean_plan(capture)
+                rendered = render_cleaned_pseudocode(capture, plan)
+                corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+
+                self.assertEqual(len(expected_fragments), len(corrections))
+                self.assertTrue(all(item.apply_to_preview for item in corrections))
+                self.assertEqual([], plan.corrected_parameter_map)
+                for fragment in expected_fragments:
+                    self.assertIn(fragment, rendered)
 
     def test_report_only_vad_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(

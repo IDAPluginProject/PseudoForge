@@ -116,7 +116,7 @@
           "role": "createStatus",
           "structure": "NTSTATUS",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "AlpcpCreatePort status returned from ObCreateObjectEx"
         }
       ]
@@ -249,7 +249,7 @@
           "role": "connectionMessage",
           "structure": "PORT_MESSAGE",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PPORT_MESSAGE",
             "__int64",
@@ -451,7 +451,7 @@
           "role": "connectionMessage",
           "structure": "PORT_MESSAGE",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PPORT_MESSAGE",
             "int",
@@ -518,7 +518,7 @@
           "role": "disconnectFlags",
           "structure": "ALPC_DISCONNECT_FLAGS",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "ULONG",
             "unsigned int",
@@ -740,6 +740,128 @@
       ]
     },
     {
+      "id": "windows.alpc_port.allocate_message_internal",
+      "source": "Reviewed AlpcpAllocateMessage ntoskrnl 26200.8457 ALPC message allocation through lookaside/buffer allocation branches and message header initialization; layout remains report-only due merge, subfield, and threshold blockers.",
+      "function_names": [
+        "AlpcpAllocateMessage"
+      ],
+      "parameter_count": 3,
+      "required_calls": [
+        "AlpcpAllocateBuffer"
+      ],
+      "prototype": {
+        "return_type": "PALPC_MESSAGE",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "communicationInfo",
+            "canonical_type": "PALPC_COMMUNICATION_INFO",
+            "accepted_types": [
+              "ULONG_PTR *",
+              "_QWORD *",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "communicationInfo",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "messageSize",
+            "canonical_type": "SIZE_T",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "SIZE_T",
+              "__int64"
+            ],
+            "semantic_role": "messageSize",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "largeMessage",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "int",
+              "BOOLEAN",
+              "char",
+              "unsigned int"
+            ],
+            "semantic_role": "largeMessageFlag",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "communicationInfo",
+          "rename_to": "communicationInfo",
+          "rename_confidence": 0.86,
+          "structure": "ALPC_COMMUNICATION_INFO",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG_PTR *",
+            "_QWORD *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "ALPC exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "messageSize",
+          "rename_to": "messageSize",
+          "rename_confidence": 0.88,
+          "structure": "SIZE_T",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "SIZE_T",
+            "__int64"
+          ],
+          "source": "ALPC exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "largeMessageFlag",
+          "rename_to": "largeMessage",
+          "rename_confidence": 0.8400000000000001,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "BOOLEAN",
+            "char",
+            "unsigned int"
+          ],
+          "source": "ALPC exact-name parameter role"
+        },
+        {
+          "local_names": [
+            "Buffer"
+          ],
+          "role": "messageBuffer",
+          "structure": "ALPC_MESSAGE",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "AlpcpAllocateMessage allocated message buffer local"
+        }
+      ]
+    },
+    {
       "id": "windows.alpc_port.complete_dispatch_message",
       "source": "Reviewed AlpcpCompleteDispatchMessage completion callback context, message handoff, completion port notification, and dispatch cleanup flow.",
       "function_names": [
@@ -756,7 +878,7 @@
           "structure": "ALPC_DISPATCH_MESSAGE_CONTEXT",
           "mode": "report-only",
           "confidence": 0.82,
-          "rename_confidence": 0.90,
+          "rename_confidence": 0.9,
           "accepted_types": [
             "__int64",
             "PVOID"
@@ -878,7 +1000,7 @@
           "role": "waitingThreadMessageContext",
           "structure": "ALPC_WAIT_CONTEXT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int64",
             "PVOID"
@@ -941,19 +1063,39 @@
             "__int64",
             "PVOID"
           ],
-          "source": "NtAlpcCreatePortSection port handle argument"
+          "source": "NtAlpcCreatePortSection port handle argument",
+          "rename_to": "portHandle",
+          "rename_confidence": 0.88
+        },
+        {
+          "parameter_index": 1,
+          "role": "createSectionFlags",
+          "rename_to": "flags",
+          "rename_confidence": 0.8400000000000001,
+          "structure": "ALPC_CREATE_SECTION_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int",
+            "__int64"
+          ],
+          "source": "ALPC exact-name parameter role"
         },
         {
           "parameter_index": 2,
           "role": "sectionHandle",
           "structure": "HANDLE",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "HANDLE",
             "__int64"
           ],
-          "source": "NtAlpcCreatePortSection optional existing section handle argument"
+          "source": "NtAlpcCreatePortSection optional existing section handle argument",
+          "rename_to": "sectionHandle",
+          "rename_confidence": 0.88
         },
         {
           "parameter_index": 3,
@@ -966,7 +1108,9 @@
             "SIZE_T",
             "ULONG_PTR"
           ],
-          "source": "NtAlpcCreatePortSection section size argument"
+          "source": "NtAlpcCreatePortSection section size argument",
+          "rename_to": "sectionSize",
+          "rename_confidence": 0.88
         },
         {
           "parameter_index": 4,
@@ -979,20 +1123,24 @@
             "__int64 *",
             "PVOID *"
           ],
-          "source": "NtAlpcCreatePortSection output ALPC section handle argument"
+          "source": "NtAlpcCreatePortSection output ALPC section handle argument",
+          "rename_to": "alpcSectionHandle",
+          "rename_confidence": 0.88
         },
         {
           "parameter_index": 5,
           "role": "actualSectionSizeOutput",
           "structure": "SIZE_T_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "_QWORD *",
             "__int64 *",
             "PSIZE_T"
           ],
-          "source": "NtAlpcCreatePortSection output actual section size/offset argument"
+          "source": "NtAlpcCreatePortSection output actual section size/offset argument",
+          "rename_to": "actualSectionSize",
+          "rename_confidence": 0.88
         },
         {
           "local_names": [
@@ -1014,7 +1162,102 @@
           "confidence": 0.74,
           "source": "NtAlpcCreatePortSection created ALPC section blob"
         }
-      ]
+      ],
+      "parameter_count": 6,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "portHandle",
+            "canonical_type": "HANDLE",
+            "accepted_types": [
+              "HANDLE",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "portHandle",
+            "type_confidence": 0.88,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "flags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int",
+              "__int64"
+            ],
+            "semantic_role": "createSectionFlags",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "sectionHandle",
+            "canonical_type": "HANDLE",
+            "accepted_types": [
+              "HANDLE",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "sectionHandle",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "sectionSize",
+            "canonical_type": "SIZE_T",
+            "accepted_types": [
+              "__int64",
+              "SIZE_T",
+              "ULONG_PTR",
+              "size_t"
+            ],
+            "semantic_role": "sectionSize",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "alpcSectionHandle",
+            "canonical_type": "PULONG_PTR",
+            "accepted_types": [
+              "_QWORD *",
+              "__int64 *",
+              "PULONG_PTR",
+              "PVOID *"
+            ],
+            "semantic_role": "alpcSectionHandleOutput",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "actualSectionSize",
+            "canonical_type": "PSIZE_T",
+            "accepted_types": [
+              "_QWORD *",
+              "__int64 *",
+              "PSIZE_T",
+              "PULONG_PTR"
+            ],
+            "semantic_role": "actualSectionSizeOutput",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      }
     },
     {
       "id": "windows.alpc_port.nt_delete_port_section",
@@ -1105,7 +1348,7 @@
           "role": "messageSize",
           "structure": "SIZE_T",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int64",
             "SIZE_T",
@@ -1299,7 +1542,7 @@
           "role": "viewBase",
           "structure": "VIRTUAL_ADDRESS",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "ULONG_PTR",
             "unsigned __int64",
@@ -1492,20 +1735,24 @@
             "__int64",
             "PVOID"
           ],
-          "source": "NtAlpcImpersonateClientOfPort port handle argument"
+          "source": "NtAlpcImpersonateClientOfPort port handle argument",
+          "rename_to": "portHandle",
+          "rename_confidence": 0.88
         },
         {
           "parameter_index": 1,
           "role": "messageAttributes",
           "structure": "ALPC_MESSAGE_ATTRIBUTES",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int64",
             "PALPC_MESSAGE_ATTRIBUTES",
             "PVOID"
           ],
-          "source": "NtAlpcImpersonateClientOfPort message attributes argument"
+          "source": "NtAlpcImpersonateClientOfPort message attributes argument",
+          "rename_to": "messageAttributes",
+          "rename_confidence": 0.88
         },
         {
           "parameter_index": 2,
@@ -1518,7 +1765,9 @@
             "ULONG_PTR",
             "__int64"
           ],
-          "source": "NtAlpcImpersonateClientOfPort impersonation flags argument"
+          "source": "NtAlpcImpersonateClientOfPort impersonation flags argument",
+          "rename_to": "flags",
+          "rename_confidence": 0.88
         },
         {
           "local_names": [
@@ -1547,10 +1796,59 @@
           "role": "sourceSid",
           "structure": "SID",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "NtAlpcImpersonateClientOfPort source SID used for impersonation validation"
         }
-      ]
+      ],
+      "parameter_count": 3,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "portHandle",
+            "canonical_type": "HANDLE",
+            "accepted_types": [
+              "HANDLE",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "portHandle",
+            "type_confidence": 0.88,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "messageAttributes",
+            "canonical_type": "PALPC_MESSAGE_ATTRIBUTES",
+            "accepted_types": [
+              "__int64",
+              "PALPC_MESSAGE_ATTRIBUTES",
+              "PVOID"
+            ],
+            "semantic_role": "messageAttributes",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "flags",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "__int64"
+            ],
+            "semantic_role": "impersonationFlags",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      }
     },
     {
       "id": "windows.alpc_port.nt_open_sender_process",
@@ -1594,7 +1892,7 @@
           "role": "message",
           "structure": "PORT_MESSAGE",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "unsigned __int64",
             "PPORT_MESSAGE",
@@ -1679,7 +1977,7 @@
           "role": "message",
           "structure": "PORT_MESSAGE",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "__int128 *",
             "PPORT_MESSAGE",
@@ -1763,7 +2061,7 @@
           "role": "completionPacket",
           "structure": "IO_COMPLETION_PACKET",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "AlpcpDeletePort completion packet local"
         },
         {
@@ -1773,7 +2071,7 @@
           "role": "clientSecurity",
           "structure": "SECURITY_CLIENT_CONTEXT",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "AlpcpDeletePort client security local"
         }
       ]
@@ -1831,7 +2129,7 @@
           "role": "lookasideBuffer",
           "structure": "ALPC_LOOKASIDE_BUFFER",
           "mode": "report-only",
-          "confidence": 0.70,
+          "confidence": 0.7,
           "source": "AlpcpDestroyPort optional nonpaged lookaside buffer"
         }
       ]

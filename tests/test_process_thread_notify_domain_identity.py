@@ -67,6 +67,33 @@ NTSTATUS __stdcall PsSetCreateProcessNotifyRoutineEx(__int64 a1, __int64 a2)
         )
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
+    def test_remove_thread_notify_profile_corrects_generic_callback_type_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall PsRemoveCreateThreadNotifyRoutine(__int64 a1)
+{
+  struct _EX_RUNDOWN_REF *callbackBlock;
+
+  callbackBlock = ExReferenceCallBackBlock((signed __int64 *)&PspCreateThreadNotifyRoutine.Ptr, 0, 0, 0);
+  return callbackBlock && a1 ? STATUS_SUCCESS : STATUS_INVALID_PARAMETER;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.process_thread_notify.ps_remove_create_thread_notify"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+
+        self.assertEqual(1, len(corrections))
+        self.assertTrue(corrections[0].apply_to_preview)
+        self.assertFalse(corrections[0].apply_to_idb)
+        self.assertIn(
+            "NTSTATUS __stdcall PsRemoveCreateThreadNotifyRoutine(PCREATE_THREAD_NOTIFY_ROUTINE notifyRoutine)",
+            rendered,
+        )
+        self.assertEqual([], plan.corrected_parameter_map)
+
     def test_private_thread_notify_registration_requires_callback_allocation(self) -> None:
         without_callee = self._plan(
             """

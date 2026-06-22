@@ -768,6 +768,38 @@ __int64 PublicAbiGapSample()
         self.assertEqual(2, diagnostics[0].argument_index)
         self.assertFalse(diagnostics[0].callee_contract_action)
 
+    def test_ex_reference_callback_block_live_ins_are_helper_arity_residue(self) -> None:
+        text = """
+__int64 __fastcall CallbackBlockResidueSample()
+{
+  __int64 v1; // rdx
+  __int64 v2; // r8
+  __int64 v3; // r9
+
+  return ExReferenceCallBackBlock(&PspCreateThreadNotifyRoutine, v1, v2, v3) != 0;
+}
+"""
+        capture = FunctionCapture(
+            name="CallbackBlockResidueSample",
+            prototype="__int64 __fastcall CallbackBlockResidueSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False),
+                LocalVariable(name="v2", type="__int64", is_arg=False),
+                LocalVariable(name="v3", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(3, len(diagnostics))
+        self.assertEqual({"callee_arity_residue_candidate"}, {item.candidate_action for item in diagnostics})
+        self.assertTrue(all(item.callee_name == "ExReferenceCallBackBlock" for item in diagnostics))
+        self.assertTrue(all(item.callee_contract_action == "callee_arity_residue_candidate" for item in diagnostics))
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+        self.assertTrue(any("callee arity/helper residue" in warning for warning in warnings))
+
     def test_repeated_dif_thunk_slots_are_helper_thunk_candidates(self) -> None:
         text = """
 bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)

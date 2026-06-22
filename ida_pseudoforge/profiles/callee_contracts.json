@@ -35,10 +35,11 @@
       "callees": [
         "CmObReferenceObjectByHandle",
         "CmpDumpKeyToBuffer",
-        "guard_dispatch_icall_no_overrides",
+        "ExReferenceCallBackBlock",
         "HalpMmAllocCtxFree",
         "KiCheckVpBackingLongSpinWaitHypercall",
-        "PipCreateDependencyNode"
+        "PipCreateDependencyNode",
+        "guard_dispatch_icall_no_overrides"
       ],
       "callee_patterns": [
         "Feature_*__private_IsEnabled*NoInline"

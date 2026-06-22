@@ -141,7 +141,7 @@
           "role": "openKeyCalloutContext",
           "structure": "CM_OPEN_KEY_CONTEXT",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PVOID",
             "_QWORD *",
@@ -206,7 +206,7 @@
           "role": "openOptions",
           "structure": "REG_OPEN_OPTIONS",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "unsigned int",
             "int",
@@ -299,7 +299,7 @@
           "role": "dispositionOutput",
           "structure": "REG_CREATE_DISPOSITION_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PULONG",
             "unsigned int *",
@@ -336,7 +336,7 @@
           "role": "createKeyCalloutContext",
           "structure": "CM_CREATE_KEY_CONTEXT",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "_QWORD *",
             "PVOID",
@@ -400,7 +400,7 @@
           "role": "classString",
           "structure": "UNICODE_STRING",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PUNICODE_STRING",
             "UNICODE_STRING *",
@@ -414,7 +414,7 @@
           "role": "dispositionOutput",
           "structure": "REG_CREATE_DISPOSITION_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PULONG",
             "_DWORD *",
@@ -558,7 +558,7 @@
           "role": "enumerateKeyCalloutContext",
           "structure": "CM_ENUMERATE_KEY_CONTEXT",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "_QWORD *",
             "PVOID",
@@ -658,7 +658,7 @@
           "role": "resultLengthOutput",
           "structure": "ULONG_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PULONG",
             "unsigned int *",
@@ -746,7 +746,7 @@
           "role": "resultLengthOutput",
           "structure": "ULONG_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PULONG",
             "unsigned int *",
@@ -887,7 +887,7 @@
           "role": "queryValueCalloutContext",
           "structure": "CM_QUERY_VALUE_KEY_CONTEXT",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "_OWORD *",
             "_QWORD *",
@@ -977,7 +977,7 @@
           "role": "resultLengthOutput",
           "structure": "ULONG_OUTPUT",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PULONG",
             "unsigned int *",
@@ -1196,7 +1196,7 @@
           "role": "keyHandle",
           "structure": "HANDLE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "HANDLE",
             "__int64",
@@ -1391,7 +1391,327 @@
             "__int64",
             "unsigned __int64"
           ],
-          "source": "CmpFindValueByName value-list search context argument"
+          "source": "CmpFindValueByName value-list search context argument",
+          "rename_to": "valueSearchContext",
+          "rename_confidence": 0.86
+        }
+      ],
+      "parameter_count": 1,
+      "prototype": {
+        "return_type": "PCM_KEY_VALUE",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "valueSearchContext",
+            "canonical_type": "PCM_KEY_VALUE_SEARCH_CONTEXT",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "unsigned __int64",
+              "PVOID",
+              "PCM_KEY_VALUE_SEARCH_CONTEXT"
+            ],
+            "semantic_role": "valueListOrSearchContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "windows.registry_config.cmp_set_security_descriptor_info",
+      "source": "Reviewed CmpSetSecurityDescriptorInfo ntoskrnl 26200.8457 security descriptor update flow through CmGetKCBCacheSecurity, RtlpSetSecurityObject, CmpTraceSecurityChanging, hive cell dirtying, and transaction-aware branches; signature preview only.",
+      "function_names": [
+        "CmpSetSecurityDescriptorInfo"
+      ],
+      "parameter_count": 9,
+      "required_calls": [
+        "CmGetKCBCacheSecurity",
+        "RtlpSetSecurityObject"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "keyControlBlock",
+            "canonical_type": "PCM_KEY_CONTROL_BLOCK",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID",
+              "PCM_KEY_CONTROL_BLOCK"
+            ],
+            "semantic_role": "keyControlBlock",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "securityInformation",
+            "canonical_type": "PSECURITY_INFORMATION",
+            "accepted_types": [
+              "_DWORD *",
+              "PSECURITY_INFORMATION",
+              "SECURITY_INFORMATION *",
+              "PULONG",
+              "PVOID"
+            ],
+            "semantic_role": "securityInformation",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "securityDescriptorLength",
+            "canonical_type": "SIZE_T",
+            "accepted_types": [
+              "size_t",
+              "SIZE_T",
+              "ULONG_PTR",
+              "__int64"
+            ],
+            "semantic_role": "securityDescriptorLength",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "newSecurityDescriptor",
+            "canonical_type": "PSECURITY_DESCRIPTOR",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID",
+              "PSECURITY_DESCRIPTOR"
+            ],
+            "semantic_role": "newSecurityDescriptor",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "accessMode",
+            "canonical_type": "KPROCESSOR_MODE",
+            "accepted_types": [
+              "int",
+              "KPROCESSOR_MODE",
+              "char",
+              "unsigned __int8"
+            ],
+            "semantic_role": "accessMode",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "genericMapping",
+            "canonical_type": "PGENERIC_MAPPING",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PGENERIC_MAPPING"
+            ],
+            "semantic_role": "genericMapping",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "transactionContext",
+            "canonical_type": "PCM_TRANS",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PCM_TRANS"
+            ],
+            "semantic_role": "transactionContext",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 7,
+            "canonical_name": "transactionLogEntry",
+            "canonical_type": "PCM_TRANS_SECURITY_ENTRY",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PCM_TRANS_SECURITY_ENTRY"
+            ],
+            "semantic_role": "transactionLogEntry",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 8,
+            "canonical_name": "poolTypeContext",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "poolTypeContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyControlBlock",
+          "rename_to": "keyControlBlock",
+          "rename_confidence": 0.9,
+          "structure": "CM_KEY_CONTROL_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "PCM_KEY_CONTROL_BLOCK"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "securityInformation",
+          "rename_to": "securityInformation",
+          "rename_confidence": 0.88,
+          "structure": "SECURITY_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_DWORD *",
+            "PSECURITY_INFORMATION",
+            "SECURITY_INFORMATION *",
+            "PULONG",
+            "PVOID"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "securityDescriptorLength",
+          "rename_to": "securityDescriptorLength",
+          "rename_confidence": 0.86,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "size_t",
+            "SIZE_T",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 3,
+          "role": "newSecurityDescriptor",
+          "rename_to": "newSecurityDescriptor",
+          "rename_confidence": 0.86,
+          "structure": "SECURITY_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "PSECURITY_DESCRIPTOR"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 4,
+          "role": "accessMode",
+          "rename_to": "accessMode",
+          "rename_confidence": 0.8400000000000001,
+          "structure": "KPROCESSOR_MODE",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "KPROCESSOR_MODE",
+            "char",
+            "unsigned __int8"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 5,
+          "role": "genericMapping",
+          "rename_to": "genericMapping",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "GENERIC_MAPPING",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PGENERIC_MAPPING"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 6,
+          "role": "transactionContext",
+          "rename_to": "transactionContext",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "CM_TRANS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PCM_TRANS"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 7,
+          "role": "transactionLogEntry",
+          "rename_to": "transactionLogEntry",
+          "rename_confidence": 0.8,
+          "structure": "CM_TRANS_SECURITY_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PCM_TRANS_SECURITY_ENTRY"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+        },
+        {
+          "parameter_index": 8,
+          "role": "poolTypeContext",
+          "rename_to": "poolTypeContext",
+          "rename_confidence": 0.8,
+          "structure": "GENERIC_MAPPING_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *",
+            "ULONG_PTR"
+          ],
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
         }
       ]
     },
@@ -1433,7 +1753,7 @@
           "role": "completionFilter",
           "structure": "REG_NOTIFY_FILTER",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "ULONG",
             "int",
@@ -1547,7 +1867,7 @@
           "role": "objectName",
           "structure": "UNICODE_STRING",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PUNICODE_STRING",
             "UNICODE_STRING *",
@@ -1626,15 +1946,25 @@
             "index": 0,
             "canonical_name": "callbackFunction",
             "canonical_type": "PEX_CALLBACK_FUNCTION",
-            "accepted_types": ["__int64", "PVOID", "PEX_CALLBACK_FUNCTION"],
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PEX_CALLBACK_FUNCTION"
+            ],
             "semantic_role": "registryCallbackFunction",
-            "type_confidence": 0.90
+            "type_confidence": 0.9
           },
           {
             "index": 1,
             "canonical_name": "altitude",
             "canonical_type": "PCUNICODE_STRING",
-            "accepted_types": ["__int64", "PVOID", "PCUNICODE_STRING", "PUNICODE_STRING", "UNICODE_STRING *"],
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PCUNICODE_STRING",
+              "PUNICODE_STRING",
+              "UNICODE_STRING *"
+            ],
             "semantic_role": "callbackAltitude",
             "type_confidence": 0.88
           },
@@ -1642,7 +1972,10 @@
             "index": 2,
             "canonical_name": "driver",
             "canonical_type": "PVOID",
-            "accepted_types": ["__int64", "PVOID"],
+            "accepted_types": [
+              "__int64",
+              "PVOID"
+            ],
             "semantic_role": "driverObjectOrContext",
             "type_confidence": 0.82
           },
@@ -1650,7 +1983,10 @@
             "index": 3,
             "canonical_name": "callbackContext",
             "canonical_type": "PVOID",
-            "accepted_types": ["__int64", "PVOID"],
+            "accepted_types": [
+              "__int64",
+              "PVOID"
+            ],
             "semantic_role": "callbackContext",
             "type_confidence": 0.84
           },
@@ -1658,7 +1994,12 @@
             "index": 4,
             "canonical_name": "cookie",
             "canonical_type": "PLARGE_INTEGER",
-            "accepted_types": ["__int64", "_QWORD *", "PLARGE_INTEGER", "LARGE_INTEGER *"],
+            "accepted_types": [
+              "__int64",
+              "_QWORD *",
+              "PLARGE_INTEGER",
+              "LARGE_INTEGER *"
+            ],
             "semantic_role": "callbackCookieOutput",
             "type_confidence": 0.88
           },
@@ -1666,7 +2007,11 @@
             "index": 5,
             "canonical_name": "reserved",
             "canonical_type": "PVOID",
-            "accepted_types": ["__int64", "PVOID", "void *"],
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *"
+            ],
             "semantic_role": "reserved",
             "type_confidence": 0.78
           }
@@ -1678,7 +2023,7 @@
           "role": "registryCallbackFunction",
           "structure": "EX_CALLBACK_FUNCTION",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PEX_CALLBACK_FUNCTION",
             "PVOID",

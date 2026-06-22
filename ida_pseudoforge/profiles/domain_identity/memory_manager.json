@@ -27,7 +27,7 @@
           "structure": "MI_PAGE_FILE_FAULT_CONTEXT",
           "mode": "report-only",
           "confidence": 0.86,
-          "rename_confidence": 0.90,
+          "rename_confidence": 0.9,
           "accepted_types": [
             "__int64",
             "PVOID",
@@ -58,6 +58,588 @@
           "mode": "report-only",
           "confidence": 0.84,
           "source": "MiCompleteProtoPteFault computed PFN database entry local"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.create_slab_entry",
+      "source": "Reviewed MiCreateSlabEntry ntoskrnl 26200.8457 slab entry creation and SlabEntry offset residue; preview-only role prototype, no private slab field rewrite.",
+      "function_names": [
+        "MiCreateSlabEntry"
+      ],
+      "parameter_count": 4,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "slabContext",
+            "canonical_type": "PMI_SLAB_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_SLAB_CONTEXT"
+            ],
+            "semantic_role": "slabContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "slabEntry",
+            "canonical_type": "PMI_SLAB_ENTRY",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_SLAB_ENTRY"
+            ],
+            "semantic_role": "slabEntry",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "slabPageCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "slabPageCount",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "zeroInitialize",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "unsigned __int8",
+              "BOOLEAN",
+              "char"
+            ],
+            "semantic_role": "zeroInitializeFlag",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "slabContext",
+          "rename_to": "slabContext",
+          "rename_confidence": 0.86,
+          "structure": "MI_SLAB_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_SLAB_CONTEXT"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "slabEntry",
+          "rename_to": "slabEntry",
+          "rename_confidence": 0.88,
+          "structure": "MI_SLAB_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_SLAB_ENTRY"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "slabPageCount",
+          "rename_to": "slabPageCount",
+          "rename_confidence": 0.8400000000000001,
+          "structure": "ULONG",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 3,
+          "role": "zeroInitializeFlag",
+          "rename_to": "zeroInitialize",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int8",
+            "BOOLEAN",
+            "char"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.store_work_item_process",
+      "source": "Reviewed ST_STORE<SM_TRAITS>::StWorkItemProcess ntoskrnl 26200.8457 store work item dispatch and store context offset residue; preview-only private C++ method prototype.",
+      "function_names": [
+        "StWorkItemProcess"
+      ],
+      "demangled_names": [
+        "ST_STORE<SM_TRAITS>::StWorkItemProcess"
+      ],
+      "parameter_count": 3,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "store",
+            "canonical_type": "PST_STORE_SM_TRAITS",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PST_STORE_SM_TRAITS"
+            ],
+            "semantic_role": "storeContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "workItem",
+            "canonical_type": "PST_WORK_ITEM",
+            "accepted_types": [
+              "unsigned __int64",
+              "__int64",
+              "PVOID",
+              "PST_WORK_ITEM"
+            ],
+            "semantic_role": "workItem",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "workItemContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "workItemContext",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "storeContext",
+          "rename_to": "store",
+          "rename_confidence": 0.88,
+          "structure": "ST_STORE_SM_TRAITS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PST_STORE_SM_TRAITS"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "workItem",
+          "rename_to": "workItem",
+          "rename_confidence": 0.88,
+          "structure": "ST_WORK_ITEM",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "PVOID",
+            "PST_WORK_ITEM"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "workItemContext",
+          "rename_to": "workItemContext",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "ST_WORK_ITEM_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.create_shared_zero_pages",
+      "source": "Reviewed MiCreateSharedZeroPages ntoskrnl 26200.8457 shared zero-page creation context and PFN/list output residue; preview-only private prototype.",
+      "function_names": [
+        "MiCreateSharedZeroPages"
+      ],
+      "parameter_count": 2,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "sharedZeroPageContext",
+            "canonical_type": "PMI_SHARED_ZERO_PAGE_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_SHARED_ZERO_PAGE_CONTEXT"
+            ],
+            "semantic_role": "sharedZeroPageContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "sharedZeroPageList",
+            "canonical_type": "PMMPFN *",
+            "accepted_types": [
+              "__int64 *",
+              "_QWORD *",
+              "PMMPFN *",
+              "PVOID *"
+            ],
+            "semantic_role": "sharedZeroPageListOutput",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "sharedZeroPageContext",
+          "rename_to": "sharedZeroPageContext",
+          "rename_confidence": 0.86,
+          "structure": "MI_SHARED_ZERO_PAGE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_SHARED_ZERO_PAGE_CONTEXT"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "sharedZeroPageListOutput",
+          "rename_to": "sharedZeroPageList",
+          "rename_confidence": 0.8400000000000001,
+          "structure": "MMPFN_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "PMMPFN *",
+            "PVOID *"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.pf_allocate_mdls",
+      "source": "Reviewed MiPfAllocateMdls ntoskrnl 26200.8457 pagefile MDL allocation context, SLIST, and outstanding-count flow; preview-only private prototype.",
+      "function_names": [
+        "MiPfAllocateMdls"
+      ],
+      "parameter_count": 4,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "pageFileMdlContext",
+            "canonical_type": "PMI_PAGEFILE_MDL_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_PAGEFILE_MDL_CONTEXT"
+            ],
+            "semantic_role": "pageFileMdlContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "mdlCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "int"
+            ],
+            "semantic_role": "mdlCount",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "mdlSList",
+            "canonical_type": "PSLIST_ENTRY",
+            "accepted_types": [
+              "_SLIST_ENTRY *",
+              "PSLIST_ENTRY",
+              "PVOID"
+            ],
+            "semantic_role": "mdlSList",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "outstandingMdlCount",
+            "canonical_type": "volatile LONG64 *",
+            "accepted_types": [
+              "volatile signed __int64 *",
+              "volatile LONG64 *",
+              "__int64 *"
+            ],
+            "semantic_role": "outstandingMdlCount",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "pageFileMdlContext",
+          "rename_to": "pageFileMdlContext",
+          "rename_confidence": 0.88,
+          "structure": "MI_PAGEFILE_MDL_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_PAGEFILE_MDL_CONTEXT"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "mdlCount",
+          "rename_to": "mdlCount",
+          "rename_confidence": 0.86,
+          "structure": "ULONG",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "mdlSList",
+          "rename_to": "mdlSList",
+          "rename_confidence": 0.86,
+          "structure": "SLIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_SLIST_ENTRY *",
+            "PSLIST_ENTRY",
+            "PVOID"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 3,
+          "role": "outstandingMdlCount",
+          "rename_to": "outstandingMdlCount",
+          "rename_confidence": 0.8400000000000001,
+          "structure": "LONG64_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "volatile signed __int64 *",
+            "volatile LONG64 *",
+            "__int64 *"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.lock_page_list_and_last_page",
+      "source": "Reviewed MiLockPageListAndLastPage ntoskrnl 26200.8457 page-list lock context and direct argument-alias layout residue; preview-only private prototype.",
+      "function_names": [
+        "MiLockPageListAndLastPage"
+      ],
+      "parameter_count": 4,
+      "prototype": {
+        "return_type": "void",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "pageListLockContext",
+            "canonical_type": "PMI_PAGE_LIST_LOCK_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_PAGE_LIST_LOCK_CONTEXT"
+            ],
+            "semantic_role": "pageListLockContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "lastPage",
+            "canonical_type": "PMMPFN",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMMPFN"
+            ],
+            "semantic_role": "lastPage",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "pageList",
+            "canonical_type": "PMMPFN",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMMPFN"
+            ],
+            "semantic_role": "pageList",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "lockFlags",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "lockFlags",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "pageListLockContext",
+          "rename_to": "pageListLockContext",
+          "rename_confidence": 0.88,
+          "structure": "MI_PAGE_LIST_LOCK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_PAGE_LIST_LOCK_CONTEXT"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 1,
+          "role": "lastPage",
+          "rename_to": "lastPage",
+          "rename_confidence": 0.86,
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMMPFN"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 2,
+          "role": "pageList",
+          "rename_to": "pageList",
+          "rename_confidence": 0.8200000000000001,
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMMPFN"
+          ],
+          "source": "Memory Manager exact-name parameter role"
+        },
+        {
+          "parameter_index": 3,
+          "role": "lockFlags",
+          "rename_to": "lockFlags",
+          "rename_confidence": 0.8,
+          "structure": "LOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "Memory Manager exact-name parameter role"
         }
       ]
     },
@@ -210,7 +792,7 @@
           "role": "insertedVad",
           "structure": "MMVAD",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PMMVAD",
             "__int64",
@@ -341,7 +923,7 @@
           "role": "removedVad",
           "structure": "MMVAD",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PMMVAD",
             "__int64",
@@ -354,7 +936,7 @@
           "role": "removeAddressSpaceAccounting",
           "structure": "BOOLEAN",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "BOOLEAN",
             "int",
@@ -463,7 +1045,7 @@
           "role": "startVad",
           "structure": "MMVAD",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PMMVAD",
             "unsigned __int64",
@@ -496,7 +1078,7 @@
           "role": "startVad",
           "structure": "MMVAD",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PMMVAD",
             "unsigned __int64 *",
@@ -567,7 +1149,7 @@
           "role": "virtualAddress",
           "structure": "VIRTUAL_ADDRESS",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PVOID",
             "ULONG_PTR",
@@ -652,7 +1234,7 @@
           "role": "virtualAddress",
           "structure": "VIRTUAL_ADDRESS",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PVOID",
             "ULONG_PTR",
@@ -1035,7 +1617,7 @@
           "role": "vadLockBase",
           "structure": "MMVAD_LOCK",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PMMVAD",
             "__int64",
@@ -1070,7 +1652,7 @@
           "role": "vadLockBase",
           "structure": "MMVAD_LOCK",
           "mode": "report-only",
-          "confidence": 0.80,
+          "confidence": 0.8,
           "accepted_types": [
             "PMMVAD",
             "__int64",
@@ -1102,7 +1684,7 @@
           "role": "unlockedAndDereferencedVad",
           "structure": "MMVAD",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PMMVAD",
             "PVOID",

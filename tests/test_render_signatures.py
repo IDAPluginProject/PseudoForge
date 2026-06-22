@@ -133,6 +133,67 @@ __int64 __fastcall IopExample(__int64 a1)
         self.assertIn("__int64 __fastcall IopExample(PDEVICE_OBJECT a1)", rendered)
         self.assertIn("local = (__int64)a1;", rendered)
 
+    def test_profile_type_correction_matches_demangled_prototype_when_capture_name_is_mangled(self) -> None:
+        prototype = "__int64 __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(__int64 store, unsigned __int64 workItem, unsigned __int64 workItemContext)"
+        text = "\n".join(
+            [
+                prototype,
+                "{",
+                "  return *(_QWORD *)(store + 24) + workItem + workItemContext;",
+                "}",
+            ]
+        )
+        capture = FunctionCapture(
+            name="?StWorkItemProcess@?$ST_STORE@USM_TRAITS@@@@QEAAX_K0@Z",
+            prototype=prototype,
+            pseudocode=text,
+        )
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="StWorkItemProcess",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="store",
+                    new_name="store",
+                    old_type="__int64",
+                    canonical_type="PST_STORE_SM_TRAITS",
+                    profile_id="windows.memory_manager.store_work_item_process",
+                    confidence=0.84,
+                    effective_mode="report-only",
+                ),
+                ParameterTypeCorrection(
+                    parameter_index=1,
+                    old_name="workItem",
+                    new_name="workItem",
+                    old_type="unsigned __int64",
+                    canonical_type="PST_WORK_ITEM",
+                    profile_id="windows.memory_manager.store_work_item_process",
+                    confidence=0.84,
+                    effective_mode="report-only",
+                ),
+                ParameterTypeCorrection(
+                    parameter_index=2,
+                    old_name="workItemContext",
+                    new_name="workItemContext",
+                    old_type="unsigned __int64",
+                    canonical_type="ULONG_PTR",
+                    profile_id="windows.memory_manager.store_work_item_process",
+                    confidence=0.78,
+                    effective_mode="report-only",
+                ),
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn(
+            "ST_STORE<SM_TRAITS>::StWorkItemProcess(PST_STORE_SM_TRAITS store, PST_WORK_ITEM workItem, ULONG_PTR workItemContext)",
+            rendered,
+        )
+        self.assertIn("return *(_QWORD *)(store + 24) + workItem + workItemContext;", rendered)
+
     def test_find_signature_end_handles_multiline_signatures(self) -> None:
         lines = [
             "NTSTATUS Sample(",

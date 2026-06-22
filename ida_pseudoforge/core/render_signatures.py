@@ -73,12 +73,12 @@ def apply_profile_parameter_type_corrections(
     if not corrections:
         return text
 
-    function_name = capture.name or extract_function_name(capture.prototype)
-    if not function_name:
+    function_names = _signature_function_name_candidates(capture)
+    if not function_names:
         return text
     lines = text.splitlines()
     for index, line in enumerate(lines):
-        if not re.search(r"\b%s\s*\(" % re.escape(function_name), line):
+        if not any(_line_has_function_signature(line, function_name) for function_name in function_names):
             continue
         end_index = find_signature_end(lines, index)
         if end_index < index:
@@ -90,6 +90,30 @@ def apply_profile_parameter_type_corrections(
         lines = lines[:index] + corrected.splitlines() + lines[end_index + 1:]
         return "\n".join(lines)
     return text
+
+
+def _signature_function_name_candidates(capture: FunctionCapture) -> list[str]:
+    candidates = [
+        capture.name,
+        extract_function_name(capture.prototype),
+    ]
+    result: list[str] = []
+    for candidate in candidates:
+        if _is_signature_function_name_candidate(candidate) and candidate not in result:
+            result.append(candidate)
+    return result
+
+
+def _is_signature_function_name_candidate(function_name: str) -> bool:
+    return bool(function_name and len(function_name) > 1)
+
+
+def _line_has_function_signature(line: str, function_name: str) -> bool:
+    if not function_name:
+        return False
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", function_name):
+        return bool(re.search(r"\b%s\s*\(" % re.escape(function_name), line))
+    return bool(re.search(r"%s\s*\(" % re.escape(function_name), line))
 
 
 def apply_known_signature_body_rewrites(text: str, capture: FunctionCapture) -> str:

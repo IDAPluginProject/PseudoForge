@@ -57,7 +57,12 @@
             "index": 0,
             "canonical_name": "notifyRoutine",
             "canonical_type": "PCREATE_PROCESS_NOTIFY_ROUTINE_EX",
-            "accepted_types": ["__int64", "PVOID", "void *", "PCREATE_PROCESS_NOTIFY_ROUTINE_EX"],
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *",
+              "PCREATE_PROCESS_NOTIFY_ROUTINE_EX"
+            ],
             "semantic_role": "processNotifyCallbackEx",
             "type_confidence": 0.92
           },
@@ -65,7 +70,12 @@
             "index": 1,
             "canonical_name": "remove",
             "canonical_type": "BOOLEAN",
-            "accepted_types": ["__int64", "int", "char", "BOOLEAN"],
+            "accepted_types": [
+              "__int64",
+              "int",
+              "char",
+              "BOOLEAN"
+            ],
             "semantic_role": "removeRegistration",
             "type_confidence": 0.86
           }
@@ -125,7 +135,7 @@
           "role": "processNotifyCallbackEx2",
           "structure": "PCREATE_PROCESS_NOTIFY_ROUTINE_EX2",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PCREATE_PROCESS_NOTIFY_ROUTINE_EX2",
             "__int64",
@@ -273,7 +283,7 @@
           "role": "threadNotifyCallbackEx",
           "structure": "PCREATE_THREAD_NOTIFY_ROUTINE",
           "mode": "report-only",
-          "confidence": 0.90,
+          "confidence": 0.9,
           "accepted_types": [
             "PCREATE_THREAD_NOTIFY_ROUTINE",
             "__int64",
@@ -353,7 +363,9 @@
             "__int64",
             "void *"
           ],
-          "source": "PsRemoveCreateThreadNotifyRoutine callback parameter"
+          "source": "PsRemoveCreateThreadNotifyRoutine callback parameter",
+          "rename_to": "notifyRoutine",
+          "rename_confidence": 0.92
         },
         {
           "local_names": [
@@ -376,7 +388,29 @@
           "confidence": 0.78,
           "source": "PsRemoveCreateThreadNotifyRoutine referenced callback block local"
         }
-      ]
+      ],
+      "parameter_count": 1,
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "notifyRoutine",
+            "canonical_type": "PCREATE_THREAD_NOTIFY_ROUTINE",
+            "accepted_types": [
+              "PCREATE_THREAD_NOTIFY_ROUTINE",
+              "__int64",
+              "void *",
+              "PVOID"
+            ],
+            "semantic_role": "threadNotifyCallback",
+            "type_confidence": 0.92,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      }
     },
     {
       "id": "windows.process_thread_notify.psp_notify_thread_creation",

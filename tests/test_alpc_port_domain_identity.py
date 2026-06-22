@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -558,6 +559,96 @@ NTSTATUS __stdcall NtAlpcOpenSenderThread(PHANDLE ThreadHandle, HANDLE PortHandl
         self.assertEqual("ACCESS_MASK", sender_thread_roles["desiredAccess"])
         self.assertEqual("ALPC_PORT", sender_thread_roles["referencedPortObject"])
         self.assertEqual("ALPC_MESSAGE", sender_thread_roles["messageObject"])
+
+    def test_alpc_section_and_impersonation_profiles_correct_hexrays_parameter_types(self) -> None:
+        create_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall NtAlpcCreatePortSection(HANDLE Handle, int a2, __int64 a3, __int64 a4, _QWORD *a5, _QWORD *a6)
+{
+  PVOID referencedObject;
+  referencedObject = 0;
+  *a5 = AlpcpCreateSection(referencedObject, a3, a4);
+  *a6 = a4;
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        impersonate_capture = capture_from_pseudocode(
+            """
+__int64 __fastcall NtAlpcImpersonateClientOfPort(HANDLE Handle, __int64 a2, unsigned __int64 a3)
+{
+  PVOID referencedObject;
+  referencedObject = 0;
+  ObReferenceObjectByHandle(Handle, 0, AlpcPortObjectType, 0, &referencedObject, 0);
+  return a2 && a3 ? STATUS_SUCCESS : STATUS_ACCESS_DENIED;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        create_plan = build_clean_plan(create_capture)
+        impersonate_plan = build_clean_plan(impersonate_capture)
+        create_rendered = render_cleaned_pseudocode(create_capture, create_plan)
+        impersonate_rendered = render_cleaned_pseudocode(impersonate_capture, impersonate_plan)
+
+        self.assertIn(
+            "HANDLE portHandle, ULONG flags, HANDLE sectionHandle, SIZE_T sectionSize, PULONG_PTR alpcSectionHandle, PSIZE_T actualSectionSize",
+            create_rendered,
+        )
+        self.assertIn(
+            "HANDLE portHandle, PALPC_MESSAGE_ATTRIBUTES messageAttributes, ULONG_PTR flags",
+            impersonate_rendered,
+        )
+        self.assertEqual(
+            6,
+            len(
+                [
+                    item
+                    for item in create_plan.type_corrections
+                    if item.profile_id == "windows.alpc_port.nt_create_port_section"
+                ]
+            ),
+        )
+        self.assertEqual(
+            3,
+            len(
+                [
+                    item
+                    for item in impersonate_plan.type_corrections
+                    if item.profile_id == "windows.alpc_port.nt_impersonate_client_of_port"
+                ]
+            ),
+        )
+        self.assertEqual([], create_plan.corrected_parameter_map)
+        self.assertEqual([], impersonate_plan.corrected_parameter_map)
+
+    def test_alpc_allocate_message_profile_corrects_private_message_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall AlpcpAllocateMessage(ULONG_PTR *a1, unsigned __int64 a2, int a3)
+{
+  __int64 Buffer;
+  Buffer = AlpcpAllocateBuffer(1LL, a2, 1934453825LL);
+  *(_QWORD *)(Buffer + 8) = Buffer;
+  return Buffer;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.alpc_port.allocate_message_internal"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identities = self._profile_identities(plan, profile_id)
+
+        self.assertEqual(3, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn("PALPC_COMMUNICATION_INFO communicationInfo", rendered)
+        self.assertIn("SIZE_T messageSize", rendered)
+        self.assertIn("BOOLEAN largeMessage", rendered)
+        self.assertEqual("ALPC_MESSAGE", self._roles(plan, profile_id)["messageBuffer"])
+        self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        self.assertEqual([], plan.corrected_parameter_map)
 
     def test_port_delete_destroy_roles(self) -> None:
         delete_plan = self._plan(

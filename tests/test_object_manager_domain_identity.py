@@ -139,6 +139,61 @@ NTSTATUS __stdcall ObRegisterCallbacks(__int64 a1, __int64 a2)
         self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
+    def test_query_security_and_unregister_callbacks_correct_generic_parameter_types(self) -> None:
+        query_capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall NtQuerySecurityObject(__int64 a1, int a2, __int64 a3, int a4, _DWORD *a5)
+{
+  PVOID referencedObject;
+  ObReferenceObjectByHandle(a1, 0, 0, 0, &referencedObject, 0);
+  ObfDereferenceObject(referencedObject);
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        unregister_capture = capture_from_pseudocode(
+            """
+void __stdcall ObUnRegisterCallbacks(__int64 a1)
+{
+  ObpRemoveCallbackByHandle(a1);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        query_plan = build_clean_plan(query_capture)
+        unregister_plan = build_clean_plan(unregister_capture)
+        query_rendered = render_cleaned_pseudocode(query_capture, query_plan)
+        unregister_rendered = render_cleaned_pseudocode(unregister_capture, unregister_plan)
+
+        self.assertIn(
+            "HANDLE handle, SECURITY_INFORMATION securityInformation, PSECURITY_DESCRIPTOR securityDescriptor, ULONG length, PULONG lengthNeeded",
+            query_rendered,
+        )
+        self.assertIn("PVOID registrationHandle", unregister_rendered)
+        self.assertEqual(
+            5,
+            len(
+                [
+                    item
+                    for item in query_plan.type_corrections
+                    if item.profile_id == "windows.object_manager.query_security_object"
+                ]
+            ),
+        )
+        self.assertEqual(
+            1,
+            len(
+                [
+                    item
+                    for item in unregister_plan.type_corrections
+                    if item.profile_id == "windows.object_manager.unregister_callbacks"
+                ]
+            ),
+        )
+        self.assertEqual([], query_plan.corrected_parameter_map)
+        self.assertEqual([], unregister_plan.corrected_parameter_map)
+
     def test_register_callbacks_build_mismatch_blocks_type_preview(self) -> None:
         plan = self._plan(
             """

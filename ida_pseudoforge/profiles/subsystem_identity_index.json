@@ -67,6 +67,13 @@
       "description": "Handle table, object pointer, process, thread, and CID identity hints."
     },
     {
+      "profile_id_prefix": "windows.hal_dma_iommu.",
+      "subsystem": "HAL DMA/IOMMU",
+      "role_group": "DMA adapter, map-register, scatter/gather transfer, IOMMU domain, and logical-address range roles",
+      "source_version": "10.0.26200.8457",
+      "description": "HAL DMA and IOMMU adapter, transfer, map-register, domain, and logical-address identity hints."
+    },
+    {
       "profile_id_prefix": "windows.image_code_integrity.",
       "subsystem": "Image/Code Integrity",
       "role_group": "image load, module table, image notify, code integrity, and driver block roles",
