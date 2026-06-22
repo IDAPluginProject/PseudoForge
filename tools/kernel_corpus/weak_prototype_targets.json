@@ -1,0 +1,128 @@
+{
+  "schema": "pseudoforge_weak_prototype_targets_v1",
+  "description": "Focused ntoskrnl functions for measuring whether profile-backed prototype correction improves weak Hex-Rays parameter typing.",
+  "recommended_quality_command": "python -B tools\\pseudoforge_corpus_quality.py --corpus-root <ida-batch-output> --out pseudoforge_out\\weak-prototype-quality --format both",
+  "recommended_compare_command": "python -B tools\\pseudoforge_quality_compare.py --old <baseline>\\corpus-quality.json --new pseudoforge_out\\weak-prototype-quality\\corpus-quality.json --out pseudoforge_out\\weak-prototype-quality-compare --format both",
+  "selection_notes": [
+    "Prefer real ntoskrnl exports or high-confidence internal wrappers where Hex-Rays commonly emits __int64, PVOID, void *, or _QWORD * parameters.",
+    "Use the quality report prototype_correction_stats section for applied, blocked, survivor, and negative-control counts.",
+    "Keep generated corpus output under pseudoforge_out so validation artifacts are not committed by default."
+  ],
+  "targets": [
+    {
+      "function_name": "IoCreateDevice",
+      "subsystem": "io_manager",
+      "profile_id": "windows.io_manager.create_device",
+      "expected_corrections": [
+        "PDRIVER_OBJECT",
+        "PUNICODE_STRING",
+        "DEVICE_TYPE",
+        "PDEVICE_OBJECT *"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID",
+        "_QWORD *"
+      ],
+      "reason": "High-ROI creation API with several object/string/output parameters that Hex-Rays often flattens."
+    },
+    {
+      "function_name": "IoDeleteDevice",
+      "subsystem": "io_manager",
+      "profile_id": "windows.io_manager.delete_device",
+      "expected_corrections": [
+        "PDEVICE_OBJECT"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID"
+      ],
+      "reason": "Single-argument object API where a wrong __int64/PVOID parameter weakens all later device-object field reasoning."
+    },
+    {
+      "function_name": "IofCallDriver",
+      "subsystem": "io_manager",
+      "profile_id": "windows.io_manager.call_driver",
+      "expected_corrections": [
+        "PDEVICE_OBJECT",
+        "PIRP"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID"
+      ],
+      "reason": "Dispatch boundary where DEVICE_OBJECT and IRP identity should feed call-site and body rewrite evidence."
+    },
+    {
+      "function_name": "PoCallDriver",
+      "subsystem": "pnp_power",
+      "profile_id": "windows.pnp_power.po_call_driver",
+      "expected_corrections": [
+        "PDEVICE_OBJECT",
+        "PIRP"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID"
+      ],
+      "reason": "Power wrapper around IofCallDriver; useful for validating profile chaining without relying on manually fixed prototypes."
+    },
+    {
+      "function_name": "ObRegisterCallbacks",
+      "subsystem": "object_manager",
+      "profile_id": "windows.object_manager.register_callbacks",
+      "expected_corrections": [
+        "POB_CALLBACK_REGISTRATION",
+        "PVOID *"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID",
+        "_QWORD *"
+      ],
+      "reason": "Callback-registration API where opaque pointer output typing is easy to lose in raw decompiler output."
+    },
+    {
+      "function_name": "CmRegisterCallbackEx",
+      "subsystem": "registry_config",
+      "profile_id": "windows.registry_config.cm_register_callback_ex",
+      "expected_corrections": [
+        "PEX_CALLBACK_FUNCTION",
+        "PCUNICODE_STRING",
+        "PVOID *"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID",
+        "_QWORD *"
+      ],
+      "reason": "Registry callback registration spans function pointer, unicode string, opaque context, and output cookie parameters."
+    },
+    {
+      "function_name": "PsSetCreateProcessNotifyRoutineEx",
+      "subsystem": "process_thread_notify",
+      "profile_id": "windows.process_thread_notify.ps_set_create_process_notify_ex",
+      "expected_corrections": [
+        "PCREATE_PROCESS_NOTIFY_ROUTINE_EX",
+        "BOOLEAN"
+      ],
+      "weak_hexrays_types": [
+        "__int64",
+        "PVOID",
+        "void *",
+        "int"
+      ],
+      "reason": "Notify callback API with a function pointer and remove flag that benefits from prototype-backed semantic roles."
+    }
+  ],
+  "negative_controls": [
+    {
+      "selection": "Functions outside the listed profile ids from the same IDA batch run.",
+      "expected_behavior": "prototype_correction_stats.negative_controls.function_count increases while applied_parameter_type_corrections stays unchanged for those functions."
+    },
+    {
+      "selection": "Functions whose Hex-Rays signature is already strongly typed and profile-free.",
+      "expected_behavior": "generic_parameter_survivors and offset_deref_survivors may be counted, but no function identity or parameter correction evidence is emitted."
+    }
+  ]
+}

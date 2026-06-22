@@ -24,6 +24,17 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                         },
                         "rename_stats": {"apply_rate": 30.0},
                         "body_text_stats": {"generic_identifier_tokens": 100},
+                        "prototype_correction_stats": {
+                            "totals": {
+                                "function_identity_candidates": 1,
+                                "applied_parameter_type_corrections": 1,
+                                "blocked_parameter_type_corrections": 0,
+                                "generic_parameter_survivors": 5,
+                                "offset_deref_survivors": 7,
+                                "body_rewrite_ready": 1,
+                                "negative_control_functions": 1,
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -39,6 +50,17 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                         },
                         "rename_stats": {"apply_rate": 80.0},
                         "body_text_stats": {"generic_identifier_tokens": 120},
+                        "prototype_correction_stats": {
+                            "totals": {
+                                "function_identity_candidates": 4,
+                                "applied_parameter_type_corrections": 3,
+                                "blocked_parameter_type_corrections": 2,
+                                "generic_parameter_survivors": 2,
+                                "offset_deref_survivors": 3,
+                                "body_rewrite_ready": 4,
+                                "negative_control_functions": 1,
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -54,7 +76,15 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
             self.assertEqual("improved", metrics["applied_renames"]["status"])
             self.assertEqual(20, metrics["body_generic_identifier_tokens"]["delta"])
             self.assertEqual("regressed", metrics["body_generic_identifier_tokens"]["status"])
+            self.assertEqual(2, metrics["prototype_parameter_type_corrections_applied"]["delta"])
+            self.assertEqual("improved", metrics["prototype_parameter_type_corrections_applied"]["status"])
+            self.assertEqual(-3, metrics["prototype_generic_parameter_survivors"]["delta"])
+            self.assertEqual("improved", metrics["prototype_generic_parameter_survivors"]["status"])
+            self.assertEqual(-4, metrics["prototype_offset_deref_survivors"]["delta"])
+            self.assertEqual("improved", metrics["prototype_offset_deref_survivors"]["status"])
+            self.assertEqual("info", metrics["prototype_parameter_type_corrections_blocked"]["status"])
             self.assertIn("warnings", render_compare_markdown(report))
+            self.assertIn("prototype_parameter_type_corrections_applied", render_compare_markdown(report))
 
     def test_quality_compare_cli_writes_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -72,6 +72,41 @@ METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
         ("layout_rewrite_preview_artifact_stats", "totals", "rewritten_fields"),
         "higher",
     ),
+    (
+        "prototype_function_identity_candidates",
+        ("prototype_correction_stats", "totals", "function_identity_candidates"),
+        "neutral",
+    ),
+    (
+        "prototype_parameter_type_corrections_applied",
+        ("prototype_correction_stats", "totals", "applied_parameter_type_corrections"),
+        "higher",
+    ),
+    (
+        "prototype_parameter_type_corrections_blocked",
+        ("prototype_correction_stats", "totals", "blocked_parameter_type_corrections"),
+        "neutral",
+    ),
+    (
+        "prototype_generic_parameter_survivors",
+        ("prototype_correction_stats", "totals", "generic_parameter_survivors"),
+        "lower",
+    ),
+    (
+        "prototype_offset_deref_survivors",
+        ("prototype_correction_stats", "totals", "offset_deref_survivors"),
+        "lower",
+    ),
+    (
+        "prototype_body_rewrite_ready",
+        ("prototype_correction_stats", "totals", "body_rewrite_ready"),
+        "higher",
+    ),
+    (
+        "prototype_negative_controls",
+        ("prototype_correction_stats", "totals", "negative_control_functions"),
+        "neutral",
+    ),
     ("api_semantic_rejections", ("api_semantic_stats", "rejections"), "lower"),
 )
 

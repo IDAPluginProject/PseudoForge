@@ -23,9 +23,19 @@ _DEBUG_EXCEPTION_STATUS_NAMES = {
     "STATUS_SINGLE_STEP",
 }
 GENERIC_IDENTIFIER_RE = re.compile(r"\b[av]\d+\b")
+GENERIC_PARAMETER_NAME_RE = re.compile(r"\b(?:[av]\d+|argument\d+)\b")
 OFFSET_DEREF_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\([^;\n]*\+\s*(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
+WEAK_PARAMETER_TYPES = {
+    "__int64",
+    "PVOID",
+    "void *",
+    "void*",
+    "_QWORD",
+    "_QWORD *",
+    "_QWORD*",
+}
 LABEL_RE = re.compile(r"\bLABEL_\d+\b")
 DECIMAL_STATUS_RE = re.compile(
     r"(?:\breturn\b|(?<![=!<>])(?:==|!=|=))\s*"
@@ -519,6 +529,12 @@ def analyze_corpus(
     ntstatus_body_unprofiled_value_functions: dict[str, set[str]] = {}
     ntstatus_body_unprofiled_value_contexts: dict[str, Counter[str]] = {}
     ntstatus_body_unprofiled_context_kinds: Counter[str] = Counter()
+    prototype_totals = Counter()
+    prototype_blockers: Counter[str] = Counter()
+    prototype_profiles: Counter[str] = Counter()
+    prototype_function_profiles: Counter[str] = Counter()
+    prototype_canonical_types: Counter[str] = Counter()
+    prototype_body_rewrite_sources: Counter[str] = Counter()
     totals = Counter()
     text_totals = Counter()
     body_text_totals = Counter()
@@ -544,6 +560,8 @@ def analyze_corpus(
     top_decimal_status_residue_functions = []
     top_nested_status_store_functions = []
     top_ntstatus_body_unprofiled_functions = []
+    top_prototype_correction_functions = []
+    prototype_negative_control_functions = []
 
     for summary_path in summary_paths:
         summary = _coerce_dict(_read_json(summary_path))
@@ -558,6 +576,33 @@ def analyze_corpus(
         rewrite_preview_metadata = _coerce_dict(
             _read_json(_artifact_path(summary_path, artifacts, "layout_rewrite_preview_metadata"))
         )
+        prototype_metrics = _prototype_correction_function_metrics(
+            summary,
+            cleaned_path if text_scan else Path(),
+        )
+        _update_prototype_correction_metrics(
+            prototype_metrics,
+            prototype_totals,
+            prototype_blockers,
+            prototype_profiles,
+            prototype_function_profiles,
+            prototype_canonical_types,
+            prototype_body_rewrite_sources,
+        )
+        if bool(prototype_metrics.get("has_correction_evidence")):
+            top_prototype_correction_functions.append(
+                _prototype_correction_function_summary(name, ea, summary_path, prototype_metrics)
+            )
+        else:
+            prototype_negative_control_functions.append(
+                {
+                    "ea": ea,
+                    "name": name,
+                    "generic_parameter_survivors": int(prototype_metrics.get("generic_parameter_survivors", 0) or 0),
+                    "offset_deref_survivors": int(prototype_metrics.get("offset_deref_survivors", 0) or 0),
+                    "summary_path": str(summary_path),
+                }
+            )
 
         rename_candidate_count = _int_value(summary.get("rename_candidates"), len(rename_items))
         applied_rename_count = _int_value(
@@ -1075,6 +1120,22 @@ def analyze_corpus(
             str(item["name"]),
         )
     )
+    top_prototype_correction_functions.sort(
+        key=lambda item: (
+            -int(item["applied_parameter_type_corrections"]),
+            -int(item["blocked_parameter_type_corrections"]),
+            -int(item["generic_parameter_survivors"]),
+            -int(item["offset_deref_survivors"]),
+            str(item["name"]),
+        )
+    )
+    prototype_negative_control_functions.sort(
+        key=lambda item: (
+            -int(item["generic_parameter_survivors"]),
+            -int(item["offset_deref_survivors"]),
+            str(item["name"]),
+        )
+    )
     ntstatus_unprofiled_value_summaries = _ntstatus_unprofiled_value_summaries(
         ntstatus_body_unprofiled_values,
         ntstatus_body_unprofiled_value_functions,
@@ -1277,6 +1338,23 @@ def analyze_corpus(
             ),
             "top_functions": top_rewrite_blocker_functions[:top],
         },
+        "prototype_correction_stats": {
+            "totals": _prototype_correction_totals_dict(prototype_totals),
+            "blocker_counts": _counter_to_dict(Counter(dict(prototype_blockers.most_common(top)))),
+            "profile_counts": _counter_to_dict(Counter(dict(prototype_profiles.most_common(top)))),
+            "function_identity_profiles": _counter_to_dict(
+                Counter(dict(prototype_function_profiles.most_common(top)))
+            ),
+            "canonical_types": _counter_to_dict(Counter(dict(prototype_canonical_types.most_common(top)))),
+            "body_rewrite_source_provenance": _counter_to_dict(
+                Counter(dict(prototype_body_rewrite_sources.most_common(top)))
+            ),
+            "top_functions": top_prototype_correction_functions[:top],
+            "negative_controls": {
+                "function_count": int(prototype_totals["negative_control_functions"]),
+                "top_functions": prototype_negative_control_functions[:top],
+            },
+        },
         "ntstatus_body_residue_stats": {
             "top_unprofiled_error_values": ntstatus_unprofiled_value_summaries,
             "unprofiled_error_context_kinds": _counter_to_dict(
@@ -1347,6 +1425,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     ntstatus_body_residue_stats = _coerce_dict(report.get("ntstatus_body_residue_stats", {}))
     decimal_status_residue_stats = _coerce_dict(report.get("decimal_status_residue_stats", {}))
     status_store_residue_stats = _coerce_dict(report.get("status_store_residue_stats", {}))
+    prototype_correction_stats = _coerce_dict(report.get("prototype_correction_stats", {}))
+    prototype_correction_totals = _coerce_dict(prototype_correction_stats.get("totals", {}))
     ntstatus_review_queues = _coerce_dict(ntstatus_body_residue_stats.get("review_queues", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
@@ -1391,6 +1471,156 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         ]
     )
     lines.extend(_markdown_counter_table(_coerce_dict(rename_stats.get("by_source", {})), "Source"))
+    lines.extend(
+        [
+            "",
+            "## Prototype Correction Evidence",
+            "",
+            "- Function identity hits: `%s`"
+            % prototype_correction_totals.get("function_identity_candidates", 0),
+            "- Parameter type corrections: `%s` applied `%s`, blocked `%s`"
+            % (
+                prototype_correction_totals.get("parameter_type_corrections", 0),
+                prototype_correction_totals.get("applied_parameter_type_corrections", 0),
+                prototype_correction_totals.get("blocked_parameter_type_corrections", 0),
+            ),
+            "- Corrected parameter map entries: `%s`"
+            % prototype_correction_totals.get("corrected_parameter_map_entries", 0),
+            "- Generic parameter survivors: `%s`"
+            % prototype_correction_totals.get("generic_parameter_survivors", 0),
+            "- Offset-deref survivors: `%s`"
+            % prototype_correction_totals.get("offset_deref_survivors", 0),
+            "- Body canonical rewrite ready: `%s`"
+            % prototype_correction_totals.get("body_rewrite_ready", 0),
+            "- Negative controls: `%s`"
+            % _coerce_dict(prototype_correction_stats.get("negative_controls", {})).get("function_count", 0),
+            "",
+            "### Prototype Correction Blockers",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("blocker_counts", {})),
+            "Blocker",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Prototype Correction Profiles",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("profile_counts", {})),
+            "Profile",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Prototype Function Identity Profiles",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("function_identity_profiles", {})),
+            "Profile",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Prototype Canonical Types",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("canonical_types", {})),
+            "Type",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Prototype Body Rewrite Sources",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("body_rewrite_source_provenance", {})),
+            "Source",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Prototype Correction Functions",
+            "",
+            "| Function | EA | Identities | Corrections | Applied | Blocked | Map | Body ready | Generic survivors | Offset derefs | Profiles | Types | Blockers |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+    )
+    for item in prototype_correction_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        profile_text = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("profiles", {})).items()
+        )
+        type_text = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("canonical_types", {})).items()
+        )
+        blocker_text = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("blockers", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("function_identity_candidates", 0) or 0),
+                int(item.get("parameter_type_corrections", 0) or 0),
+                int(item.get("applied_parameter_type_corrections", 0) or 0),
+                int(item.get("blocked_parameter_type_corrections", 0) or 0),
+                int(item.get("corrected_parameter_map_entries", 0) or 0),
+                int(item.get("body_rewrite_ready", 0) or 0),
+                int(item.get("generic_parameter_survivors", 0) or 0),
+                int(item.get("offset_deref_survivors", 0) or 0),
+                _markdown_table_cell(profile_text),
+                _markdown_table_cell(type_text),
+                _markdown_table_cell(blocker_text),
+            )
+        )
+    negative_controls = _coerce_dict(prototype_correction_stats.get("negative_controls", {}))
+    lines.extend(
+        [
+            "",
+            "### Prototype Correction Negative Controls",
+            "",
+            "| Function | EA | Generic survivors | Offset derefs |",
+            "| --- | --- | ---: | ---: |",
+        ]
+    )
+    for item in negative_controls.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "| `%s` | `%s` | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("generic_parameter_survivors", 0) or 0),
+                int(item.get("offset_deref_survivors", 0) or 0),
+            )
+        )
     lines.extend(
         [
             "",
@@ -3568,6 +3798,288 @@ def _read_rename_items(path: Path) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
+
+
+def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path: Path) -> dict[str, Any]:
+    function_identity_candidates = _dict_list(summary.get("function_identity_candidates"))
+    domain_identity_summary = _coerce_dict(summary.get("domain_identity_summary", {}))
+    parameter_type_corrections = _dict_list(summary.get("parameter_type_corrections"))
+    corrected_parameter_map = _dict_list(summary.get("corrected_parameter_map"))
+    body_rewrite_summary = _coerce_dict(summary.get("body_canonical_rewrite_summary", {}))
+    function_identity_hits = len(function_identity_candidates)
+    if function_identity_hits == 0:
+        function_identity_hits = _int_value(domain_identity_summary.get("total_hits"), 0)
+    applied_corrections = [
+        item
+        for item in parameter_type_corrections
+        if bool(item.get("apply_to_preview", True)) and not _string_list(item.get("blockers"))
+    ]
+    blocked_corrections = [
+        item
+        for item in parameter_type_corrections
+        if _string_list(item.get("blockers")) or not bool(item.get("apply_to_preview", True))
+    ]
+    function_identity_blockers = Counter(
+        blocker
+        for item in function_identity_candidates
+        for blocker in _string_list(item.get("blockers"))
+    )
+    if not function_identity_blockers:
+        function_identity_blockers.update(
+            {
+                str(key): _int_value(value, 0)
+                for key, value in _coerce_dict(domain_identity_summary.get("blocker_counts", {})).items()
+            }
+        )
+    correction_blockers = Counter(
+        blocker
+        for item in blocked_corrections
+        for blocker in (_string_list(item.get("blockers")) or ["preview_disabled"])
+    )
+    body_blockers = Counter(
+        {
+            str(key): _int_value(value, 0)
+            for key, value in _coerce_dict(body_rewrite_summary.get("blocker_counts", {})).items()
+        }
+    )
+    cleaned_text = _read_text(cleaned_path)
+    body_text = _strip_pseudoforge_header(cleaned_text) if cleaned_text else ""
+    generic_parameter_survivors = _generic_parameter_survivor_count(body_text)
+    offset_deref_survivors = len(OFFSET_DEREF_RE.findall(body_text))
+    body_rewrite_ready = _int_value(body_rewrite_summary.get("rewrite_ready"), 0)
+    body_rewrite_preview = _int_value(body_rewrite_summary.get("rewrite_preview"), 0)
+    body_rewrite_blockers = _int_value(body_rewrite_summary.get("rewrite_blockers"), 0)
+    body_rewrite_partial = _int_value(body_rewrite_summary.get("partial_opportunities"), 0)
+    has_correction_evidence = bool(
+        function_identity_hits
+        or parameter_type_corrections
+        or corrected_parameter_map
+        or body_rewrite_ready
+        or body_rewrite_preview
+        or body_rewrite_blockers
+        or body_rewrite_partial
+    )
+    function_identity_profiles = _profile_counter(function_identity_candidates)
+    if not function_identity_profiles:
+        function_identity_profiles = _counter_like_dict(domain_identity_summary.get("profile_counts", {}))
+    return {
+        "function_identity_candidates": function_identity_hits,
+        "function_identity_blockers": _counter_to_dict(function_identity_blockers),
+        "parameter_type_corrections": len(parameter_type_corrections),
+        "applied_parameter_type_corrections": len(applied_corrections),
+        "blocked_parameter_type_corrections": len(blocked_corrections),
+        "correction_blockers": _counter_to_dict(correction_blockers),
+        "corrected_parameter_map_entries": len(corrected_parameter_map),
+        "body_rewrite_ready": body_rewrite_ready,
+        "body_rewrite_preview": body_rewrite_preview,
+        "body_rewrite_blockers": body_rewrite_blockers,
+        "body_rewrite_partial_opportunities": body_rewrite_partial,
+        "body_rewrite_blocker_counts": _counter_to_dict(body_blockers),
+        "body_rewrite_source_provenance": _coerce_dict(body_rewrite_summary.get("source_provenance_counts", {})),
+        "generic_parameter_survivors": generic_parameter_survivors,
+        "offset_deref_survivors": offset_deref_survivors,
+        "has_correction_evidence": has_correction_evidence,
+        "profiles": _profile_counter(parameter_type_corrections),
+        "function_identity_profiles": function_identity_profiles,
+        "canonical_types": _canonical_type_counter(applied_corrections),
+    }
+
+
+def _update_prototype_correction_metrics(
+    metrics: dict[str, Any],
+    totals: Counter[str],
+    blockers: Counter[str],
+    profiles: Counter[str],
+    function_profiles: Counter[str],
+    canonical_types: Counter[str],
+    body_rewrite_sources: Counter[str],
+) -> None:
+    totals["function_identity_candidates"] += _int_value(metrics.get("function_identity_candidates"), 0)
+    totals["parameter_type_corrections"] += _int_value(metrics.get("parameter_type_corrections"), 0)
+    totals["applied_parameter_type_corrections"] += _int_value(
+        metrics.get("applied_parameter_type_corrections"),
+        0,
+    )
+    totals["blocked_parameter_type_corrections"] += _int_value(
+        metrics.get("blocked_parameter_type_corrections"),
+        0,
+    )
+    totals["corrected_parameter_map_entries"] += _int_value(metrics.get("corrected_parameter_map_entries"), 0)
+    totals["body_rewrite_ready"] += _int_value(metrics.get("body_rewrite_ready"), 0)
+    totals["body_rewrite_preview"] += _int_value(metrics.get("body_rewrite_preview"), 0)
+    totals["body_rewrite_blockers"] += _int_value(metrics.get("body_rewrite_blockers"), 0)
+    totals["body_rewrite_partial_opportunities"] += _int_value(
+        metrics.get("body_rewrite_partial_opportunities"),
+        0,
+    )
+    totals["generic_parameter_survivors"] += _int_value(metrics.get("generic_parameter_survivors"), 0)
+    totals["offset_deref_survivors"] += _int_value(metrics.get("offset_deref_survivors"), 0)
+    if bool(metrics.get("has_correction_evidence")):
+        totals["functions_with_correction_evidence"] += 1
+    else:
+        totals["negative_control_functions"] += 1
+    for counter_name in ("function_identity_blockers", "correction_blockers", "body_rewrite_blocker_counts"):
+        for key, value in _coerce_dict(metrics.get(counter_name, {})).items():
+            blockers[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(metrics.get("profiles", {})).items():
+        profiles[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(metrics.get("function_identity_profiles", {})).items():
+        function_profiles[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(metrics.get("canonical_types", {})).items():
+        canonical_types[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(metrics.get("body_rewrite_source_provenance", {})).items():
+        body_rewrite_sources[str(key)] += _int_value(value, 0)
+
+
+def _prototype_correction_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "ea": ea,
+        "name": name,
+        "function_identity_candidates": _int_value(metrics.get("function_identity_candidates"), 0),
+        "parameter_type_corrections": _int_value(metrics.get("parameter_type_corrections"), 0),
+        "applied_parameter_type_corrections": _int_value(metrics.get("applied_parameter_type_corrections"), 0),
+        "blocked_parameter_type_corrections": _int_value(metrics.get("blocked_parameter_type_corrections"), 0),
+        "corrected_parameter_map_entries": _int_value(metrics.get("corrected_parameter_map_entries"), 0),
+        "body_rewrite_ready": _int_value(metrics.get("body_rewrite_ready"), 0),
+        "body_rewrite_blockers": _int_value(metrics.get("body_rewrite_blockers"), 0),
+        "generic_parameter_survivors": _int_value(metrics.get("generic_parameter_survivors"), 0),
+        "offset_deref_survivors": _int_value(metrics.get("offset_deref_survivors"), 0),
+        "profiles": _coerce_dict(metrics.get("profiles", {})),
+        "canonical_types": _coerce_dict(metrics.get("canonical_types", {})),
+        "blockers": _coerce_dict(metrics.get("correction_blockers", {})),
+        "summary_path": str(summary_path),
+    }
+
+
+def _prototype_correction_totals_dict(counter: Counter[str]) -> dict[str, int]:
+    required_keys = [
+        "function_identity_candidates",
+        "parameter_type_corrections",
+        "applied_parameter_type_corrections",
+        "blocked_parameter_type_corrections",
+        "corrected_parameter_map_entries",
+        "body_rewrite_ready",
+        "body_rewrite_preview",
+        "body_rewrite_blockers",
+        "body_rewrite_partial_opportunities",
+        "generic_parameter_survivors",
+        "offset_deref_survivors",
+        "functions_with_correction_evidence",
+        "negative_control_functions",
+    ]
+    result = _counter_to_dict(counter)
+    for key in required_keys:
+        result.setdefault(key, 0)
+    return result
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _counter_like_dict(value: Any) -> dict[str, int]:
+    counter = Counter(
+        {
+            str(key): _int_value(count, 0)
+            for key, count in _coerce_dict(value).items()
+            if _int_value(count, 0) > 0
+        }
+    )
+    return _counter_to_dict(counter)
+
+
+def _profile_counter(items: list[dict[str, Any]]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        profile_id = str(item.get("profile_id", "") or "").strip()
+        if profile_id == "ambiguous":
+            for ambiguous_id in _string_list(item.get("ambiguous_profile_ids")):
+                counter[ambiguous_id] += 1
+        elif profile_id:
+            counter[profile_id] += 1
+    return _counter_to_dict(counter)
+
+
+def _canonical_type_counter(items: list[dict[str, Any]]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        type_text = str(item.get("display_type", "") or item.get("canonical_type", "") or "").strip()
+        if type_text:
+            counter[type_text] += 1
+    return _counter_to_dict(counter)
+
+
+def _generic_parameter_survivor_count(text: str) -> int:
+    signature = _first_signature_text(text)
+    if not signature:
+        return 0
+    return sum(
+        1
+        for parameter in _signature_parameter_chunks(signature)
+        if _weak_parameter_type_survives(parameter) or _generic_parameter_name_survives(parameter)
+    )
+
+
+def _first_signature_text(text: str) -> str:
+    lines: list[str] = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        lines.append(stripped)
+        if "{" in stripped:
+            break
+        if ")" in stripped and "(" in " ".join(lines):
+            break
+    signature = " ".join(lines)
+    return signature.split("{", 1)[0].strip()
+
+
+def _signature_parameter_chunks(signature: str) -> list[str]:
+    match = re.search(r"\((?P<params>.*)\)", signature or "")
+    if match is None:
+        return []
+    params = match.group("params").strip()
+    if not params or params == "void":
+        return []
+    return [item.strip() for item in params.split(",") if item.strip()]
+
+
+def _weak_parameter_type_survives(parameter: str) -> bool:
+    normalized = " ".join(str(parameter or "").replace("*", " * ").split())
+    tokens = normalized.split()
+    if len(tokens) > 1:
+        type_text = " ".join(tokens[:-1])
+    else:
+        type_text = normalized
+    type_text = type_text.replace(" *", " *").strip()
+    return type_text in WEAK_PARAMETER_TYPES
+
+
+def _generic_parameter_name_survives(parameter: str) -> bool:
+    tokens = str(parameter or "").replace("*", " ").split()
+    if not tokens:
+        return False
+    return GENERIC_PARAMETER_NAME_RE.fullmatch(tokens[-1]) is not None
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = [str(item) for item in value]
+    else:
+        values = []
+    return [item.strip() for item in values if item.strip()]
 
 
 def _update_rename_metrics(

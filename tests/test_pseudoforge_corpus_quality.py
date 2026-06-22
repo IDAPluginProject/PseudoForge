@@ -723,6 +723,29 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 1,
                 report["api_semantic_stats"]["top_functions"][0]["rejections_by_target"]["object"],
             )
+            prototype_stats = report["prototype_correction_stats"]
+            self.assertEqual(1, prototype_stats["totals"]["function_identity_candidates"])
+            self.assertEqual(2, prototype_stats["totals"]["parameter_type_corrections"])
+            self.assertEqual(1, prototype_stats["totals"]["applied_parameter_type_corrections"])
+            self.assertEqual(1, prototype_stats["totals"]["blocked_parameter_type_corrections"])
+            self.assertEqual(1, prototype_stats["totals"]["corrected_parameter_map_entries"])
+            self.assertEqual(1, prototype_stats["totals"]["body_rewrite_ready"])
+            self.assertEqual(1, prototype_stats["totals"]["body_rewrite_blockers"])
+            self.assertEqual(1, prototype_stats["totals"]["generic_parameter_survivors"])
+            self.assertEqual(1, prototype_stats["totals"]["offset_deref_survivors"])
+            self.assertEqual(1, prototype_stats["totals"]["functions_with_correction_evidence"])
+            self.assertEqual(0, prototype_stats["totals"]["negative_control_functions"])
+            self.assertEqual(0, prototype_stats["negative_controls"]["function_count"])
+            self.assertEqual(1, prototype_stats["blocker_counts"]["report_only_profile"])
+            self.assertEqual(1, prototype_stats["blocker_counts"]["type_conflict"])
+            self.assertEqual(1, prototype_stats["blocker_counts"]["overlay"])
+            self.assertEqual(1, prototype_stats["profile_counts"]["windows.io_manager.delete_device"])
+            self.assertEqual(1, prototype_stats["profile_counts"]["windows.io_manager.call_driver"])
+            self.assertEqual(1, prototype_stats["function_identity_profiles"]["windows.io_manager.delete_device"])
+            self.assertEqual(1, prototype_stats["canonical_types"]["PDEVICE_OBJECT"])
+            self.assertEqual(2, prototype_stats["body_rewrite_source_provenance"]["corrected_parameter_map"])
+            self.assertEqual("Sample", prototype_stats["top_functions"][0]["name"])
+            self.assertEqual(1, prototype_stats["top_functions"][0]["applied_parameter_type_corrections"])
             self.assertEqual(2, report["layout_hint_stats"]["totals"]["hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["functions_with_hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["named_base_hints"])
@@ -1723,6 +1746,22 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
+                "Prototype Correction Evidence",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "- Parameter type corrections: `2` applied `1`, blocked `1`",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "| `PDEVICE_OBJECT` | 1 |",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Prototype Correction Negative Controls",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "Inferred Layout Hints",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
@@ -2003,6 +2042,96 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(2, report["totals"]["warnings"])
             self.assertEqual(1, report["ea_filter_count"])
 
+    def test_analyze_corpus_reports_prototype_negative_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            _write_quality_fixture(root)
+            other_dir = root / "functions" / "0000000140002000_Other"
+            other_dir.mkdir(parents=True)
+            (other_dir / "Other.cleaned.cpp").write_text(
+                "\n".join(
+                    [
+                        "__int64 __fastcall Other(PVOID argument0)",
+                        "{",
+                        "  return *(_DWORD *)(argument0 + 8);",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (other_dir / "Other.ida-batch-summary.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "Other",
+                        "function_ea": "0x140002000",
+                        "artifacts": {
+                            "cleaned_pseudocode": "Other.cleaned.cpp",
+                            "summary": "Other.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            negative_controls = report["prototype_correction_stats"]["negative_controls"]
+
+            self.assertEqual(2, report["totals"]["summaries"])
+            self.assertEqual(1, negative_controls["function_count"])
+            self.assertEqual("Other", negative_controls["top_functions"][0]["name"])
+            self.assertEqual(1, negative_controls["top_functions"][0]["generic_parameter_survivors"])
+            self.assertEqual(1, negative_controls["top_functions"][0]["offset_deref_survivors"])
+
+    def test_analyze_corpus_counts_domain_identity_summary_as_prototype_hits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            function_dir = root / "functions" / "0000000140003000_DomainOnly"
+            function_dir.mkdir(parents=True)
+            (function_dir / "DomainOnly.cleaned.cpp").write_text(
+                "\n".join(
+                    [
+                        "void __fastcall DomainOnly(PVOID argument0)",
+                        "{",
+                        "  return;",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (function_dir / "DomainOnly.ida-batch-summary.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "DomainOnly",
+                        "function_ea": "0x140003000",
+                        "domain_identity_summary": {
+                            "total_hits": 2,
+                            "blocker_counts": {"profile_report_only": 2},
+                            "profile_counts": {"windows.io_manager.delete_device": 2},
+                        },
+                        "artifacts": {
+                            "cleaned_pseudocode": "DomainOnly.cleaned.cpp",
+                            "summary": "DomainOnly.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            prototype_stats = report["prototype_correction_stats"]
+
+            self.assertEqual(2, prototype_stats["totals"]["function_identity_candidates"])
+            self.assertEqual(1, prototype_stats["totals"]["functions_with_correction_evidence"])
+            self.assertEqual(0, prototype_stats["totals"]["negative_control_functions"])
+            self.assertEqual(2, prototype_stats["blocker_counts"]["profile_report_only"])
+            self.assertEqual(2, prototype_stats["function_identity_profiles"]["windows.io_manager.delete_device"])
+
     def test_cli_filters_by_ea_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"
@@ -2163,6 +2292,65 @@ def _write_quality_fixture(root: Path) -> None:
                 "warnings": 2,
                 "rule_diagnostics": {"matched_rules": 2},
                 "llm_status": "ok",
+                "function_identity_candidates": [
+                    {
+                        "profile_id": "windows.io_manager.delete_device",
+                        "effective_mode": "report-only",
+                        "blockers": ["report_only_profile"],
+                    }
+                ],
+                "parameter_type_corrections": [
+                    {
+                        "parameter_index": 0,
+                        "old_name": "a1",
+                        "new_name": "deviceObject",
+                        "old_type": "__int64",
+                        "canonical_type": "PDEVICE_OBJECT",
+                        "display_type": "PDEVICE_OBJECT",
+                        "profile_id": "windows.io_manager.delete_device",
+                        "apply_to_preview": True,
+                        "apply_to_idb": False,
+                        "blockers": [],
+                    },
+                    {
+                        "parameter_index": 1,
+                        "old_name": "a2",
+                        "new_name": "irp",
+                        "old_type": "int",
+                        "canonical_type": "PIRP",
+                        "display_type": "PIRP",
+                        "profile_id": "windows.io_manager.call_driver",
+                        "apply_to_preview": False,
+                        "apply_to_idb": False,
+                        "blockers": ["type_conflict"],
+                    },
+                ],
+                "corrected_parameter_map": [
+                    {
+                        "parameter_index": 0,
+                        "old_name": "a1",
+                        "new_name": "deviceObject",
+                        "old_type": "__int64",
+                        "canonical_type": "PDEVICE_OBJECT",
+                        "display_type": "PDEVICE_OBJECT",
+                        "profile_id": "windows.io_manager.delete_device",
+                        "source": "domain_profile",
+                    }
+                ],
+                "body_canonical_rewrite_summary": {
+                    "rewrite_ready": 1,
+                    "rewrite_preview": 1,
+                    "rewrite_blockers": 1,
+                    "partial_opportunities": 0,
+                    "blocker_counts": {"overlay": 1},
+                    "source_provenance_counts": {"corrected_parameter_map": 2},
+                    "domain_profile_counts": {"windows.io_manager.delete_device": 1},
+                    "bases": ["deviceObject"],
+                },
+                "source_context": {
+                    "parameter_count": 1,
+                    "raw_signature": "__int64 __fastcall Sample(__int64 a1)",
+                },
                 "artifacts": {
                     "cleaned_pseudocode": "old/Sample.cleaned.cpp",
                     "warnings": "old/Sample.warnings.json",
