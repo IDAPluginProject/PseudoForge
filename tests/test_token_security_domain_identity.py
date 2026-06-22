@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -52,6 +53,33 @@ void __fastcall SeCaptureSubjectContext(PSECURITY_SUBJECT_CONTEXT SubjectContext
         self.assertEqual("EPROCESS", roles["currentProcess"])
         self.assertEqual("report-only", identity["effective_mode"])
         self.assertIn("profile_report_only", identity["blockers"])
+
+    def test_capture_subject_context_profile_corrects_generic_parameter_type_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+void __fastcall SeCaptureSubjectContext(__int64 a1)
+{
+  PsReferencePrimaryTokenWithTag(PsGetCurrentProcess(), 'tSeS');
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.token_security.capture_subject_context"
+        ]
+
+        self.assertEqual(1, len(corrections))
+        self.assertTrue(corrections[0].apply_to_preview)
+        self.assertFalse(corrections[0].apply_to_idb)
+        self.assertIn(
+            "void __fastcall SeCaptureSubjectContext(PSECURITY_SUBJECT_CONTEXT subjectContext)",
+            rendered,
+        )
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
     def test_assign_primary_token_requires_subject_context_pair(self) -> None:
         without_callees = self._plan(

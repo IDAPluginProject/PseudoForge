@@ -155,6 +155,62 @@ void __stdcall IoDeleteDevice(__int64 a1)
             any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
         )
 
+    def test_create_device_profile_corrects_generic_parameter_types_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall IoCreateDevice(__int64 a1, __int64 a2, __int64 a3, __int64 a4, __int64 a5, __int64 a6, __int64 a7)
+{
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.io_manager.create_device"
+        ]
+
+        self.assertEqual(7, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertIn("PDRIVER_OBJECT driverObject", rendered)
+        self.assertIn("ULONG deviceExtensionSize", rendered)
+        self.assertIn("PUNICODE_STRING deviceName", rendered)
+        self.assertIn("DEVICE_TYPE deviceType", rendered)
+        self.assertIn("ULONG deviceCharacteristics", rendered)
+        self.assertIn("BOOLEAN exclusive", rendered)
+        self.assertIn("PDEVICE_OBJECT * deviceObject", rendered)
+        self.assertNotIn("__int64 driverObject", rendered)
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
+        )
+
+    def test_call_driver_profile_corrects_generic_parameter_types_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall IofCallDriver(__int64 a1, __int64 a2)
+{
+  return IopfCallDriver(a1, a2);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.io_manager.call_driver"
+        ]
+
+        self.assertEqual(2, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn("NTSTATUS __stdcall IofCallDriver(PDEVICE_OBJECT deviceObject, PIRP irp)", rendered)
+        self.assertIn("return IopfCallDriver(deviceObject, irp);", rendered)
+
     def test_attach_detach_and_attached_reference_roles(self) -> None:
         attach_plan = self._plan(
             """

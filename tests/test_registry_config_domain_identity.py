@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -382,6 +383,42 @@ NTSTATUS __fastcall CmpDoParseKey(__int64 a1, struct _ACCESS_STATE *a2, unsigned
                 for item in with_callees.comments
             )
         )
+
+    def test_cm_register_callback_ex_profile_corrects_generic_parameter_types_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall CmRegisterCallbackEx(__int64 a1, __int64 a2, __int64 a3, __int64 a4, __int64 a5, __int64 a6)
+{
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.registry_config.cm_register_callback_ex"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identities = self._profile_identities(plan, profile_id)
+
+        self.assertEqual(6, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn("PEX_CALLBACK_FUNCTION function", rendered)
+        self.assertIn("PCUNICODE_STRING altitude", rendered)
+        self.assertIn("PVOID driver", rendered)
+        self.assertIn("PVOID context", rendered)
+        self.assertIn("PLARGE_INTEGER cookie", rendered)
+        self.assertIn("PVOID reserved", rendered)
+        self.assertEqual(
+            {
+                "registryCallbackFunction": "EX_CALLBACK_FUNCTION",
+                "callbackAltitude": "UNICODE_STRING",
+                "callbackContext": "REGISTRY_CALLBACK_CONTEXT",
+                "callbackCookieOutput": "LARGE_INTEGER_OUTPUT",
+            },
+            {item["trusted_role"]: item["structure_name"] for item in identities},
+        )
+        self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
     def test_report_only_registry_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(

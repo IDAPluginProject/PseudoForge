@@ -14,6 +14,69 @@
       "function_names": [
         "IoCreateDevice"
       ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "driverObject",
+            "canonical_type": "PDRIVER_OBJECT",
+            "accepted_types": ["__int64", "PVOID", "PDRIVER_OBJECT", "struct _DRIVER_OBJECT *"],
+            "semantic_role": "driverObject",
+            "type_confidence": 0.92
+          },
+          {
+            "index": 1,
+            "canonical_name": "deviceExtensionSize",
+            "canonical_type": "ULONG",
+            "accepted_types": ["__int64", "unsigned int", "ULONG"],
+            "semantic_role": "deviceExtensionSize",
+            "type_confidence": 0.88
+          },
+          {
+            "index": 2,
+            "canonical_name": "deviceName",
+            "canonical_type": "PUNICODE_STRING",
+            "accepted_types": ["__int64", "PVOID", "PUNICODE_STRING", "UNICODE_STRING *"],
+            "semantic_role": "deviceName",
+            "type_confidence": 0.88
+          },
+          {
+            "index": 3,
+            "canonical_name": "deviceType",
+            "canonical_type": "ULONG",
+            "display_type": "DEVICE_TYPE",
+            "accepted_types": ["__int64", "unsigned int", "ULONG", "DEVICE_TYPE"],
+            "semantic_role": "deviceType",
+            "type_confidence": 0.86
+          },
+          {
+            "index": 4,
+            "canonical_name": "deviceCharacteristics",
+            "canonical_type": "ULONG",
+            "accepted_types": ["__int64", "unsigned int", "ULONG"],
+            "semantic_role": "deviceCharacteristics",
+            "type_confidence": 0.86
+          },
+          {
+            "index": 5,
+            "canonical_name": "exclusive",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": ["__int64", "int", "char", "unsigned char", "BOOLEAN"],
+            "semantic_role": "exclusiveDevice",
+            "type_confidence": 0.84
+          },
+          {
+            "index": 6,
+            "canonical_name": "deviceObject",
+            "canonical_type": "PDEVICE_OBJECT *",
+            "accepted_types": ["__int64", "_QWORD *", "PDEVICE_OBJECT *", "PDEVICE_OBJECT*"],
+            "semantic_role": "deviceObjectOutput",
+            "type_confidence": 0.90
+          }
+        ]
+      },
       "parameters": [
         {
           "parameter_index": 0,
@@ -225,6 +288,20 @@
       "function_names": [
         "IoDeleteDevice"
       ],
+      "prototype": {
+        "return_type": "void",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "deviceObject",
+            "canonical_type": "PDEVICE_OBJECT",
+            "accepted_types": ["__int64", "PVOID", "PDEVICE_OBJECT", "struct _DEVICE_OBJECT *"],
+            "semantic_role": "deviceObject",
+            "type_confidence": 0.92
+          }
+        ]
+      },
       "parameters": [
         {
           "parameter_index": 0,
@@ -715,6 +792,28 @@
       "required_calls": [
         "IopfCallDriver"
       ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "deviceObject",
+            "canonical_type": "PDEVICE_OBJECT",
+            "accepted_types": ["__int64", "PVOID", "PDEVICE_OBJECT", "struct _DEVICE_OBJECT *"],
+            "semantic_role": "targetDeviceObject",
+            "type_confidence": 0.90
+          },
+          {
+            "index": 1,
+            "canonical_name": "irp",
+            "canonical_type": "PIRP",
+            "accepted_types": ["__int64", "PVOID", "PIRP", "IRP *"],
+            "semantic_role": "irp",
+            "type_confidence": 0.90
+          }
+        ]
+      },
       "parameters": [
         {
           "parameter_index": 0,

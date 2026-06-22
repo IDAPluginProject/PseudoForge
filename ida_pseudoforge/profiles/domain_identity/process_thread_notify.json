@@ -49,6 +49,28 @@
       "function_names": [
         "PsSetCreateProcessNotifyRoutineEx"
       ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "notifyRoutine",
+            "canonical_type": "PCREATE_PROCESS_NOTIFY_ROUTINE_EX",
+            "accepted_types": ["__int64", "PVOID", "void *", "PCREATE_PROCESS_NOTIFY_ROUTINE_EX"],
+            "semantic_role": "processNotifyCallbackEx",
+            "type_confidence": 0.92
+          },
+          {
+            "index": 1,
+            "canonical_name": "remove",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": ["__int64", "int", "char", "BOOLEAN"],
+            "semantic_role": "removeRegistration",
+            "type_confidence": 0.86
+          }
+        ]
+      },
       "parameters": [
         {
           "parameter_index": 0,

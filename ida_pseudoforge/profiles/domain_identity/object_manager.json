@@ -579,6 +579,64 @@
           "source": "NtQuerySecurityObject handle information local"
         }
       ]
+    },
+    {
+      "id": "windows.object_manager.register_callbacks",
+      "source": "WDK ObRegisterCallbacks prototype plus reviewed callback registration call sites; report-only registration evidence.",
+      "function_names": [
+        "ObRegisterCallbacks"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "callbackRegistration",
+            "canonical_type": "POB_CALLBACK_REGISTRATION",
+            "accepted_types": ["__int64", "PVOID", "_QWORD *", "POB_CALLBACK_REGISTRATION"],
+            "semantic_role": "callbackRegistration",
+            "type_confidence": 0.90
+          },
+          {
+            "index": 1,
+            "canonical_name": "registrationHandle",
+            "canonical_type": "PVOID *",
+            "accepted_types": ["__int64", "_QWORD *", "PVOID *"],
+            "semantic_role": "registrationHandleOutput",
+            "type_confidence": 0.88
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "callbackRegistration",
+          "structure": "OB_CALLBACK_REGISTRATION",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "POB_CALLBACK_REGISTRATION",
+            "_QWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "ObRegisterCallbacks registration descriptor argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "registrationHandleOutput",
+          "structure": "OB_CALLBACK_HANDLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PVOID *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "ObRegisterCallbacks registration handle output argument"
+        }
+      ]
     }
   ]
 }

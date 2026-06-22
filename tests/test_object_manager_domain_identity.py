@@ -11,6 +11,7 @@ from ida_pseudoforge.core.domain_identity_summary import (
     format_domain_identity_summary,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -104,6 +105,59 @@ NTSTATUS __stdcall NtQuerySecurityObject(HANDLE Handle, SECURITY_INFORMATION Sec
         self.assertTrue(any(item.get("base") == "handle" for item in query_identities))
         self.assertTrue(any(item.get("base") == "referencedObject" for item in query_identities))
         self.assertTrue(all(item.get("effective_mode") == "report-only" for item in query_identities))
+
+    def test_register_callbacks_profile_corrects_generic_parameter_types_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall ObRegisterCallbacks(__int64 a1, __int64 a2)
+{
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.object_manager.register_callbacks"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identities = [item for item in self._identities(plan) if item.get("profile_id") == profile_id]
+
+        self.assertEqual(2, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertIn(
+            "NTSTATUS __stdcall ObRegisterCallbacks(POB_CALLBACK_REGISTRATION callbackRegistration, PVOID * registrationHandle)",
+            rendered,
+        )
+        self.assertEqual(
+            {
+                "callbackRegistration": "OB_CALLBACK_REGISTRATION",
+                "registrationHandleOutput": "OB_CALLBACK_HANDLE_OUTPUT",
+            },
+            {item["trusted_role"]: item["structure_name"] for item in identities},
+        )
+        self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
+
+    def test_register_callbacks_build_mismatch_blocks_type_preview(self) -> None:
+        plan = self._plan(
+            """
+NTSTATUS __stdcall ObRegisterCallbacks(__int64 a1, __int64 a2)
+{
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.object_manager.register_callbacks"
+        ]
+
+        self.assertEqual(2, len(corrections))
+        self.assertTrue(all("build_mismatch" in item.blockers for item in corrections))
+        self.assertTrue(all(not item.apply_to_preview for item in corrections))
 
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(

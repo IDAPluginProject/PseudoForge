@@ -1611,6 +1611,123 @@
           "source": "CmpDoParseKey parse context parameter owns parse failure tracking, path info, and registry process attach state"
         }
       ]
+    },
+    {
+      "id": "windows.registry_config.cm_register_callback_ex",
+      "source": "WDK CmRegisterCallbackEx prototype plus reviewed registry callback registration call sites; report-only registration evidence.",
+      "function_names": [
+        "CmRegisterCallbackEx"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__stdcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "callbackFunction",
+            "canonical_type": "PEX_CALLBACK_FUNCTION",
+            "accepted_types": ["__int64", "PVOID", "PEX_CALLBACK_FUNCTION"],
+            "semantic_role": "registryCallbackFunction",
+            "type_confidence": 0.90
+          },
+          {
+            "index": 1,
+            "canonical_name": "altitude",
+            "canonical_type": "PCUNICODE_STRING",
+            "accepted_types": ["__int64", "PVOID", "PCUNICODE_STRING", "PUNICODE_STRING", "UNICODE_STRING *"],
+            "semantic_role": "callbackAltitude",
+            "type_confidence": 0.88
+          },
+          {
+            "index": 2,
+            "canonical_name": "driver",
+            "canonical_type": "PVOID",
+            "accepted_types": ["__int64", "PVOID"],
+            "semantic_role": "driverObjectOrContext",
+            "type_confidence": 0.82
+          },
+          {
+            "index": 3,
+            "canonical_name": "callbackContext",
+            "canonical_type": "PVOID",
+            "accepted_types": ["__int64", "PVOID"],
+            "semantic_role": "callbackContext",
+            "type_confidence": 0.84
+          },
+          {
+            "index": 4,
+            "canonical_name": "cookie",
+            "canonical_type": "PLARGE_INTEGER",
+            "accepted_types": ["__int64", "_QWORD *", "PLARGE_INTEGER", "LARGE_INTEGER *"],
+            "semantic_role": "callbackCookieOutput",
+            "type_confidence": 0.88
+          },
+          {
+            "index": 5,
+            "canonical_name": "reserved",
+            "canonical_type": "PVOID",
+            "accepted_types": ["__int64", "PVOID", "void *"],
+            "semantic_role": "reserved",
+            "type_confidence": 0.78
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "registryCallbackFunction",
+          "structure": "EX_CALLBACK_FUNCTION",
+          "mode": "report-only",
+          "confidence": 0.90,
+          "accepted_types": [
+            "PEX_CALLBACK_FUNCTION",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmRegisterCallbackEx callback function argument"
+        },
+        {
+          "parameter_index": 1,
+          "role": "callbackAltitude",
+          "structure": "UNICODE_STRING",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PCUNICODE_STRING",
+            "PUNICODE_STRING",
+            "UNICODE_STRING *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmRegisterCallbackEx altitude string argument"
+        },
+        {
+          "parameter_index": 3,
+          "role": "callbackContext",
+          "structure": "REGISTRY_CALLBACK_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmRegisterCallbackEx caller callback context argument"
+        },
+        {
+          "parameter_index": 4,
+          "role": "callbackCookieOutput",
+          "structure": "LARGE_INTEGER_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.88,
+          "accepted_types": [
+            "PLARGE_INTEGER",
+            "LARGE_INTEGER *",
+            "_QWORD *",
+            "__int64"
+          ],
+          "source": "CmRegisterCallbackEx callback cookie output argument"
+        }
+      ]
     }
   ]
 }

@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -42,6 +43,29 @@ NTSTATUS __stdcall PsSetCreateProcessNotifyRoutine(PCREATE_PROCESS_NOTIFY_ROUTIN
         )
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
         self.assertTrue(all("profile_report_only" in item["blockers"] for item in identities))
+
+    def test_public_process_notify_ex_profile_corrects_generic_parameter_types_in_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __stdcall PsSetCreateProcessNotifyRoutineEx(__int64 a1, __int64 a2)
+{
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.process_thread_notify.ps_set_create_process_notify_ex"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+
+        self.assertEqual(2, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn(
+            "NTSTATUS __stdcall PsSetCreateProcessNotifyRoutineEx(PCREATE_PROCESS_NOTIFY_ROUTINE_EX notifyRoutine, BOOLEAN remove)",
+            rendered,
+        )
+        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
     def test_private_thread_notify_registration_requires_callback_allocation(self) -> None:
         without_callee = self._plan(
