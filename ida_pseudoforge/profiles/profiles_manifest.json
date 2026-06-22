@@ -128,7 +128,7 @@
       "source": "PseudoForge curated ntoskrnl Object Manager role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "08132351C81BCA650BE00114117FADE95F05BBDB0B7AEAD3589EA488EDF71203",
+      "sha256": "FCCEFE33FCA59880EBC2044364E3F5A06F3B810910435889B45592FF9E9DCA63",
       "counts": {
         "profiles": 10
       }

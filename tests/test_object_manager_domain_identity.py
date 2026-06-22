@@ -159,6 +159,76 @@ NTSTATUS __stdcall ObRegisterCallbacks(__int64 a1, __int64 a2)
         self.assertTrue(all("build_mismatch" in item.blockers for item in corrections))
         self.assertTrue(all(not item.apply_to_preview for item in corrections))
 
+    def test_free_object_profile_corrects_object_header_signature_preview_only(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+void __fastcall ObpFreeObject(__int64 a1, __int64 a2, __int64 a3)
+{
+  *(_DWORD *)(a1 + 24) = 0;
+  *(_DWORD *)(a1 + 26) = 0;
+  *(_QWORD *)(a1 + 32) = 0;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.object_manager.free_object"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identity = self._single_identity(plan, profile_id)
+
+        self.assertEqual(1, len(corrections))
+        correction = corrections[0]
+        self.assertEqual(0, correction.parameter_index)
+        self.assertEqual("a1", correction.old_name)
+        self.assertEqual("objectHeader", correction.new_name)
+        self.assertEqual("__int64", correction.old_type)
+        self.assertEqual("OBJECT_HEADER_LIKE *", correction.canonical_type)
+        self.assertTrue(correction.apply_to_preview)
+        self.assertFalse(correction.apply_to_idb)
+        self.assertEqual([], correction.blockers)
+        self.assertIn(
+            "void __fastcall ObpFreeObject(OBJECT_HEADER_LIKE * objectHeader, __int64 argument1, __int64 argument2)",
+            rendered,
+        )
+        self.assertIn("objectHeader + 24", rendered)
+        self.assertEqual([], plan.corrected_parameter_map)
+        self.assertEqual("objectHeader", identity["base"])
+        self.assertEqual("OBJECT_HEADER_LIKE", identity["structure_name"])
+        self.assertEqual("objectHeader", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertIn("profile_report_only", identity["blockers"])
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready" and item.get("base") == "objectHeader"
+                for item in plan.comments
+            )
+        )
+
+    def test_free_object_build_mismatch_blocks_signature_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+void __fastcall ObpFreeObject(__int64 a1, __int64 a2, __int64 a3)
+{
+  *(_DWORD *)(a1 + 24) = 0;
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.object_manager.free_object"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identity = self._single_identity(plan, profile_id)
+
+        self.assertEqual(1, len(corrections))
+        self.assertIn("build_mismatch", corrections[0].blockers)
+        self.assertFalse(corrections[0].apply_to_preview)
+        self.assertNotIn("OBJECT_HEADER_LIKE * objectHeader", rendered)
+        self.assertEqual([], plan.corrected_parameter_map)
+        self.assertIn("build_mismatch", identity["blockers"])
+        self.assertIn("profile_report_only", identity["blockers"])
+
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(
             """

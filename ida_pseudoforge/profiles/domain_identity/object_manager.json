@@ -391,23 +391,49 @@
     },
     {
       "id": "windows.object_manager.free_object",
-      "source": "Reviewed ObpFreeObject corpus role; parameter appears to be object-header-like teardown context.",
+      "source": "Reviewed ObpFreeObject ntoskrnl 26200.8457 object-header teardown role; preview-only signature evidence is source-scoped.",
       "function_names": [
         "ObpFreeObject"
       ],
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": false,
+        "apply_to_idb_default": false
+      },
+      "prototype": {
+        "return_type": "void",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "objectHeader",
+            "canonical_type": "OBJECT_HEADER_LIKE *",
+            "display_type": "OBJECT_HEADER_LIKE *",
+            "accepted_types": ["__int64", "PVOID", "void *", "OBJECT_HEADER_LIKE *"],
+            "semantic_role": "objectHeader",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false,
+            "source": "ObpFreeObject object header-like teardown context"
+          }
+        ]
+      },
       "parameters": [
         {
           "parameter_index": 0,
           "role": "objectHeader",
+          "rename_to": "objectHeader",
+          "rename_confidence": 0.90,
           "structure": "OBJECT_HEADER_LIKE",
           "mode": "report-only",
-          "confidence": 0.82,
+          "confidence": 0.84,
           "accepted_types": [
             "__int64",
             "PVOID",
-            "void *"
+            "void *",
+            "OBJECT_HEADER_LIKE *"
           ],
-          "source": "ObpFreeObject object header-like parameter"
+          "source": "ObpFreeObject object header-like teardown context; report-only layout identity"
         }
       ]
     },
