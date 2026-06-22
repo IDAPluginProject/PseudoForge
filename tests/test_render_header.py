@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from ida_pseudoforge.core.plan_schema import CleanPlan, CleanupLabel, FlowRewrite, FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import (
+    CleanPlan,
+    CleanupLabel,
+    FlowRewrite,
+    FunctionCapture,
+    FunctionIdentityCandidate,
+    ParameterTypeCorrection,
+    RenameSuggestion,
+)
 from ida_pseudoforge.core.render_header import (
     MAX_KERNEL_INSIGHT_COMMENTS,
     kernel_semantic_rewrite_count,
@@ -182,6 +190,80 @@ class RenderHeaderTests(unittest.TestCase):
         self.assertNotIn("test_comment_20", header)
         self.assertIn("inferred_offset_bitfield_aliases", header)
         self.assertIn("InternalFlags=+0x98", header)
+
+    def test_render_header_sanitizes_generated_comment_prose(self) -> None:
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="Sample",
+            input_fingerprint="fp",
+        )
+        plan.comments.append(
+            {
+                "kind": "domain_structure_identity",
+                "text": "field evidence mixed(_KPROCESS */_QWORD)\r\nraw /* marker",
+                "confidence": 0.82,
+                "profile_id": "profile mixed(_KPROCESS */_QWORD)",
+                "structure": "EPROCESS",
+                "blockers": ["blocker /* raw"],
+            }
+        )
+        plan.cleanup_labels.append(
+            CleanupLabel(
+                label="LABEL_1",
+                classification="release_resource_and_leave_critical_region",
+                start_line=4,
+                end_line=6,
+                confidence=0.91,
+                evidence="label evidence mixed(_DWORD */_QWORD)\nnext /* marker",
+            )
+        )
+        plan.function_identity_candidates.append(
+            FunctionIdentityCandidate(
+                profile_id="function profile mixed(_DWORD */_QWORD)",
+                subsystem="kernel",
+                function_name="Sample",
+                match_kind="body_identity",
+                confidence=0.77,
+                blockers=["identity /* blocker"],
+                effective_mode="report-only",
+            )
+        )
+        plan.type_corrections.append(
+            ParameterTypeCorrection(
+                parameter_index=0,
+                old_name="a1",
+                new_name="process",
+                old_type="mixed(_KPROCESS */_QWORD)",
+                canonical_type="_KPROCESS *",
+                profile_id="type profile /* raw",
+                display_type="mixed(_DWORD */_QWORD)",
+                blockers=["type blocker /* raw"],
+                apply_to_preview=False,
+            )
+        )
+        capture = FunctionCapture(ea=0x140001000, name="Sample*/Name", pseudocode="")
+
+        lines = render_header_lines(
+            capture,
+            plan,
+            {},
+            [{"message": "warning mixed(_DWORD */_QWORD)\r\nnext /* marker"}],
+            set(),
+            "0.1.0",
+        )
+        generated_lines = lines[1:-1]
+        header = "\n".join(lines)
+        generated_text = "\n".join(generated_lines)
+
+        self.assertEqual("/*", lines[0])
+        self.assertEqual("*/", lines[-1])
+        self.assertTrue(all("\r" not in line and "\n" not in line for line in lines))
+        self.assertNotIn("*/", generated_text)
+        self.assertNotIn("/*", generated_text)
+        self.assertIn("mixed(_KPROCESS * /_QWORD)", header)
+        self.assertIn("mixed(_DWORD * /_QWORD)", header)
+        self.assertIn("raw / * marker", header)
+        self.assertIn("\\nnext", header)
 
 
 if __name__ == "__main__":

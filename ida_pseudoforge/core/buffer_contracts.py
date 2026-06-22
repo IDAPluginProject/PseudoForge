@@ -32,6 +32,7 @@ from ida_pseudoforge.core.plan_schema import (
     FunctionCapture,
     HelperContractEdge,
 )
+from ida_pseudoforge.core.render_comments import sanitize_generated_comment_text
 from ida_pseudoforge.profiles.loader import (
     get_process_information_class_name,
     get_process_information_class_value,
@@ -2039,7 +2040,7 @@ def _append_unique(items: object, value: str) -> None:
 
 
 def _cpp_comment(value: str) -> str:
-    return re.sub(r"\s+", " ", str(value or "").replace("*/", "* /")).strip()
+    return re.sub(r"\s+", " ", sanitize_generated_comment_text(value)).strip()
 
 
 def _render_cpp_size_constants(structure_name: str, predicates: list[_SizePredicate]) -> list[str]:

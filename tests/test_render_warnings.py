@@ -131,6 +131,12 @@ class RenderWarningsTests(unittest.TestCase):
         )
         self.assertEqual(format_warning('{"message":"review manually"}'), "review manually")
 
+    def test_format_warning_sanitizes_generated_comment_text(self) -> None:
+        self.assertEqual(
+            format_warning({"message": "mixed(_DWORD */_QWORD)\r\nraw /* marker"}),
+            "mixed(_DWORD * /_QWORD)\\nraw / * marker",
+        )
+
     def test_export_warning_diagnostics_serializes_machine_fields(self) -> None:
         plan = _plan(
             [],

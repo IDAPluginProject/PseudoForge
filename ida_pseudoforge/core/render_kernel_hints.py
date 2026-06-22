@@ -4,6 +4,7 @@ import re
 
 from ida_pseudoforge.core.event_builder_patterns import etw_event_builder_append_counts
 from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.core.render_comments import sanitize_generated_comment_text
 
 
 def rewrite_critical_region_entry(text: str, plan: CleanPlan) -> str:
@@ -95,7 +96,7 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
         lines.append(line)
         if intro_notes and not intro_notes_emitted and stripped == "{":
             for note in intro_notes:
-                lines.append(indent + "  // PseudoForge: " + note)
+                lines.append(indent + "  // PseudoForge: " + sanitize_generated_comment_text(note))
             intro_notes_emitted = True
         if "inferred_record_layout" in comment_kinds and _is_provider_link_assignment(stripped):
             if "CONTAINING_RECORD(providerLink" in stripped:

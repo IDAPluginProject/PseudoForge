@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tools.pseudoforge_cleanup_integrity import (
     analyze_cleanup_integrity,
     main,
@@ -208,6 +210,65 @@ class PseudoForgeCleanupIntegrityTests(unittest.TestCase):
 
             self.assertEqual(0, report["summary_count"])
             self.assertEqual(1, report["cleaned_file_count"])
+            self.assertEqual(0, report["issue_count"])
+
+    def test_generated_header_comment_sanitizer_prevents_comment_break_issues(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140001000_CommentSafe"
+            function_dir.mkdir(parents=True)
+            cleaned_path = function_dir / "function.cleaned.cpp"
+            summary_path = function_dir / "function.ida-batch-summary.json"
+            capture = FunctionCapture(
+                ea=0x140001000,
+                name="CommentSafe",
+                pseudocode="\n".join(
+                    [
+                        "__int64 __fastcall CommentSafe(__int64 a1)",
+                        "{",
+                        "  return a1;",
+                        "}",
+                    ]
+                ),
+            )
+            plan = CleanPlan(
+                function_ea=capture.ea,
+                function_name=capture.name,
+                input_fingerprint="fp",
+            )
+            plan.comments.append(
+                {
+                    "kind": "domain_structure_identity",
+                    "text": "profile type evidence mixed(_KPROCESS */_QWORD)",
+                    "confidence": 0.84,
+                    "profile_id": "mixed(_DWORD */_QWORD)",
+                    "structure": "EPROCESS",
+                }
+            )
+            rendered = render_cleaned_pseudocode(capture, plan)
+            cleaned_path.write_text(rendered, encoding="utf-8")
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "CommentSafe",
+                        "function_ea": "0x140001000",
+                        "llm_status": "disabled",
+                        "artifacts": {
+                            "cleaned_pseudocode": cleaned_path.name,
+                            "summary": summary_path.name,
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_cleanup_integrity(root, top=20)
+
+            self.assertIn("mixed(_KPROCESS * /_QWORD)", rendered)
+            self.assertIn("mixed(_DWORD * /_QWORD)", rendered)
+            self.assertNotIn("*/_QWORD", rendered)
             self.assertEqual(0, report["issue_count"])
 
 

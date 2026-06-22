@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.core.render_comments import sanitize_generated_comment_text
 from ida_pseudoforge.core.render_style import leading_ws
 
 
@@ -272,4 +273,4 @@ def _next_code_line_indent(lines: list[str], start_index: int) -> str:
 
 
 def _ascii_comment_text(text: str) -> str:
-    return text.encode("ascii", "backslashreplace").decode("ascii")
+    return sanitize_generated_comment_text(text)

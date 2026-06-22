@@ -9,6 +9,7 @@ from ida_pseudoforge.core.domain_identity import (
     MODE_REPORT_ONLY,
 )
 from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.core.render_comments import sanitize_generated_comment_text
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -72,7 +73,7 @@ def format_domain_identity_summary_payload(payload: dict[str, Any]) -> str:
             _int_value(payload.get("canonical_rewrite_eligible_hits")),
         )
     ]
-    top_profiles = [str(item) for item in payload.get("top_profile_ids", []) if str(item)]
+    top_profiles = [sanitize_generated_comment_text(str(item)) for item in payload.get("top_profile_ids", []) if str(item)]
     if top_profiles:
         lines.append("Top profiles: %s." % ", ".join(top_profiles[:5]))
     subsystem_counts = payload.get("subsystem_counts", {})
@@ -80,7 +81,7 @@ def format_domain_identity_summary_payload(payload: dict[str, Any]) -> str:
         lines.append(
             "Top subsystems: %s."
             % ", ".join(
-                "%s=%d" % (name, _int_value(subsystem_counts.get(name)))
+                "%s=%d" % (sanitize_generated_comment_text(name), _int_value(subsystem_counts.get(name)))
                 for name in _ordered_top_names(payload.get("top_subsystems", []), subsystem_counts)
             )
         )
@@ -89,7 +90,7 @@ def format_domain_identity_summary_payload(payload: dict[str, Any]) -> str:
         lines.append(
             "Profile blockers: %s."
             % ", ".join(
-                "%s=%d" % (str(key), _int_value(value))
+                "%s=%d" % (sanitize_generated_comment_text(str(key)), _int_value(value))
                 for key, value in sorted(blocker_counts.items(), key=lambda item: str(item[0]))
             )
         )

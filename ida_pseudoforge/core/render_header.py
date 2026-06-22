@@ -4,6 +4,10 @@ from collections import Counter
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
+from ida_pseudoforge.core.render_comments import (
+    sanitize_generated_block_comment_lines,
+    sanitize_generated_comment_text,
+)
 from ida_pseudoforge.core.render_flow import format_flow_case_value
 from ida_pseudoforge.core.render_labels import (
     semantic_label_display,
@@ -115,7 +119,7 @@ def render_header_lines(
             header.append(f"    Renames: {pairs}")
 
     header.append("*/")
-    return header
+    return sanitize_generated_block_comment_lines(header)
 
 
 def _kernel_insight_comments(plan: CleanPlan) -> list[dict[str, object]]:
@@ -187,7 +191,7 @@ def format_function_identity_candidate_summary(plan: CleanPlan, top_limit: int =
         )
     ]
     top_profiles = [
-        profile_id
+        sanitize_generated_comment_text(profile_id)
         for profile_id, _count in sorted(
             profile_counts.items(),
             key=lambda item: (-item[1], item[0]),
@@ -199,7 +203,7 @@ def format_function_identity_candidate_summary(plan: CleanPlan, top_limit: int =
         lines.append(
             "Function identity blockers: %s."
             % ", ".join(
-                "%s=%d" % (key, blocker_counts[key])
+                "%s=%d" % (sanitize_generated_comment_text(key), blocker_counts[key])
                 for key in sorted(blocker_counts)
             )
         )
@@ -256,20 +260,20 @@ def _correction_detail_line(
     detail_limit = max(1, int(limit or 0))
     parts: list[str] = []
     for item in selected[:detail_limit]:
-        old_name = _ascii_comment_text(str(getattr(item, "old_name", "") or "arg"))
-        new_name = _ascii_comment_text(str(getattr(item, "new_name", "") or old_name))
-        old_type = _ascii_comment_text(str(getattr(item, "old_type", "") or "unknown"))
-        output_type = _ascii_comment_text(
+        old_name = sanitize_generated_comment_text(str(getattr(item, "old_name", "") or "arg"))
+        new_name = sanitize_generated_comment_text(str(getattr(item, "new_name", "") or old_name))
+        old_type = sanitize_generated_comment_text(str(getattr(item, "old_type", "") or "unknown"))
+        output_type = sanitize_generated_comment_text(
             str(getattr(item, "display_type", "") or getattr(item, "canonical_type", "") or "unknown")
         )
-        profile_id = _ascii_comment_text(str(getattr(item, "profile_id", "") or "profile"))
+        profile_id = sanitize_generated_comment_text(str(getattr(item, "profile_id", "") or "profile"))
         text = "%s->%s %s->%s [%s]" % (old_name, new_name, old_type, output_type, profile_id)
         if include_blockers:
             blockers = list(getattr(item, "blockers", []) or [])
             if not blockers and not bool(getattr(item, "apply_to_preview", True)):
                 blockers = ["preview_disabled"]
             if blockers:
-                text += " blockers=%s" % ",".join(_ascii_comment_text(str(blocker)) for blocker in blockers)
+                text += " blockers=%s" % ",".join(sanitize_generated_comment_text(str(blocker)) for blocker in blockers)
         parts.append(text)
     if len(selected) > detail_limit:
         parts.append("+%d more" % (len(selected) - detail_limit))
@@ -277,4 +281,4 @@ def _correction_detail_line(
 
 
 def _ascii_comment_text(text: str) -> str:
-    return text.encode("ascii", "backslashreplace").decode("ascii")
+    return sanitize_generated_comment_text(text)

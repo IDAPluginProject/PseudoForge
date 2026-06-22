@@ -6,6 +6,7 @@ from dataclasses import asdict, is_dataclass
 
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, looks_like_ioctl_dispatcher_name
 from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.core.render_comments import sanitize_generated_comment_text
 from ida_pseudoforge.profiles.loader import profile_load_warnings
 
 
@@ -368,7 +369,7 @@ def _has_comment_kind(plan: CleanPlan, kind: str) -> bool:
 
 
 def _ascii_comment_text(text: str) -> str:
-    return text.encode("ascii", "backslashreplace").decode("ascii")
+    return sanitize_generated_comment_text(text)
 
 
 def _parse_warning_json(warning: str) -> object | None:
