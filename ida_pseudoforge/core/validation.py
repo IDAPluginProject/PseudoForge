@@ -155,6 +155,7 @@ CALL_PARSE_SKIP_NAMES = {
     "catch",
     "for",
     "if",
+    "kicheckforkernelapcdelivery",
     "return",
     "sizeof",
     "switch",
@@ -530,7 +531,34 @@ def _argument_mentions_name_by_value(argument: str, name: str) -> bool:
 
 
 def _return_expression_usage(text: str, name: str) -> bool:
-    return bool(re.search(r"\breturn\s+[^;\n]*\b%s\b[^;\n]*;" % re.escape(name), text or ""))
+    pattern = re.compile(r"\breturn\s+(?P<expr>[^;\n]*\b%s\b[^;\n]*);" % re.escape(name))
+    for match in pattern.finditer(text or ""):
+        expression = _mask_skipped_call_expressions(match.group("expr"))
+        if _argument_mentions_name_by_value(expression, name):
+            return True
+    return False
+
+
+def _mask_skipped_call_expressions(text: str) -> str:
+    result = text or ""
+    call_pattern = re.compile(r"\b(?P<call>[A-Za-z_][A-Za-z0-9_]*)\s*\(")
+    search_start = 0
+    while search_start < len(result):
+        match = call_pattern.search(result, search_start)
+        if not match:
+            break
+        call_name = match.group("call")
+        if call_name.lower() not in CALL_PARSE_SKIP_NAMES:
+            search_start = match.end()
+            continue
+        open_index = match.end() - 1
+        close_index = _matching_paren_index(result, open_index)
+        if close_index < 0:
+            search_start = match.end()
+            continue
+        result = result[: match.start()] + (" " * (close_index + 1 - match.start())) + result[close_index + 1 :]
+        search_start = match.start() + 1
+    return result
 
 
 def _pointer_arithmetic_usage(text: str, name: str) -> bool:
@@ -987,9 +1015,34 @@ def _assigned_expressions(text: str, name: str) -> list[str]:
         + target
         + r"\s*\)|\b"
         + target
-        + r"\b)\s*=\s*(?P<expr>[^;\n]+);"
+        + r"\b)\s*=(?!=)"
     )
-    return [match.group("expr").strip() for match in pattern.finditer(text)]
+    result = []
+    for match in pattern.finditer(text or ""):
+        expression = _assignment_expression_after(text, match.end())
+        if expression:
+            result.append(expression)
+    return result
+
+
+def _assignment_expression_after(text: str, start: int) -> str:
+    source = text or ""
+    depth = 0
+    end = start
+    while end < len(source):
+        char = source[end]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char in ",;" and depth == 0:
+            break
+        elif char == "\n" and depth == 0:
+            break
+        end += 1
+    return source[start:end].strip()
 
 
 def _normalize_expression(expr: str) -> str:

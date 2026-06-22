@@ -531,6 +531,67 @@ __int64 __fastcall LargeHandleDispatcher(int a1)
             )
         )
 
+    def test_comma_assignment_locals_are_not_reported_as_unassigned(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+void __fastcall CommaAssignmentSample(__int64 context)
+{
+  __int64 Size;
+  __int64 Type;
+  __int64 v52;
+  unsigned int v53;
+  __int64 v60;
+  int missing;
+
+  if ( (v52 = *(_QWORD *)(context + 248), (v53 = *(_DWORD *)(v52 + 104)) != 0) )
+    *(_DWORD *)(v52 + 104) = v53 - 1;
+  if ( (Size = *(_QWORD *)(context + 8), Type = *(unsigned int *)(context + 16), (v60 = guard_dispatch_icall_no_overrides(Type, Size)) != 0) )
+    UseAllocated(v60);
+  UseMissing(missing);
+}
+"""
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertTrue(any("missing is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("Size is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("Type is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v52 is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v53 is declared but has no direct assignment" in warning for warning in warnings))
+
+    def test_known_noarg_helper_placeholders_are_not_reported_as_unassigned(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall ApcDeliveryPlaceholderSample(__int64 context)
+{
+  __int64 v7;
+  __int64 v8;
+  __int64 v9;
+  __int64 v43;
+  __int64 v44;
+  __int64 v45;
+  int missing;
+
+  KiCheckForKernelApcDelivery(1LL, v7, v8, v9);
+  if ( context )
+    return (__int64)KiCheckForKernelApcDelivery(v44, v43, v45, v9);
+  UseMissing(missing);
+  return context;
+}
+"""
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertTrue(any("missing is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v7 is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v8 is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v9 is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v43 is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v44 is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("v45 is declared but has no direct assignment" in warning for warning in warnings))
+
     def test_pascalcase_llm_local_renames_are_style_normalized(self) -> None:
         capture = capture_from_pseudocode(
             """
