@@ -180,6 +180,47 @@ LIVE_IN_REGISTER_HINT_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+ABI_ARGUMENT_REGISTER_HINTS = {
+    "rcx",
+    "ecx",
+    "cx",
+    "cl",
+    "rdx",
+    "edx",
+    "dx",
+    "dl",
+    "r8",
+    "r8d",
+    "r8w",
+    "r8b",
+    "r9",
+    "r9d",
+    "r9w",
+    "r9b",
+} | {"xmm%d" % index for index in range(4)}
+RETURN_VALUE_REGISTER_HINTS = {"rax", "eax", "ax", "al", "xmm0"}
+SYSCALL_THUNK_REGISTER_HINTS = {
+    "r%d%s" % (index, suffix)
+    for index in (10, 11)
+    for suffix in ("", "d", "w", "b")
+}
+NONVOLATILE_REGISTER_HINTS = {
+    "rbx",
+    "ebx",
+    "bx",
+    "bl",
+    "bh",
+    "rsi",
+    "esi",
+    "si",
+    "rdi",
+    "edi",
+    "di",
+} | {
+    "r%d%s" % (index, suffix)
+    for index in range(12, 16)
+    for suffix in ("", "d", "w", "b")
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,12 +460,66 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
 
 def _unassigned_local_evidence(name: str, usage: str, live_in_register: str) -> str:
     if live_in_register:
+        usage_class = _classify_unassigned_local_usage(usage)
+        register_class = _classify_live_in_register(live_in_register, usage_class)
         return (
-            "%s appears to be a live-in register value (%s) with no recovered assignment "
-            "before use as %s; Hex-Rays may have omitted a function parameter or thunk input"
-            % (name, live_in_register, usage)
+            "%s appears to be a live-in register value (%s) classified as %s/%s with no recovered "
+            "assignment before use as %s; %s"
+            % (
+                name,
+                live_in_register,
+                register_class,
+                usage_class,
+                usage,
+                _live_in_register_evidence_note(register_class, usage_class),
+            )
         )
     return "%s is declared but has no direct assignment before use as %s" % (name, usage)
+
+
+def _classify_unassigned_local_usage(usage: str) -> str:
+    lowered = (usage or "").lower()
+    has_call = "call argument to " in lowered
+    has_return = "return expression" in lowered
+    has_pointer = "pointer arithmetic expression" in lowered
+    if sum(1 for item in (has_call, has_return, has_pointer) if item) > 1:
+        return "mixed"
+    if has_call:
+        return "call_argument"
+    if has_return:
+        return "return_expression"
+    if has_pointer:
+        return "pointer_arithmetic"
+    return "unknown_usage"
+
+
+def _classify_live_in_register(register: str, usage_class: str) -> str:
+    normalized = (register or "").lower()
+    if usage_class == "return_expression" and normalized in RETURN_VALUE_REGISTER_HINTS:
+        return "return_value"
+    if normalized in ABI_ARGUMENT_REGISTER_HINTS:
+        return "abi_argument"
+    if normalized in RETURN_VALUE_REGISTER_HINTS:
+        return "return_value"
+    if normalized in SYSCALL_THUNK_REGISTER_HINTS:
+        return "syscall_thunk"
+    if normalized in NONVOLATILE_REGISTER_HINTS:
+        return "nonvolatile_state"
+    return "unknown_register"
+
+
+def _live_in_register_evidence_note(register_class: str, usage_class: str) -> str:
+    if usage_class == "return_expression":
+        return "Hex-Rays may have left an unrecovered return/default-path register carrier"
+    if register_class == "abi_argument" and usage_class in {"call_argument", "mixed"}:
+        return "Hex-Rays may have omitted a function parameter"
+    if register_class == "syscall_thunk" and usage_class in {"call_argument", "mixed"}:
+        return "Hex-Rays may have preserved a thunk/syscall input or scratch register"
+    if register_class == "nonvolatile_state":
+        return "Hex-Rays may have preserved register or trap-state context without a recovered assignment"
+    if usage_class == "mixed":
+        return "manual review is required before treating this as a parameter gap"
+    return "treat this as report-only live-in register evidence until stronger context is available"
 
 
 def _is_unassigned_local_risk_candidate(
@@ -448,7 +543,7 @@ def _is_unassigned_local_risk_candidate(
         return False
     if _declaration_is_array_or_nonpointer_aggregate(declaration, type_text):
         return False
-    if _assigned_expressions(text, name):
+    if _has_local_assignment_evidence(text, name):
         return False
     if _address_taken(text, name):
         return False
@@ -520,6 +615,18 @@ def _declaration_is_array_or_nonpointer_aggregate(declaration: str, type_text: s
 
 def _address_taken(text: str, name: str) -> bool:
     return bool(re.search(r"&\s*%s\b" % re.escape(name), text or ""))
+
+
+def _has_local_assignment_evidence(text: str, name: str) -> bool:
+    return bool(_assigned_expressions(text, name) or _member_assignment_evidence(text, name))
+
+
+def _member_assignment_evidence(text: str, name: str) -> bool:
+    target = re.escape(name)
+    member_chain = r"\b" + target + r"\b(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)+"
+    assignment = re.compile(member_chain + r"\s*(?:(?:<<|>>|[+\-*/%&|^])?=)(?!=)")
+    increment = re.compile(member_chain + r"\s*(?:\+\+|--)")
+    return bool(assignment.search(text or "") or increment.search(text or ""))
 
 
 def _is_signature_parameter_name(text: str, name: str) -> bool:

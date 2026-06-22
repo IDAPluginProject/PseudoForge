@@ -592,6 +592,77 @@ __int64 __fastcall ApcDeliveryPlaceholderSample(__int64 context)
         self.assertFalse(any("v44 is declared but has no direct assignment" in warning for warning in warnings))
         self.assertFalse(any("v45 is declared but has no direct assignment" in warning for warning in warnings))
 
+    def test_member_assignment_locals_are_not_reported_as_unassigned(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MemberAssignmentSample()
+{
+  unsigned int v7; // r13d
+  unsigned int v9; // ebx
+  unsigned int missing; // r8d
+
+  v7.AllFields = 0;
+  v9.AllFields = 537133055;
+  return UsePair(__PAIR64__(v9.AllFields, v7.AllFields), missing);
+}
+"""
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertFalse(any("v7 appears to be a live-in register value" in warning for warning in warnings))
+        self.assertFalse(any("v9 appears to be a live-in register value" in warning for warning in warnings))
+        self.assertTrue(any("missing appears to be a live-in register value (r8d)" in warning for warning in warnings))
+
+    def test_member_update_operators_are_assignment_evidence(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MemberUpdateOperatorSample()
+{
+  unsigned int v10;
+  unsigned int v11;
+  unsigned int v12;
+  unsigned int v13;
+  unsigned int v14;
+  unsigned int v15;
+  unsigned int v16;
+
+  v10.Flags += 1;
+  v11.Flags -= 1;
+  v12.Flags |= 1;
+  v13.Flags &= 1;
+  v14.Flags ^= 1;
+  v15.Flags++;
+  v16.Flags--;
+  return UseFields(v10.Flags, v11.Flags, v12.Flags, v13.Flags, v14.Flags, v15.Flags, v16.Flags);
+}
+"""
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        for name in ("v10", "v11", "v12", "v13", "v14", "v15", "v16"):
+            self.assertFalse(any("%s is declared but has no direct assignment" % name in warning for warning in warnings))
+
+    def test_member_assignment_requires_exact_root_local_name(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MemberAssignmentNameBoundarySample()
+{
+  unsigned int v7; // r13d
+  unsigned int v70;
+
+  v70.AllFields = 1;
+  return UseValue(v7);
+}
+"""
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertTrue(any("v7 appears to be a live-in register value (r13d)" in warning for warning in warnings))
+        self.assertFalse(any("v70 is declared but has no direct assignment" in warning for warning in warnings))
+
     def test_signature_parameters_are_not_reported_as_unassigned_locals(self) -> None:
         text = """
 NTSTATUS __stdcall NtReadFile(
@@ -653,7 +724,83 @@ __int64 EtwWriteKMSecurityEvent()
         self.assertTrue(any("v1 appears to be a live-in register value (r8d)" in warning for warning in warnings))
         self.assertTrue(any("v2 appears to be a live-in register value (r9)" in warning for warning in warnings))
         self.assertTrue(any("v3 appears to be a live-in register value (r10)" in warning for warning in warnings))
-        self.assertTrue(all("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+        self.assertTrue(
+            any("v1 appears to be a live-in register value (r8d)" in warning
+                and "Hex-Rays may have omitted a function parameter" in warning for warning in warnings)
+        )
+        self.assertTrue(
+            any("v2 appears to be a live-in register value (r9)" in warning
+                and "Hex-Rays may have omitted a function parameter" in warning for warning in warnings)
+        )
+        self.assertTrue(
+            any("v3 appears to be a live-in register value (r10)" in warning
+                and "thunk/syscall input or scratch register" in warning for warning in warnings)
+        )
+        self.assertFalse(
+            any("v3 appears to be a live-in register value (r10)" in warning
+                and "Hex-Rays may have omitted a function parameter" in warning for warning in warnings)
+        )
+
+    def test_return_only_live_in_registers_are_not_parameter_gaps(self) -> None:
+        text = """
+__int64 __fastcall ReturnCarrierSample(int flag)
+{
+  int result; // eax
+  __int64 fallback; // r10
+
+  if ( flag )
+    return result;
+  return fallback;
+}
+"""
+        capture = FunctionCapture(
+            name="ReturnCarrierSample",
+            prototype="__int64 __fastcall ReturnCarrierSample(int flag)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="result", type="int", is_arg=False),
+                LocalVariable(name="fallback", type="__int64", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(2, len(warnings))
+        self.assertTrue(
+            any("result appears to be a live-in register value (eax)" in warning
+                and "unrecovered return/default-path register carrier" in warning for warning in warnings)
+        )
+        self.assertTrue(
+            any("fallback appears to be a live-in register value (r10)" in warning
+                and "unrecovered return/default-path register carrier" in warning for warning in warnings)
+        )
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+
+    def test_nonvolatile_live_in_call_arguments_are_not_parameter_gaps(self) -> None:
+        text = """
+__int64 __fastcall TrapStateSample()
+{
+  __int64 v1; // rsi
+  int v2; // r13d
+
+  return PreserveTrapState(v1, v2);
+}
+"""
+        capture = FunctionCapture(
+            name="TrapStateSample",
+            prototype="__int64 __fastcall TrapStateSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False),
+                LocalVariable(name="v2", type="int", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(2, len(warnings))
+        self.assertTrue(any("preserved register or trap-state context" in warning for warning in warnings))
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
 
     def test_stack_pointer_retaddr_is_not_reported_as_omitted_parameter_candidate(self) -> None:
         text = """
@@ -678,6 +825,32 @@ __int64 InstrumentedLockRelease()
         self.assertEqual(1, len(warnings))
         self.assertIn("retaddr is declared but has no direct assignment", warnings[0])
         self.assertNotIn("live-in register value", warnings[0])
+
+    def test_spoiled_or_memory_locations_are_not_live_in_hints(self) -> None:
+        text = """
+__int64 __fastcall LocationNoiseSample()
+{
+  __int64 v1;
+  __int64 v2;
+
+  return ForwardLocationNoise(v1, v2);
+}
+"""
+        capture = FunctionCapture(
+            name="LocationNoiseSample",
+            prototype="__int64 __fastcall LocationNoiseSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False, location="spoiled:rax"),
+                LocalVariable(name="v2", type="__int64", is_arg=False, location="memory:r8"),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(2, len(warnings))
+        self.assertTrue(all("is declared but has no direct assignment" in warning for warning in warnings))
+        self.assertFalse(any("live-in register value" in warning for warning in warnings))
 
     def test_invalid_numbered_register_comment_is_not_live_in_hint(self) -> None:
         text = """
