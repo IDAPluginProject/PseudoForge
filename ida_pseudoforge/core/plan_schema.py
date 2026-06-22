@@ -131,6 +131,9 @@ class WarningDiagnostic:
     callee_contract_action: str = ""
     callee_contract_confidence: float = 0.0
     callee_contract_evidence: str = ""
+    stack_declaration: str = ""
+    stack_slot: str = ""
+    pseudo_local_evidence: str = ""
 
 
 @dataclass(slots=True)

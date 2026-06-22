@@ -222,6 +222,8 @@ NONVOLATILE_REGISTER_HINTS = {
     for index in range(12, 16)
     for suffix in ("", "d", "w", "b")
 }
+STACK_PSEUDO_LOCAL_NAMES = {"retaddr", "returnaddress", "return_address"}
+STACK_PSEUDO_LOCAL_HELPER_MARKERS = ("instrumented",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +244,9 @@ class _UnassignedLocalUsageRisk:
     callee_contract_action: str = ""
     callee_contract_confidence: float = 0.0
     callee_contract_evidence: str = ""
+    stack_declaration: str = ""
+    stack_slot: str = ""
+    pseudo_local_evidence: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +256,13 @@ class _CallArgumentUsage:
     call_index: int
     callee_call_index: int
     argument_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class _StackPseudoLocalInfo:
+    declaration: str
+    stack_slot: str
+    helper_evidence: str
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -280,13 +292,14 @@ def unassigned_local_usage_warnings(
     for name in sorted(risks):
         risk = risks[name]
         active = active_renames.get(name)
+        prefix = _unassigned_local_warning_prefix(risk)
         if active:
             warnings.append(
-                "Uninitialized local risk: %s renamed to %s by %s, but %s"
-                % (name, active.new, active.source, risk.evidence)
+                "%s: %s renamed to %s by %s, but %s"
+                % (prefix, name, active.new, active.source, risk.evidence)
             )
         else:
-            warnings.append("Uninitialized local risk: %s" % risk.evidence)
+            warnings.append("%s: %s" % (prefix, risk.evidence))
     return warnings
 
 
@@ -298,12 +311,15 @@ def unassigned_local_usage_diagnostics(
     diagnostics = []
     for name in sorted(risks):
         risk = risks[name]
-        if not risk.live_in_register:
+        if not risk.live_in_register and risk.candidate_action != "stack_pseudo_local_report_only":
             continue
+        kind = "unassigned_local_live_in_register"
+        if risk.candidate_action == "stack_pseudo_local_report_only":
+            kind = "unassigned_local_stack_pseudo_local"
         diagnostics.append(
             WarningDiagnostic(
-                kind="unassigned_local_live_in_register",
-                message="Uninitialized local risk: %s" % risk.evidence,
+                kind=kind,
+                message="%s: %s" % (_unassigned_local_warning_prefix(risk), risk.evidence),
                 symbol=risk.name,
                 usage=risk.usage,
                 usage_class=risk.usage_class,
@@ -319,9 +335,18 @@ def unassigned_local_usage_diagnostics(
                 callee_contract_action=risk.callee_contract_action,
                 callee_contract_confidence=risk.callee_contract_confidence,
                 callee_contract_evidence=risk.callee_contract_evidence,
+                stack_declaration=risk.stack_declaration,
+                stack_slot=risk.stack_slot,
+                pseudo_local_evidence=risk.pseudo_local_evidence,
             )
         )
     return diagnostics
+
+
+def _unassigned_local_warning_prefix(risk: _UnassignedLocalUsageRisk) -> str:
+    if risk.candidate_action == "stack_pseudo_local_report_only":
+        return "Stack pseudo-local report-only"
+    return "Uninitialized local risk"
 
 
 def _filtered_unassigned_local_usage_risks(
@@ -499,8 +524,8 @@ def _format_unassigned_local_llm_skip_warning(
     if _is_size_count_semantic_name(item.new):
         semantic_note = "; proposed name has size/count semantics"
     return (
-        "Uninitialized local risk: skipped LLM rename %s->%s: %s%s"
-        % (item.old, item.new, risk.evidence, semantic_note)
+        "%s: skipped LLM rename %s->%s: %s%s"
+        % (_unassigned_local_warning_prefix(risk), item.old, item.new, risk.evidence, semantic_note)
     )
 
 
@@ -523,6 +548,10 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
         usage_class = _classify_unassigned_local_usage(usage)
         register_class = _classify_live_in_register(live_in_register, usage_class) if live_in_register else ""
         candidate_action = _live_in_candidate_action(register_class, usage_class) if live_in_register else ""
+        stack_pseudo_local = _stack_pseudo_local_info(text, name, var.location, call_usage)
+        if stack_pseudo_local:
+            candidate_action = "stack_pseudo_local_report_only"
+            register_class = register_class or "stack_pseudo_local"
         legacy_candidate_action = _legacy_candidate_action(candidate_action)
         callee_contract = _live_in_callee_contract(call_usage, candidate_action)
         callee_contract_action = ""
@@ -546,6 +575,7 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
                 register_class=register_class,
                 callee_contract_action=callee_contract_action,
                 callee_contract_evidence=callee_contract_evidence,
+                stack_pseudo_local=stack_pseudo_local,
             ),
             live_in_register=live_in_register,
             usage_class=usage_class,
@@ -560,6 +590,9 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
             callee_contract_action=callee_contract_action,
             callee_contract_confidence=callee_contract_confidence,
             callee_contract_evidence=callee_contract_evidence,
+            stack_declaration=stack_pseudo_local.declaration if stack_pseudo_local else "",
+            stack_slot=stack_pseudo_local.stack_slot if stack_pseudo_local else "",
+            pseudo_local_evidence=stack_pseudo_local.helper_evidence if stack_pseudo_local else "",
         )
     return risks
 
@@ -572,7 +605,19 @@ def _unassigned_local_evidence(
     register_class: str = "",
     callee_contract_action: str = "",
     callee_contract_evidence: str = "",
+    stack_pseudo_local: _StackPseudoLocalInfo | None = None,
 ) -> str:
+    if stack_pseudo_local:
+        return (
+            "%s appears to be a return-address stack pseudo-local (%s) used as %s; "
+            "%s, not an omitted caller parameter"
+            % (
+                name,
+                stack_pseudo_local.stack_slot,
+                usage,
+                stack_pseudo_local.helper_evidence,
+            )
+        )
     if live_in_register:
         usage_class = usage_class or _classify_unassigned_local_usage(usage)
         register_class = register_class or _classify_live_in_register(live_in_register, usage_class)
@@ -720,6 +765,8 @@ def _live_in_candidate_confidence(candidate_action: str) -> float:
         return 0.70
     if candidate_action == "state_preservation_candidate":
         return 0.62
+    if candidate_action == "stack_pseudo_local_report_only":
+        return 0.60
     if candidate_action == "manual_review_candidate":
         return 0.55
     return 0.45
@@ -801,6 +848,49 @@ def _normalize_register_hint(text: str) -> str:
     if not match:
         return ""
     return match.group(0).lower()
+
+
+def _stack_pseudo_local_info(
+    text: str,
+    name: str,
+    location: str,
+    call_usage: _CallArgumentUsage | None,
+) -> _StackPseudoLocalInfo | None:
+    if (name or "").strip().lower() not in STACK_PSEUDO_LOCAL_NAMES:
+        return None
+    if call_usage is None or not _is_stack_pseudo_local_helper(call_usage.callee_name):
+        return None
+    declaration = _declaration_source_line_for_name(text, name)
+    stack_slot = _stack_slot_evidence(declaration, location)
+    if not stack_slot:
+        return None
+    return _StackPseudoLocalInfo(
+        declaration=declaration,
+        stack_slot=stack_slot,
+        helper_evidence="instrumentation helper %s consumes return-address context"
+        % call_usage.callee_name,
+    )
+
+
+def _is_stack_pseudo_local_helper(callee_name: str) -> bool:
+    lowered = (callee_name or "").strip().lower()
+    return bool(lowered) and any(marker in lowered for marker in STACK_PSEUDO_LOCAL_HELPER_MARKERS)
+
+
+def _stack_slot_evidence(declaration: str, location: str) -> str:
+    sources = [declaration or "", location or ""]
+    for source in sources:
+        matches = re.findall(r"\[(?:r|e)?(?:sp|bp)[^\]]*\]", source, flags=re.IGNORECASE)
+        if matches:
+            return " ".join(matches)
+    for source in sources:
+        match = re.search(r"\b(?:r|e)?(?:sp|bp)\b", source or "", flags=re.IGNORECASE)
+        if match:
+            return match.group(0).lower()
+    lowered_location = (location or "").strip().lower()
+    if "stk" in lowered_location or "stack" in lowered_location:
+        return lowered_location
+    return ""
 
 
 def _declaration_has_initializer(declaration: str, name: str) -> bool:

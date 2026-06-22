@@ -160,6 +160,9 @@ class RenderWarningsTests(unittest.TestCase):
                 callee_contract_action="callee_arity_residue_candidate",
                 callee_contract_confidence=0.68,
                 callee_contract_evidence="test contract",
+                stack_declaration="_UNKNOWN *retaddr; // [rsp+28h] [rbp+0h]",
+                stack_slot="[rsp+28h] [rbp+0h]",
+                pseudo_local_evidence="instrumentation helper consumes return-address context",
             )
         )
 
@@ -177,6 +180,12 @@ class RenderWarningsTests(unittest.TestCase):
         self.assertEqual("callee_arity_residue_candidate", diagnostics[0]["callee_contract_action"])
         self.assertEqual(0.68, diagnostics[0]["callee_contract_confidence"])
         self.assertEqual("test contract", diagnostics[0]["callee_contract_evidence"])
+        self.assertEqual("_UNKNOWN *retaddr; // [rsp+28h] [rbp+0h]", diagnostics[0]["stack_declaration"])
+        self.assertEqual("[rsp+28h] [rbp+0h]", diagnostics[0]["stack_slot"])
+        self.assertEqual(
+            "instrumentation helper consumes return-address context",
+            diagnostics[0]["pseudo_local_evidence"],
+        )
 
 
 if __name__ == "__main__":

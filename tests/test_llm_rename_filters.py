@@ -975,27 +975,68 @@ __int64 __fastcall TrapStateSample()
 
     def test_stack_pointer_retaddr_is_not_reported_as_omitted_parameter_candidate(self) -> None:
         text = """
-__int64 InstrumentedLockRelease()
+__int64 InstrumentedLockRelease(__int64 argument0)
 {
-  void *retaddr; // rsp
+  void *retaddr; // [rsp+28h] [rbp+0h]
 
-  return ExpReleaseSpinLockSharedFromDpcLevelInstrumented(retaddr);
+  return KiReleaseQueuedSpinLockInstrumented(argument0, retaddr);
 }
 """
         capture = FunctionCapture(
             name="InstrumentedLockRelease",
-            prototype="__int64 InstrumentedLockRelease()",
+            prototype="__int64 InstrumentedLockRelease(__int64 argument0)",
             pseudocode=text,
             lvars=[
+                LocalVariable(name="argument0", type="__int64", is_arg=True),
                 LocalVariable(name="retaddr", type="void *", is_arg=False),
             ],
         )
 
         warnings = unassigned_local_usage_warnings(capture, [])
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
 
         self.assertEqual(1, len(warnings))
-        self.assertIn("retaddr is declared but has no direct assignment", warnings[0])
+        self.assertIn("Stack pseudo-local report-only", warnings[0])
+        self.assertIn("return-address stack pseudo-local", warnings[0])
+        self.assertIn("KiReleaseQueuedSpinLockInstrumented", warnings[0])
+        self.assertIn("[rsp+28h] [rbp+0h]", warnings[0])
         self.assertNotIn("live-in register value", warnings[0])
+        self.assertNotIn("omitted a function parameter", warnings[0])
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("unassigned_local_stack_pseudo_local", diagnostics[0].kind)
+        self.assertEqual("stack_pseudo_local_report_only", diagnostics[0].candidate_action)
+        self.assertEqual("stack_pseudo_local", diagnostics[0].register_class)
+        self.assertEqual("KiReleaseQueuedSpinLockInstrumented", diagnostics[0].callee_name)
+        self.assertEqual(1, diagnostics[0].argument_index)
+        self.assertEqual("[rsp+28h] [rbp+0h]", diagnostics[0].stack_slot)
+        self.assertIn("retaddr", diagnostics[0].stack_declaration)
+        self.assertIn("return-address context", diagnostics[0].pseudo_local_evidence)
+
+    def test_plain_unassigned_stack_local_still_warns_normally(self) -> None:
+        text = """
+__int64 PlainStackLocalSample()
+{
+  void *stackLocal; // [rsp+20h] [rbp-8h]
+
+  return ConsumeStackLocal(stackLocal);
+}
+"""
+        capture = FunctionCapture(
+            name="PlainStackLocalSample",
+            prototype="__int64 PlainStackLocalSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="stackLocal", type="void *", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+
+        self.assertEqual(1, len(warnings))
+        self.assertIn("Uninitialized local risk", warnings[0])
+        self.assertIn("stackLocal is declared but has no direct assignment", warnings[0])
+        self.assertFalse(diagnostics)
 
     def test_spoiled_or_memory_locations_are_not_live_in_hints(self) -> None:
         text = """

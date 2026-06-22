@@ -1857,6 +1857,62 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, report["warning_stats"]["all_classes"]["internal_lock_helper_residue"])
             self.assertNotIn("parameter_gap_candidate", report["warning_stats"]["all_classes"])
 
+    def test_analyze_corpus_counts_stack_pseudo_local_diagnostic_class(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140272090_KxReleaseQueuedSpinLock"
+            function_dir.mkdir(parents=True)
+            diagnostics_path = function_dir / "function.warning-diagnostics.json"
+            warnings_path = function_dir / "function.warnings.json"
+            summary_path = function_dir / "function.ida-batch-summary.json"
+            diagnostics_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "unassigned_local_stack_pseudo_local",
+                            "message": "Stack pseudo-local report-only: retaddr appears to be a return-address stack pseudo-local",
+                            "symbol": "retaddr",
+                            "usage": "call argument to KiReleaseQueuedSpinLockInstrumented",
+                            "usage_class": "call_argument",
+                            "register": "",
+                            "register_class": "stack_pseudo_local",
+                            "candidate_action": "stack_pseudo_local_report_only",
+                            "confidence": 0.6,
+                            "source": "validation.unassigned_local_usage",
+                            "callee_name": "KiReleaseQueuedSpinLockInstrumented",
+                            "call_index": 19,
+                            "argument_index": 1,
+                            "stack_declaration": "_UNKNOWN *retaddr; // [rsp+28h] [rbp+0h]",
+                            "stack_slot": "[rsp+28h] [rbp+0h]",
+                            "pseudo_local_evidence": "instrumentation helper consumes return-address context",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            warnings_path.write_text(json.dumps(["legacy fallback warning"]), encoding="utf-8")
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "KxReleaseQueuedSpinLock",
+                        "function_ea": "0x140272090",
+                        "warnings": 1,
+                        "artifacts": {
+                            "warnings": warnings_path.name,
+                            "warning_diagnostics": diagnostics_path.name,
+                            "summary": summary_path.name,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+
+            self.assertEqual(1, report["warning_stats"]["all_classes"]["stack_pseudo_local_report_only"])
+            self.assertNotIn("other", report["warning_stats"]["all_classes"])
+
     def test_analyze_corpus_counts_diagnostics_only_warning_totals(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
