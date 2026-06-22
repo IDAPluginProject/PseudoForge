@@ -80,6 +80,47 @@ def _plan(capture: FunctionCapture) -> CleanPlan:
     )
 
 
+def _type_assisted_capture_plan() -> tuple[FunctionCapture, CleanPlan]:
+    capture = FunctionCapture(
+        ea=0x140002000,
+        name="IoDeleteDevice",
+        prototype="__int64 __fastcall IoDeleteDevice(__int64 a1)",
+        pseudocode="__int64 __fastcall IoDeleteDevice(__int64 a1)\n{\n  return a1;\n}",
+        lvars=[LocalVariable("a1", "__int64", True, 0)],
+        source_path=r"F:\target\ntoskrnl.exe",
+    )
+    plan = CleanPlan(
+        function_ea=capture.ea,
+        function_name=capture.name,
+        input_fingerprint=capture.input_fingerprint(),
+    )
+    plan.function_identity_candidates.append(
+        FunctionIdentityCandidate(
+            profile_id="windows.io_manager.delete_device",
+            subsystem="I/O Manager",
+            function_name="IoDeleteDevice",
+            match_kind="function_name",
+            confidence=0.95,
+            evidence=["exact_function_name", "source_context_ntoskrnl"],
+            blockers=[],
+            effective_mode="canonical-rewrite-eligible",
+        )
+    )
+    plan.type_corrections.append(
+        ParameterTypeCorrection(
+            parameter_index=0,
+            old_name="a1",
+            new_name="deviceObject",
+            old_type="__int64",
+            canonical_type="PDEVICE_OBJECT",
+            profile_id="windows.io_manager.delete_device",
+            confidence=0.92,
+            effective_mode="canonical-rewrite-eligible",
+        )
+    )
+    return capture, plan
+
+
 class FakeHexrays:
     def __init__(self) -> None:
         self.calls = []
@@ -144,6 +185,28 @@ class FakeContextMenuHooks:
         return True
 
     def unhook(self):
+        return True
+
+
+class FakeIdcTypeApi:
+    def __init__(self, original_type: str, fail_on_restore: bool = False) -> None:
+        self.current_type = original_type
+        self.fail_on_restore = fail_on_restore
+        self.calls = []
+
+    def get_type(self, ea):
+        return self.current_type
+
+    def SetType(self, ea, type_text):
+        self.calls.append((ea, type_text))
+        if self.fail_on_restore and len(self.calls) > 1:
+            raise RuntimeError("restore failed")
+        self.current_type = type_text
+        return True
+
+    def del_type(self, ea):
+        self.calls.append((ea, "<delete>"))
+        self.current_type = ""
         return True
 
 
@@ -1355,6 +1418,7 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             self.assertIn(plugin_module.PseudoForgePlugin.buffer_contract_cursor_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.buffer_contract_value_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.cancel_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.type_assisted_recompile_preview_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_preview_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_profile_action_name, fake_idaapi.registered)
             self.assertNotIn(plugin_module.PseudoForgePlugin.legacy_preview_action_name, fake_idaapi.registered)
@@ -1370,6 +1434,10 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.configure_preview_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.configure_profile_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/Advanced/", plugin_module.PseudoForgePlugin.apply_renames_action_name), attached_menu_actions)
+            self.assertIn(
+                ("Edit/PseudoForge/Advanced/", plugin_module.PseudoForgePlugin.type_assisted_recompile_preview_action_name),
+                attached_menu_actions,
+            )
             self.assertNotIn("Edit/PseudoForge/Preview cleaned pseudocode", attached_paths)
         finally:
             plugin.term()
@@ -1715,6 +1783,159 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertIn("Applied corrections: a1->deviceObject __int64->PDEVICE_OBJECT", summary)
         self.assertIn("Blocked corrections: a2->irp int->PIRP", summary)
         self.assertIn("Type correction blockers: type_conflict=1.", summary)
+
+    def test_type_assisted_prototype_proposal_uses_canonical_parameter_types(self):
+        capture, plan = _type_assisted_capture_plan()
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertFalse(proposal.blockers)
+        self.assertIn("windows.io_manager.delete_device", proposal.profile_ids)
+        self.assertIn("PDEVICE_OBJECT deviceObject", proposal.prototype)
+        self.assertTrue(any("exact_function_name" in item for item in proposal.evidence))
+        self.assertEqual(proposal.corrections, ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",))
+
+    def test_type_assisted_prototype_refuses_blocked_corrections_before_type_api(self):
+        capture, plan = _type_assisted_capture_plan()
+        plan.type_corrections[0].blockers.append("type_conflict")
+        fake_idc = FakeIdcTypeApi("__int64 __fastcall IoDeleteDevice(__int64 a1)")
+        old_idc = actions_module.idc
+        actions_module.idc = fake_idc
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            self.assertIn("type_correction_blocked:windows.io_manager.delete_device:param0:type_conflict", proposal.blockers)
+            with self.assertRaisesRegex(RuntimeError, "prototype blockers"):
+                actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+
+        self.assertEqual(fake_idc.calls, [])
+
+    def test_type_assisted_prototype_refuses_report_only_and_weak_identity(self):
+        capture, plan = _type_assisted_capture_plan()
+        plan.function_identity_candidates[0].effective_mode = "report-only"
+        plan.function_identity_candidates[0].match_kind = "body_only_weak"
+        plan.type_corrections[0].effective_mode = "report-only"
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertIn("body_only_weak_match:windows.io_manager.delete_device", proposal.blockers)
+        self.assertIn("type_correction_report_only:windows.io_manager.delete_device:param0", proposal.blockers)
+        self.assertIn("function_identity_report_only:windows.io_manager.delete_device", proposal.blockers)
+
+    def test_analyze_current_function_does_not_touch_ida_type_api(self):
+        capture = _capture()
+        plan = _plan(capture)
+        old_capture = actions_module.capture_current_function
+        old_build = actions_module._build_plan_with_config
+        old_write = actions_module._write_forge_snapshot
+        old_get_type = actions_module._get_ida_function_type
+        old_apply_type = actions_module._apply_ida_function_type
+        actions_module.capture_current_function = lambda: (capture, None)
+        actions_module._build_plan_with_config = lambda captured, task_name="": plan
+        actions_module._write_forge_snapshot = lambda captured, built_plan: (Path(r"F:\target\driver.forge"), "forge text")
+        actions_module._get_ida_function_type = lambda ea: self.fail("default analyze read IDB type")
+        actions_module._apply_ida_function_type = lambda ea, type_text: self.fail("default analyze wrote IDB type")
+        try:
+            analyzed_capture, analyzed_plan = actions_module.analyze_current_function()
+        finally:
+            actions_module.capture_current_function = old_capture
+            actions_module._build_plan_with_config = old_build
+            actions_module._write_forge_snapshot = old_write
+            actions_module._get_ida_function_type = old_get_type
+            actions_module._apply_ida_function_type = old_apply_type
+
+        self.assertIs(analyzed_capture, capture)
+        self.assertIs(analyzed_plan, plan)
+
+    def test_type_assisted_recompile_restores_original_type_on_success(self):
+        capture, plan = _type_assisted_capture_plan()
+        original_type = "__int64 __fastcall IoDeleteDevice(__int64 a1)"
+        fake_idc = FakeIdcTypeApi(original_type)
+        old_idc = actions_module.idc
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_refresh = actions_module._refresh_function_type_state
+        actions_module.idc = fake_idc
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: "void __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)\n{\n}"
+        )
+        actions_module._refresh_function_type_state = lambda ea: None
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            result = actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._refresh_function_type_state = old_refresh
+
+        self.assertTrue(result.restore_succeeded)
+        self.assertIn("PDEVICE_OBJECT deviceObject", result.improved_pseudocode)
+        self.assertEqual(
+            fake_idc.calls,
+            [
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject);"),
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(__int64 a1);"),
+            ],
+        )
+
+    def test_type_assisted_recompile_restores_original_type_after_decompile_failure(self):
+        capture, plan = _type_assisted_capture_plan()
+        original_type = "__int64 __fastcall IoDeleteDevice(__int64 a1)"
+        fake_idc = FakeIdcTypeApi(original_type)
+        old_idc = actions_module.idc
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_refresh = actions_module._refresh_function_type_state
+        actions_module.idc = fake_idc
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: (_ for _ in ()).throw(RuntimeError("decompile failed"))
+        )
+        actions_module._refresh_function_type_state = lambda ea: None
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            with self.assertRaisesRegex(RuntimeError, "original IDB type was restored"):
+                actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._refresh_function_type_state = old_refresh
+
+        self.assertEqual(
+            fake_idc.calls,
+            [
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject);"),
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(__int64 a1);"),
+            ],
+        )
+        self.assertEqual(fake_idc.current_type, "__int64 __fastcall IoDeleteDevice(__int64 a1);")
+
+    def test_type_assisted_recompile_reports_high_severity_restore_failure(self):
+        capture, plan = _type_assisted_capture_plan()
+        original_type = "__int64 __fastcall IoDeleteDevice(__int64 a1)"
+        fake_idc = FakeIdcTypeApi(original_type, fail_on_restore=True)
+        warnings = []
+        old_idc = actions_module.idc
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_refresh = actions_module._refresh_function_type_state
+        old_warning = actions_module.warning
+        actions_module.idc = fake_idc
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: "void __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)\n{\n}"
+        )
+        actions_module._refresh_function_type_state = lambda ea: None
+        actions_module.warning = warnings.append
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            result = actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._refresh_function_type_state = old_refresh
+            actions_module.warning = old_warning
+
+        self.assertFalse(result.restore_succeeded)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("HIGH SEVERITY", warnings[0])
+        self.assertIn("restore failed", warnings[0])
 
     def test_build_plan_logs_provider_cyber_policy_block_to_output_and_plan(self):
         capture = _capture()

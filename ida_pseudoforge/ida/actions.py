@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ida_pseudoforge.config import (
@@ -33,6 +34,11 @@ from ida_pseudoforge.core.llm_failures import (
     format_llm_fallback_warning,
     is_llm_provider_cyber_policy_block,
     summarize_llm_failure,
+)
+from ida_pseudoforge.core.normalize import (
+    extract_function_signature,
+    find_matching_paren,
+    split_parameters_with_spans,
 )
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
@@ -86,17 +92,42 @@ try:
     import ida_kernwin  # type: ignore
     import idaapi  # type: ignore
     import ida_funcs  # type: ignore
+    import idc  # type: ignore
 except Exception:
     ida_hexrays = None
     ida_nalt = None
     ida_kernwin = None
     idaapi = None
     ida_funcs = None
+    idc = None
 
 
 PLUGIN_STATE_GROUP = "plugin_state"
 _ANALYSIS_STATE = PluginAnalysisState()
 _DIRECT_HELPER_ALIAS_MAX_CALLEES = 8
+_TYPE_ASSISTED_ALLOWED_MODES = {"preview-rewrite", "canonical-rewrite-eligible"}
+_TYPE_ASSISTED_REPORT_ONLY_MODE = "report-only"
+
+
+@dataclass(frozen=True, slots=True)
+class TypeAssistedPrototypeProposal:
+    prototype: str
+    profile_ids: tuple[str, ...]
+    evidence: tuple[str, ...]
+    blockers: tuple[str, ...]
+    corrections: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TypeAssistedRedecompileResult:
+    capture: FunctionCapture
+    plan: CleanPlan
+    proposal: TypeAssistedPrototypeProposal
+    improved_pseudocode: str
+    original_type: str
+    restored_type: str
+    restore_succeeded: bool
+    restore_error: str = ""
 
 
 def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture, CleanPlan]:
@@ -155,6 +186,29 @@ def export_current_function() -> dict[str, str]:
             paths = write_export_bundle(output_dir, capture, plan, entrypoint="ida_interactive")
         log_event("export.done function=\"%s\" output_dir=\"%s\"" % (_ascii_for_log(capture.name), output_dir))
         return paths
+
+
+def type_assisted_recompile_current_function() -> TypeAssistedRedecompileResult:
+    purpose = "type-assisted-recompile-preview"
+    with trace_scope(purpose):
+        capture, plan = analyze_current_function(purpose=purpose)
+        _raise_if_task_cancelled(purpose, "after analysis")
+        proposal = _build_type_assisted_prototype_proposal(capture, plan)
+        proposal_text = _format_type_assisted_prototype_proposal(proposal)
+        if proposal.blockers:
+            run_on_main_thread(
+                lambda: warning("PseudoForge type-assisted preview refused:\n" + proposal_text),
+                write=False,
+            )
+            raise CancellationRequested("type-assisted preview refused by prototype blockers")
+        confirmed = run_on_main_thread(
+            lambda: _confirm_type_assisted_recompile_preview(proposal),
+            write=False,
+        )
+        if not confirmed:
+            raise CancellationRequested("type-assisted preview cancelled by user")
+        _raise_if_task_cancelled(purpose, "before temporary prototype")
+        return _run_type_assisted_recompile_preview(capture, plan, proposal)
 
 
 def analyze_current_buffer_contract_case(
@@ -347,6 +401,50 @@ class ExportCleanedPseudocodeHandler(idaapi.action_handler_t if idaapi else obje
 
         run_background("export", export_current_function, on_success, group_name=PLUGIN_STATE_GROUP)
         log_checkpoint("action.export.activate.after")
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
+class TypeAssistedRedecompilePreviewHandler(idaapi.action_handler_t if idaapi else object):
+    def activate(self, ctx):
+        log_checkpoint("action.type_assisted_recompile_preview.activate.before")
+        log_output("PseudoForge type-assisted re-decompile preview is running. Please wait...")
+
+        def on_success(result: TypeAssistedRedecompileResult):
+            log_checkpoint("action.type_assisted_recompile_preview.on_success.before")
+            title = "PseudoForge type-assisted preview: %s 0x%X" % (result.capture.name, result.capture.ea)
+            show_text_view(
+                title,
+                result.improved_pseudocode,
+                suggested_filename=build_save_as_filename(
+                    "pseudoforge-type-assisted",
+                    result.capture.name,
+                    result.capture.ea,
+                ),
+                copy_from_source=False,
+                reference_text=result.capture.pseudocode,
+                reference_title="Raw Hex-Rays pseudocode",
+                content_title="Type-assisted Hex-Rays pseudocode",
+                summary_text=_format_type_assisted_recompile_summary(result),
+            )
+            log_output(
+                "PseudoForge type-assisted re-decompile preview completed for 0x%X. Restore ok: %s."
+                % (result.capture.ea, "yes" if result.restore_succeeded else "no")
+            )
+            log_checkpoint(
+                "action.type_assisted_recompile_preview.on_success.after",
+                restored=int(result.restore_succeeded),
+            )
+
+        run_background(
+            "type-assisted-recompile-preview",
+            type_assisted_recompile_current_function,
+            on_success,
+            group_name=PLUGIN_STATE_GROUP,
+        )
+        log_checkpoint("action.type_assisted_recompile_preview.activate.after")
         return 1
 
     def update(self, ctx):
@@ -1347,6 +1445,438 @@ def _format_warning(item: object) -> str:
         if old and reason:
             return "Potential bad call target %s: %s" % (old, reason)
     return str(item)
+
+
+def _build_type_assisted_prototype_proposal(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+) -> TypeAssistedPrototypeProposal:
+    blockers: list[str] = []
+    evidence: list[str] = []
+    corrections: list[str] = []
+    profile_ids: list[str] = []
+    eligible_corrections = []
+    signature = (capture.prototype or extract_function_signature(capture.pseudocode)).strip()
+    if not signature:
+        blockers.append("missing_function_signature")
+
+    identity_by_profile = {
+        candidate.profile_id: candidate
+        for candidate in plan.function_identity_candidates
+        if candidate.profile_id
+    }
+    for candidate in plan.function_identity_candidates:
+        profile_id = candidate.profile_id or "unknown_profile"
+        if profile_id == "ambiguous":
+            blockers.append("ambiguous_profile_match:%s" % profile_id)
+        if _is_body_only_weak_identity_candidate(candidate):
+            blockers.append("body_only_weak_match:%s" % profile_id)
+        if candidate.ambiguous_profile_ids:
+            blockers.append(
+                "ambiguous_profile_match:%s:%s"
+                % (profile_id, ",".join(candidate.ambiguous_profile_ids))
+            )
+        for blocker in candidate.blockers:
+            blockers.append("function_identity_blocked:%s:%s" % (profile_id, blocker))
+
+    if not plan.type_corrections:
+        blockers.append("no_profile_parameter_type_corrections")
+
+    parameter_owner: dict[int, str] = {}
+    for correction in plan.type_corrections:
+        correction_blockers: list[str] = []
+        profile_id = correction.profile_id or "unknown_profile"
+        parameter_tag = "%s:param%d" % (profile_id, correction.parameter_index)
+        existing_profile = parameter_owner.get(correction.parameter_index)
+        if existing_profile is None:
+            parameter_owner[correction.parameter_index] = profile_id
+        else:
+            correction_blockers.append(
+                "duplicate_parameter_correction:param%d:%s,%s"
+                % (correction.parameter_index, existing_profile, profile_id)
+            )
+        if profile_id not in profile_ids:
+            profile_ids.append(profile_id)
+        for blocker in correction.blockers:
+            correction_blockers.append("type_correction_blocked:%s:%s" % (parameter_tag, blocker))
+        if not correction.apply_to_preview:
+            correction_blockers.append("type_correction_preview_disabled:%s" % parameter_tag)
+        if not (correction.canonical_type or correction.display_type):
+            correction_blockers.append("missing_canonical_type:%s" % parameter_tag)
+        if not correction.new_name:
+            correction_blockers.append("missing_canonical_parameter_name:%s" % parameter_tag)
+        if correction.effective_mode == _TYPE_ASSISTED_REPORT_ONLY_MODE:
+            correction_blockers.append("type_correction_report_only:%s" % parameter_tag)
+        elif correction.effective_mode not in _TYPE_ASSISTED_ALLOWED_MODES:
+            correction_blockers.append(
+                "type_correction_mode_not_allowed:%s:%s"
+                % (parameter_tag, correction.effective_mode or "missing")
+            )
+
+        identity = identity_by_profile.get(correction.profile_id)
+        if identity is None:
+            correction_blockers.append("missing_function_identity_candidate:%s" % profile_id)
+        else:
+            if identity.effective_mode == _TYPE_ASSISTED_REPORT_ONLY_MODE:
+                correction_blockers.append("function_identity_report_only:%s" % profile_id)
+            elif identity.effective_mode not in _TYPE_ASSISTED_ALLOWED_MODES:
+                correction_blockers.append(
+                    "function_identity_mode_not_allowed:%s:%s"
+                    % (profile_id, identity.effective_mode or "missing")
+                )
+            if identity.evidence:
+                evidence.append(
+                    "function_identity:%s:%s"
+                    % (profile_id, ",".join(_ascii_for_log(item) for item in identity.evidence))
+                )
+
+        if correction_blockers:
+            blockers.extend(correction_blockers)
+            continue
+
+        evidence.append(
+            "type_correction:%s:param%d:%s->%s:%s->%s:confidence=%.2f"
+            % (
+                profile_id,
+                correction.parameter_index,
+                correction.old_name or "arg",
+                correction.new_name,
+                correction.old_type or "unknown",
+                correction.display_type or correction.canonical_type,
+                correction.confidence,
+            )
+        )
+        corrections.append(
+            "param%d %s->%s %s->%s"
+            % (
+                correction.parameter_index,
+                correction.old_name or "arg",
+                correction.new_name,
+                correction.old_type or "unknown",
+                correction.display_type or correction.canonical_type,
+            )
+        )
+        eligible_corrections.append(correction)
+
+    prototype = signature
+    if signature and eligible_corrections:
+        prototype, prototype_blockers = _apply_type_assisted_signature_corrections(signature, eligible_corrections)
+        blockers.extend(prototype_blockers)
+    elif signature and not eligible_corrections and not blockers:
+        blockers.append("no_eligible_profile_parameter_type_corrections")
+
+    return TypeAssistedPrototypeProposal(
+        prototype=prototype,
+        profile_ids=tuple(profile_ids),
+        evidence=tuple(_dedupe_text(evidence)),
+        blockers=tuple(_dedupe_text(blockers)),
+        corrections=tuple(corrections),
+    )
+
+
+def _is_body_only_weak_identity_candidate(candidate) -> bool:
+    match_kind = str(getattr(candidate, "match_kind", "") or "").lower().replace("-", "_")
+    if "body" in match_kind and "weak" in match_kind:
+        return True
+    evidence = " ".join(str(item or "").lower().replace("-", "_") for item in getattr(candidate, "evidence", ()))
+    return "body_only_weak" in evidence or ("body_only" in evidence and "weak" in evidence)
+
+
+def _apply_type_assisted_signature_corrections(signature: str, corrections) -> tuple[str, list[str]]:
+    blockers: list[str] = []
+    open_index = signature.find("(")
+    close_index = find_matching_paren(signature, open_index)
+    if open_index < 0 or close_index <= open_index:
+        return signature, ["unparseable_function_signature"]
+    parameter_text = signature[open_index + 1:close_index]
+    parameters = split_parameters_with_spans(parameter_text)
+    if len(parameters) == 1 and parameters[0][0].strip() == "void":
+        parameters = []
+    rewritten = [item for item, _span in parameters]
+    for correction in sorted(corrections, key=lambda item: item.parameter_index):
+        index = correction.parameter_index
+        if index < 0 or index >= len(rewritten):
+            blockers.append(
+                "parameter_index_out_of_range:%s:param%d"
+                % (correction.profile_id or "unknown_profile", index)
+            )
+            continue
+        rewritten[index] = _format_type_assisted_parameter(
+            correction.display_type or correction.canonical_type,
+            correction.new_name,
+        )
+    if blockers:
+        return signature, blockers
+    prefix = signature[:open_index + 1]
+    suffix = signature[close_index:]
+    return prefix + ", ".join(rewritten) + suffix, []
+
+
+def _format_type_assisted_parameter(type_text: str, name: str) -> str:
+    cleaned_type = re.sub(r"\s+", " ", str(type_text or "").strip())
+    cleaned_name = str(name or "").strip()
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", cleaned_name):
+        cleaned_name = "arg"
+    if not cleaned_type:
+        cleaned_type = "void *"
+    if cleaned_type.endswith("*") or cleaned_type.endswith("&"):
+        return "%s%s" % (cleaned_type, cleaned_name)
+    return "%s %s" % (cleaned_type, cleaned_name)
+
+
+def _format_type_assisted_prototype_proposal(proposal: TypeAssistedPrototypeProposal) -> str:
+    lines = [
+        "Proposed prototype:",
+        "  %s" % (proposal.prototype or "<unavailable>"),
+        "",
+        "Profile IDs:",
+    ]
+    if proposal.profile_ids:
+        lines.extend("- %s" % item for item in proposal.profile_ids)
+    else:
+        lines.append("- <none>")
+    lines.append("")
+    lines.append("Evidence:")
+    if proposal.evidence:
+        lines.extend("- %s" % item for item in proposal.evidence)
+    else:
+        lines.append("- <none>")
+    lines.append("")
+    lines.append("Corrections:")
+    if proposal.corrections:
+        lines.extend("- %s" % item for item in proposal.corrections)
+    else:
+        lines.append("- <none>")
+    lines.append("")
+    lines.append("Blockers:")
+    if proposal.blockers:
+        lines.extend("- %s" % item for item in proposal.blockers)
+    else:
+        lines.append("- <none>")
+    return "\n".join(lines)
+
+
+def _confirm_type_assisted_recompile_preview(proposal: TypeAssistedPrototypeProposal) -> bool:
+    if proposal.blockers:
+        return False
+    message = (
+        _format_type_assisted_prototype_proposal(proposal)
+        + "\n\nTemporarily apply this prototype, re-decompile, preview the result, and restore the original IDB type?"
+    )
+    asker = getattr(ida_kernwin, "ask_yn", None) if ida_kernwin is not None else None
+    if not callable(asker):
+        return True
+    try:
+        result = asker(0, message)
+    except Exception as exc:
+        log_checkpoint("type_assisted.confirm.failed", error=str(exc))
+        return False
+    return int(result) == int(getattr(ida_kernwin, "ASKBTN_YES", 1))
+
+
+def _run_type_assisted_recompile_preview(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+    proposal: TypeAssistedPrototypeProposal | None = None,
+) -> TypeAssistedRedecompileResult:
+    proposal = proposal or _build_type_assisted_prototype_proposal(capture, plan)
+    _ensure_type_assisted_prototype_allowed(proposal)
+    original_type = run_on_main_thread(lambda: _get_ida_function_type(capture.ea), write=False)
+    improved_pseudocode = ""
+    operation_error: Exception | None = None
+    restore_error = ""
+    restored_type = ""
+    restore_succeeded = False
+    try:
+        run_on_main_thread(lambda: _apply_ida_function_type(capture.ea, proposal.prototype), write=True)
+        run_on_main_thread(lambda: _refresh_function_type_state(capture.ea), write=True)
+        improved_pseudocode = run_on_main_thread(lambda: _decompile_function_pseudocode(capture.ea), write=False)
+    except Exception as exc:
+        operation_error = exc
+    finally:
+        try:
+            run_on_main_thread(lambda: _restore_ida_function_type(capture.ea, original_type), write=True)
+            run_on_main_thread(lambda: _refresh_function_type_state(capture.ea), write=True)
+            restored_type = run_on_main_thread(lambda: _get_ida_function_type(capture.ea), write=False)
+            restore_succeeded = _ida_type_text_equal(restored_type, original_type)
+            if not restore_succeeded:
+                restore_error = "restored type mismatch"
+        except Exception as exc:
+            restore_error = str(exc)
+            restore_succeeded = False
+
+    result = TypeAssistedRedecompileResult(
+        capture=capture,
+        plan=plan,
+        proposal=proposal,
+        improved_pseudocode=improved_pseudocode,
+        original_type=original_type,
+        restored_type=restored_type,
+        restore_succeeded=restore_succeeded,
+        restore_error=restore_error,
+    )
+    if not restore_succeeded:
+        run_on_main_thread(lambda: warning(_format_type_assisted_restore_warning(result)), write=False)
+    if operation_error is not None:
+        if restore_succeeded:
+            raise RuntimeError(
+                "type-assisted re-decompile failed after original IDB type was restored: %s"
+                % operation_error
+            ) from operation_error
+        raise RuntimeError(
+            "type-assisted re-decompile failed and original IDB type restore failed: %s; restore error: %s"
+            % (operation_error, restore_error or "unknown")
+        ) from operation_error
+    return result
+
+
+def _ensure_type_assisted_prototype_allowed(proposal: TypeAssistedPrototypeProposal) -> None:
+    if proposal.blockers:
+        raise RuntimeError(
+            "type-assisted preview refused by prototype blockers: %s"
+            % ", ".join(proposal.blockers)
+        )
+    if not proposal.prototype:
+        raise RuntimeError("type-assisted preview refused: missing proposed prototype")
+
+
+def _format_type_assisted_recompile_summary(result: TypeAssistedRedecompileResult) -> str:
+    lines = [
+        "PseudoForge type-assisted re-decompile preview 0x%X" % result.capture.ea,
+        "Restore status: %s" % ("restored" if result.restore_succeeded else "FAILED"),
+        "Original IDB type: %s" % (result.original_type or "<none>"),
+        "Verified IDB type after restore: %s" % (result.restored_type or "<none>"),
+    ]
+    if result.restore_error:
+        lines.append("Restore diagnostic: %s" % result.restore_error)
+    lines.append("")
+    lines.append(_format_type_assisted_prototype_proposal(result.proposal))
+    return "\n".join(lines)
+
+
+def _format_type_assisted_restore_warning(result: TypeAssistedRedecompileResult) -> str:
+    return (
+        "HIGH SEVERITY: PseudoForge type-assisted preview could not prove IDB type restoration "
+        "for 0x%X. Original type: %s. Current type: %s. Error: %s"
+        % (
+            result.capture.ea,
+            result.original_type or "<none>",
+            result.restored_type or "<unknown>",
+            result.restore_error or "verification failed",
+        )
+    )
+
+
+def _get_ida_function_type(ea: int) -> str:
+    if idc is None:
+        raise RuntimeError("IDA type API is unavailable")
+    for getter_name in ("get_type", "GetType"):
+        getter = getattr(idc, getter_name, None)
+        if not callable(getter):
+            continue
+        result = getter(ea)
+        return str(result or "")
+    raise RuntimeError("IDA type getter is unavailable")
+
+
+def _apply_ida_function_type(ea: int, type_text: str) -> None:
+    if idc is None:
+        raise RuntimeError("IDA type API is unavailable")
+    declaration = _ida_function_type_declaration(type_text)
+    for setter_name in ("SetType", "set_type"):
+        setter = getattr(idc, setter_name, None)
+        if not callable(setter):
+            continue
+        result = setter(ea, declaration)
+        if result is False:
+            raise RuntimeError("IDA type setter rejected the prototype")
+        return
+    raise RuntimeError("IDA type setter is unavailable")
+
+
+def _restore_ida_function_type(ea: int, original_type: str) -> None:
+    if str(original_type or "").strip():
+        _apply_ida_function_type(ea, original_type)
+        return
+    if idc is None:
+        raise RuntimeError("IDA type API is unavailable")
+    for deleter_name in ("del_type", "DelType"):
+        deleter = getattr(idc, deleter_name, None)
+        if not callable(deleter):
+            continue
+        result = deleter(ea)
+        if result is False:
+            raise RuntimeError("IDA type deleter rejected the restore")
+        return
+    _apply_ida_function_type(ea, "")
+
+
+def _ida_function_type_declaration(type_text: str) -> str:
+    declaration = str(type_text or "").strip()
+    if declaration and not declaration.endswith(";"):
+        declaration += ";"
+    return declaration
+
+
+def _ida_type_text_equal(left: str, right: str) -> bool:
+    return _normalize_ida_type_text(left) == _normalize_ida_type_text(right)
+
+
+def _normalize_ida_type_text(type_text: str) -> str:
+    return re.sub(r"\s+", " ", str(type_text or "").strip()).rstrip(";")
+
+
+def _refresh_function_type_state(ea: int) -> None:
+    dirty = getattr(ida_hexrays, "mark_cfunc_dirty", None) if ida_hexrays is not None else None
+    if callable(dirty):
+        try:
+            dirty(ea, True)
+        except TypeError:
+            try:
+                dirty(ea)
+            except Exception as exc:
+                log_checkpoint("type_assisted.refresh.mark_dirty_failed", ea="0x%X" % ea, error=str(exc))
+        except Exception as exc:
+            log_checkpoint("type_assisted.refresh.mark_dirty_failed", ea="0x%X" % ea, error=str(exc))
+    planner = getattr(idaapi, "plan_and_wait", None) if idaapi is not None else None
+    if callable(planner):
+        try:
+            planner(ea, ea + 1)
+        except Exception as exc:
+            log_checkpoint("type_assisted.refresh.plan_failed", ea="0x%X" % ea, error=str(exc))
+    refresher = getattr(ida_kernwin, "refresh_idaview_anyway", None) if ida_kernwin is not None else None
+    if callable(refresher):
+        try:
+            refresher()
+        except Exception as exc:
+            log_checkpoint("type_assisted.refresh.view_failed", ea="0x%X" % ea, error=str(exc))
+
+
+def _decompile_function_pseudocode(ea: int) -> str:
+    if ida_hexrays is None or ida_funcs is None:
+        raise RuntimeError("Hex-Rays decompiler API is unavailable")
+    function = ida_funcs.get_func(ea)
+    if function is None:
+        raise RuntimeError("current function is unavailable")
+    cfunc = ida_hexrays.decompile(function)
+    if cfunc is None:
+        raise RuntimeError("Hex-Rays decompile returned no function")
+    getter = getattr(cfunc, "get_pseudocode", None)
+    if not callable(getter):
+        raise RuntimeError("Hex-Rays pseudocode API is unavailable")
+    return "\n".join(_strip_ida_tags(getattr(line, "line", line)) for line in getter())
+
+
+def _dedupe_text(items: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _resolve_buffer_contract_case_from_cursor(ctx) -> tuple[int | None, FunctionCapture | None]:

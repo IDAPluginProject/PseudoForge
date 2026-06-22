@@ -21,6 +21,7 @@ from ida_pseudoforge.ida.actions import (
     PreviewCurrentAnalyzedFunctionHandler,
     ShowAnalyzedFunctionsHandler,
     ShowSettingsHandler,
+    TypeAssistedRedecompilePreviewHandler,
 )
 from ida_pseudoforge.ida.action_registry import ActionRegistry
 from ida_pseudoforge.ida.ui_preview import cleanup_preview_actions
@@ -43,6 +44,7 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
     buffer_contract_value_action_name = "pseudoforge:analyze_buffer_contract_case_value"
     cancel_action_name = "pseudoforge:cancel_current_task"
     apply_renames_action_name = "pseudoforge:apply_selected_renames"
+    type_assisted_recompile_preview_action_name = "pseudoforge:type_assisted_recompile_preview"
     configure_llm_action_name = "pseudoforge:configure_llm"
     configure_preview_action_name = "pseudoforge:configure_preview_mode"
     configure_profile_action_name = "pseudoforge:configure_profile_dir"
@@ -120,6 +122,13 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
             "Apply selected local variable renames to the IDB",
         )
         self._actions.register(
+            self.type_assisted_recompile_preview_action_name,
+            "Advanced: type-assisted re-decompile preview",
+            TypeAssistedRedecompilePreviewHandler(),
+            "",
+            "Temporarily apply a profile-backed prototype, re-decompile for preview, then restore the IDB type",
+        )
+        self._actions.register(
             self.configure_llm_action_name,
             "Configure LLM rename assist",
             ConfigureLlmHandler(),
@@ -179,6 +188,10 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
         self._actions.attach_menu(
             "Edit/PseudoForge/Advanced/",
             self.apply_renames_action_name,
+        )
+        self._actions.attach_menu(
+            "Edit/PseudoForge/Advanced/",
+            self.type_assisted_recompile_preview_action_name,
         )
         self._actions.attach_menu(
             "Edit/PseudoForge/",
@@ -320,6 +333,12 @@ class ContextMenuHooks(idaapi.UI_Hooks if idaapi else object):
                 form,
                 popup,
                 PseudoForgePlugin.apply_renames_action_name,
+                "PseudoForge/Advanced/",
+            )
+            idaapi.attach_action_to_popup(
+                form,
+                popup,
+                PseudoForgePlugin.type_assisted_recompile_preview_action_name,
                 "PseudoForge/Advanced/",
             )
             idaapi.attach_action_to_popup(
