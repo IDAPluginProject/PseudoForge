@@ -14,6 +14,7 @@ from tools.pseudoforge_corpus_quality import (
     _decimal_status_target_review_queues,
     _layout_rewrite_blocker_review_profiles,
     _nested_status_pointer_store_literals,
+    _ntstatus_family_literals,
     analyze_corpus,
     main,
     render_quality_markdown,
@@ -114,6 +115,25 @@ class PseudoForgeCorpusQualityTests(unittest.TestCase):
         self.assertEqual("status_identifier_target", literals[0]["target_evidence"])
         self.assertEqual("wide_or_nonstatus_target", literals[1]["target_evidence"])
         self.assertEqual("unsigned __int64", literals[1]["target_type"])
+
+    def test_status_residue_classifies_known_magic_constants_as_nonstatus(self) -> None:
+        text = (
+            "result = 3285377520LL;\n"
+            "*(_DWORD *)v10 = -857879331;\n"
+            "status = -1073532109;\n"
+        )
+
+        literals = _decimal_status_like_literals(text)
+
+        self.assertEqual(
+            [
+                "nonstatus_magic_candidate",
+                "nonstatus_magic_candidate",
+                "unprofiled_ntstatus_error_candidate",
+            ],
+            [item["review_class"] for item in literals],
+        )
+        self.assertEqual(["0xC0033333"], [item["hex_value"] for item in _ntstatus_family_literals(text)])
 
     def test_decimal_status_target_review_hints_split_four_byte_scalars(self) -> None:
         literals = _decimal_status_like_literals(

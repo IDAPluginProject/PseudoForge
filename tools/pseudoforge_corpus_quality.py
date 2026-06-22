@@ -22,6 +22,22 @@ _DEBUG_EXCEPTION_STATUS_NAMES = {
     "STATUS_GUARD_PAGE_VIOLATION",
     "STATUS_SINGLE_STEP",
 }
+_KNOWN_CRYPTO_INITIAL_VALUES = {
+    0xC1059ED8,  # SHA-224 H0
+    0xC3D2E1F0,  # SHA-1 H4
+}
+_KNOWN_DEBUG_FILL_VALUES = {
+    0xAABBAABB,
+    0xBAADF00D,
+    0xBAD0BEE0,
+    0xCCCCCCCC,
+    0xCCDDCCDD,
+    0xCDCDCDCD,
+    0xDDDDDDDD,
+    0xDEADBEEF,
+    0xFDFDFDFD,
+    0xFEEEFEEE,
+}
 GENERIC_IDENTIFIER_RE = re.compile(r"\b[av]\d+\b")
 GENERIC_PARAMETER_NAME_RE = re.compile(r"\b(?:[av]\d+|argument\d+)\b")
 OFFSET_DEREF_RE = re.compile(
@@ -78,6 +94,7 @@ _DECIMAL_STATUS_REVIEW_QUEUE_ORDER = (
     "strong_profiled_status_literals",
     "weak_target_profiled_status_literals",
     "unprofiled_ntstatus_error_literals",
+    "nonstatus_magic_literals",
     "nonstatus_ascii_magic_literals",
     "nonstatus_bitmask_comparisons",
     "nonstatus_small_enum_comparisons",
@@ -4697,6 +4714,8 @@ def _decimal_status_target_review_hint(
     if target_evidence == "four_byte_scalar_target":
         if review_class == "ascii_magic_candidate":
             return "four_byte_scalar_ascii_magic_review"
+        if review_class == "nonstatus_magic_candidate":
+            return "four_byte_scalar_nonstatus_magic_review"
         if review_class == "bitmask_comparison_candidate":
             return "four_byte_scalar_bitmask_review"
         if review_class == "small_enum_comparison_candidate":
@@ -4757,12 +4776,14 @@ def _decimal_status_review_class(
         }:
             return "profiled_status_literal_weak_target"
         return "profiled_status_literal_candidate"
-    if severity == "error":
-        return "unprofiled_ntstatus_error_candidate"
     if context_kind == "comparison" and _line_has_bitwise_comparison_context(line_text, re.escape(literal)):
         return "bitmask_comparison_candidate"
     if _is_ascii_magic_value(unsigned_value):
         return "ascii_magic_candidate"
+    if _is_known_nonstatus_magic_value(unsigned_value):
+        return "nonstatus_magic_candidate"
+    if severity == "error":
+        return "unprofiled_ntstatus_error_candidate"
     return "manual_review"
 
 
@@ -4866,6 +4887,11 @@ def _is_ascii_magic_value(unsigned_value: int) -> bool:
         if all(32 <= byte <= 126 for byte in raw) and any(chr(byte).isalnum() for byte in raw):
             return True
     return False
+
+
+def _is_known_nonstatus_magic_value(unsigned_value: int) -> bool:
+    value = int(unsigned_value) & 0xFFFFFFFF
+    return value in _KNOWN_CRYPTO_INITIAL_VALUES or value in _KNOWN_DEBUG_FILL_VALUES
 
 
 def _local_declaration_types(text: str) -> dict[str, str]:
@@ -5112,6 +5138,7 @@ def _decimal_status_review_queue_classes(queue_name: str) -> set[str]:
         "strong_profiled_status_literals": {"profiled_status_literal_candidate"},
         "weak_target_profiled_status_literals": {"profiled_status_literal_weak_target"},
         "unprofiled_ntstatus_error_literals": {"unprofiled_ntstatus_error_candidate"},
+        "nonstatus_magic_literals": {"nonstatus_magic_candidate"},
         "nonstatus_ascii_magic_literals": {"ascii_magic_candidate"},
         "nonstatus_bitmask_comparisons": {"bitmask_comparison_candidate"},
         "nonstatus_small_enum_comparisons": {"small_enum_comparison_candidate"},
@@ -5510,6 +5537,10 @@ def _ntstatus_family_literals(text: str) -> list[dict[str, Any]]:
         if not severity:
             continue
         profile_name = _ntstatus_profile_name(parsed, match.group("literal"))
+        if not profile_name and (
+            _is_ascii_magic_value(unsigned_value) or _is_known_nonstatus_magic_value(unsigned_value)
+        ):
+            continue
         if not profile_name and severity != "error":
             continue
         result.append(
