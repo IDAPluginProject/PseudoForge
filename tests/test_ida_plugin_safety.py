@@ -16,9 +16,11 @@ from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
     CommandBufferContract,
+    FunctionIdentityCandidate,
     FunctionCapture,
     HelperContractEdge,
     LocalVariable,
+    ParameterTypeCorrection,
     RenameSuggestion,
     make_lvar_identity,
 )
@@ -1661,6 +1663,58 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertIn("Top profiles: windows.io_manager.delete_device.", summary)
         self.assertIn("profile_report_only=1", summary)
         self.assertIn("build_mismatch=1", summary)
+
+    def test_analysis_summary_includes_function_identity_and_type_correction_evidence(self):
+        capture = _capture()
+        plan = _plan(capture)
+        plan.function_identity_candidates.append(
+            FunctionIdentityCandidate(
+                profile_id="windows.io_manager.delete_device",
+                subsystem="I/O Manager",
+                function_name="IoDeleteDevice",
+                match_kind="function_name",
+                confidence=0.74,
+                evidence=["function_name"],
+                blockers=["report_only_profile"],
+                effective_mode="report-only",
+            )
+        )
+        plan.type_corrections.append(
+            ParameterTypeCorrection(
+                parameter_index=0,
+                old_name="a1",
+                new_name="deviceObject",
+                old_type="__int64",
+                canonical_type="PDEVICE_OBJECT",
+                profile_id="windows.io_manager.delete_device",
+                confidence=0.92,
+                effective_mode="report-only",
+            )
+        )
+        plan.type_corrections.append(
+            ParameterTypeCorrection(
+                parameter_index=1,
+                old_name="a2",
+                new_name="irp",
+                old_type="int",
+                canonical_type="PIRP",
+                profile_id="windows.io_manager.call_driver",
+                confidence=0.90,
+                effective_mode="report-only",
+                blockers=["type_conflict"],
+                apply_to_preview=False,
+            )
+        )
+
+        summary = actions_module._format_analysis_summary(capture, plan)
+
+        self.assertIn("Function identities: 1 candidate(s), 1 report-only", summary)
+        self.assertIn("Top function profiles: windows.io_manager.delete_device.", summary)
+        self.assertIn("Function identity blockers: report_only_profile=1.", summary)
+        self.assertIn("Parameter type corrections: 1 applied, 1 blocked.", summary)
+        self.assertIn("Applied corrections: a1->deviceObject __int64->PDEVICE_OBJECT", summary)
+        self.assertIn("Blocked corrections: a2->irp int->PIRP", summary)
+        self.assertIn("Type correction blockers: type_conflict=1.", summary)
 
     def test_build_plan_logs_provider_cyber_policy_block_to_output_and_plan(self):
         capture = _capture()

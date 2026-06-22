@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import Counter
+
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
 from ida_pseudoforge.core.render_flow import format_flow_case_value
@@ -63,7 +65,12 @@ def render_header_lines(
         for line in domain_summary.splitlines():
             header.append(f"    {line}")
 
-    type_summary = _parameter_type_correction_summary(plan)
+    function_identity_summary = format_function_identity_candidate_summary(plan)
+    if function_identity_summary:
+        for line in function_identity_summary.splitlines():
+            header.append(f"    {line}")
+
+    type_summary = format_parameter_type_correction_summary(plan)
     if type_summary:
         for line in type_summary:
             header.append(f"    {line}")
@@ -149,7 +156,57 @@ def kernel_semantic_rewrite_count(plan: CleanPlan) -> int:
     return count
 
 
-def _parameter_type_correction_summary(plan: CleanPlan) -> list[str]:
+def format_function_identity_candidate_summary(plan: CleanPlan, top_limit: int = 5) -> str:
+    candidates = list(plan.function_identity_candidates)
+    if not candidates:
+        return ""
+    mode_counts: Counter[str] = Counter(str(item.effective_mode or "") for item in candidates)
+    blocker_counts: Counter[str] = Counter()
+    profile_counts: Counter[str] = Counter()
+    for item in candidates:
+        if item.profile_id:
+            if item.profile_id == "ambiguous":
+                for profile_id in item.ambiguous_profile_ids:
+                    if profile_id:
+                        profile_counts[str(profile_id)] += 1
+            else:
+                profile_counts[str(item.profile_id)] += 1
+        for blocker in item.blockers:
+            if blocker:
+                blocker_counts[str(blocker)] += 1
+    lines = [
+        (
+            "Function identities: %d candidate(s), %d report-only, %d preview-rewrite, "
+            "%d canonical-rewrite-eligible."
+        )
+        % (
+            len(candidates),
+            mode_counts["report-only"],
+            mode_counts["preview-rewrite"],
+            mode_counts["canonical-rewrite-eligible"],
+        )
+    ]
+    top_profiles = [
+        profile_id
+        for profile_id, _count in sorted(
+            profile_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[: max(1, int(top_limit or 0))]
+    ]
+    if top_profiles:
+        lines.append("Top function profiles: %s." % ", ".join(top_profiles))
+    if blocker_counts:
+        lines.append(
+            "Function identity blockers: %s."
+            % ", ".join(
+                "%s=%d" % (key, blocker_counts[key])
+                for key in sorted(blocker_counts)
+            )
+        )
+    return "\n".join(lines)
+
+
+def format_parameter_type_correction_summary(plan: CleanPlan, detail_limit: int = 3) -> list[str]:
     corrections = list(plan.type_corrections)
     if not corrections:
         return []
@@ -158,6 +215,12 @@ def _parameter_type_correction_summary(plan: CleanPlan) -> list[str]:
     lines = [
         "Parameter type corrections: %d applied, %d blocked." % (len(applied), len(blocked))
     ]
+    applied_detail = _correction_detail_line("Applied corrections", applied, detail_limit, include_blockers=False)
+    if applied_detail:
+        lines.append(applied_detail)
+    blocked_detail = _correction_detail_line("Blocked corrections", blocked, detail_limit, include_blockers=True)
+    if blocked_detail:
+        lines.append(blocked_detail)
     blocker_counts: dict[str, int] = {}
     for item in blocked:
         blockers = item.blockers or (["preview_disabled"] if not item.apply_to_preview else [])
@@ -172,6 +235,45 @@ def _parameter_type_correction_summary(plan: CleanPlan) -> list[str]:
             )
         )
     return lines
+
+
+def _correction_detail_line(
+    label: str,
+    corrections: list[object],
+    limit: int,
+    include_blockers: bool,
+) -> str:
+    selected = sorted(
+        corrections,
+        key=lambda item: (
+            getattr(item, "parameter_index", -1),
+            getattr(item, "profile_id", ""),
+            getattr(item, "new_name", ""),
+        ),
+    )
+    if not selected:
+        return ""
+    detail_limit = max(1, int(limit or 0))
+    parts: list[str] = []
+    for item in selected[:detail_limit]:
+        old_name = _ascii_comment_text(str(getattr(item, "old_name", "") or "arg"))
+        new_name = _ascii_comment_text(str(getattr(item, "new_name", "") or old_name))
+        old_type = _ascii_comment_text(str(getattr(item, "old_type", "") or "unknown"))
+        output_type = _ascii_comment_text(
+            str(getattr(item, "display_type", "") or getattr(item, "canonical_type", "") or "unknown")
+        )
+        profile_id = _ascii_comment_text(str(getattr(item, "profile_id", "") or "profile"))
+        text = "%s->%s %s->%s [%s]" % (old_name, new_name, old_type, output_type, profile_id)
+        if include_blockers:
+            blockers = list(getattr(item, "blockers", []) or [])
+            if not blockers and not bool(getattr(item, "apply_to_preview", True)):
+                blockers = ["preview_disabled"]
+            if blockers:
+                text += " blockers=%s" % ",".join(_ascii_comment_text(str(blocker)) for blocker in blockers)
+        parts.append(text)
+    if len(selected) > detail_limit:
+        parts.append("+%d more" % (len(selected) - detail_limit))
+    return "%s: %s." % (label, "; ".join(parts))
 
 
 def _ascii_comment_text(text: str) -> str:

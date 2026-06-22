@@ -39,6 +39,10 @@ from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.capture import profile_context_from_source_path
 from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
+from ida_pseudoforge.core.render_header import (
+    format_function_identity_candidate_summary,
+    format_parameter_type_correction_summary,
+)
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.rule_diagnostics import format_rule_report_summary
 from ida_pseudoforge.ida.apply_changes import apply_selected_renames
@@ -1317,6 +1321,12 @@ def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:
     domain_summary = format_domain_identity_summary(plan)
     if domain_summary:
         lines.append(domain_summary)
+    function_identity_summary = format_function_identity_candidate_summary(plan)
+    if function_identity_summary:
+        lines.append(function_identity_summary)
+    type_summary = format_parameter_type_correction_summary(plan)
+    if type_summary:
+        lines.extend(type_summary)
     if plan.warnings:
         lines.append("")
         lines.append("Warnings:")

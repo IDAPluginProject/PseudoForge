@@ -8,6 +8,11 @@ from pathlib import Path
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.plan_schema import (
+    CleanPlan,
+    CorrectedParameterField,
+    CorrectedParameterMapEntry,
+)
 from ida_pseudoforge.core.render import write_export_bundle as legacy_render_write_export_bundle
 from ida_pseudoforge.profiles import loader as profile_loader
 
@@ -258,13 +263,107 @@ class ExportBundleTests(unittest.TestCase):
                 rename_payload = json.loads(Path(artifacts["rename_map"]).read_text(encoding="utf-8"))
                 cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
 
+                self.assertEqual("D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", summary["source_context"]["source_path"])
+                self.assertEqual("26200.8457", summary["source_context"]["profile_context"]["build"])
+                self.assertEqual(1, len(summary["function_identity_candidates"]))
+                self.assertEqual(
+                    "windows.io_manager.delete_device",
+                    summary["function_identity_candidates"][0]["profile_id"],
+                )
+                self.assertIn("report_only_profile", summary["function_identity_candidates"][0]["blockers"])
                 self.assertEqual(1, len(summary["parameter_type_corrections"]))
                 self.assertEqual("PDEVICE_OBJECT", summary["parameter_type_corrections"][0]["canonical_type"])
                 self.assertFalse(summary["parameter_type_corrections"][0]["apply_to_idb"])
+                self.assertEqual([], summary["corrected_parameter_map"])
+                self.assertEqual(0, summary["body_canonical_rewrite_summary"]["rewrite_ready"])
                 self.assertEqual(1, len(rename_payload["type_corrections"]))
+                self.assertIn("Function identities: 1 candidate(s)", cleaned)
+                self.assertIn("Applied corrections: a1->deviceObject __int64->PDEVICE_OBJECT", cleaned)
                 self.assertIn("IoDeleteDevice(PDEVICE_OBJECT deviceObject)", cleaned)
         finally:
             profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
+    def test_write_export_bundle_includes_corrected_parameter_map_and_body_rewrite_summary(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall BodyRewriteEvidence(__int64 context)
+{
+  return *(_QWORD *)(context + 16);
+}
+""",
+            name="BodyRewriteEvidence",
+            ea=0x140005000,
+            source_path="sample.bin",
+        )
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            corrected_parameter_map=[
+                CorrectedParameterMapEntry(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="context",
+                    old_type="__int64",
+                    canonical_type="PTEST_CONTEXT",
+                    display_type="PTEST_CONTEXT",
+                    profile_id="test.corrected_body",
+                    role="context",
+                    structure="TEST_CONTEXT",
+                    effective_mode="canonical-rewrite-eligible",
+                    confidence=0.86,
+                    provenance="test corrected map",
+                    source="test profile",
+                    body_canonical_rewrite=True,
+                    fields=[
+                        CorrectedParameterField(
+                            offset=0x10,
+                            name="Flags",
+                            type_text="ULONG",
+                            size=4,
+                            confidence=0.86,
+                            source="test profile",
+                            provenance="test field",
+                        )
+                    ],
+                )
+            ],
+            comments=[
+                {
+                    "kind": "inferred_offset_rewrite_ready",
+                    "base": "context",
+                    "source_provenance": "corrected_parameter_map",
+                    "domain_profile_id": "test.corrected_body",
+                    "text": "Offset field rewrite candidate for context.",
+                    "confidence": 0.86,
+                },
+                {
+                    "kind": "inferred_offset_rewrite_blockers",
+                    "base": "blockedContext",
+                    "source_provenance": "corrected_parameter_map",
+                    "domain_profile_id": "test.blocked_body",
+                    "blockers": ["overlay", "build_mismatch"],
+                    "text": "Offset field rewrite blocked for blockedContext.",
+                    "confidence": 0.80,
+                },
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+
+        corrected_map = summary["corrected_parameter_map"]
+        body_summary = summary["body_canonical_rewrite_summary"]
+        self.assertEqual(1, len(corrected_map))
+        self.assertEqual("test.corrected_body", corrected_map[0]["profile_id"])
+        self.assertEqual("Flags", corrected_map[0]["fields"][0]["name"])
+        self.assertEqual(1, body_summary["rewrite_ready"])
+        self.assertEqual(1, body_summary["rewrite_blockers"])
+        self.assertEqual({"build_mismatch": 1, "overlay": 1}, body_summary["blocker_counts"])
+        self.assertEqual({"corrected_parameter_map": 2}, body_summary["source_provenance_counts"])
+        self.assertEqual(["blockedContext", "context"], body_summary["bases"])
 
     def test_write_export_bundle_includes_layout_rewrite_preview_artifacts(self) -> None:
         cleaned_text = """

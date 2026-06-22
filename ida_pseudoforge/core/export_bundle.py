@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
 
@@ -200,10 +201,81 @@ def _export_summary_payload(
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),
         "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
         "domain_identity_summary": domain_identity_summary_payload(plan),
+        "function_identity_candidates": [asdict(item) for item in plan.function_identity_candidates],
         "parameter_type_corrections": [asdict(item) for item in plan.type_corrections],
+        "corrected_parameter_map": [asdict(item) for item in plan.corrected_parameter_map],
+        "body_canonical_rewrite_summary": _body_canonical_rewrite_summary(plan),
+        "source_context": _source_context_payload(capture),
         "profile_root": active_profile_root(),
         "active_profiles": active_profile_names(),
         "profile_warnings": profile_load_warnings(),
         "profile_manifests": active_profile_manifests(),
         "artifacts": dict(artifacts),
     }
+
+
+def _source_context_payload(capture: FunctionCapture) -> dict[str, object]:
+    return {
+        "source_path": str(capture.source_path or ""),
+        "profile_context": _jsonable_mapping(capture.profile_context),
+    }
+
+
+def _body_canonical_rewrite_summary(plan: CleanPlan) -> dict[str, object]:
+    relevant_kinds = {
+        "inferred_offset_rewrite_ready": "rewrite_ready",
+        "inferred_offset_rewrite_preview": "rewrite_preview",
+        "inferred_offset_rewrite_blockers": "rewrite_blockers",
+        "inferred_offset_rewrite_partial_opportunity": "partial_opportunity",
+    }
+    kind_counts: Counter[str] = Counter()
+    blocker_counts: Counter[str] = Counter()
+    source_provenance_counts: Counter[str] = Counter()
+    domain_profile_counts: Counter[str] = Counter()
+    bases: set[str] = set()
+    for comment in plan.comments:
+        summary_kind = relevant_kinds.get(str(comment.get("kind", "")))
+        if not summary_kind:
+            continue
+        kind_counts[summary_kind] += 1
+        base = str(comment.get("base", "") or "").strip()
+        if base:
+            bases.add(base)
+        source_provenance = str(comment.get("source_provenance", "") or "").strip()
+        if source_provenance:
+            source_provenance_counts[source_provenance] += 1
+        domain_profile_id = str(comment.get("domain_profile_id", "") or "").strip()
+        if domain_profile_id:
+            domain_profile_counts[domain_profile_id] += 1
+        for blocker in comment.get("blockers", []) or []:
+            blocker_text = str(blocker or "").strip()
+            if blocker_text:
+                blocker_counts[blocker_text] += 1
+    return {
+        "rewrite_ready": int(kind_counts["rewrite_ready"]),
+        "rewrite_preview": int(kind_counts["rewrite_preview"]),
+        "rewrite_blockers": int(kind_counts["rewrite_blockers"]),
+        "partial_opportunities": int(kind_counts["partial_opportunity"]),
+        "blocker_counts": dict(sorted(blocker_counts.items())),
+        "source_provenance_counts": dict(sorted(source_provenance_counts.items())),
+        "domain_profile_counts": dict(sorted(domain_profile_counts.items())),
+        "bases": sorted(bases),
+    }
+
+
+def _jsonable_mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        if item is None or isinstance(item, (bool, int, float, str)):
+            result[key_text] = item
+        elif isinstance(item, (list, tuple)):
+            result[key_text] = [
+                entry if entry is None or isinstance(entry, (bool, int, float, str)) else str(entry)
+                for entry in item
+            ]
+        else:
+            result[key_text] = str(item)
+    return result
