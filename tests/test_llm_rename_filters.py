@@ -625,6 +625,60 @@ NTSTATUS __stdcall NtReadFile(
         self.assertFalse(any("Buffer is declared but has no direct assignment" in warning for warning in warnings))
         self.assertFalse(any("Length is declared but has no direct assignment" in warning for warning in warnings))
 
+    def test_live_in_register_locals_are_reported_as_omitted_parameter_candidates(self) -> None:
+        text = """
+__int64 EtwWriteKMSecurityEvent()
+{
+  int v1; // r8d
+  __int64 v2; // r9
+  __int64 v3; // r10
+
+  return EtwpEventWriteFull(0, 0, 0, 0, v3, 0, 0, 0LL, 0LL, v1, v2);
+}
+"""
+        capture = FunctionCapture(
+            name="EtwWriteKMSecurityEvent",
+            prototype="__int64 EtwWriteKMSecurityEvent()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="int", is_arg=False),
+                LocalVariable(name="v2", type="__int64", is_arg=False),
+                LocalVariable(name="v3", type="__int64", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(3, len(warnings))
+        self.assertTrue(any("v1 appears to be a live-in register value (r8d)" in warning for warning in warnings))
+        self.assertTrue(any("v2 appears to be a live-in register value (r9)" in warning for warning in warnings))
+        self.assertTrue(any("v3 appears to be a live-in register value (r10)" in warning for warning in warnings))
+        self.assertTrue(all("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+
+    def test_stack_pointer_retaddr_is_not_reported_as_omitted_parameter_candidate(self) -> None:
+        text = """
+__int64 InstrumentedLockRelease()
+{
+  void *retaddr; // rsp
+
+  return ExpReleaseSpinLockSharedFromDpcLevelInstrumented(retaddr);
+}
+"""
+        capture = FunctionCapture(
+            name="InstrumentedLockRelease",
+            prototype="__int64 InstrumentedLockRelease()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="retaddr", type="void *", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(1, len(warnings))
+        self.assertIn("retaddr is declared but has no direct assignment", warnings[0])
+        self.assertNotIn("live-in register value", warnings[0])
+
     def test_pascalcase_llm_local_renames_are_style_normalized(self) -> None:
         capture = capture_from_pseudocode(
             """

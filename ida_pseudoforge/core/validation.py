@@ -171,6 +171,15 @@ UNASSIGNED_LOCAL_SIZE_COUNT_WORDS = {
     "pages",
     "size",
 }
+LIVE_IN_REGISTER_HINT_RE = re.compile(
+    r"\b(?:"
+    r"[er]?(?:ax|bx|cx|dx|si|di)"
+    r"|[abcd][lh]"
+    r"|r(?:[0-9]|1[0-5])(?:[bwd])?"
+    r"|xmm(?:[0-9]|1[0-5])"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,13 +408,23 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
         usage = _unassigned_local_usage(text, name)
         if not usage:
             continue
+        live_in_register = _live_in_register_hint(text, name, var.location)
         risks[name] = _UnassignedLocalUsageRisk(
             name=name,
             usage=usage,
-            evidence="%s is declared but has no direct assignment before use as %s"
-            % (name, usage),
+            evidence=_unassigned_local_evidence(name, usage, live_in_register),
         )
     return risks
+
+
+def _unassigned_local_evidence(name: str, usage: str, live_in_register: str) -> str:
+    if live_in_register:
+        return (
+            "%s appears to be a live-in register value (%s) with no recovered assignment "
+            "before use as %s; Hex-Rays may have omitted a function parameter or thunk input"
+            % (name, live_in_register, usage)
+        )
+    return "%s is declared but has no direct assignment before use as %s" % (name, usage)
 
 
 def _is_unassigned_local_risk_candidate(
@@ -447,6 +466,43 @@ def _declaration_line_for_name(text: str, name: str) -> str:
     )
     match = pattern.search(text or "")
     return match.group(0).strip() if match else ""
+
+
+def _live_in_register_hint(text: str, name: str, location: str = "") -> str:
+    register = _register_hint_from_location(location)
+    if register:
+        return register
+
+    declaration = _declaration_source_line_for_name(text, name)
+    comment_index = declaration.find("//")
+    if comment_index < 0:
+        return ""
+    return _normalize_register_hint(declaration[comment_index + 2 :])
+
+
+def _register_hint_from_location(location: str) -> str:
+    lowered = (location or "").strip().lower()
+    if not lowered:
+        return ""
+    if any(token in lowered for token in ("stk", "stack", "spoiled", "memory")):
+        return ""
+    return _normalize_register_hint(lowered)
+
+
+def _declaration_source_line_for_name(text: str, name: str) -> str:
+    target = re.escape(name)
+    pattern = re.compile(r"\b%s\b[^\n;]*(?:;|=|,|\[)" % target)
+    for line in (text or "").splitlines():
+        if pattern.search(line):
+            return line.strip()
+    return ""
+
+
+def _normalize_register_hint(text: str) -> str:
+    match = LIVE_IN_REGISTER_HINT_RE.search(text or "")
+    if not match:
+        return ""
+    return match.group(0).lower()
 
 
 def _declaration_has_initializer(declaration: str, name: str) -> bool:
