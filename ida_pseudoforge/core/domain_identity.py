@@ -83,6 +83,31 @@ class DomainIdentityParameterRename:
     evidence: str
 
 
+@dataclass(frozen=True, slots=True)
+class DomainIdentityPrototypeParameter:
+    parameter_index: int
+    canonical_name: str
+    canonical_type: str
+    display_type: str
+    accepted_types: tuple[str, ...]
+    semantic_role: str
+    apply_to_preview: bool
+    apply_to_idb: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DomainIdentityPrototype:
+    profile_id: str
+    function_name: str
+    return_type: str
+    calling_convention: str
+    parameters: tuple[DomainIdentityPrototypeParameter, ...]
+    signature_preview: bool
+    body_canonical_rewrite: bool
+    apply_to_idb_default: bool
+    blockers: tuple[str, ...] = ()
+
+
 def domain_identity_match_for_base(
     text: str,
     base: str,
@@ -183,6 +208,33 @@ def domain_identity_profiles_available() -> bool:
     return bool(_domain_identity_profiles())
 
 
+def domain_identity_function_prototypes(
+    text: str,
+    profile_context: dict[str, Any] | None = None,
+) -> list[DomainIdentityPrototype]:
+    if not domain_identity_profiles_available():
+        return []
+    signature = extract_function_signature(text or "")
+    function_name = extract_function_name(signature)
+    full_name = _extract_full_function_name(signature)
+    parameters = extract_parameters_from_signature(signature)
+    result: list[DomainIdentityPrototype] = []
+    for profile in _domain_identity_profiles():
+        if not _function_matches(profile, function_name, full_name, signature, text or ""):
+            continue
+        if not _profile_parameter_shape_matches(profile, parameters):
+            continue
+        prototype = _domain_identity_prototype(
+            profile,
+            function_name or full_name,
+            _profile_context_blockers(profile, profile_context),
+        )
+        if prototype:
+            result.append(prototype)
+    result.sort(key=lambda item: item.profile_id)
+    return result
+
+
 def domain_identity_parameter_renames(
     text: str,
     profile_context: dict[str, Any] | None = None,
@@ -226,7 +278,7 @@ def domain_identity_parameter_type_corrections(
         if not _profile_parameter_shape_matches(profile, parameters):
             continue
         profile_blockers = _profile_context_blockers(profile, profile_context)
-        for parameter in _profile_parameters(profile):
+        for parameter in _profile_type_parameters(profile):
             correction = _parameter_type_correction(
                 profile,
                 parameter,
@@ -437,6 +489,111 @@ def _profile_parameters(profile: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _profile_type_parameters(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    return _profile_parameters(profile) + _prototype_parameter_dicts(profile)
+
+
+def _prototype_parameter_dicts(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    prototype = profile.get("prototype")
+    if not isinstance(prototype, dict):
+        return []
+    parameters = prototype.get("parameters", [])
+    if isinstance(parameters, dict):
+        raw_parameters = [parameters]
+    elif isinstance(parameters, list):
+        raw_parameters = [item for item in parameters if isinstance(item, dict)]
+    else:
+        return []
+
+    policy = _profile_rewrite_policy(profile)
+    result: list[dict[str, Any]] = []
+    for item in raw_parameters:
+        parameter = dict(item)
+        if "parameter_index" not in parameter and "index" in parameter:
+            parameter["parameter_index"] = parameter["index"]
+        if "role" not in parameter and "semantic_role" in parameter:
+            parameter["role"] = parameter["semantic_role"]
+        if "apply_to_preview" not in parameter:
+            parameter["apply_to_preview"] = policy["signature_preview"]
+        if "apply_to_idb" not in parameter:
+            parameter["apply_to_idb"] = policy["apply_to_idb_default"]
+        result.append(parameter)
+    return result
+
+
+def _domain_identity_prototype(
+    profile: dict[str, Any],
+    function_name: str,
+    blockers: list[str],
+) -> DomainIdentityPrototype | None:
+    prototype = profile.get("prototype")
+    if not isinstance(prototype, dict):
+        return None
+    parameters = tuple(
+        item
+        for item in (
+            _domain_identity_prototype_parameter(parameter)
+            for parameter in _prototype_parameter_dicts(profile)
+        )
+        if item is not None
+    )
+    return_type = _safe_type_correction_text(prototype.get("return_type", ""))
+    calling_convention = _safe_calling_convention_text(prototype.get("calling_convention", ""))
+    if not return_type and not calling_convention and not parameters:
+        return None
+    policy = _profile_rewrite_policy(profile)
+    return DomainIdentityPrototype(
+        profile_id=_profile_id(profile),
+        function_name=function_name,
+        return_type=return_type,
+        calling_convention=calling_convention,
+        parameters=parameters,
+        signature_preview=policy["signature_preview"],
+        body_canonical_rewrite=policy["body_canonical_rewrite"],
+        apply_to_idb_default=policy["apply_to_idb_default"],
+        blockers=tuple(dict.fromkeys(blockers)),
+    )
+
+
+def _domain_identity_prototype_parameter(
+    parameter: dict[str, Any],
+) -> DomainIdentityPrototypeParameter | None:
+    parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
+    if parameter_index < 0:
+        return None
+    canonical_type = _safe_type_correction_text(parameter.get("canonical_type", ""))
+    display_type = _safe_type_correction_text(parameter.get("display_type", ""))
+    if not canonical_type and display_type:
+        canonical_type = display_type
+    return DomainIdentityPrototypeParameter(
+        parameter_index=parameter_index,
+        canonical_name=_safe_identifier_text(
+            parameter.get("canonical_name", parameter.get("display_name", "")),
+            "",
+        ),
+        canonical_type=canonical_type,
+        display_type=display_type,
+        accepted_types=tuple(_string_list(parameter.get("accepted_types"))),
+        semantic_role=_safe_identifier_text(parameter.get("semantic_role", parameter.get("role", "")), ""),
+        apply_to_preview=_bool_value(parameter.get("apply_to_preview"), True),
+        apply_to_idb=_bool_value(parameter.get("apply_to_idb"), False),
+    )
+
+
+def _profile_rewrite_policy(profile: dict[str, Any]) -> dict[str, bool]:
+    value = profile.get("rewrite_policy")
+    policy = value if isinstance(value, dict) else {}
+    return {
+        "signature_preview": _bool_value(policy.get("signature_preview"), True),
+        "body_canonical_rewrite": _bool_value(policy.get("body_canonical_rewrite"), False),
+        "apply_to_idb_default": _bool_value(policy.get("apply_to_idb_default"), False),
+    }
+
+
+def _profile_apply_to_idb_default(profile: dict[str, Any]) -> bool:
+    return _profile_rewrite_policy(profile)["apply_to_idb_default"]
+
+
 def _parameter_role_bases(
     parameter: dict[str, Any],
     parameters: list[tuple[str, str]],
@@ -587,7 +744,8 @@ def _parameter_type_correction(
     parameters: list[tuple[str, str]],
     profile_blockers: list[str],
 ) -> ParameterTypeCorrection | None:
-    raw_type = parameter.get("canonical_type", parameter.get("display_type", ""))
+    raw_display_type = parameter.get("display_type", "")
+    raw_type = parameter.get("canonical_type", raw_display_type)
     if raw_type in (None, ""):
         return None
     parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
@@ -598,6 +756,7 @@ def _parameter_type_correction(
         return None
 
     canonical_type = _safe_type_correction_text(raw_type)
+    display_type = _safe_type_correction_text(raw_display_type)
     blockers = list(profile_blockers)
     if not canonical_type:
         blockers.append("invalid_canonical_type")
@@ -622,6 +781,7 @@ def _parameter_type_correction(
         old_type=old_type,
         canonical_type=canonical_type,
         profile_id=_profile_id(profile),
+        display_type=display_type,
         source=_safe_note_text(parameter.get("type_source", parameter.get("source", ""))) or _profile_source(profile, parameter),
         provenance=_safe_note_text(parameter.get("type_provenance", parameter.get("provenance", "")))
         or _profile_source(profile, parameter),
@@ -629,7 +789,7 @@ def _parameter_type_correction(
         effective_mode=effective_mode,
         blockers=list(dict.fromkeys(blockers)),
         apply_to_preview=apply_to_preview,
-        apply_to_idb=_bool_value(parameter.get("apply_to_idb"), False),
+        apply_to_idb=_bool_value(parameter.get("apply_to_idb"), _profile_apply_to_idb_default(profile)),
     )
 
 
@@ -658,6 +818,7 @@ def _dedupe_parameter_type_corrections(
                     old_type=first.old_type,
                     canonical_type="",
                     profile_id="ambiguous",
+                    display_type="",
                     source=first.source,
                     provenance=", ".join(sorted({item.profile_id for item in items if item.profile_id})),
                     confidence=min(0.54, first.confidence),
@@ -1137,6 +1298,15 @@ def _safe_type_correction_text(value: Any) -> str:
     if not re.search(r"[A-Za-z_]", text):
         return ""
     return text
+
+
+def _safe_calling_convention_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or len(text) > 32:
+        return ""
+    if re.fullmatch(r"__?[A-Za-z][A-Za-z0-9_]*", text):
+        return text
+    return ""
 
 
 def _safe_note_text(value: Any) -> str:

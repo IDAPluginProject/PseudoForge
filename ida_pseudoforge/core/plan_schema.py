@@ -87,6 +87,7 @@ class ParameterTypeCorrection:
     old_type: str
     canonical_type: str
     profile_id: str
+    display_type: str = ""
     source: str = ""
     provenance: str = ""
     confidence: float = 0.0

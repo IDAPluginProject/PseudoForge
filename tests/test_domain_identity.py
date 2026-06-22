@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.domain_identity import domain_identity_function_prototypes
 from ida_pseudoforge.core.field_layout_hints import field_layout_comments
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
@@ -107,8 +108,90 @@ __int64 __fastcall IopExample(__int64 a1, __int64 a2)
         self.assertEqual("__int64", plan.type_corrections[0].old_type)
         self.assertEqual("PDEVICE_OBJECT", plan.type_corrections[0].canonical_type)
         self.assertEqual("PIRP", plan.type_corrections[1].canonical_type)
+        self.assertFalse(any(item.apply_to_idb for item in plan.type_corrections))
         self.assertIn("__int64 __fastcall IopExample(PDEVICE_OBJECT deviceObject, PIRP irp)", rendered)
         self.assertNotIn("__int64 deviceObject", rendered)
+
+    def test_prototype_profile_schema_supports_display_type_and_policy_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _prototype_pack_payload())
+            profile_loader.configure_profile_dir(temp_dir)
+
+            text = """
+NTSTATUS __fastcall IopPrototype(__int64 a1, PVOID a2, _QWORD a3, void *a4)
+{
+  return 0;
+}
+"""
+            prototypes = domain_identity_function_prototypes(text, profile_context=_matching_context())
+            capture = capture_from_pseudocode(text, profile_context=_matching_context())
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(1, len(prototypes))
+        prototype = prototypes[0]
+        self.assertEqual("test.prototype_profile", prototype.profile_id)
+        self.assertEqual("NTSTATUS", prototype.return_type)
+        self.assertEqual("__stdcall", prototype.calling_convention)
+        self.assertTrue(prototype.signature_preview)
+        self.assertTrue(prototype.body_canonical_rewrite)
+        self.assertFalse(prototype.apply_to_idb_default)
+        self.assertEqual(4, len(prototype.parameters))
+        self.assertEqual("device_object", prototype.parameters[0].semantic_role)
+        self.assertEqual(("__int64", "PVOID", "void *", "_QWORD"), prototype.parameters[0].accepted_types)
+
+        self.assertEqual(4, len(plan.type_corrections))
+        self.assertEqual(["__int64", "PVOID", "_QWORD", "void *"], [item.old_type for item in plan.type_corrections])
+        self.assertEqual("_DEVICE_OBJECT *", plan.type_corrections[0].canonical_type)
+        self.assertEqual("PDEVICE_OBJECT", plan.type_corrections[0].display_type)
+        self.assertFalse(any(item.apply_to_idb for item in plan.type_corrections))
+
+        signature_line = next(line for line in rendered.splitlines() if "IopPrototype(" in line)
+        self.assertIn("PDEVICE_OBJECT", signature_line)
+        self.assertIn("PFILE_OBJECT", signature_line)
+        self.assertIn("ULONG_PTR", signature_line)
+        self.assertIn("PVOID", signature_line)
+        self.assertNotIn("_QWORD", signature_line)
+
+    def test_prototype_profile_signature_preview_can_be_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _prototype_pack_payload(signature_preview=False))
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+NTSTATUS __fastcall IopPrototype(__int64 a1, PVOID a2, _QWORD a3, void *a4)
+{
+  return 0;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(4, len(plan.type_corrections))
+        self.assertFalse(any(item.apply_to_preview for item in plan.type_corrections))
+        self.assertNotIn("PDEVICE_OBJECT", next(line for line in rendered.splitlines() if "IopPrototype(" in line))
+
+    def test_prototype_profile_apply_to_idb_default_requires_explicit_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, _prototype_pack_payload(apply_to_idb_default=True))
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+NTSTATUS __fastcall IopPrototype(__int64 a1, PVOID a2, _QWORD a3, void *a4)
+{
+  return 0;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+
+        self.assertEqual(4, len(plan.type_corrections))
+        self.assertTrue(all(item.apply_to_idb for item in plan.type_corrections))
 
     def test_type_correction_build_mismatch_is_diagnostic_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -412,6 +495,64 @@ def _type_correction_pack_payload(
             "pdb_guid_age": "abcdef0123456789-1",
         },
         "profiles": profiles,
+    }
+
+
+def _prototype_pack_payload(
+    signature_preview: bool = True,
+    apply_to_idb_default: bool = False,
+) -> dict[str, object]:
+    return {
+        "schema": "domain_identity_profiles_v1",
+        "profile_version": "v1-test",
+        "metadata": {
+            "image": "ntoskrnl.exe",
+            "arch": "x64",
+            "build": "26200.8457",
+            "pdb_guid_age": "abcdef0123456789-1",
+        },
+        "profiles": [
+            {
+                "id": "test.prototype_profile",
+                "source": "prototype-schema-test",
+                "function_names": ["IopPrototype"],
+                "parameter_count": 4,
+                "prototype": {
+                    "return_type": "NTSTATUS",
+                    "calling_convention": "__stdcall",
+                    "parameters": [
+                        _prototype_parameter(0, "deviceObject", "_DEVICE_OBJECT *", "PDEVICE_OBJECT", "device_object"),
+                        _prototype_parameter(1, "fileObject", "_FILE_OBJECT *", "PFILE_OBJECT", "file_object"),
+                        _prototype_parameter(2, "information", "ULONG_PTR", "ULONG_PTR", "information"),
+                        _prototype_parameter(3, "context", "PVOID", "PVOID", "context"),
+                    ],
+                },
+                "rewrite_policy": {
+                    "signature_preview": signature_preview,
+                    "body_canonical_rewrite": True,
+                    "apply_to_idb_default": apply_to_idb_default,
+                },
+            }
+        ],
+    }
+
+
+def _prototype_parameter(
+    index: int,
+    canonical_name: str,
+    canonical_type: str,
+    display_type: str,
+    semantic_role: str,
+) -> dict[str, object]:
+    return {
+        "index": index,
+        "canonical_name": canonical_name,
+        "canonical_type": canonical_type,
+        "display_type": display_type,
+        "accepted_types": ["__int64", "PVOID", "void *", "_QWORD"],
+        "semantic_role": semantic_role,
+        "type_source": "unit-test-prototype",
+        "type_confidence": 0.93,
     }
 
 

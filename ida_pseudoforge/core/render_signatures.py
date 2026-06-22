@@ -135,7 +135,8 @@ def _correct_signature_parameters(
             render_name = correction.new_name
         elif current_name == correction.old_name and correction.new_name == correction.old_name:
             render_name = correction.new_name
-        replacement = "%s %s" % (correction.canonical_type, render_name)
+        render_type = correction.display_type or correction.canonical_type
+        replacement = "%s %s" % (render_type, render_name)
         replacements.append((span[0], span[1], replacement))
 
     if not replacements:
