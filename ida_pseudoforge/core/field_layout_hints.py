@@ -9,6 +9,7 @@ from ida_pseudoforge.core.domain_identity import (
     MODE_CANONICAL_REWRITE_ELIGIBLE,
     MODE_PREVIEW_REWRITE,
     MODE_REPORT_ONLY,
+    DomainIdentityField,
     DomainIdentityMatch,
     domain_identity_match_for_base,
     domain_identity_matches,
@@ -16,6 +17,7 @@ from ida_pseudoforge.core.domain_identity import (
     domain_identity_role_matches,
 )
 from ida_pseudoforge.core.event_builder_patterns import etw_event_builder_append_counts
+from ida_pseudoforge.core.plan_schema import CorrectedParameterMapEntry
 
 
 _OFFSET_DEREF_RE = re.compile(
@@ -193,9 +195,15 @@ def field_layout_comments(
     text: str,
     max_comments: int = 4,
     profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> list[dict[str, Any]]:
     layouts = _collect_layouts(text or "")
-    profile_matches = _domain_identity_matches_for_layouts(text or "", layouts, profile_context)
+    profile_matches = _domain_identity_matches_for_layouts(
+        text or "",
+        layouts,
+        profile_context,
+        corrected_parameter_map=corrected_parameter_map,
+    )
     suppressed_layout_bases = {
         base
         for base, match in profile_matches.items()
@@ -256,7 +264,12 @@ def field_layout_comments(
             unaligned_preview = _field_unaligned_subfield_comment_from_layout(item, domain_identity)
             if unaligned_preview:
                 comments.append(unaligned_preview)
-        blocker = _field_rewrite_blocker_comment(text or "", item, profile_context)
+        blocker = _field_rewrite_blocker_comment(
+            text or "",
+            item,
+            profile_context,
+            corrected_parameter_map=corrected_parameter_map,
+        )
         if blocker:
             comments.append(blocker)
             stability = _field_base_stability_comment_from_layout(text or "", item, blocker)
@@ -345,7 +358,12 @@ def field_layout_comments(
                 if temp_blocked:
                     comments.append(temp_blocked)
         else:
-            ready = _field_rewrite_ready_comment(text or "", item, profile_context)
+            ready = _field_rewrite_ready_comment(
+                text or "",
+                item,
+                profile_context,
+                corrected_parameter_map=corrected_parameter_map,
+            )
             if ready:
                 comments.append(ready)
                 rewrite_preview = _field_rewrite_preview_comment(text or "", item, ready, domain_identity)
@@ -638,19 +656,29 @@ def _domain_identity_matches_for_layouts(
     text: str,
     layouts: dict[str, _LayoutEvidence],
     profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> dict[str, DomainIdentityMatch]:
-    if not domain_identity_profiles_available():
+    if not domain_identity_profiles_available() and not corrected_parameter_map:
         return {}
     non_identity_blockers_by_base = {
         base: _non_identity_layout_rewrite_blockers(text or "", layout)
         for base, layout in layouts.items()
     }
-    matches = domain_identity_matches(
-        text or "",
-        set(layouts),
-        non_identity_blockers_by_base=non_identity_blockers_by_base,
-        profile_context=profile_context,
-    )
+    matches = {}
+    if domain_identity_profiles_available():
+        matches = domain_identity_matches(
+            text or "",
+            set(layouts),
+            non_identity_blockers_by_base=non_identity_blockers_by_base,
+            profile_context=profile_context,
+        )
+    for base in sorted(set(layouts) - set(matches)):
+        corrected_match = _corrected_parameter_domain_identity_for_layout(
+            layouts[base],
+            corrected_parameter_map,
+        )
+        if corrected_match:
+            matches[base] = corrected_match
     direct_matches = dict(matches)
     for base in sorted(set(layouts) - set(matches)):
         identity = _trusted_stable_base_source_identity(text or "", base)
@@ -669,16 +697,74 @@ def _domain_identity_for_layout(
     layout: _LayoutEvidence,
     non_identity_blockers: list[str] | None = None,
     profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> DomainIdentityMatch | None:
     blockers = non_identity_blockers
     if blockers is None:
         blockers = _non_identity_layout_rewrite_blockers(text or "", layout)
-    return domain_identity_match_for_base(
+    match = domain_identity_match_for_base(
         text or "",
         layout.base,
         non_identity_blockers=blockers,
         profile_context=profile_context,
     )
+    if match:
+        return match
+    return _corrected_parameter_domain_identity_for_layout(layout, corrected_parameter_map)
+
+
+def _corrected_parameter_domain_identity_for_layout(
+    layout: _LayoutEvidence,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None,
+) -> DomainIdentityMatch | None:
+    for entry in sorted(corrected_parameter_map or [], key=lambda item: (item.parameter_index, item.profile_id)):
+        if layout.base not in _corrected_parameter_base_names(entry):
+            continue
+        if not entry.body_canonical_rewrite:
+            continue
+        fields = tuple(
+            DomainIdentityField(
+                offset=field.offset,
+                name=field.name,
+                type_text=field.type_text,
+                size=field.size,
+                confidence=field.confidence,
+                source=field.source,
+                provenance=field.provenance,
+                note=field.note,
+            )
+            for field in entry.fields
+        )
+        if not fields:
+            continue
+        return DomainIdentityMatch(
+            profile_id=entry.profile_id,
+            base=layout.base,
+            role=entry.role,
+            structure=entry.structure,
+            mode=MODE_CANONICAL_REWRITE_ELIGIBLE,
+            effective_mode=MODE_CANONICAL_REWRITE_ELIGIBLE,
+            confidence=round(min(entry.confidence, 0.86), 2),
+            parameter_index=entry.parameter_index,
+            parameter_name=entry.new_name or entry.old_name or layout.base,
+            fields=fields,
+            match_reason="corrected parameter map from profile %s" % entry.profile_id,
+            profile_source=entry.source,
+            profile_metadata=(
+                ("corrected_type", entry.display_type or entry.canonical_type),
+                ("old_type", entry.old_type),
+                ("provenance", entry.provenance),
+            ),
+        )
+    return None
+
+
+def _corrected_parameter_base_names(entry: CorrectedParameterMapEntry) -> set[str]:
+    return {
+        item
+        for item in set(entry.base_names or []) | {entry.old_name, entry.new_name}
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(item or ""))
+    }
 
 
 def _domain_identity_match_for_alias(
@@ -1913,8 +1999,14 @@ def _field_rewrite_blocker_comment(
     text: str,
     layout: _LayoutEvidence,
     profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> dict[str, Any] | None:
-    blockers = _field_rewrite_blockers(text, layout, profile_context=profile_context)
+    blockers = _field_rewrite_blockers(
+        text,
+        layout,
+        profile_context=profile_context,
+        corrected_parameter_map=corrected_parameter_map,
+    )
     if not blockers:
         return None
     base_kind = _layout_base_kind(layout.base)
@@ -1938,6 +2030,7 @@ def _field_rewrite_blocker_comment(
         layout,
         _non_identity_layout_rewrite_blockers(text, layout),
         profile_context=profile_context,
+        corrected_parameter_map=corrected_parameter_map,
     )
     if domain_identity:
         comment["domain_effective_mode"] = domain_identity.effective_mode
@@ -3245,10 +3338,17 @@ def _trace_rhs_samples(values: Any, limit: int = _MAX_BASE_STABILITY_RHS_SAMPLES
     return list(dict.fromkeys(samples))[:limit]
 
 
+def _domain_identity_rewrite_source(domain_identity: DomainIdentityMatch) -> tuple[str, str]:
+    if str(domain_identity.match_reason or "").startswith("corrected parameter map"):
+        return "corrected_parameter_map", "corrected_parameter_type"
+    return "domain_identity", "parameter_profile"
+
+
 def _field_rewrite_ready_comment(
     text: str,
     layout: _LayoutEvidence,
     profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
     identity = _trusted_stable_base_source_identity(text, layout.base)
@@ -3263,13 +3363,15 @@ def _field_rewrite_ready_comment(
             layout,
             non_identity_blockers,
             profile_context=profile_context,
+            corrected_parameter_map=corrected_parameter_map,
         )
         if domain_identity and domain_identity.effective_mode == MODE_CANONICAL_REWRITE_ELIGIBLE:
+            source_provenance, source_rhs_kind = _domain_identity_rewrite_source(domain_identity)
             identity = {
                 "source": domain_identity.base,
                 "source_kind": "domain",
-                "source_provenance": "domain_identity",
-                "source_rhs_kind": "parameter_profile",
+                "source_provenance": source_provenance,
+                "source_rhs_kind": source_rhs_kind,
                 "domain_profile_id": domain_identity.profile_id,
                 "domain_role": domain_identity.role,
                 "domain_structure": domain_identity.structure,
@@ -3589,6 +3691,7 @@ def _field_rewrite_blockers(
     layout: _LayoutEvidence,
     allow_generic_parameter_trust: bool = True,
     profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> list[str]:
     blockers: list[str] = []
     base_kind = _layout_base_kind(layout.base)
@@ -3598,6 +3701,7 @@ def _field_rewrite_blockers(
         layout,
         non_identity_blockers,
         profile_context=profile_context,
+        corrected_parameter_map=corrected_parameter_map,
     )
     if domain_identity:
         if domain_identity.ambiguous:

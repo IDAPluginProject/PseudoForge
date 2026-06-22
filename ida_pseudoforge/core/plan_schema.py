@@ -113,6 +113,40 @@ class FunctionIdentityCandidate:
 
 
 @dataclass(slots=True)
+class CorrectedParameterField:
+    offset: int
+    name: str
+    type_text: str
+    size: int
+    confidence: float
+    source: str = ""
+    provenance: str = ""
+    note: str = ""
+
+
+@dataclass(slots=True)
+class CorrectedParameterMapEntry:
+    parameter_index: int
+    old_name: str
+    new_name: str
+    old_type: str
+    canonical_type: str
+    display_type: str
+    profile_id: str
+    role: str
+    structure: str
+    effective_mode: str
+    confidence: float
+    provenance: str = ""
+    source: str = ""
+    body_canonical_rewrite: bool = False
+    apply_to_preview: bool = True
+    apply_to_idb: bool = False
+    base_names: list[str] = field(default_factory=list)
+    fields: list[CorrectedParameterField] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class BufferSizeConstraint:
     buffer: str
     length: str
@@ -212,6 +246,7 @@ class CleanPlan:
     rule_report: dict[str, Any] = field(default_factory=dict)
     type_corrections: list[ParameterTypeCorrection] = field(default_factory=list)
     function_identity_candidates: list[FunctionIdentityCandidate] = field(default_factory=list)
+    corrected_parameter_map: list[CorrectedParameterMapEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

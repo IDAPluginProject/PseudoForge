@@ -223,6 +223,64 @@ __int64 __fastcall DomainNoProfileLayout(__int64 argument0)
         self.assertEqual("domain_identity", previews[0]["source_provenance"])
         self.assertIn("flags", previews[0]["text"])
 
+    def test_corrected_parameter_map_unlocks_body_rewrite_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _corrected_parameter_body_profile(
+                        "test.corrected_body",
+                        "CorrectedBodyLayout",
+                        "canonical-rewrite-eligible",
+                    )
+                ],
+            )
+            capture = capture_from_pseudocode(_corrected_parameter_body_sample("CorrectedBodyLayout"))
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        identities = [item for item in plan.comments if item.get("kind") == "domain_structure_identity"]
+        blockers = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(plan.corrected_parameter_map))
+        self.assertEqual("context", plan.corrected_parameter_map[0].new_name)
+        self.assertEqual("TEST_DOMAIN_CONTEXT", plan.corrected_parameter_map[0].structure)
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(identities))
+        self.assertIn("corrected parameter map", identities[0]["text"])
+        self.assertEqual(1, len(ready))
+        self.assertEqual("corrected_parameter_map", ready[0]["source_provenance"])
+        self.assertEqual("corrected_parameter_type", ready[0]["source_rhs_kind"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("flags", identities[0]["fields"][0]["name"])
+        self.assertIn("PTEST_DOMAIN_CONTEXT context", rendered)
+        self.assertIn("Source provenance corrected_parameter_map", rendered)
+
+    def test_report_only_corrected_parameter_does_not_unlock_body_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._configure_domain_profiles(
+                temp_dir,
+                [
+                    _corrected_parameter_body_profile(
+                        "test.corrected_body_report_only",
+                        "CorrectedBodyReportOnlyLayout",
+                        "report-only",
+                    )
+                ],
+            )
+            capture = capture_from_pseudocode(_corrected_parameter_body_sample("CorrectedBodyReportOnlyLayout"))
+            plan = build_clean_plan(capture)
+
+        blockers = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in plan.comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+
+        self.assertEqual([], plan.corrected_parameter_map)
+        self.assertEqual(1, len(blockers))
+        self.assertIn("base name is generic", blockers[0]["blockers"])
+        self.assertEqual([], ready)
+
     def test_domain_identity_ambiguous_profile_match_stays_report_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             self._configure_domain_profiles(
@@ -4911,6 +4969,39 @@ def _domain_identity_profile(
     }
 
 
+def _corrected_parameter_body_profile(
+    profile_id: str,
+    function_name: str,
+    mode: str,
+) -> dict[str, object]:
+    profile = _domain_identity_profile(profile_id, function_name, mode)
+    profile["rewrite_policy"] = {
+        "signature_preview": True,
+        "body_canonical_rewrite": True,
+        "apply_to_idb_default": False,
+    }
+    parameter = dict(profile["parameters"][0])
+    parameter["rename_to"] = "context"
+    parameter["accepted_types"] = ["PTEST_DOMAIN_CONTEXT"]
+    profile["parameters"] = [parameter]
+    profile["prototype"] = {
+        "return_type": "__int64",
+        "calling_convention": "__fastcall",
+        "parameters": [
+            {
+                "index": 0,
+                "canonical_name": "context",
+                "canonical_type": "PTEST_DOMAIN_CONTEXT",
+                "display_type": "PTEST_DOMAIN_CONTEXT",
+                "accepted_types": ["__int64"],
+                "semantic_role": "domainContext",
+                "type_confidence": 0.88,
+            }
+        ],
+    }
+    return profile
+
+
 def _domain_identity_sample(function_name: str) -> str:
     return """
 __int64 __fastcall %s(__int64 argument0)
@@ -4927,6 +5018,26 @@ __int64 __fastcall %s(__int64 argument0)
        + *(_QWORD *)(argument0 + 24)
        + *(_QWORD *)(argument0 + 32)
        + *(_QWORD *)(argument0 + 40);
+}
+""" % function_name
+
+
+def _corrected_parameter_body_sample(function_name: str) -> str:
+    return """
+__int64 __fastcall %s(__int64 a1)
+{
+  return *(_QWORD *)(a1 + 16)
+       + *(_QWORD *)(a1 + 24)
+       + *(_QWORD *)(a1 + 32)
+       + *(_QWORD *)(a1 + 40)
+       + *(_QWORD *)(a1 + 48)
+       + *(_QWORD *)(a1 + 56)
+       + *(_QWORD *)(a1 + 64)
+       + *(_QWORD *)(a1 + 72)
+       + *(_QWORD *)(a1 + 16)
+       + *(_QWORD *)(a1 + 24)
+       + *(_QWORD *)(a1 + 32)
+       + *(_QWORD *)(a1 + 40);
 }
 """ % function_name
 

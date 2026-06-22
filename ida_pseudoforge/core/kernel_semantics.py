@@ -12,7 +12,7 @@ from ida_pseudoforge.core.normalize import (
     safe_identifier_replace,
 )
 
-from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import CorrectedParameterMapEntry, FunctionCapture, RenameSuggestion
 from ida_pseudoforge.core.registry_domain import registry_domain_comments
 
 
@@ -207,7 +207,11 @@ def kernel_rename_suggestions(capture: FunctionCapture) -> list[RenameSuggestion
     return suggestions
 
 
-def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> list[dict[str, Any]]:
+def kernel_comments(
+    capture: FunctionCapture,
+    rename_map: dict[str, str],
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
+) -> list[dict[str, Any]]:
     raw_text = capture.pseudocode or ""
     text = _apply_rename_map(raw_text, rename_map)
     comments: list[dict[str, Any]] = []
@@ -348,7 +352,11 @@ def kernel_comments(capture: FunctionCapture, rename_map: dict[str, str]) -> lis
 
     comments.extend(registry_domain_comments(capture, rename_map))
     comments.extend(dense_structural_comments(capture, text))
-    layout_comments = field_layout_comments(text, profile_context=capture.profile_context)
+    layout_comments = field_layout_comments(
+        text,
+        profile_context=capture.profile_context,
+        corrected_parameter_map=corrected_parameter_map,
+    )
     layout_identity_bases = {
         str(comment.get("base", ""))
         for comment in layout_comments

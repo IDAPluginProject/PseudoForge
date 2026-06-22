@@ -11,7 +11,12 @@ from ida_pseudoforge.core.normalize import (
     extract_function_signature,
     extract_parameters_from_signature,
 )
-from ida_pseudoforge.core.plan_schema import FunctionIdentityCandidate, ParameterTypeCorrection
+from ida_pseudoforge.core.plan_schema import (
+    CorrectedParameterField,
+    CorrectedParameterMapEntry,
+    FunctionIdentityCandidate,
+    ParameterTypeCorrection,
+)
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -320,6 +325,66 @@ def domain_identity_parameter_type_corrections(
             if correction:
                 candidates.append(correction)
     return _dedupe_parameter_type_corrections(candidates)
+
+
+def domain_identity_corrected_parameter_map(
+    text: str,
+    type_corrections: list[ParameterTypeCorrection],
+    profile_context: dict[str, Any] | None = None,
+    rename_map: dict[str, str] | None = None,
+) -> list[CorrectedParameterMapEntry]:
+    if not type_corrections or not domain_identity_profiles_available():
+        return []
+    profiles_by_id = {_profile_id(profile): profile for profile in _domain_identity_profiles()}
+    result: list[CorrectedParameterMapEntry] = []
+    for correction in sorted(type_corrections, key=lambda item: (item.parameter_index, item.profile_id)):
+        if not _type_correction_allows_corrected_parameter_map(correction):
+            continue
+        profile = profiles_by_id.get(correction.profile_id)
+        if not profile:
+            continue
+        if _profile_context_blockers(profile, profile_context):
+            continue
+        if not _profile_rewrite_policy(profile)["body_canonical_rewrite"]:
+            continue
+        if _profile_is_report_only(profile):
+            continue
+        parameter = _profile_parameter_for_correction(profile, correction)
+        if parameter is None:
+            continue
+        fields = _corrected_parameter_fields(profile, parameter)
+        if not fields:
+            continue
+        structure = _corrected_parameter_structure(parameter, correction)
+        if not structure:
+            continue
+        role = _safe_identifier_text(
+            parameter.get("role", parameter.get("semantic_role", "")),
+            "correctedParameter",
+        )
+        result.append(
+            CorrectedParameterMapEntry(
+                parameter_index=correction.parameter_index,
+                old_name=correction.old_name,
+                new_name=correction.new_name,
+                old_type=correction.old_type,
+                canonical_type=correction.canonical_type,
+                display_type=correction.display_type,
+                profile_id=correction.profile_id,
+                role=role,
+                structure=structure,
+                effective_mode=MODE_CANONICAL_REWRITE_ELIGIBLE,
+                confidence=round(min(correction.confidence, _mode_confidence_cap(MODE_CANONICAL_REWRITE_ELIGIBLE)), 2),
+                provenance=correction.provenance,
+                source=correction.source,
+                body_canonical_rewrite=True,
+                apply_to_preview=correction.apply_to_preview,
+                apply_to_idb=correction.apply_to_idb,
+                base_names=_corrected_parameter_base_names_for_correction(correction, rename_map),
+                fields=fields,
+            )
+        )
+    return _dedupe_corrected_parameter_map(result)
 
 
 def _function_identity_blockers_by_profile(
@@ -744,6 +809,13 @@ def _prototype_parameter_dicts(profile: dict[str, Any]) -> list[dict[str, Any]]:
             parameter["apply_to_preview"] = policy["signature_preview"]
         if "apply_to_idb" not in parameter:
             parameter["apply_to_idb"] = policy["apply_to_idb_default"]
+        if "mode" not in parameter:
+            if policy["body_canonical_rewrite"]:
+                parameter["mode"] = MODE_CANONICAL_REWRITE_ELIGIBLE
+            elif policy["signature_preview"]:
+                parameter["mode"] = MODE_PREVIEW_REWRITE
+            else:
+                parameter["mode"] = MODE_REPORT_ONLY
         result.append(parameter)
     return result
 
@@ -1105,6 +1177,133 @@ def _dedupe_parameter_type_corrections(
         )[0]
         result.append(selected)
     return result
+
+
+def _type_correction_allows_corrected_parameter_map(correction: ParameterTypeCorrection) -> bool:
+    if correction.blockers:
+        return False
+    if not correction.apply_to_preview:
+        return False
+    if not correction.canonical_type:
+        return False
+    if correction.effective_mode == MODE_REPORT_ONLY:
+        return False
+    return True
+
+
+def _profile_parameter_for_correction(
+    profile: dict[str, Any],
+    correction: ParameterTypeCorrection,
+) -> dict[str, Any] | None:
+    profile_parameters = [
+        parameter
+        for parameter in _profile_parameters(profile)
+        if _profile_parameter_matches_correction(parameter, correction)
+    ]
+    for parameter in profile_parameters:
+        if isinstance(parameter.get("fields"), list) and parameter.get("fields"):
+            return parameter
+    if profile_parameters:
+        return profile_parameters[0]
+    for parameter in _prototype_parameter_dicts(profile):
+        if _profile_parameter_matches_correction(parameter, correction):
+            return parameter
+    return None
+
+
+def _profile_parameter_matches_correction(
+    parameter: dict[str, Any],
+    correction: ParameterTypeCorrection,
+) -> bool:
+    parameter_index = _int_value(parameter.get("parameter_index", parameter.get("index")), -1)
+    if parameter_index >= 0 and parameter_index == correction.parameter_index:
+        return True
+    names = (
+        _string_list(parameter.get("canonical_name"))
+        + _string_list(parameter.get("rename_to"))
+        + _string_list(parameter.get("parameter_name"))
+        + _string_list(parameter.get("name"))
+        + _string_list(parameter.get("base_names"))
+        + _string_list(parameter.get("parameter_names"))
+    )
+    return correction.old_name in names or correction.new_name in names
+
+
+def _corrected_parameter_fields(
+    profile: dict[str, Any],
+    parameter: dict[str, Any],
+) -> list[CorrectedParameterField]:
+    return [
+        CorrectedParameterField(
+            offset=field.offset,
+            name=field.name,
+            type_text=field.type_text,
+            size=field.size,
+            confidence=field.confidence,
+            source=field.source,
+            provenance=field.provenance,
+            note=field.note,
+        )
+        for field in _profile_fields(parameter.get("fields", []), profile, parameter)
+    ]
+
+
+def _corrected_parameter_structure(
+    parameter: dict[str, Any],
+    correction: ParameterTypeCorrection,
+) -> str:
+    structure = _safe_identifier_text(parameter.get("structure", ""), "")
+    if structure:
+        return structure
+    return _structure_name_from_type_text(correction.display_type or correction.canonical_type)
+
+
+def _structure_name_from_type_text(type_text: str) -> str:
+    value = str(type_text or "")
+    value = re.sub(r"\b(?:const|volatile|struct|class|enum|_In_|_Inout_|_Out_)\b", " ", value, flags=re.I)
+    value = value.replace("*", " ").replace("&", " ")
+    value = re.sub(r"\s+", " ", value).strip()
+    if not value:
+        return ""
+    name = value.split()[-1].strip()
+    name = name.lstrip("_")
+    if len(name) > 2 and name.startswith("P") and name[1].isupper() and name.upper() not in {"PVOID", "PCHAR"}:
+        name = name[1:]
+    return _safe_identifier_text(name, "")
+
+
+def _dedupe_corrected_parameter_map(
+    entries: list[CorrectedParameterMapEntry],
+) -> list[CorrectedParameterMapEntry]:
+    by_index: dict[int, list[CorrectedParameterMapEntry]] = {}
+    for entry in entries:
+        by_index.setdefault(entry.parameter_index, []).append(entry)
+
+    result: list[CorrectedParameterMapEntry] = []
+    for _parameter_index, items in sorted(by_index.items()):
+        shapes = {
+            (item.profile_id, item.canonical_type, item.new_name, item.structure)
+            for item in items
+        }
+        if len(shapes) != 1:
+            continue
+        result.append(sorted(items, key=lambda item: (item.profile_id, item.new_name))[0])
+    return result
+
+
+def _corrected_parameter_base_names_for_correction(
+    correction: ParameterTypeCorrection,
+    rename_map: dict[str, str] | None,
+) -> list[str]:
+    names = [correction.old_name, correction.new_name]
+    mapped_name = dict(rename_map or {}).get(correction.old_name, "")
+    if mapped_name:
+        names.append(mapped_name)
+    return [
+        name
+        for name in dict.fromkeys(str(item or "").strip() for item in names)
+        if _safe_identifier_text(name, "")
+    ]
 
 
 def _parameter_match(

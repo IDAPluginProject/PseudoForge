@@ -13,6 +13,7 @@ from ida_pseudoforge.core.deterministic.engine import RuleEngine
 from ida_pseudoforge.core.deterministic.loader import load_default_rule_packs
 from ida_pseudoforge.core.deterministic.schema import RuleReport
 from ida_pseudoforge.core.domain_identity import (
+    domain_identity_corrected_parameter_map,
     domain_identity_function_identity_candidates,
     domain_identity_parameter_renames,
     domain_identity_parameter_type_corrections,
@@ -81,13 +82,19 @@ def build_clean_plan(
         disasm_case_slices=buffer_contract_disasm_slices,
     )
     cleanup_labels = classify_cleanup_labels(capture)
-    comments = _dedupe_comments(
-        kernel_comments(capture, rename_map)
-        + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
-    )
     type_corrections = domain_identity_parameter_type_corrections(
         capture.pseudocode,
         profile_context=capture.profile_context,
+    )
+    corrected_parameter_map = domain_identity_corrected_parameter_map(
+        capture.pseudocode,
+        type_corrections,
+        profile_context=capture.profile_context,
+        rename_map=rename_map,
+    )
+    comments = _dedupe_comments(
+        kernel_comments(capture, rename_map, corrected_parameter_map=corrected_parameter_map)
+        + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
     )
     function_identity_candidates = domain_identity_function_identity_candidates(
         capture.pseudocode,
@@ -124,6 +131,7 @@ def build_clean_plan(
         rule_report=rule_report_payload,
         type_corrections=type_corrections,
         function_identity_candidates=function_identity_candidates,
+        corrected_parameter_map=corrected_parameter_map,
     )
 
 
