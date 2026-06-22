@@ -88,6 +88,7 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
         ordered = pseudoforge_free_console.ordered_artifacts(
             {
                 "warnings": "warnings.json",
+                "warning_diagnostics": "warning-diagnostics.json",
                 "cleaned_pseudocode": "cleaned.cpp",
                 "buffer_structs": "buffer-structs.hpp",
                 "extra": "extra.txt",
@@ -100,6 +101,7 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
                 ("rename_map", "rename-map.json"),
                 ("buffer_structs", "buffer-structs.hpp"),
                 ("warnings", "warnings.json"),
+                ("warning_diagnostics", "warning-diagnostics.json"),
                 ("extra", "extra.txt"),
             ],
             ordered,
@@ -169,6 +171,7 @@ class PseudoForgeFreeCliTests(unittest.TestCase):
                 "rename_map",
                 "rule_report",
                 "warnings",
+                "warning_diagnostics",
                 "raw_pseudocode",
                 "raw_vs_cleaned_diff",
                 "summary",

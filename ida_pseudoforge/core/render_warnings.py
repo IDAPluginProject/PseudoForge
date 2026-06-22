@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import asdict, is_dataclass
 
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, looks_like_ioctl_dispatcher_name
 from ida_pseudoforge.core.plan_schema import CleanPlan
@@ -38,6 +39,32 @@ def export_warnings(plan: CleanPlan) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def export_warning_diagnostics(plan: CleanPlan) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    seen = set()
+    for item in getattr(plan, "warning_diagnostics", []) or []:
+        payload = _warning_diagnostic_payload(item)
+        key = json.dumps(payload, ensure_ascii=True, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+    return result
+
+
+def _warning_diagnostic_payload(item: object) -> dict[str, object]:
+    if is_dataclass(item):
+        payload = asdict(item)
+    elif isinstance(item, dict):
+        payload = dict(item)
+    else:
+        payload = {"kind": "unknown_warning_diagnostic", "message": format_warning(item)}
+    message = str(payload.get("message", "") or "").strip()
+    if message:
+        payload["message"] = _ascii_comment_text(message)
+    return payload
 
 
 def format_warning(warning: object) -> str:

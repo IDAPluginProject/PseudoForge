@@ -1734,6 +1734,59 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 report["text_stats"]["generic_identifier_tokens"],
             )
 
+    def test_analyze_corpus_prefers_structured_warning_diagnostics_for_classes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140001000_LiveIn"
+            function_dir.mkdir(parents=True)
+            warnings_path = function_dir / "LiveIn.warnings.json"
+            diagnostics_path = function_dir / "LiveIn.warning-diagnostics.json"
+            summary_path = function_dir / "LiveIn.ida-batch-summary.json"
+            warnings_path.write_text(
+                json.dumps(["Skipped PascalCase LLM rename a1->PageTableBase"]),
+                encoding="utf-8",
+            )
+            diagnostics_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "unassigned_local_live_in_register",
+                            "message": "Uninitialized local risk: v1 appears to be a live-in register value (r8d)",
+                            "symbol": "v1",
+                            "usage": "call argument to EtwpEventWriteFull",
+                            "usage_class": "call_argument",
+                            "register": "r8d",
+                            "register_class": "abi_argument",
+                            "candidate_action": "parameter_gap_candidate",
+                            "confidence": 0.78,
+                            "source": "validation.unassigned_local_usage",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "LiveIn",
+                        "function_ea": "0x140001000",
+                        "warnings": 1,
+                        "artifacts": {
+                            "warnings": warnings_path.name,
+                            "warning_diagnostics": diagnostics_path.name,
+                            "summary": summary_path.name,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+
+            self.assertEqual(1, report["warning_stats"]["all_classes"]["parameter_gap_candidate"])
+            self.assertNotIn("llm_pascal_case", report["warning_stats"]["all_classes"])
+
     def test_cli_writes_json_and_markdown_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "corpus"

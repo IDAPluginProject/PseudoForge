@@ -20,6 +20,7 @@ SCHEMA = "pseudoforge_cleanup_integrity_v1"
 ARTIFACT_SUFFIXES = {
     "cleaned_pseudocode": ".cleaned.cpp",
     "warnings": ".warnings.json",
+    "warning_diagnostics": ".warning-diagnostics.json",
     "summary": ".ida-batch-summary.json",
 }
 LOCAL_ALLOCATION_FAILED_RE = re.compile(r"local\s+variable\s+allocation\s+failed", re.IGNORECASE)
@@ -331,8 +332,9 @@ def _scan_summary_artifacts(
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     warnings_path = _artifact_path(summary_path, artifacts, "warnings")
+    warning_diagnostics_path = _artifact_path(summary_path, artifacts, "warning_diagnostics")
     warning_issue_path = warnings_path if str(warnings_path) and warnings_path.exists() else summary_path
-    for warning in _warning_texts(summary, warnings_path):
+    for warning in _warning_texts(summary, warnings_path, warning_diagnostics_path):
         if UNASSIGNED_RENAME_RE.search(warning):
             issues.append(
                 _issue(
@@ -363,13 +365,18 @@ def _scan_summary_artifacts(
     return issues
 
 
-def _warning_texts(summary: dict[str, Any], warnings_path: Path) -> list[str]:
+def _warning_texts(summary: dict[str, Any], warnings_path: Path, warning_diagnostics_path: Path | None = None) -> list[str]:
     result: list[str] = []
     warnings = _read_json(warnings_path)
     if isinstance(warnings, list):
         result.extend(str(item) for item in warnings)
     elif isinstance(warnings, dict) and isinstance(warnings.get("warnings"), list):
         result.extend(str(item) for item in warnings.get("warnings", []))
+    diagnostics = _read_json(warning_diagnostics_path or Path())
+    if isinstance(diagnostics, dict):
+        diagnostics = diagnostics.get("warning_diagnostics", diagnostics.get("diagnostics", []))
+    if isinstance(diagnostics, list):
+        result.extend(str(item.get("message", "")) for item in diagnostics if isinstance(item, dict))
     samples = summary.get("warning_samples", [])
     if isinstance(samples, list):
         result.extend(str(item) for item in samples)

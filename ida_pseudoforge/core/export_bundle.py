@@ -20,7 +20,7 @@ from ida_pseudoforge.core.render import (
     render_flow_report,
     render_switch_outline,
 )
-from ida_pseudoforge.core.render_warnings import export_warnings
+from ida_pseudoforge.core.render_warnings import export_warning_diagnostics, export_warnings
 from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
 from ida_pseudoforge.profiles.loader import (
     active_profile_manifests,
@@ -60,6 +60,7 @@ def write_export_bundle(
     rule_report_path = output_path / f"{safe_name}.rule-report.json"
     raw_path = output_path / f"{safe_name}.raw.cpp"
     warnings_path = output_path / f"{safe_name}.warnings.json"
+    warning_diagnostics_path = output_path / f"{safe_name}.warning-diagnostics.json"
     diff_path = output_path / f"{safe_name}.raw-vs-cleaned.diff"
     layout_rewrite_preview_path = output_path / f"{safe_name}.layout-rewrite-preview.cpp"
     layout_rewrite_preview_diff_path = output_path / f"{safe_name}.layout-rewrite-preview.diff"
@@ -81,6 +82,7 @@ def write_export_bundle(
     buffer_contract_report_text = render_buffer_contract_report(capture, plan.buffer_contracts)
     buffer_struct_header_text = render_buffer_struct_header(capture, plan.buffer_contracts)
     warnings = _combined_export_warnings(plan)
+    warning_diagnostics = export_warning_diagnostics(plan)
 
     cleaned_path.write_text(cleaned_text, encoding="utf-8")
     switch_outline_path.write_text(switch_outline_text, encoding="utf-8")
@@ -101,6 +103,10 @@ def write_export_bundle(
     )
     raw_path.write_text(raw_text, encoding="utf-8")
     warnings_path.write_text(json.dumps(warnings, indent=2, ensure_ascii=True), encoding="utf-8")
+    warning_diagnostics_path.write_text(
+        json.dumps(warning_diagnostics, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
     diff_path.write_text(_raw_vs_cleaned_diff(safe_name, raw_text, cleaned_text), encoding="utf-8")
     if layout_rewrite_preview is not None:
         layout_rewrite_preview_path.write_text(layout_rewrite_preview.text, encoding="utf-8")
@@ -121,6 +127,7 @@ def write_export_bundle(
         "rule_report": str(rule_report_path),
         "raw_pseudocode": str(raw_path),
         "warnings": str(warnings_path),
+        "warning_diagnostics": str(warning_diagnostics_path),
         "raw_vs_cleaned_diff": str(diff_path),
         "summary": str(summary_path),
     }
@@ -134,7 +141,14 @@ def write_export_bundle(
         )
     if extra_artifacts:
         artifacts.update({str(key): str(value) for key, value in extra_artifacts.items()})
-    summary_payload = _export_summary_payload(capture, plan, entrypoint, warnings, artifacts)
+    summary_payload = _export_summary_payload(
+        capture,
+        plan,
+        entrypoint,
+        warnings,
+        warning_diagnostics,
+        artifacts,
+    )
     if extra_summary:
         summary_payload.update(extra_summary)
     summary_path.write_text(
@@ -182,6 +196,7 @@ def _export_summary_payload(
     plan: CleanPlan,
     entrypoint: str,
     warnings: list[str],
+    warning_diagnostics: list[dict[str, object]],
     artifacts: dict[str, str],
 ) -> dict[str, object]:
     rule_diagnostics = summarize_rule_report(plan.rule_report)
@@ -197,6 +212,7 @@ def _export_summary_payload(
         "flow_rewrites": len(plan.flow_rewrites),
         "buffer_contracts": len(plan.buffer_contracts),
         "warnings": len(warnings),
+        "warning_diagnostics": len(warning_diagnostics),
         "rule_diagnostics": rule_diagnostics,
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),
         "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),

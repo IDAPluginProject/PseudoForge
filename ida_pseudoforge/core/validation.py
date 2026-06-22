@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 
 from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP
 from ida_pseudoforge.core.normalize import extract_identifiers
-from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion, WarningDiagnostic
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -228,6 +228,11 @@ class _UnassignedLocalUsageRisk:
     name: str
     usage: str
     evidence: str
+    live_in_register: str = ""
+    usage_class: str = ""
+    register_class: str = ""
+    candidate_action: str = ""
+    confidence: float = 0.0
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -244,15 +249,10 @@ def unassigned_local_usage_warnings(
     capture: FunctionCapture,
     renames: list[RenameSuggestion],
 ) -> list[str]:
-    risks = _unassigned_local_usage_risks(capture)
+    risks = _filtered_unassigned_local_usage_risks(capture, renames)
     if not risks:
         return []
 
-    suppressed_llm_names = {
-        item.old
-        for item in renames
-        if item.old in risks and item.source == "llm" and not item.apply
-    }
     active_renames = {
         item.old: item
         for item in renames
@@ -260,8 +260,6 @@ def unassigned_local_usage_warnings(
     }
     warnings = []
     for name in sorted(risks):
-        if name in suppressed_llm_names:
-            continue
         risk = risks[name]
         active = active_renames.get(name)
         if active:
@@ -272,6 +270,52 @@ def unassigned_local_usage_warnings(
         else:
             warnings.append("Uninitialized local risk: %s" % risk.evidence)
     return warnings
+
+
+def unassigned_local_usage_diagnostics(
+    capture: FunctionCapture,
+    renames: list[RenameSuggestion],
+) -> list[WarningDiagnostic]:
+    risks = _filtered_unassigned_local_usage_risks(capture, renames)
+    diagnostics = []
+    for name in sorted(risks):
+        risk = risks[name]
+        if not risk.live_in_register:
+            continue
+        diagnostics.append(
+            WarningDiagnostic(
+                kind="unassigned_local_live_in_register",
+                message="Uninitialized local risk: %s" % risk.evidence,
+                symbol=risk.name,
+                usage=risk.usage,
+                usage_class=risk.usage_class,
+                register=risk.live_in_register,
+                register_class=risk.register_class,
+                candidate_action=risk.candidate_action,
+                confidence=risk.confidence,
+                source="validation.unassigned_local_usage",
+            )
+        )
+    return diagnostics
+
+
+def _filtered_unassigned_local_usage_risks(
+    capture: FunctionCapture,
+    renames: list[RenameSuggestion],
+) -> dict[str, _UnassignedLocalUsageRisk]:
+    risks = _unassigned_local_usage_risks(capture)
+    if not risks:
+        return {}
+    suppressed_llm_names = {
+        item.old
+        for item in renames
+        if item.old in risks and item.source == "llm" and not item.apply
+    }
+    return {
+        name: risk
+        for name, risk in risks.items()
+        if name not in suppressed_llm_names
+    }
 
 
 def validate_renames(
@@ -450,18 +494,38 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
         if not usage:
             continue
         live_in_register = _live_in_register_hint(text, name, var.location)
+        usage_class = _classify_unassigned_local_usage(usage)
+        register_class = _classify_live_in_register(live_in_register, usage_class) if live_in_register else ""
+        candidate_action = _live_in_candidate_action(register_class, usage_class) if live_in_register else ""
         risks[name] = _UnassignedLocalUsageRisk(
             name=name,
             usage=usage,
-            evidence=_unassigned_local_evidence(name, usage, live_in_register),
+            evidence=_unassigned_local_evidence(
+                name,
+                usage,
+                live_in_register,
+                usage_class=usage_class,
+                register_class=register_class,
+            ),
+            live_in_register=live_in_register,
+            usage_class=usage_class,
+            register_class=register_class,
+            candidate_action=candidate_action,
+            confidence=_live_in_candidate_confidence(candidate_action),
         )
     return risks
 
 
-def _unassigned_local_evidence(name: str, usage: str, live_in_register: str) -> str:
+def _unassigned_local_evidence(
+    name: str,
+    usage: str,
+    live_in_register: str,
+    usage_class: str = "",
+    register_class: str = "",
+) -> str:
     if live_in_register:
-        usage_class = _classify_unassigned_local_usage(usage)
-        register_class = _classify_live_in_register(live_in_register, usage_class)
+        usage_class = usage_class or _classify_unassigned_local_usage(usage)
+        register_class = register_class or _classify_live_in_register(live_in_register, usage_class)
         return (
             "%s appears to be a live-in register value (%s) classified as %s/%s with no recovered "
             "assignment before use as %s; %s"
@@ -520,6 +584,32 @@ def _live_in_register_evidence_note(register_class: str, usage_class: str) -> st
     if usage_class == "mixed":
         return "manual review is required before treating this as a parameter gap"
     return "treat this as report-only live-in register evidence until stronger context is available"
+
+
+def _live_in_candidate_action(register_class: str, usage_class: str) -> str:
+    if usage_class == "return_expression":
+        return "return_carrier_candidate"
+    if register_class == "abi_argument" and usage_class in {"call_argument", "mixed"}:
+        return "parameter_gap_candidate"
+    if register_class == "syscall_thunk" and usage_class in {"call_argument", "mixed"}:
+        return "thunk_input_candidate"
+    if register_class == "nonvolatile_state":
+        return "state_preservation_candidate"
+    if usage_class == "mixed":
+        return "manual_review_candidate"
+    return "live_in_register_report_only"
+
+
+def _live_in_candidate_confidence(candidate_action: str) -> float:
+    if candidate_action == "parameter_gap_candidate":
+        return 0.78
+    if candidate_action in {"thunk_input_candidate", "return_carrier_candidate"}:
+        return 0.70
+    if candidate_action == "state_preservation_candidate":
+        return 0.62
+    if candidate_action == "manual_review_candidate":
+        return 0.55
+    return 0.45
 
 
 def _is_unassigned_local_risk_candidate(

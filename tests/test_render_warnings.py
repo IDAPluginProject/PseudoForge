@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, RenameSuggestion
-from ida_pseudoforge.core.render_warnings import display_warning_count, display_warnings, format_warning
+from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, RenameSuggestion, WarningDiagnostic
+from ida_pseudoforge.core.render_warnings import (
+    display_warning_count,
+    display_warnings,
+    export_warning_diagnostics,
+    format_warning,
+)
 from ida_pseudoforge.profiles.loader import clear_profile_caches
 
 
@@ -125,6 +130,34 @@ class RenderWarningsTests(unittest.TestCase):
             "Potential bad call target sub_140001000: unresolved indirect call",
         )
         self.assertEqual(format_warning('{"message":"review manually"}'), "review manually")
+
+    def test_export_warning_diagnostics_serializes_machine_fields(self) -> None:
+        plan = _plan(
+            [],
+        )
+        plan.warning_diagnostics.append(
+            WarningDiagnostic(
+                kind="unassigned_local_live_in_register",
+                message="Uninitialized local risk: v1 appears to be a live-in register value (r8d)",
+                symbol="v1",
+                usage="call argument to EtwpEventWriteFull",
+                usage_class="call_argument",
+                register="r8d",
+                register_class="abi_argument",
+                candidate_action="parameter_gap_candidate",
+                confidence=0.78,
+                source="validation.unassigned_local_usage",
+            )
+        )
+
+        diagnostics = export_warning_diagnostics(plan)
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("unassigned_local_live_in_register", diagnostics[0]["kind"])
+        self.assertEqual("v1", diagnostics[0]["symbol"])
+        self.assertEqual("r8d", diagnostics[0]["register"])
+        self.assertEqual("abi_argument", diagnostics[0]["register_class"])
+        self.assertEqual("parameter_gap_candidate", diagnostics[0]["candidate_action"])
 
 
 if __name__ == "__main__":

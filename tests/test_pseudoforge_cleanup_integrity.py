@@ -101,6 +101,61 @@ class PseudoForgeCleanupIntegrityTests(unittest.TestCase):
             self.assertIn("PseudoForge Cleanup Integrity QA", markdown)
             self.assertIn("pseudoforge_corpus_quality.py", markdown)
 
+    def test_warning_diagnostics_messages_are_scanned_when_warning_strings_are_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140001000_DiagnosticsOnly"
+            function_dir.mkdir(parents=True)
+            cleaned_path = function_dir / "function.cleaned.cpp"
+            diagnostics_path = function_dir / "function.warning-diagnostics.json"
+            summary_path = function_dir / "function.ida-batch-summary.json"
+            cleaned_path.write_text(GOOD_CLEANED.strip() + "\n", encoding="utf-8")
+            diagnostics_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "unassigned_local_live_in_register",
+                            "message": (
+                                "Uninitialized local risk: skipped LLM rename v7->BufferLength: "
+                                "v7 is declared but never assigned before use"
+                            ),
+                            "symbol": "v7",
+                            "usage": "call argument to Helper",
+                            "usage_class": "call_argument",
+                            "register": "r8d",
+                            "register_class": "abi_argument",
+                            "candidate_action": "parameter_gap_candidate",
+                            "confidence": 0.78,
+                            "source": "validation.unassigned_local_usage",
+                        }
+                    ],
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "DiagnosticsOnly",
+                        "function_ea": "0x140001000",
+                        "llm_status": "disabled",
+                        "artifacts": {
+                            "cleaned_pseudocode": cleaned_path.name,
+                            "warning_diagnostics": diagnostics_path.name,
+                            "summary": summary_path.name,
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_cleanup_integrity(root, top=20)
+
+            kinds = {item["kind"] for item in report["issues"]}
+            self.assertIn("declared_but_never_assigned_local_rename_warning", kinds)
+
     def test_main_writes_json_and_markdown_and_can_fail_on_issues(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

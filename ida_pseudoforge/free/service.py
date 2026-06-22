@@ -102,6 +102,7 @@ class FreeAnalysisDeps:
     write_export_bundle: Any
     render_cleaned_pseudocode: Any
     export_warnings: Any
+    export_warning_diagnostics: Any
     active_profile_manifests: Any
     active_profile_names: Any
     active_profile_root: Any
@@ -127,7 +128,7 @@ def load_free_analysis_deps() -> FreeAnalysisDeps:
         from ida_pseudoforge.core.lvar_analysis import build_clean_plan
         from ida_pseudoforge.core.offline_input import OfflinePseudocodeError, normalize_copied_pseudocode
         from ida_pseudoforge.core.render import render_cleaned_pseudocode
-        from ida_pseudoforge.core.render_warnings import export_warnings
+        from ida_pseudoforge.core.render_warnings import export_warning_diagnostics, export_warnings
         from ida_pseudoforge.models.provider_factory import build_rename_provider
         from ida_pseudoforge.profiles.loader import (
             active_profile_manifests,
@@ -153,6 +154,7 @@ def load_free_analysis_deps() -> FreeAnalysisDeps:
         write_export_bundle=write_export_bundle,
         render_cleaned_pseudocode=render_cleaned_pseudocode,
         export_warnings=export_warnings,
+        export_warning_diagnostics=export_warning_diagnostics,
         active_profile_manifests=active_profile_manifests,
         active_profile_names=active_profile_names,
         active_profile_root=active_profile_root,
@@ -528,13 +530,19 @@ def _write_free_artifacts(
     safe_name = safe_file_stem(capture.name or Path(input_label).stem or "function")
     raw_path = output_dir / ("%s.raw.cpp" % safe_name)
     warnings_path = output_dir / ("%s.warnings.json" % safe_name)
+    warning_diagnostics_path = output_dir / ("%s.warning-diagnostics.json" % safe_name)
     diff_path = output_dir / ("%s.raw-vs-cleaned.diff" % safe_name)
 
     cleaned_text = deps.render_cleaned_pseudocode(capture, plan)
+    warning_diagnostics = deps.export_warning_diagnostics(plan)
     raw_text = pseudocode.rstrip() + "\n"
     raw_path.write_text(raw_text, encoding="utf-8")
     warnings_path.write_text(
         json.dumps(warnings, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    warning_diagnostics_path.write_text(
+        json.dumps(warning_diagnostics, indent=2, ensure_ascii=True),
         encoding="utf-8",
     )
     diff_text = "".join(
@@ -550,6 +558,7 @@ def _write_free_artifacts(
     return {
         "raw_pseudocode": str(raw_path),
         "warnings": str(warnings_path),
+        "warning_diagnostics": str(warning_diagnostics_path),
         "raw_vs_cleaned_diff": str(diff_path),
     }, raw_text, cleaned_text, diff_text
 

@@ -70,6 +70,17 @@ void __stdcall IoDeleteDevice(__int64 a1)
 """
 
 
+LIVE_IN_REGISTER_EXPORT_SAMPLE = """
+__int64 __fastcall LiveInRegisterExportSample()
+{
+  int v1; // r8d
+
+  EtwpEventWriteFull(v1);
+  return 0;
+}
+"""
+
+
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
         profile_loader.clear_profile_caches()
@@ -110,6 +121,7 @@ class ExportBundleTests(unittest.TestCase):
                 self.assertEqual(summary["function_ea"], "0x140001000")
                 self.assertEqual(summary["source_path"], "sample.bin")
                 self.assertIn("raw_vs_cleaned_diff", summary["artifacts"])
+                self.assertIn("warning_diagnostics", summary["artifacts"])
                 self.assertEqual(artifacts["summary"], summary["artifacts"]["summary"])
                 self.assertEqual(summary["profile_root"], profile_loader.active_profile_root())
                 self.assertIn("status_codes.json", summary["active_profiles"])
@@ -159,6 +171,33 @@ class ExportBundleTests(unittest.TestCase):
             self.assertEqual("ExportBundleSample.ida-free-summary.json", summary_path.name)
             self.assertTrue(summary_path.exists())
             self.assertFalse((Path(temp_dir) / "ExportBundleSample.summary.json").exists())
+
+    def test_write_export_bundle_emits_warning_diagnostics_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                LIVE_IN_REGISTER_EXPORT_SAMPLE,
+                ea=0x140003000,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            warnings = json.loads(Path(artifacts["warnings"]).read_text(encoding="utf-8"))
+            diagnostics = json.loads(Path(artifacts["warning_diagnostics"]).read_text(encoding="utf-8"))
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+
+            self.assertIsInstance(warnings, list)
+            self.assertTrue(any("live-in register value (r8d)" in item for item in warnings))
+            self.assertEqual(1, len(diagnostics))
+            self.assertEqual("unassigned_local_live_in_register", diagnostics[0]["kind"])
+            self.assertEqual("v1", diagnostics[0]["symbol"])
+            self.assertEqual("call_argument", diagnostics[0]["usage_class"])
+            self.assertEqual("r8d", diagnostics[0]["register"])
+            self.assertEqual("abi_argument", diagnostics[0]["register_class"])
+            self.assertEqual("parameter_gap_candidate", diagnostics[0]["candidate_action"])
+            self.assertEqual(artifacts["warning_diagnostics"], summary["artifacts"]["warning_diagnostics"])
+            self.assertEqual(1, summary["warning_diagnostics"])
 
     def test_write_export_bundle_limits_long_artifact_stems(self) -> None:
         long_name = (

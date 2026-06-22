@@ -40,7 +40,11 @@ from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
 from ida_pseudoforge.core.rename_normalization import normalize_rename_suggestions
 from ida_pseudoforge.core.registry_domain import registry_domain_renames
-from ida_pseudoforge.core.validation import unassigned_local_usage_warnings, validate_renames
+from ida_pseudoforge.core.validation import (
+    unassigned_local_usage_diagnostics,
+    unassigned_local_usage_warnings,
+    validate_renames,
+)
 
 
 def build_clean_plan(
@@ -113,6 +117,7 @@ def build_clean_plan(
             validated,
         )
     )
+    warning_diagnostics = unassigned_local_usage_diagnostics(capture, validated)
 
     rule_report_payload = rule_report.to_dict()
     if api_semantic_diagnostics:
@@ -132,6 +137,7 @@ def build_clean_plan(
         type_corrections=type_corrections,
         function_identity_candidates=function_identity_candidates,
         corrected_parameter_map=corrected_parameter_map,
+        warning_diagnostics=warning_diagnostics,
     )
 
 

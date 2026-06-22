@@ -586,6 +586,8 @@ def analyze_corpus(
         name = str(summary.get("function", "") or summary_path.parent.name)
         ea = str(summary.get("function_ea", ""))
         warnings = _read_warnings(_artifact_path(summary_path, artifacts, "warnings"))
+        warning_diagnostics = _read_warning_diagnostics(_artifact_path(summary_path, artifacts, "warning_diagnostics"))
+        warning_class_items: list[Any] = warning_diagnostics if warning_diagnostics else warnings
         rename_items = _read_rename_items(_artifact_path(summary_path, artifacts, "rename_map"))
         rule_report = _coerce_dict(_read_json(_artifact_path(summary_path, artifacts, "rule_report")))
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
@@ -645,14 +647,14 @@ def analyze_corpus(
             top_rewrite_preview_artifact_functions.append(
                 _rewrite_preview_artifact_function_summary(name, ea, summary_path, rewrite_preview_metadata)
             )
-        if warnings:
+        if warnings or warning_diagnostics:
             totals["functions_with_warnings"] += 1
             top_warning_functions.append(
                 {
                     "ea": ea,
                     "name": name,
                     "warning_count": len(warnings),
-                    "warning_classes": dict(Counter(_classify_warning(item) for item in warnings).most_common(5)),
+                    "warning_classes": dict(Counter(_classify_warning(item) for item in warning_class_items).most_common(5)),
                     "summary_path": str(summary_path),
                 }
             )
@@ -967,7 +969,7 @@ def analyze_corpus(
 
         llm_statuses[str(summary.get("llm_status", "") or "unknown")] += 1
         _update_rename_metrics(rename_items, rename_sources, rename_sources_applied)
-        for warning in warnings:
+        for warning in warning_class_items:
             warning_classes[_classify_warning(warning)] += 1
         _update_rule_metrics(rule_report, rewrite_kinds, totals)
         api_diagnostic_count = _update_api_semantic_metrics(
@@ -3799,6 +3801,15 @@ def _read_warnings(path: Path) -> list[str]:
     if isinstance(data, dict) and isinstance(data.get("warnings"), list):
         return [str(item) for item in data.get("warnings", [])]
     return []
+
+
+def _read_warning_diagnostics(path: Path) -> list[dict[str, Any]]:
+    data = _read_json(path)
+    if isinstance(data, dict):
+        data = data.get("warning_diagnostics", data.get("diagnostics", []))
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
 
 
 def _read_list(path: Path) -> list[Any]:
@@ -7996,7 +8007,15 @@ def _is_decompiler_temp_base(name: str) -> bool:
     return re.fullmatch(r"[av]\d+", str(name or "")) is not None
 
 
-def _classify_warning(warning: str) -> str:
+def _classify_warning(warning: Any) -> str:
+    if isinstance(warning, dict):
+        candidate_action = str(warning.get("candidate_action", "") or "").strip()
+        if candidate_action:
+            return candidate_action
+        kind = str(warning.get("kind", "") or "").strip()
+        if kind:
+            return kind
+        warning = warning.get("message", "")
     text = str(warning)
     lowered = text.lower()
     if "skipped pascalcase llm rename" in lowered:

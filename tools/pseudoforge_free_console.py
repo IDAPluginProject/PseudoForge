@@ -20,6 +20,7 @@ ARTIFACT_ORDER = (
     "raw_pseudocode",
     "raw_vs_cleaned_diff",
     "warnings",
+    "warning_diagnostics",
     "summary",
 )
 

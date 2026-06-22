@@ -113,6 +113,20 @@ class FunctionIdentityCandidate:
 
 
 @dataclass(slots=True)
+class WarningDiagnostic:
+    kind: str
+    message: str
+    symbol: str
+    usage: str
+    usage_class: str
+    register: str
+    register_class: str
+    candidate_action: str
+    confidence: float
+    source: str = ""
+
+
+@dataclass(slots=True)
 class CorrectedParameterField:
     offset: int
     name: str
@@ -247,6 +261,7 @@ class CleanPlan:
     type_corrections: list[ParameterTypeCorrection] = field(default_factory=list)
     function_identity_candidates: list[FunctionIdentityCandidate] = field(default_factory=list)
     corrected_parameter_map: list[CorrectedParameterMapEntry] = field(default_factory=list)
+    warning_diagnostics: list[WarningDiagnostic] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

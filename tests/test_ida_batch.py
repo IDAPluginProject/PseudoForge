@@ -584,10 +584,12 @@ __int64 __fastcall TimeoutCandidate(int a1)
             self.assertEqual("ida_batch_export", export["mode"])
             self.assertTrue(Path(artifacts["rename_map"]).exists())
             self.assertTrue(Path(artifacts["raw_vs_cleaned_diff"]).exists())
+            self.assertTrue(Path(artifacts["warning_diagnostics"]).exists())
             self.assertIn("BatchExportEdited", cleaned_text)
             self.assertEqual(summary["llm_status"], "ok")
             self.assertEqual(summary["llm_provider"], "ollama")
             self.assertEqual(summary["artifacts"]["llm_candidate_cache"], str(Path(temp_dir) / "cache.json"))
+            self.assertEqual(summary["artifacts"]["warning_diagnostics"], artifacts["warning_diagnostics"])
 
     def test_ida_batch_export_uses_short_paths_for_long_mangled_symbols(self) -> None:
         long_name = (
