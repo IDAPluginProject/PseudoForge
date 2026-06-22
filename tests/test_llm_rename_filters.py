@@ -679,6 +679,53 @@ __int64 InstrumentedLockRelease()
         self.assertIn("retaddr is declared but has no direct assignment", warnings[0])
         self.assertNotIn("live-in register value", warnings[0])
 
+    def test_invalid_numbered_register_comment_is_not_live_in_hint(self) -> None:
+        text = """
+__int64 NumberedRegisterCommentSample()
+{
+  __int64 v1; // r1
+
+  return UseRegisterComment(v1);
+}
+"""
+        capture = FunctionCapture(
+            name="NumberedRegisterCommentSample",
+            prototype="__int64 NumberedRegisterCommentSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(1, len(warnings))
+        self.assertIn("v1 is declared but has no direct assignment", warnings[0])
+        self.assertNotIn("live-in register value", warnings[0])
+
+    def test_lvar_location_register_hint_marks_live_in_candidate(self) -> None:
+        text = """
+__int64 LocationRegisterSample()
+{
+  __int64 v1;
+
+  return ForwardLiveIn(v1);
+}
+"""
+        capture = FunctionCapture(
+            name="LocationRegisterSample",
+            prototype="__int64 LocationRegisterSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False, location="reg:r9"),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(1, len(warnings))
+        self.assertIn("v1 appears to be a live-in register value (r9)", warnings[0])
+
     def test_pascalcase_llm_local_renames_are_style_normalized(self) -> None:
         capture = capture_from_pseudocode(
             """

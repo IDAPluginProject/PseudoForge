@@ -175,7 +175,7 @@ LIVE_IN_REGISTER_HINT_RE = re.compile(
     r"\b(?:"
     r"[er]?(?:ax|bx|cx|dx|si|di)"
     r"|[abcd][lh]"
-    r"|r(?:[0-9]|1[0-5])(?:[bwd])?"
+    r"|r(?:[8-9]|1[0-5])(?:[bwd])?"
     r"|xmm(?:[0-9]|1[0-5])"
     r")\b",
     re.IGNORECASE,
