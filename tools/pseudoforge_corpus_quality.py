@@ -52,6 +52,13 @@ WEAK_PARAMETER_TYPES = {
     "_QWORD *",
     "_QWORD*",
 }
+API_SEMANTIC_REVIEW_CATEGORIES = (
+    "correctly_blocked_large_dispatcher",
+    "likely_profile_gap",
+    "weak_parameter_name_gap",
+    "shadow_or_conflict_needs_manual_review",
+    "unsafe_wrapper_role",
+)
 LABEL_RE = re.compile(r"\bLABEL_\d+\b")
 DECIMAL_STATUS_RE = re.compile(
     r"(?:\breturn\b|(?<![=!<>])(?:==|!=|=))\s*"
@@ -557,6 +564,7 @@ def analyze_corpus(
     body_text_totals = Counter()
     top_warning_functions = []
     top_api_semantic_functions = []
+    api_semantic_queue_items: list[dict[str, Any]] = []
     top_layout_hint_functions = []
     top_subfield_overlay_functions = []
     top_narrow_subfield_functions = []
@@ -986,6 +994,9 @@ def analyze_corpus(
             top_api_semantic_functions.append(
                 _api_semantic_function_summary(name, ea, summary_path, rule_report)
             )
+            api_semantic_queue_items.extend(
+                _api_semantic_review_queue_function_items(name, ea, summary_path, rule_report)
+            )
 
     top_warning_functions.sort(key=lambda item: (-int(item["warning_count"]), str(item["name"])))
     top_api_semantic_functions.sort(
@@ -1164,6 +1175,7 @@ def analyze_corpus(
     )
     ntstatus_unprofiled_function_summaries = top_ntstatus_body_unprofiled_functions[:top]
     ntstatus_review_hint_counts = _ntstatus_review_hint_counts(ntstatus_body_unprofiled_value_contexts)
+    api_semantic_review_queue = _api_semantic_review_queue(api_semantic_queue_items, top)
     result = {
         "schema": "pseudoforge_corpus_quality_v1",
         "pseudoforge_version": VERSION,
@@ -1203,6 +1215,7 @@ def analyze_corpus(
             "top_functions": top_api_semantic_functions[:top],
             "statuses": _counter_to_dict(api_semantic_statuses),
         },
+        "api_semantic_review_queue": api_semantic_review_queue,
         "layout_hint_stats": {
             "totals": _counter_to_dict(layout_totals),
             "top_bases": _counter_to_dict(Counter(dict(layout_hint_bases.most_common(top)))),
@@ -1425,6 +1438,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     warning_stats = _coerce_dict(report.get("warning_stats", {}))
     rule_stats = _coerce_dict(report.get("rule_stats", {}))
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
+    api_semantic_review_queue = _coerce_dict(report.get("api_semantic_review_queue", {}))
     layout_hint_stats = _coerce_dict(report.get("layout_hint_stats", {}))
     subfield_overlay_stats = _coerce_dict(report.get("layout_subfield_overlay_stats", {}))
     narrow_subfield_stats = _coerce_dict(report.get("layout_narrow_subfield_stats", {}))
@@ -1738,6 +1752,87 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(reasons),
                 _markdown_table_cell(targets),
                 _markdown_table_cell(profile_text),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "### API Semantic Review Queue",
+            "",
+            "- Queue items: `%s`" % api_semantic_review_queue.get("item_count", 0),
+            "- Repeated targets: `%s`" % api_semantic_review_queue.get("repeated_target_count", 0),
+            "",
+            "#### Queue Categories",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(api_semantic_review_queue.get("category_counts", {})),
+            "Category",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "#### Top Repeated Targets",
+            "",
+            "| Category | Reason | Stage | Callee | Parameter | New | Arg | Count | Functions |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- |",
+        ]
+    )
+    for item in api_semantic_review_queue.get("top_repeated_targets", []) or []:
+        if not isinstance(item, dict):
+            continue
+        functions = ", ".join(
+            "%s@%s"
+            % (
+                str(function.get("name", "")),
+                str(function.get("ea", "")),
+            )
+            for function in item.get("functions", []) or []
+            if isinstance(function, dict)
+        )
+        lines.append(
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s |"
+            % (
+                str(item.get("category", "")),
+                str(item.get("reason", "")),
+                str(item.get("stage", "")),
+                str(item.get("callee", "")),
+                str(item.get("parameter", "")),
+                str(item.get("new", "")),
+                str(item.get("argument_index", "")),
+                int(item.get("count", 0) or 0),
+                _markdown_table_cell(functions),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "#### Top Queue Items",
+            "",
+            "| Category | Function | EA | Reason | Stage | Callee | Parameter | Old | New | Arg | Count |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: |",
+        ]
+    )
+    for item in api_semantic_review_queue.get("top_items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s |"
+            % (
+                str(item.get("category", "")),
+                str(item.get("function_name", "")),
+                str(item.get("ea", "")),
+                str(item.get("reason", "")),
+                str(item.get("stage", "")),
+                str(item.get("callee", "")),
+                str(item.get("parameter", "")),
+                str(item.get("old", "")),
+                str(item.get("new", "")),
+                str(item.get("argument_index", "")),
+                int(item.get("count", 0) or 0),
             )
         )
     lines.extend(
@@ -4137,6 +4232,256 @@ def _update_rule_metrics(rule_report: dict[str, Any], rewrite_kinds: Counter[str
     totals["rule_validation_errors"] += len(rule_report.get("validation_errors", []) or [])
     for item in rewrite_emissions:
         rewrite_kinds[str(item.get("kind", "") or "unknown")] += 1
+
+
+def _api_semantic_review_queue_function_items(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    rule_report: dict[str, Any],
+) -> list[dict[str, Any]]:
+    diagnostics = [
+        item
+        for item in rule_report.get("api_semantic_diagnostics", []) or []
+        if isinstance(item, dict)
+    ]
+    result: list[dict[str, Any]] = []
+    for item in diagnostics:
+        if str(item.get("status", "") or "unknown") != "rejected":
+            continue
+        profile = _api_semantic_profile(item)
+        result.append(
+            {
+                "category": _api_semantic_review_category(item, profile),
+                "reason": str(profile.get("reason", "") or "unknown"),
+                "stage": str(profile.get("stage", "") or "unknown"),
+                "callee": str(profile.get("callee", "") or ""),
+                "parameter": str(profile.get("parameter", "") or ""),
+                "parameter_type": str(profile.get("parameter_type", "") or ""),
+                "old": str(item.get("old", "") or ""),
+                "new": str(profile.get("new", "") or ""),
+                "argument_index": str(profile.get("argument_index", "") or ""),
+                "argument": str(item.get("argument", "") or ""),
+                "candidate_kind": str(item.get("candidate_kind", "") or ""),
+                "candidate_targets": _api_semantic_candidate_targets(item),
+                "evidence": str(item.get("evidence", "") or ""),
+                "function_name": name,
+                "ea": ea,
+                "summary_path": str(summary_path),
+            }
+        )
+    return result
+
+
+def _api_semantic_review_queue(items: list[dict[str, Any]], limit: int) -> dict[str, Any]:
+    category_counts = Counter(str(item.get("category", "") or "likely_profile_gap") for item in items)
+    top_items = _api_semantic_group_queue_items(items)
+    repeated_targets = [
+        item
+        for item in _api_semantic_group_repeated_targets(items)
+        if int(item.get("count", 0) or 0) > 1 or int(item.get("function_count", 0) or 0) > 1
+    ]
+    category_payload: dict[str, Any] = {}
+    for category in API_SEMANTIC_REVIEW_CATEGORIES:
+        category_payload[category] = {
+            "count": int(category_counts.get(category, 0)),
+            "top_items": [item for item in top_items if item.get("category") == category][:limit],
+            "top_repeated_targets": [
+                item for item in repeated_targets if item.get("category") == category
+            ][:limit],
+        }
+    return {
+        "schema": "api_semantic_review_queue_v1",
+        "item_count": len(items),
+        "repeated_target_count": len(repeated_targets),
+        "category_counts": _api_semantic_category_counts(category_counts),
+        "top_items": top_items[:limit],
+        "top_repeated_targets": repeated_targets[:limit],
+        "categories": category_payload,
+    }
+
+
+def _api_semantic_group_queue_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, ...], dict[str, Any]] = {}
+    for item in items:
+        key = (
+            str(item.get("category", "")),
+            str(item.get("reason", "")),
+            str(item.get("stage", "")),
+            str(item.get("callee", "")),
+            str(item.get("parameter", "")),
+            str(item.get("parameter_type", "")),
+            str(item.get("old", "")),
+            str(item.get("new", "")),
+            str(item.get("argument_index", "")),
+            str(item.get("function_name", "")),
+            str(item.get("ea", "")),
+        )
+        entry = grouped.get(key)
+        if entry is None:
+            entry = {
+                "category": item.get("category", ""),
+                "reason": item.get("reason", ""),
+                "stage": item.get("stage", ""),
+                "callee": item.get("callee", ""),
+                "parameter": item.get("parameter", ""),
+                "parameter_type": item.get("parameter_type", ""),
+                "old": item.get("old", ""),
+                "new": item.get("new", ""),
+                "argument_index": item.get("argument_index", ""),
+                "argument": item.get("argument", ""),
+                "candidate_kind": item.get("candidate_kind", ""),
+                "function_name": item.get("function_name", ""),
+                "ea": item.get("ea", ""),
+                "summary_path": item.get("summary_path", ""),
+                "count": 0,
+                "_candidate_targets": Counter(),
+                "_evidence_samples": [],
+            }
+            grouped[key] = entry
+        entry["count"] = int(entry["count"]) + 1
+        for target in item.get("candidate_targets", []) or []:
+            entry["_candidate_targets"][str(target)] += 1
+        evidence = str(item.get("evidence", "") or "")
+        if evidence and evidence not in entry["_evidence_samples"] and len(entry["_evidence_samples"]) < 3:
+            entry["_evidence_samples"].append(evidence)
+    result = []
+    for entry in grouped.values():
+        entry["candidate_targets"] = _counter_to_dict(entry.pop("_candidate_targets"))
+        entry["evidence_samples"] = entry.pop("_evidence_samples")
+        result.append(entry)
+    result.sort(key=_api_semantic_queue_sort_key)
+    return result
+
+
+def _api_semantic_group_repeated_targets(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, ...], dict[str, Any]] = {}
+    for item in items:
+        key = (
+            str(item.get("category", "")),
+            str(item.get("reason", "")),
+            str(item.get("stage", "")),
+            str(item.get("callee", "")),
+            str(item.get("parameter", "")),
+            str(item.get("parameter_type", "")),
+            str(item.get("new", "")),
+            str(item.get("argument_index", "")),
+        )
+        entry = grouped.get(key)
+        if entry is None:
+            entry = {
+                "category": item.get("category", ""),
+                "reason": item.get("reason", ""),
+                "stage": item.get("stage", ""),
+                "callee": item.get("callee", ""),
+                "parameter": item.get("parameter", ""),
+                "parameter_type": item.get("parameter_type", ""),
+                "new": item.get("new", ""),
+                "argument_index": item.get("argument_index", ""),
+                "count": 0,
+                "_old_names": Counter(),
+                "_functions": Counter(),
+                "_candidate_targets": Counter(),
+            }
+            grouped[key] = entry
+        entry["count"] = int(entry["count"]) + 1
+        old_name = str(item.get("old", "") or "")
+        if old_name:
+            entry["_old_names"][old_name] += 1
+        function_key = json.dumps(
+            {
+                "name": str(item.get("function_name", "") or ""),
+                "ea": str(item.get("ea", "") or ""),
+                "summary_path": str(item.get("summary_path", "") or ""),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        entry["_functions"][function_key] += 1
+        for target in item.get("candidate_targets", []) or []:
+            entry["_candidate_targets"][str(target)] += 1
+    result = []
+    for entry in grouped.values():
+        functions = []
+        function_counter = entry.pop("_functions")
+        entry["function_count"] = len(function_counter)
+        for function_key, count in function_counter.most_common(8):
+            try:
+                function = json.loads(function_key)
+            except json.JSONDecodeError:
+                function = {"name": function_key, "ea": "", "summary_path": ""}
+            if not isinstance(function, dict):
+                function = {"name": str(function), "ea": "", "summary_path": ""}
+            function["count"] = int(count)
+            functions.append(function)
+        entry["functions"] = functions
+        entry["old_names"] = _counter_to_dict(Counter(dict(entry.pop("_old_names").most_common(8))))
+        entry["candidate_targets"] = _counter_to_dict(entry.pop("_candidate_targets"))
+        result.append(entry)
+    result.sort(key=_api_semantic_queue_sort_key)
+    return result
+
+
+def _api_semantic_queue_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        -int(item.get("count", 0) or 0),
+        -int(item.get("function_count", 1) or 1),
+        _api_semantic_category_order(str(item.get("category", "") or "")),
+        str(item.get("reason", "")),
+        str(item.get("callee", "")),
+        str(item.get("parameter", "")),
+        str(item.get("new", "")),
+        str(item.get("function_name", "")),
+        str(item.get("ea", "")),
+    )
+
+
+def _api_semantic_category_order(category: str) -> int:
+    try:
+        return API_SEMANTIC_REVIEW_CATEGORIES.index(category)
+    except ValueError:
+        return len(API_SEMANTIC_REVIEW_CATEGORIES)
+
+
+def _api_semantic_category_counts(counter: Counter[str]) -> dict[str, int]:
+    result = {category: int(counter.get(category, 0)) for category in API_SEMANTIC_REVIEW_CATEGORIES}
+    for category, count in counter.most_common():
+        if category not in result:
+            result[category] = int(count)
+    return result
+
+
+def _api_semantic_review_category(item: dict[str, Any], profile: dict[str, Any]) -> str:
+    reason = str(profile.get("reason", "") or item.get("reason", "") or "unknown")
+    if reason == "large_dispatcher":
+        return "correctly_blocked_large_dispatcher"
+    if reason == "weak_parameter_name":
+        return "weak_parameter_name_gap"
+    if reason in {"conflict_old", "conflict_target", "shadow"}:
+        return "shadow_or_conflict_needs_manual_review"
+    if reason == "unsafe_wrapper_role":
+        return "unsafe_wrapper_role"
+    return "likely_profile_gap"
+
+
+def _api_semantic_candidate_targets(item: dict[str, Any]) -> list[str]:
+    targets = []
+    direct_new = str(item.get("new", "") or "")
+    if direct_new:
+        targets.append(direct_new)
+    details = item.get("candidate_details", [])
+    if isinstance(details, list):
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            value = str(detail.get("new", "") or "")
+            if value and value not in targets:
+                targets.append(value)
+    if not targets:
+        for value in _string_list(item.get("candidates")):
+            if value not in targets:
+                targets.append(value)
+    return targets
 
 
 def _update_api_semantic_metrics(

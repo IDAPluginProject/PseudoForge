@@ -743,6 +743,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 1,
                 report["api_semantic_stats"]["top_functions"][0]["rejections_by_target"]["object"],
             )
+            self.assertIn("api_semantic_review_queue", report)
             prototype_stats = report["prototype_correction_stats"]
             self.assertEqual(1, prototype_stats["totals"]["function_identity_candidates"])
             self.assertEqual(2, prototype_stats["totals"]["parameter_type_corrections"])
@@ -1734,6 +1735,128 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 report["text_stats"]["generic_identifier_tokens"],
             )
 
+    def test_api_semantic_review_queue_groups_actionable_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _write_api_queue_fixture(
+                root,
+                "QueueOne",
+                "0x140001000",
+                [
+                    {
+                        "stage": "api-argument",
+                        "status": "rejected",
+                        "reason": "large_dispatcher",
+                        "old": "v14",
+                        "new": "irp",
+                        "callee": "IoReuseIrp",
+                        "argument_index": 0,
+                        "argument": "v14",
+                        "parameter": "Irp",
+                        "parameter_type": "PIRP",
+                    },
+                    {
+                        "stage": "api-argument",
+                        "status": "rejected",
+                        "reason": "weak_parameter_name",
+                        "old": "v2",
+                        "callee": "ExAcquireFastMutex",
+                        "argument_index": 0,
+                        "argument": "v2",
+                        "parameter": "FastMutex",
+                        "parameter_type": "PFAST_MUTEX",
+                    },
+                    {
+                        "stage": "api-argument",
+                        "status": "rejected",
+                        "reason": "conflict_target",
+                        "old": "v12",
+                        "new": "object",
+                        "callee": "ObfDereferenceObject",
+                        "argument_index": 0,
+                        "argument": "v12",
+                        "parameter": "Object",
+                        "parameter_type": "PVOID",
+                        "candidate_details": [
+                            {"old": "v12", "new": "object", "source": "api-argument"},
+                            {"old": "v19", "new": "object", "source": "api-argument"},
+                        ],
+                    },
+                    {
+                        "stage": "api-argument",
+                        "status": "rejected",
+                        "reason": "unsafe_wrapper_role",
+                        "old": "v4",
+                        "new": "pool",
+                        "callee": "ExFreePoolWithTag",
+                        "argument_index": 0,
+                        "argument": "v4",
+                        "parameter": "P",
+                        "parameter_type": "PVOID",
+                    },
+                    {
+                        "stage": "api-out-param",
+                        "status": "rejected",
+                        "reason": "missing_profile",
+                        "old": "v8",
+                        "new": "keyValueInformation",
+                        "callee": "ZwQueryValueKey",
+                        "argument_index": 3,
+                        "argument": "v8",
+                        "parameter": "KeyValueInformation",
+                        "parameter_type": "PVOID",
+                    },
+                ],
+            )
+            _write_api_queue_fixture(
+                root,
+                "QueueTwo",
+                "0x140002000",
+                [
+                    {
+                        "stage": "api-argument",
+                        "status": "rejected",
+                        "reason": "weak_parameter_name",
+                        "old": "v7",
+                        "callee": "ExAcquireFastMutex",
+                        "argument_index": 0,
+                        "argument": "v7",
+                        "parameter": "FastMutex",
+                        "parameter_type": "PFAST_MUTEX",
+                    }
+                ],
+            )
+
+            report = analyze_corpus(root)
+            queue = report["api_semantic_review_queue"]
+            markdown = render_quality_markdown(report)
+            weak_targets = [
+                item
+                for item in queue["top_repeated_targets"]
+                if item["category"] == "weak_parameter_name_gap"
+            ]
+
+            self.assertEqual("api_semantic_review_queue_v1", queue["schema"])
+            self.assertEqual(6, queue["item_count"])
+            self.assertEqual(1, queue["repeated_target_count"])
+            self.assertEqual(1, queue["category_counts"]["correctly_blocked_large_dispatcher"])
+            self.assertEqual(1, queue["category_counts"]["likely_profile_gap"])
+            self.assertEqual(2, queue["category_counts"]["weak_parameter_name_gap"])
+            self.assertEqual(1, queue["category_counts"]["shadow_or_conflict_needs_manual_review"])
+            self.assertEqual(1, queue["category_counts"]["unsafe_wrapper_role"])
+            self.assertEqual("ExAcquireFastMutex", weak_targets[0]["callee"])
+            self.assertEqual("FastMutex", weak_targets[0]["parameter"])
+            self.assertEqual(2, weak_targets[0]["count"])
+            self.assertEqual(2, weak_targets[0]["function_count"])
+            self.assertEqual(
+                2,
+                queue["categories"]["weak_parameter_name_gap"]["top_repeated_targets"][0]["count"],
+            )
+            self.assertIn("### API Semantic Review Queue", markdown)
+            self.assertIn("correctly_blocked_large_dispatcher", markdown)
+            self.assertIn("weak_parameter_name_gap", markdown)
+            self.assertIn("ExAcquireFastMutex", markdown)
+
     def test_prototype_metrics_ignore_pseudoforge_header_comment_terminator_noise(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2654,6 +2777,59 @@ def _write_quality_fixture(root: Path) -> None:
                     "rule_report": "old/Sample.rule-report.json",
                     "layout_rewrite_preview_metadata": "old/Sample.layout-rewrite-preview.json",
                     "summary": "old/Sample.ida-batch-summary.json",
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_api_queue_fixture(
+    root: Path,
+    name: str,
+    ea: str,
+    diagnostics: list[dict[str, object]],
+) -> None:
+    function_dir = root / "functions" / ("%s_%s" % (ea.replace("0x", "").rjust(16, "0"), name))
+    function_dir.mkdir(parents=True)
+    cleaned_name = "%s.cleaned.cpp" % name
+    rule_name = "%s.rule-report.json" % name
+    summary_name = "%s.ida-batch-summary.json" % name
+    (function_dir / cleaned_name).write_text(
+        "\n".join(
+            [
+                "void __fastcall %s(void)" % name,
+                "{",
+                "  return;",
+                "}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (function_dir / rule_name).write_text(
+        json.dumps(
+            {
+                "matched_rules": [],
+                "rewrite_emissions": [],
+                "rejected_emissions": [],
+                "api_semantic_diagnostics": diagnostics,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (function_dir / summary_name).write_text(
+        json.dumps(
+            {
+                "mode": "ida_batch_export",
+                "function": name,
+                "function_ea": ea,
+                "artifacts": {
+                    "cleaned_pseudocode": cleaned_name,
+                    "rule_report": rule_name,
+                    "summary": summary_name,
                 },
             },
             indent=2,
