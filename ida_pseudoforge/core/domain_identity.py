@@ -299,12 +299,17 @@ def domain_identity_parameter_type_corrections(
     full_name = _extract_full_function_name(signature)
     parameters = extract_parameters_from_signature(signature)
     candidates: list[ParameterTypeCorrection] = []
+    identity_blockers_by_profile = _function_identity_blockers_by_profile(
+        text or "",
+        profile_context,
+    )
     for profile in _domain_identity_profiles():
         if not _function_matches(profile, function_name, full_name, signature, text or ""):
             continue
         if not _profile_parameter_shape_matches(profile, parameters):
             continue
         profile_blockers = _profile_context_blockers(profile, profile_context)
+        profile_blockers.extend(identity_blockers_by_profile.get(_profile_id(profile), []))
         for parameter in _profile_type_parameters(profile):
             correction = _parameter_type_correction(
                 profile,
@@ -315,6 +320,28 @@ def domain_identity_parameter_type_corrections(
             if correction:
                 candidates.append(correction)
     return _dedupe_parameter_type_corrections(candidates)
+
+
+def _function_identity_blockers_by_profile(
+    text: str,
+    profile_context: dict[str, Any] | None,
+) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for candidate in domain_identity_function_identity_candidates(text, profile_context=profile_context):
+        if candidate.profile_id == "ambiguous":
+            continue
+        blockers = [
+            blocker
+            for blocker in candidate.blockers
+            if blocker != "report_only_profile"
+        ]
+        if blockers:
+            result.setdefault(candidate.profile_id, [])
+            result[candidate.profile_id].extend(blockers)
+    return {
+        profile_id: list(dict.fromkeys(blockers))
+        for profile_id, blockers in result.items()
+    }
 
 
 def _candidate_matches(
@@ -588,9 +615,15 @@ def _dedupe_function_identity_candidates(
     candidates: list[FunctionIdentityCandidate],
 ) -> list[FunctionIdentityCandidate]:
     candidates = sorted(candidates, key=lambda item: (item.profile_id, item.match_kind))
-    active = [item for item in candidates if not item.blockers and item.profile_id != "ambiguous"]
+    active = [
+        item
+        for item in candidates
+        if item.profile_id != "ambiguous"
+        and not [blocker for blocker in item.blockers if blocker != "report_only_profile"]
+    ]
     if len(active) <= 1:
         return candidates
+    active_profile_ids = {item.profile_id for item in active}
     profile_ids = sorted({item.profile_id for item in active})
     first = active[0]
     ambiguous = FunctionIdentityCandidate(
@@ -606,7 +639,11 @@ def _dedupe_function_identity_candidates(
         profile_version=first.profile_version,
         ambiguous_profile_ids=profile_ids,
     )
-    blocked = [item for item in candidates if item.blockers]
+    blocked = [
+        item
+        for item in candidates
+        if item.blockers and item.profile_id not in active_profile_ids
+    ]
     return [ambiguous] + blocked
 
 
@@ -902,6 +939,27 @@ def _parameter_type_matches(parameter: dict[str, Any], type_text: str) -> bool:
     return any(_normalize_type_shape(item) == actual for item in accepted_types)
 
 
+def _parameter_type_correction_blockers(
+    parameter: dict[str, Any],
+    old_type: str,
+    canonical_type: str,
+    display_type: str,
+) -> list[str]:
+    accepted_types = _string_list(parameter.get("accepted_types"))
+    if not accepted_types:
+        return []
+    actual = _normalize_type_shape(old_type)
+    if not actual:
+        return ["type_conflict"]
+    if canonical_type and actual == _normalize_type_shape(canonical_type):
+        return []
+    if display_type and actual == _normalize_type_shape(display_type):
+        return []
+    if any(_normalize_type_shape(item) == actual for item in accepted_types):
+        return []
+    return ["type_conflict"]
+
+
 def _normalize_type_shape(type_text: str) -> str:
     return re.sub(r"\s+", " ", str(type_text or "").strip()).lower()
 
@@ -942,14 +1000,12 @@ def _parameter_type_correction(
     if parameter_index < 0 or parameter_index >= len(parameters):
         return None
     old_name, old_type = parameters[parameter_index]
-    if not _parameter_type_matches(parameter, old_type):
-        return None
-
     canonical_type = _safe_type_correction_text(raw_type)
     display_type = _safe_type_correction_text(raw_display_type)
     blockers = list(profile_blockers)
     if not canonical_type:
         blockers.append("invalid_canonical_type")
+    blockers.extend(_parameter_type_correction_blockers(parameter, old_type, canonical_type, display_type))
     new_name = _safe_identifier_text(
         parameter.get(
             "canonical_name",
@@ -998,7 +1054,30 @@ def _dedupe_parameter_type_corrections(
             for item in active
             if item.canonical_type
         }
-        if len(active_shapes) > 1:
+        active_profile_ids = {item.profile_id for item in active if item.profile_id}
+        ambiguous_blocked = [item for item in items if "ambiguous_profile_match" in item.blockers]
+        if len(active_profile_ids) > 1 or len(active_shapes) > 1:
+            first = sorted(items, key=lambda item: item.profile_id)[0]
+            result.append(
+                ParameterTypeCorrection(
+                    parameter_index=parameter_index,
+                    old_name=first.old_name,
+                    new_name=first.old_name,
+                    old_type=first.old_type,
+                    canonical_type="",
+                    profile_id="ambiguous",
+                    display_type="",
+                    source=first.source,
+                    provenance=", ".join(sorted({item.profile_id for item in items if item.profile_id})),
+                    confidence=min(0.54, first.confidence),
+                    effective_mode=MODE_REPORT_ONLY,
+                    blockers=["ambiguous_profile_match"],
+                    apply_to_preview=False,
+                    apply_to_idb=False,
+                )
+            )
+            continue
+        if ambiguous_blocked and not active:
             first = sorted(items, key=lambda item: item.profile_id)[0]
             result.append(
                 ParameterTypeCorrection(

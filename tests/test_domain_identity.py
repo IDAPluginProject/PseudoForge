@@ -365,6 +365,61 @@ __int64 __fastcall IopExample(__int64 a1, __int64 a2)
         self.assertIn("ambiguous_profile_match", plan.type_corrections[0].blockers)
         self.assertIn("__int64 __fastcall IopExample(__int64 argument0, __int64 argument1)", rendered)
 
+    def test_ambiguous_function_identity_blocks_same_shape_type_correction(self) -> None:
+        first = _type_correction_profile("test.type.a", "PDEVICE_OBJECT", "deviceObject")
+        second = _type_correction_profile("test.type.b", "PDEVICE_OBJECT", "deviceObject")
+        payload = _type_correction_pack_payload(profiles=[first, second])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, payload)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall IopExample(__int64 a1, __int64 a2)
+{
+  return a1 + a2;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(1, len(plan.function_identity_candidates))
+        self.assertEqual("ambiguous", plan.function_identity_candidates[0].profile_id)
+        self.assertEqual(1, len(plan.type_corrections))
+        self.assertEqual("ambiguous", plan.type_corrections[0].profile_id)
+        self.assertIn("ambiguous_profile_match", plan.type_corrections[0].blockers)
+        self.assertFalse(plan.type_corrections[0].apply_to_preview)
+        self.assertIn("__int64 __fastcall IopExample(__int64", rendered)
+        self.assertNotIn("IopExample(PDEVICE_OBJECT", rendered)
+
+    def test_incompatible_concrete_type_is_reported_as_type_conflict(self) -> None:
+        profile = _type_correction_profile("test.type.device", "PDEVICE_OBJECT", "deviceObject")
+        profile["parameters"][0]["accepted_types"] = ["__int64"]
+        payload = _type_correction_pack_payload(profiles=[profile])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            self._write_isolated_pack(temp_dir, payload)
+            profile_loader.configure_profile_dir(temp_dir)
+
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall IopExample(PFILE_OBJECT a1, __int64 a2)
+{
+  return (__int64)a1 + a2;
+}
+""",
+                profile_context=_matching_context(),
+            )
+            plan = build_clean_plan(capture)
+            rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(1, len(plan.type_corrections))
+        self.assertIn("type_conflict", plan.type_corrections[0].blockers)
+        self.assertFalse(plan.type_corrections[0].apply_to_preview)
+        self.assertIn("IopExample(PFILE_OBJECT", rendered)
+        self.assertNotIn("IopExample(PDEVICE_OBJECT", rendered)
+
     def test_image_hash_constraint_can_match_context_alias(self) -> None:
         profile = _pack_payload()
         profile["metadata"].pop("pdb_guid_age")
