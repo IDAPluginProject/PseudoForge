@@ -588,6 +588,7 @@ def analyze_corpus(
         warnings = _read_warnings(_artifact_path(summary_path, artifacts, "warnings"))
         warning_diagnostics = _read_warning_diagnostics(_artifact_path(summary_path, artifacts, "warning_diagnostics"))
         warning_class_items: list[Any] = warning_diagnostics if warning_diagnostics else warnings
+        warning_count = _effective_warning_count(summary, warnings, warning_diagnostics)
         rename_items = _read_rename_items(_artifact_path(summary_path, artifacts, "rename_map"))
         rule_report = _coerce_dict(_read_json(_artifact_path(summary_path, artifacts, "rule_report")))
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
@@ -631,7 +632,7 @@ def analyze_corpus(
         totals["summaries"] += 1
         totals["rename_candidates"] += rename_candidate_count
         totals["applied_renames"] += applied_rename_count
-        totals["warnings"] += _int_value(summary.get("warnings"), len(warnings))
+        totals["warnings"] += warning_count
         totals["flow_rewrites"] += _int_value(summary.get("flow_rewrites"), 0)
         totals["buffer_contracts"] += _int_value(summary.get("buffer_contracts"), len(buffer_contracts))
         totals["matched_rules"] += _int_value(_coerce_dict(summary.get("rule_diagnostics", {})).get("matched_rules"), 0)
@@ -653,7 +654,7 @@ def analyze_corpus(
                 {
                     "ea": ea,
                     "name": name,
-                    "warning_count": len(warnings),
+                    "warning_count": warning_count,
                     "warning_classes": dict(Counter(_classify_warning(item) for item in warning_class_items).most_common(5)),
                     "summary_path": str(summary_path),
                 }
@@ -8005,6 +8006,15 @@ def _rewrite_blocker_function_summary(
 
 def _is_decompiler_temp_base(name: str) -> bool:
     return re.fullmatch(r"[av]\d+", str(name or "")) is not None
+
+
+def _effective_warning_count(
+    summary: dict[str, Any],
+    warnings: list[str],
+    warning_diagnostics: list[dict[str, Any]],
+) -> int:
+    summary_count = _int_value(summary.get("warnings"), len(warnings))
+    return max(summary_count, len(warnings), len(warning_diagnostics))
 
 
 def _classify_warning(warning: Any) -> str:
