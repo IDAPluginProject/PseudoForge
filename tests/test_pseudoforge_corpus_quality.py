@@ -351,6 +351,261 @@ __int64 __fastcall NestedStatusStore(__int64 argument0, __int64 argument1)
             self.assertIn("`dword_nested_pointer_status_stores`", markdown)
             self.assertIn("NestedStatusStore", markdown)
 
+    def test_analyze_corpus_reports_pointer_indexed_offset_rewrite_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140004000_PointerIndexedRewrite"
+            function_dir.mkdir(parents=True)
+            raw_path = function_dir / "PointerIndexedRewrite.raw.cpp"
+            cleaned_path = function_dir / "PointerIndexedRewrite.cleaned.cpp"
+            preview_metadata_path = function_dir / "PointerIndexedRewrite.layout-rewrite-preview.json"
+            summary_path = function_dir / "PointerIndexedRewrite.ida-batch-summary.json"
+            raw_path.write_text(
+                r"""
+__int64 __fastcall PointerIndexedRewrite(__int64 token)
+{
+  return *((_QWORD *)token + 2)
+       + *((_DWORD *)token + 30)
+       + *((_QWORD *)token + 98);
+}
+""",
+                encoding="utf-8",
+            )
+            cleaned_path.write_text(
+                r"""
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for token: 3 typed dereference(s) across 3 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.80
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for token: 3 dereference(s) can map to 3 field alias(es) field_10, field_78, field_310. Validated layout rewrite applied to canonical cleaned output. confidence=0.78
+*/
+__int64 __fastcall PointerIndexedRewrite(__int64 token)
+{
+  return token->field_10 /* _QWORD +0x10 */
+       + token->field_78 /* _DWORD +0x78 */
+       + *((_QWORD *)token + 98);
+}
+""",
+                encoding="utf-8",
+            )
+            preview_metadata_path.write_text(
+                json.dumps(
+                    {
+                        "canonical_cleaned_output_modified": True,
+                        "preview_plans": [
+                            {
+                                "base": "token",
+                                "advertised_offsets": [16, 120, 784],
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "PointerIndexedRewrite",
+                        "function_ea": "0x140004000",
+                        "artifacts": {
+                            "raw_pseudocode": "PointerIndexedRewrite.raw.cpp",
+                            "cleaned_pseudocode": "PointerIndexedRewrite.cleaned.cpp",
+                            "layout_rewrite_preview_metadata": "PointerIndexedRewrite.layout-rewrite-preview.json",
+                            "summary": "PointerIndexedRewrite.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            stats = report["pointer_indexed_offset_stats"]
+            totals = stats["totals"]
+
+            self.assertEqual(3, totals["raw_pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(1, totals["pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(3, totals["pointer_indexed_layout_rewrite_candidates"])
+            self.assertEqual(2, totals["pointer_indexed_rewrite_applied"])
+            self.assertEqual(1, report["body_text_stats"]["pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(1, report["body_text_stats"]["functions_with_pointer_indexed_offset_derefs"])
+            self.assertEqual({"token": 1}, stats["top_bases"])
+            self.assertEqual({"token": 2}, stats["rewritten_bases"])
+            self.assertEqual("PointerIndexedRewrite", stats["top_functions"][0]["name"])
+            self.assertEqual(2, stats["top_functions"][0]["pointer_indexed_rewrite_applied"])
+
+            markdown = render_quality_markdown(report)
+            self.assertIn("## Pointer-Indexed Offset Residue", markdown)
+            self.assertIn("PointerIndexedRewrite", markdown)
+
+    def test_pointer_indexed_rewrite_inventory_handles_renamed_bases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140005000_RenamedPointerIndexedRewrite"
+            function_dir.mkdir(parents=True)
+            raw_path = function_dir / "RenamedPointerIndexedRewrite.raw.cpp"
+            cleaned_path = function_dir / "RenamedPointerIndexedRewrite.cleaned.cpp"
+            preview_metadata_path = function_dir / "RenamedPointerIndexedRewrite.layout-rewrite-preview.json"
+            summary_path = function_dir / "RenamedPointerIndexedRewrite.ida-batch-summary.json"
+            raw_path.write_text(
+                r"""
+__int64 __fastcall RenamedPointerIndexedRewrite(__int64 argument0)
+{
+  __int64 v9;
+
+  v9 = argument0;
+  *((_QWORD *)v9 + 2) = argument0;
+  *((_DWORD *)v9 + 8) = 1;
+  return v9;
+}
+""",
+                encoding="utf-8",
+            )
+            cleaned_path.write_text(
+                r"""
+__int64 __fastcall RenamedPointerIndexedRewrite(__int64 argument0)
+{
+  __int64 pool;
+
+  pool = argument0;
+  pool->field_10 /* _QWORD +0x10 */ = argument0;
+  pool->field_20 /* _DWORD +0x20 */ = 1;
+  return pool;
+}
+""",
+                encoding="utf-8",
+            )
+            preview_metadata_path.write_text(
+                json.dumps(
+                    {
+                        "canonical_cleaned_output_modified": True,
+                        "rewritten_bases": ["pool"],
+                        "preview_plans": [
+                            {
+                                "base": "pool",
+                                "advertised_offsets": [16, 32],
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "RenamedPointerIndexedRewrite",
+                        "function_ea": "0x140005000",
+                        "artifacts": {
+                            "raw_pseudocode": "RenamedPointerIndexedRewrite.raw.cpp",
+                            "cleaned_pseudocode": "RenamedPointerIndexedRewrite.cleaned.cpp",
+                            "layout_rewrite_preview_metadata": "RenamedPointerIndexedRewrite.layout-rewrite-preview.json",
+                            "summary": "RenamedPointerIndexedRewrite.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            stats = report["pointer_indexed_offset_stats"]
+            totals = stats["totals"]
+
+            self.assertEqual(2, totals["raw_pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(0, totals["pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(2, totals["pointer_indexed_layout_rewrite_candidates"])
+            self.assertEqual(2, totals["pointer_indexed_rewrite_applied"])
+            self.assertEqual({"pool": 2}, stats["rewritten_bases"])
+
+    def test_pointer_indexed_rewrite_inventory_caps_renamed_base_fallback_to_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140006000_CappedPointerIndexedRewrite"
+            function_dir.mkdir(parents=True)
+            raw_path = function_dir / "CappedPointerIndexedRewrite.raw.cpp"
+            cleaned_path = function_dir / "CappedPointerIndexedRewrite.cleaned.cpp"
+            preview_metadata_path = function_dir / "CappedPointerIndexedRewrite.layout-rewrite-preview.json"
+            summary_path = function_dir / "CappedPointerIndexedRewrite.ida-batch-summary.json"
+            raw_path.write_text(
+                r"""
+__int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
+{
+  __int64 v9;
+
+  v9 = argument0;
+  *((_QWORD *)v9 + 2) = argument0;
+  *((_DWORD *)v9 + 8) = 1;
+  *((_DWORD *)v9 + 9) = 2;
+  return v9;
+}
+""",
+                encoding="utf-8",
+            )
+            cleaned_path.write_text(
+                r"""
+__int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
+{
+  __int64 pool;
+
+  pool = argument0;
+  pool->field_10 /* _QWORD +0x10 */ = argument0;
+  pool->field_20 /* _DWORD +0x20 */ = 1;
+  return pool;
+}
+""",
+                encoding="utf-8",
+            )
+            preview_metadata_path.write_text(
+                json.dumps(
+                    {
+                        "canonical_cleaned_output_modified": True,
+                        "rewritten_bases": ["pool"],
+                        "preview_plans": [
+                            {
+                                "base": "pool",
+                                "advertised_offsets": [16, 32],
+                            }
+                        ],
+                        "rewrite_results": {
+                            "pool": {
+                                "rewritten_accesses": 2,
+                                "rewritten_fields": 2,
+                            }
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "CappedPointerIndexedRewrite",
+                        "function_ea": "0x140006000",
+                        "artifacts": {
+                            "raw_pseudocode": "CappedPointerIndexedRewrite.raw.cpp",
+                            "cleaned_pseudocode": "CappedPointerIndexedRewrite.cleaned.cpp",
+                            "layout_rewrite_preview_metadata": "CappedPointerIndexedRewrite.layout-rewrite-preview.json",
+                            "summary": "CappedPointerIndexedRewrite.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            totals = report["pointer_indexed_offset_stats"]["totals"]
+
+            self.assertEqual(3, totals["raw_pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(0, totals["pointer_indexed_offset_deref_patterns"])
+            self.assertEqual(2, totals["pointer_indexed_layout_rewrite_candidates"])
+            self.assertEqual(2, totals["pointer_indexed_rewrite_applied"])
+
     def test_layout_rewrite_blocker_profiles_split_base_identity(self) -> None:
         self.assertEqual(
             ["base_identity_candidates", "temp_base_identity_candidates"],

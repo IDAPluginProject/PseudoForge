@@ -43,6 +43,61 @@ GENERIC_PARAMETER_NAME_RE = re.compile(r"\b(?:[av]\d+|argument\d+)\b")
 OFFSET_DEREF_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\([^;\n]*\+\s*(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
+POINTER_INDEXED_OFFSET_DEREF_RE = re.compile(
+    r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<index>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
+POINTER_INDEXED_TYPE_STORAGE_SIZES = {
+    "__int8": 1,
+    "signed __int8": 1,
+    "unsigned __int8": 1,
+    "char": 1,
+    "signed char": 1,
+    "unsigned char": 1,
+    "_byte": 1,
+    "byte": 1,
+    "boolean": 1,
+    "__int16": 2,
+    "signed __int16": 2,
+    "unsigned __int16": 2,
+    "short": 2,
+    "signed short": 2,
+    "unsigned short": 2,
+    "_word": 2,
+    "word": 2,
+    "wchar_t": 2,
+    "__int32": 4,
+    "signed __int32": 4,
+    "unsigned __int32": 4,
+    "int": 4,
+    "signed int": 4,
+    "unsigned int": 4,
+    "long": 4,
+    "signed long": 4,
+    "unsigned long": 4,
+    "_dword": 4,
+    "dword": 4,
+    "ulong": 4,
+    "ntstatus": 4,
+    "__int64": 8,
+    "signed __int64": 8,
+    "unsigned __int64": 8,
+    "long long": 8,
+    "signed long long": 8,
+    "unsigned long long": 8,
+    "_qword": 8,
+    "qword": 8,
+    "ulong64": 8,
+    "size_t": 8,
+    "__int128": 16,
+    "signed __int128": 16,
+    "unsigned __int128": 16,
+    "_oword": 16,
+    "oword": 16,
+    "xmmword": 16,
+}
 WEAK_PARAMETER_TYPES = {
     "__int64",
     "PVOID",
@@ -525,6 +580,9 @@ def analyze_corpus(
     rewrite_preview_artifact_plan_kinds: Counter[str] = Counter()
     rewrite_preview_artifact_failed_checks: Counter[str] = Counter()
     rewrite_preview_artifact_totals = Counter()
+    pointer_indexed_offset_totals = Counter()
+    pointer_indexed_offset_bases: Counter[str] = Counter()
+    pointer_indexed_offset_rewritten_bases: Counter[str] = Counter()
     rewrite_near_ready_bases: Counter[str] = Counter()
     rewrite_near_ready_missing: Counter[str] = Counter()
     rewrite_near_ready_totals = Counter()
@@ -579,6 +637,7 @@ def analyze_corpus(
     top_rewrite_ready_functions = []
     top_rewrite_preview_functions = []
     top_rewrite_preview_artifact_functions = []
+    top_pointer_indexed_offset_functions = []
     top_rewrite_near_ready_functions = []
     top_rewrite_partial_opportunity_functions = []
     top_rewrite_blocker_functions = []
@@ -601,6 +660,7 @@ def analyze_corpus(
         rule_report = _coerce_dict(_read_json(_artifact_path(summary_path, artifacts, "rule_report")))
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
         cleaned_path = _artifact_path(summary_path, artifacts, "cleaned_pseudocode")
+        raw_path = _artifact_path(summary_path, artifacts, "raw_pseudocode")
         rewrite_preview_metadata = _coerce_dict(
             _read_json(_artifact_path(summary_path, artifacts, "layout_rewrite_preview_metadata"))
         )
@@ -694,6 +754,22 @@ def analyze_corpus(
                     body_text_totals,
                     cleaned_path,
                 )
+                pointer_indexed_metrics = _pointer_indexed_offset_function_metrics(
+                    name,
+                    ea,
+                    summary_path,
+                    raw_path,
+                    cleaned_path,
+                    rewrite_preview_metadata,
+                )
+                _update_pointer_indexed_offset_metrics(
+                    pointer_indexed_metrics,
+                    pointer_indexed_offset_totals,
+                    pointer_indexed_offset_bases,
+                    pointer_indexed_offset_rewritten_bases,
+                )
+                if pointer_indexed_metrics.get("has_pointer_indexed_offset_evidence"):
+                    top_pointer_indexed_offset_functions.append(pointer_indexed_metrics)
                 _update_layout_hint_metrics(
                     layout_hints,
                     layout_totals,
@@ -1339,6 +1415,21 @@ def analyze_corpus(
             ),
             "top_functions": top_rewrite_preview_artifact_functions[:top],
         },
+        "pointer_indexed_offset_stats": {
+            "totals": _pointer_indexed_offset_totals_dict(pointer_indexed_offset_totals),
+            "top_bases": _counter_to_dict(Counter(dict(pointer_indexed_offset_bases.most_common(top)))),
+            "rewritten_bases": _counter_to_dict(
+                Counter(dict(pointer_indexed_offset_rewritten_bases.most_common(top)))
+            ),
+            "top_functions": sorted(
+                top_pointer_indexed_offset_functions,
+                key=lambda item: (
+                    -int(item.get("pointer_indexed_rewrite_applied", 0) or 0),
+                    -int(item.get("pointer_indexed_offset_deref_patterns", 0) or 0),
+                    str(item.get("name", "")),
+                ),
+            )[:top],
+        },
         "layout_rewrite_near_ready_stats": {
             "totals": _counter_to_dict(rewrite_near_ready_totals),
             "top_bases": _counter_to_dict(Counter(dict(rewrite_near_ready_bases.most_common(top)))),
@@ -1453,6 +1544,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_ready_stats = _coerce_dict(report.get("layout_rewrite_ready_stats", {}))
     rewrite_preview_stats = _coerce_dict(report.get("layout_rewrite_preview_stats", {}))
     rewrite_preview_artifact_stats = _coerce_dict(report.get("layout_rewrite_preview_artifact_stats", {}))
+    pointer_indexed_offset_stats = _coerce_dict(report.get("pointer_indexed_offset_stats", {}))
     rewrite_near_ready_stats = _coerce_dict(report.get("layout_rewrite_near_ready_stats", {}))
     rewrite_partial_opportunity_stats = _coerce_dict(report.get("layout_rewrite_partial_opportunity_stats", {}))
     rewrite_blocker_stats = _coerce_dict(report.get("layout_rewrite_blocker_stats", {}))
@@ -1476,6 +1568,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     rewrite_ready_totals = _coerce_dict(rewrite_ready_stats.get("totals", {}))
     rewrite_preview_totals = _coerce_dict(rewrite_preview_stats.get("totals", {}))
     rewrite_preview_artifact_totals = _coerce_dict(rewrite_preview_artifact_stats.get("totals", {}))
+    pointer_indexed_offset_totals = _coerce_dict(pointer_indexed_offset_stats.get("totals", {}))
     rewrite_near_ready_totals = _coerce_dict(rewrite_near_ready_stats.get("totals", {}))
     rewrite_partial_opportunity_totals = _coerce_dict(rewrite_partial_opportunity_stats.get("totals", {}))
     rewrite_blocker_totals = _coerce_dict(rewrite_blocker_stats.get("totals", {}))
@@ -3349,6 +3442,79 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Pointer-Indexed Offset Residue",
+            "",
+            "- Raw pointer-indexed offset-like derefs: `%s` across `%s` functions"
+            % (
+                pointer_indexed_offset_totals.get("raw_pointer_indexed_offset_deref_patterns", 0),
+                pointer_indexed_offset_totals.get("functions_with_raw_pointer_indexed_offset_derefs", 0),
+            ),
+            "- Cleaned pointer-indexed offset-like derefs: `%s` across `%s` functions"
+            % (
+                pointer_indexed_offset_totals.get("pointer_indexed_offset_deref_patterns", 0),
+                pointer_indexed_offset_totals.get("functions_with_pointer_indexed_offset_derefs", 0),
+            ),
+            "- Rewrite candidates: `%s`"
+            % pointer_indexed_offset_totals.get("pointer_indexed_layout_rewrite_candidates", 0),
+            "- Rewrite applied: `%s`"
+            % pointer_indexed_offset_totals.get("pointer_indexed_rewrite_applied", 0),
+            "",
+            "### Pointer-Indexed Bases",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(pointer_indexed_offset_stats.get("top_bases", {})), "Base"))
+    lines.extend(
+        [
+            "",
+            "### Pointer-Indexed Rewritten Bases",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(pointer_indexed_offset_stats.get("rewritten_bases", {})),
+            "Base",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Top Pointer-Indexed Offset Functions",
+            "",
+            "| Function | EA | Raw | Cleaned | Candidates | Applied | Bases | Rewritten bases |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in pointer_indexed_offset_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("raw_pointer_indexed_offset_deref_patterns", 0) or 0),
+                int(item.get("pointer_indexed_offset_deref_patterns", 0) or 0),
+                int(item.get("pointer_indexed_layout_rewrite_candidates", 0) or 0),
+                int(item.get("pointer_indexed_rewrite_applied", 0) or 0),
+                _markdown_table_cell(
+                    ", ".join(
+                        "%s=%s" % (key, value)
+                        for key, value in _coerce_dict(item.get("bases", {})).items()
+                    )
+                ),
+                _markdown_table_cell(
+                    ", ".join(
+                        "%s=%s" % (key, value)
+                        for key, value in _coerce_dict(item.get("rewritten_bases", {})).items()
+                    )
+                ),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "### Decimal Status-Like Residue",
             "",
             "#### Decimal Status-Like Context Kinds",
@@ -3922,6 +4088,260 @@ def _read_rename_items(path: Path) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
+
+
+def _pointer_indexed_offset_function_metrics(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    raw_path: Path,
+    cleaned_path: Path,
+    rewrite_preview_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    raw_text = _read_text(raw_path)
+    cleaned_text = _read_text(cleaned_path)
+    raw_body = _strip_pseudoforge_header(raw_text) if raw_text else ""
+    cleaned_body = _strip_pseudoforge_header(cleaned_text) if cleaned_text else ""
+    raw_items = _pointer_indexed_deref_items(raw_body)
+    cleaned_items = _pointer_indexed_deref_items(cleaned_body)
+    plan_offsets = _pointer_indexed_plan_offsets(rewrite_preview_metadata)
+    candidate_items = [
+        item
+        for item in raw_items
+        if _pointer_indexed_item_matches_plan(item, plan_offsets)
+    ]
+    remaining_candidate_items = [
+        item
+        for item in cleaned_items
+        if _pointer_indexed_item_matches_plan(item, plan_offsets)
+    ]
+    candidate_bases = Counter(str(item.get("base", "")) for item in candidate_items)
+    remaining_candidate_bases = Counter(str(item.get("base", "")) for item in remaining_candidate_items)
+    rewritten_bases: Counter[str] = Counter()
+    for base, count in candidate_bases.items():
+        rewritten = max(0, count - remaining_candidate_bases.get(base, 0))
+        if rewritten:
+            rewritten_bases[base] = rewritten
+    candidate_count = len(candidate_items)
+    pointer_indexed_delta = max(0, len(raw_items) - len(cleaned_items))
+    if not bool(rewrite_preview_metadata.get("canonical_cleaned_output_modified", False)):
+        pointer_indexed_delta = 0
+        rewritten_bases = Counter()
+    elif pointer_indexed_delta > candidate_count:
+        fallback_count = pointer_indexed_delta - candidate_count
+        rewrite_counts = _pointer_indexed_metadata_rewrite_counts(rewrite_preview_metadata)
+        if len(rewrite_counts) == 1:
+            metadata_base, metadata_rewritten = next(iter(rewrite_counts.items()))
+            fallback_rewritten = min(
+                fallback_count,
+                max(0, metadata_rewritten - rewritten_bases.get(metadata_base, 0)),
+            )
+            if fallback_rewritten:
+                candidate_count += fallback_rewritten
+                rewritten_bases[metadata_base] += fallback_rewritten
+                candidate_bases[metadata_base] += fallback_rewritten
+        else:
+            metadata_bases = _pointer_indexed_metadata_rewritten_bases(rewrite_preview_metadata)
+            if len(metadata_bases) == 1:
+                candidate_count += fallback_count
+                rewritten_bases[metadata_bases[0]] += fallback_count
+                candidate_bases[metadata_bases[0]] += fallback_count
+            else:
+                candidate_count += fallback_count
+                rewritten_bases["unknown"] += fallback_count
+                candidate_bases["unknown"] += fallback_count
+    rewrite_applied = sum(rewritten_bases.values())
+    bases = Counter(str(item.get("base", "")) for item in cleaned_items)
+    raw_bases = Counter(str(item.get("base", "")) for item in raw_items)
+    return {
+        "ea": ea,
+        "name": name,
+        "raw_pointer_indexed_offset_deref_patterns": len(raw_items),
+        "pointer_indexed_offset_deref_patterns": len(cleaned_items),
+        "pointer_indexed_layout_rewrite_candidates": candidate_count,
+        "pointer_indexed_rewrite_applied": rewrite_applied,
+        "bases": _counter_to_dict(bases),
+        "raw_bases": _counter_to_dict(raw_bases),
+        "candidate_bases": _counter_to_dict(candidate_bases),
+        "rewritten_bases": _counter_to_dict(rewritten_bases),
+        "summary_path": str(summary_path),
+        "has_pointer_indexed_offset_evidence": bool(raw_items or cleaned_items or candidate_items or rewrite_applied),
+    }
+
+
+def _update_pointer_indexed_offset_metrics(
+    metrics: dict[str, Any],
+    totals: Counter[str],
+    bases: Counter[str],
+    rewritten_bases: Counter[str],
+) -> None:
+    raw_count = _int_value(metrics.get("raw_pointer_indexed_offset_deref_patterns"), 0)
+    cleaned_count = _int_value(metrics.get("pointer_indexed_offset_deref_patterns"), 0)
+    candidate_count = _int_value(metrics.get("pointer_indexed_layout_rewrite_candidates"), 0)
+    applied_count = _int_value(metrics.get("pointer_indexed_rewrite_applied"), 0)
+    totals["raw_pointer_indexed_offset_deref_patterns"] += raw_count
+    totals["pointer_indexed_offset_deref_patterns"] += cleaned_count
+    totals["pointer_indexed_layout_rewrite_candidates"] += candidate_count
+    totals["pointer_indexed_rewrite_applied"] += applied_count
+    if raw_count:
+        totals["functions_with_raw_pointer_indexed_offset_derefs"] += 1
+    if cleaned_count:
+        totals["functions_with_pointer_indexed_offset_derefs"] += 1
+    if candidate_count:
+        totals["functions_with_pointer_indexed_layout_rewrite_candidates"] += 1
+    if applied_count:
+        totals["functions_with_pointer_indexed_rewrite_applied"] += 1
+    for base, count in _coerce_dict(metrics.get("bases", {})).items():
+        bases[str(base)] += _int_value(count, 0)
+    for base, count in _coerce_dict(metrics.get("rewritten_bases", {})).items():
+        rewritten_bases[str(base)] += _int_value(count, 0)
+
+
+def _pointer_indexed_offset_totals_dict(counter: Counter[str]) -> dict[str, int]:
+    required_keys = [
+        "raw_pointer_indexed_offset_deref_patterns",
+        "functions_with_raw_pointer_indexed_offset_derefs",
+        "pointer_indexed_offset_deref_patterns",
+        "functions_with_pointer_indexed_offset_derefs",
+        "pointer_indexed_layout_rewrite_candidates",
+        "functions_with_pointer_indexed_layout_rewrite_candidates",
+        "pointer_indexed_rewrite_applied",
+        "functions_with_pointer_indexed_rewrite_applied",
+    ]
+    result = _counter_to_dict(counter)
+    for key in required_keys:
+        result.setdefault(key, 0)
+    return result
+
+
+def _pointer_indexed_deref_items(text: str) -> list[dict[str, Any]]:
+    items = []
+    for match in POINTER_INDEXED_OFFSET_DEREF_RE.finditer(text or ""):
+        index = _parse_pointer_indexed_integer(match.group("index"))
+        if index is None or index <= 0:
+            continue
+        element_size = _pointer_indexed_element_size(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
+        if element_size <= 0:
+            continue
+        items.append(
+            {
+                "base": match.group("base"),
+                "index": index,
+                "byte_offset": index * element_size,
+                "type": _normalized_pointer_indexed_type(
+                    match.group("type"),
+                    match.group("pointer_stars"),
+                ),
+            }
+        )
+    return items
+
+
+def _pointer_indexed_plan_offsets(metadata: dict[str, Any]) -> dict[str, set[int]]:
+    plan_offsets: dict[str, set[int]] = {}
+    for plan in metadata.get("preview_plans", []) or []:
+        if not isinstance(plan, dict):
+            continue
+        base = str(plan.get("base", "") or "")
+        if not base:
+            continue
+        offsets = {
+            _int_value(offset, -1)
+            for offset in plan.get("advertised_offsets", []) or []
+        }
+        normalized_offsets = {offset for offset in offsets if offset >= 0}
+        plan_offsets[base] = normalized_offsets
+        plan_offsets.setdefault(base.lower(), normalized_offsets)
+    return plan_offsets
+
+
+def _pointer_indexed_metadata_rewritten_bases(metadata: dict[str, Any]) -> list[str]:
+    bases = [
+        str(item)
+        for item in metadata.get("rewritten_bases", []) or []
+        if str(item)
+    ]
+    if bases:
+        return bases
+    result = []
+    for plan in metadata.get("preview_plans", []) or []:
+        if not isinstance(plan, dict):
+            continue
+        base = str(plan.get("base", "") or "")
+        if base:
+            result.append(base)
+    return result
+
+
+def _pointer_indexed_metadata_rewrite_counts(metadata: dict[str, Any]) -> dict[str, int]:
+    results = _coerce_dict(metadata.get("rewrite_results", {}))
+    counts: dict[str, int] = {}
+    for base, result in results.items():
+        result_dict = _coerce_dict(result)
+        count = _int_value(result_dict.get("rewritten_accesses"), 0)
+        if count > 0:
+            counts[str(base)] = count
+    if counts:
+        return counts
+    for plan in metadata.get("preview_plans", []) or []:
+        if not isinstance(plan, dict):
+            continue
+        base = str(plan.get("base", "") or "")
+        if not base:
+            continue
+        count = _int_value(plan.get("advertised_access_count"), 0)
+        if count <= 0:
+            count = len([offset for offset in plan.get("advertised_offsets", []) or [] if _int_value(offset, -1) >= 0])
+        if count > 0:
+            counts[base] = counts.get(base, 0) + count
+    return counts
+
+
+def _pointer_indexed_item_matches_plan(
+    item: dict[str, Any],
+    plan_offsets: dict[str, set[int]],
+) -> bool:
+    base = str(item.get("base", "") or "")
+    if base not in plan_offsets and base.lower() not in plan_offsets:
+        return False
+    offsets = plan_offsets.get(base, plan_offsets.get(base.lower(), set()))
+    if not offsets:
+        return True
+    return _int_value(item.get("byte_offset"), -1) in offsets
+
+
+def _parse_pointer_indexed_integer(value: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+    except ValueError:
+        return None
+
+
+def _normalized_pointer_indexed_type(type_name: str, pointer_stars: str) -> str:
+    text = " ".join(str(type_name or "").replace("const ", "").replace("volatile ", "").split())
+    stars = str(pointer_stars or "")
+    if len(stars) > 1:
+        return "%s %s" % (text, "*" * (len(stars) - 1))
+    return text
+
+
+def _pointer_indexed_element_size(type_name: str, pointer_stars: str) -> int:
+    normalized = _normalized_pointer_indexed_type(type_name, pointer_stars)
+    lowered = normalized.lower()
+    if normalized.endswith("*"):
+        return 8
+    size = POINTER_INDEXED_TYPE_STORAGE_SIZES.get(lowered)
+    if size:
+        return size
+    if re.fullmatch(r"P[A-Z0-9_]+", normalized):
+        return 8
+    return 0
 
 
 def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path: Path) -> dict[str, Any]:
@@ -4899,6 +5319,13 @@ def _update_text_metrics(
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
     _count_pattern(text_totals, text, GENERIC_IDENTIFIER_RE, "generic_identifier_tokens", "functions_with_generic_identifiers")
     _count_pattern(text_totals, text, OFFSET_DEREF_RE, "offset_deref_patterns", "functions_with_offset_derefs")
+    _count_pattern(
+        text_totals,
+        text,
+        POINTER_INDEXED_OFFSET_DEREF_RE,
+        "pointer_indexed_offset_deref_patterns",
+        "functions_with_pointer_indexed_offset_derefs",
+    )
     _count_pattern(text_totals, text, LABEL_RE, "label_tokens", "functions_with_labels")
     _count_pattern(
         text_totals,

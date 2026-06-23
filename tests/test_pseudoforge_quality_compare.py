@@ -23,7 +23,16 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "applied_renames": 3,
                         },
                         "rename_stats": {"apply_rate": 30.0},
-                        "body_text_stats": {"generic_identifier_tokens": 100},
+                        "body_text_stats": {
+                            "generic_identifier_tokens": 100,
+                            "pointer_indexed_offset_deref_patterns": 9,
+                        },
+                        "pointer_indexed_offset_stats": {
+                            "totals": {
+                                "pointer_indexed_layout_rewrite_candidates": 2,
+                                "pointer_indexed_rewrite_applied": 1,
+                            }
+                        },
                         "prototype_correction_stats": {
                             "totals": {
                                 "function_identity_candidates": 1,
@@ -49,7 +58,16 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "applied_renames": 8,
                         },
                         "rename_stats": {"apply_rate": 80.0},
-                        "body_text_stats": {"generic_identifier_tokens": 120},
+                        "body_text_stats": {
+                            "generic_identifier_tokens": 120,
+                            "pointer_indexed_offset_deref_patterns": 3,
+                        },
+                        "pointer_indexed_offset_stats": {
+                            "totals": {
+                                "pointer_indexed_layout_rewrite_candidates": 5,
+                                "pointer_indexed_rewrite_applied": 4,
+                            }
+                        },
                         "prototype_correction_stats": {
                             "totals": {
                                 "function_identity_candidates": 4,
@@ -76,6 +94,12 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
             self.assertEqual("improved", metrics["applied_renames"]["status"])
             self.assertEqual(20, metrics["body_generic_identifier_tokens"]["delta"])
             self.assertEqual("regressed", metrics["body_generic_identifier_tokens"]["status"])
+            self.assertEqual(-6, metrics["body_pointer_indexed_offset_deref_patterns"]["delta"])
+            self.assertEqual("improved", metrics["body_pointer_indexed_offset_deref_patterns"]["status"])
+            self.assertEqual(3, metrics["pointer_indexed_layout_rewrite_candidates"]["delta"])
+            self.assertEqual("info", metrics["pointer_indexed_layout_rewrite_candidates"]["status"])
+            self.assertEqual(3, metrics["pointer_indexed_rewrite_applied"]["delta"])
+            self.assertEqual("improved", metrics["pointer_indexed_rewrite_applied"]["status"])
             self.assertEqual(2, metrics["prototype_parameter_type_corrections_applied"]["delta"])
             self.assertEqual("improved", metrics["prototype_parameter_type_corrections_applied"]["status"])
             self.assertEqual(-3, metrics["prototype_generic_parameter_survivors"]["delta"])

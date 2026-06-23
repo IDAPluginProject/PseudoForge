@@ -6644,17 +6644,25 @@ def _outer_parentheses_wrap_all(value: str) -> bool:
 
 
 def _first_layout_access_start(text: str, base: str) -> int:
+    first = -1
     for match in _OFFSET_DEREF_RE.finditer(text or ""):
         if match.group("base") == base:
-            return match.start()
-    return -1
+            first = match.start() if first < 0 else min(first, match.start())
+    for match in _OFFSET_INDEXED_DEREF_RE.finditer(text or ""):
+        if match.group("base") == base:
+            first = match.start() if first < 0 else min(first, match.start())
+    return first
 
 
 def _next_layout_access_start(text: str, base: str, start: int) -> int:
+    next_access = -1
     for match in _OFFSET_DEREF_RE.finditer(text or "", max(0, int(start))):
         if match.group("base") == base:
-            return match.start()
-    return -1
+            next_access = match.start() if next_access < 0 else min(next_access, match.start())
+    for match in _OFFSET_INDEXED_DEREF_RE.finditer(text or "", max(0, int(start))):
+        if match.group("base") == base:
+            next_access = match.start() if next_access < 0 else min(next_access, match.start())
+    return next_access
 
 
 def _base_address_taken(text: str, base: str) -> bool:

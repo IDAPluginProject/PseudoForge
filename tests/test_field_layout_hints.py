@@ -930,6 +930,77 @@ __int64 __fastcall PointerIndexedLayout(__int64 Token)
         self.assertEqual(12, previews[0]["access_count"])
         self.assertEqual(8, previews[0]["field_count"])
 
+    def test_pointer_indexed_first_access_allows_stable_named_base_promotion(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PointerIndexedStableBase(__int64 source)
+{
+  __int64 pool;
+
+  pool = MakePool(source);
+  *((_QWORD *)pool + 2) = source;
+  *((_DWORD *)pool + 8) = 1;
+  *((_DWORD *)pool + 9) = 2;
+  *((_QWORD *)pool + 6) = 3LL;
+  *((_QWORD *)pool + 7) = 4LL;
+  *((_DWORD *)pool + 8) = 5;
+  *((_QWORD *)pool + 2) = 6LL;
+  *((_QWORD *)pool + 6) = 7LL;
+  return pool;
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertFalse(
+            any(
+                item.get("base") == "pool"
+                and "base assignment order cannot be proven" in item.get("blockers", [])
+                for item in blockers
+            )
+        )
+        self.assertEqual(1, len(ready))
+        self.assertEqual("pool", ready[0]["base"])
+        self.assertEqual("named_dense_threshold_grace", ready[0]["threshold_policy"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual(8, previews[0]["access_count"])
+        self.assertEqual(5, previews[0]["field_count"])
+
+    def test_pointer_indexed_post_access_reassignment_still_blocks_rewrite(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PointerIndexedMovingBase(__int64 first, __int64 second)
+{
+  __int64 pool;
+
+  pool = first;
+  *((_QWORD *)pool + 2) = 1LL;
+  pool = second;
+  *((_QWORD *)pool + 3) = 2LL;
+  *((_QWORD *)pool + 4) = 3LL;
+  *((_QWORD *)pool + 5) = 4LL;
+  *((_QWORD *)pool + 6) = 5LL;
+  *((_QWORD *)pool + 7) = 6LL;
+  *((_QWORD *)pool + 8) = 7LL;
+  *((_QWORD *)pool + 9) = 8LL;
+  return pool;
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+
+        self.assertTrue(
+            any(
+                item.get("base") == "pool"
+                and "base is reassigned after layout access" in item.get("blockers", [])
+                for item in blockers
+            )
+        )
+
     def test_allocation_alias_group_threshold_grace_promotes_split_aliases(self) -> None:
         comments = field_layout_comments(
             """

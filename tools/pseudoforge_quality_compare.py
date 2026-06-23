@@ -32,6 +32,12 @@ METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("body_profiled_status_argument_literals", ("body_text_stats", "profiled_status_argument_literals"), "lower"),
     ("offset_deref_patterns", ("text_stats", "offset_deref_patterns"), "lower"),
     ("body_offset_deref_patterns", ("body_text_stats", "offset_deref_patterns"), "lower"),
+    ("pointer_indexed_offset_deref_patterns", ("text_stats", "pointer_indexed_offset_deref_patterns"), "lower"),
+    (
+        "body_pointer_indexed_offset_deref_patterns",
+        ("body_text_stats", "pointer_indexed_offset_deref_patterns"),
+        "lower",
+    ),
     ("label_tokens", ("text_stats", "label_tokens"), "lower"),
     ("body_label_tokens", ("body_text_stats", "label_tokens"), "lower"),
     ("inferred_offset_layout_hints", ("text_stats", "inferred_offset_layout_hints"), "neutral"),
@@ -70,6 +76,16 @@ METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     (
         "layout_rewritten_fields",
         ("layout_rewrite_preview_artifact_stats", "totals", "rewritten_fields"),
+        "higher",
+    ),
+    (
+        "pointer_indexed_layout_rewrite_candidates",
+        ("pointer_indexed_offset_stats", "totals", "pointer_indexed_layout_rewrite_candidates"),
+        "neutral",
+    ),
+    (
+        "pointer_indexed_rewrite_applied",
+        ("pointer_indexed_offset_stats", "totals", "pointer_indexed_rewrite_applied"),
         "higher",
     ),
     (
