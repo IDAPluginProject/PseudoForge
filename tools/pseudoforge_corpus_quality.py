@@ -615,6 +615,8 @@ def analyze_corpus(
     body_offset_residue_next_actions: Counter[str] = Counter()
     body_offset_residue_review_classes: Counter[str] = Counter()
     body_offset_residue_blocker_reasons: Counter[str] = Counter()
+    body_offset_residue_review_evidence: Counter[str] = Counter()
+    body_offset_residue_promotion_hints: Counter[str] = Counter()
     decimal_status_residue_values: Counter[str] = Counter()
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
@@ -952,6 +954,8 @@ def analyze_corpus(
                         body_offset_residue_next_actions,
                         body_offset_residue_review_classes,
                         body_offset_residue_blocker_reasons,
+                        body_offset_residue_review_evidence,
+                        body_offset_residue_promotion_hints,
                     )
                     top_body_offset_residue_functions.append(body_offset_residue_item)
                 if layout_hints:
@@ -1526,6 +1530,8 @@ def analyze_corpus(
             "next_actions": _counter_to_dict(Counter(dict(body_offset_residue_next_actions.most_common(top)))),
             "review_classes": _counter_to_dict(Counter(dict(body_offset_residue_review_classes.most_common(top)))),
             "blocker_reasons": _counter_to_dict(Counter(dict(body_offset_residue_blocker_reasons.most_common(top)))),
+            "review_evidence": _counter_to_dict(Counter(dict(body_offset_residue_review_evidence.most_common(top)))),
+            "promotion_hints": _counter_to_dict(Counter(dict(body_offset_residue_promotion_hints.most_common(top)))),
             "top_functions": top_body_offset_residue_functions[:top],
         },
         "prototype_correction_stats": {
@@ -1873,10 +1879,36 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Residue Review Evidence",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("review_evidence", {})),
+            "Evidence",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Promotion Hints",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("promotion_hints", {})),
+            "Hint",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | EA | Subsystem | Class | Next action | Score | Offset derefs | Field pressure | Ready | Blockers | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+            "| Function | EA | Subsystem | Class | Next action | Score | Offset derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -1887,8 +1919,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("blocker_reasons", {})).items()
         )
+        evidence = ", ".join(str(value) for value in item.get("review_evidence", []) or [])
+        promotion_hints = ", ".join(str(value) for value in item.get("promotion_hints", []) or [])
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -1900,6 +1934,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("field_access_pressure", 0) or 0),
                 int(item.get("body_rewrite_ready", 0) or 0),
                 int(item.get("body_rewrite_blockers", 0) or 0),
+                _markdown_table_cell(evidence),
+                _markdown_table_cell(promotion_hints),
                 _markdown_table_cell(bases),
                 _markdown_table_cell(reasons),
             )
@@ -4765,12 +4801,33 @@ def _body_offset_residue_function_summary(
         domain_identities,
         pointer_indexed_metrics,
     )
+    review_evidence = _body_offset_residue_review_evidence(
+        review_class,
+        hot_field_clusters,
+        rewrite_ready,
+        rewrite_blockers,
+        domain_identities,
+        pointer_indexed_metrics,
+    )
+    promotion_hints = _body_offset_residue_promotion_hints(
+        review_class,
+        next_action,
+        rewrite_blockers,
+        domain_identities,
+        pointer_indexed_metrics,
+    )
     priority_score = offset_deref_survivors
     priority_score += field_access_pressure // 2
     priority_score += 30 if subsystem in {"registry", "memory", "object", "security"} else 0
     priority_score += 20 if rewrite_blockers else 0
     priority_score += 15 if hot_field_clusters else 0
     priority_score += 10 if source_evidence_count else 0
+    if "trusted_source_required" in review_evidence:
+        priority_score += 10
+    if "report_only_profile_kept_closed" in review_evidence:
+        priority_score += 6
+    if "pointer_indexed_array_or_table_shape" in review_evidence:
+        priority_score += 6
     return {
         "ea": ea,
         "name": name,
@@ -4808,6 +4865,8 @@ def _body_offset_residue_function_summary(
             domain_identities,
         ),
         "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(5)))),
+        "review_evidence": review_evidence,
+        "promotion_hints": promotion_hints,
         "profile_counts": _coerce_dict(prototype_metrics.get("function_identity_profiles", {})),
         "summary_path": str(summary_path),
     }
@@ -4820,6 +4879,8 @@ def _update_body_offset_residue_metrics(
     next_actions: Counter[str],
     review_classes: Counter[str],
     blocker_reasons: Counter[str],
+    review_evidence: Counter[str],
+    promotion_hints: Counter[str],
 ) -> None:
     totals["functions_with_offset_residue"] += 1
     totals["offset_deref_survivors"] += _int_value(item.get("offset_deref_survivors"), 0)
@@ -4841,6 +4902,12 @@ def _update_body_offset_residue_metrics(
     review_classes[str(item.get("review_class", "") or "manual_review")] += 1
     for reason, count in _coerce_dict(item.get("blocker_reasons", {})).items():
         blocker_reasons[str(reason)] += _int_value(count, 0)
+    for evidence in item.get("review_evidence", []) or []:
+        if str(evidence):
+            review_evidence[str(evidence)] += 1
+    for hint in item.get("promotion_hints", []) or []:
+        if str(hint):
+            promotion_hints[str(hint)] += 1
 
 
 def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
@@ -5000,6 +5067,102 @@ def _body_offset_residue_next_action(
     if review_class == "pointer_indexed_residue":
         return "model_pointer_indexed_layout_or_callback_table"
     return "manual_review"
+
+
+def _body_offset_residue_review_evidence(
+    review_class: str,
+    hot_field_clusters: list[dict[str, Any]],
+    rewrite_ready: list[dict[str, Any]],
+    rewrite_blockers: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
+    pointer_indexed_metrics: dict[str, Any],
+) -> list[str]:
+    reasons = _body_offset_rewrite_blocker_reasons(rewrite_blockers)
+    evidence: list[str] = []
+    if rewrite_ready:
+        evidence.append("validated_rewrite_still_has_residue")
+    if _has_layout_trusted_source_gap(reasons):
+        evidence.append("trusted_source_required")
+    if _body_offset_has_exact_reason(reasons, "domain identity profile is report-only"):
+        evidence.append("report_only_profile_kept_closed")
+    if _body_offset_has_exact_reason(reasons, "source domain identity profile is report-only"):
+        evidence.append("report_only_source_identity")
+    if _has_layout_source_stability_risk(reasons):
+        evidence.append("source_stability_risk")
+    if _has_layout_type_evidence_risk(reasons):
+        evidence.append("type_width_or_alignment_conflict")
+    if _has_layout_threshold_gap(reasons):
+        evidence.append("threshold_gap")
+    if _int_value(pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"), 0) > 0:
+        evidence.append("pointer_indexed_array_or_table_shape")
+    if hot_field_clusters and not domain_identities:
+        evidence.append("hot_field_cluster_missing_identity")
+    if domain_identities and review_class == "unclassified_offset_residue":
+        evidence.append("domain_identity_not_enough_for_body_rewrite")
+    if not evidence:
+        evidence.append("manual_code_review_required")
+    return list(dict.fromkeys(evidence))
+
+
+def _body_offset_residue_promotion_hints(
+    review_class: str,
+    next_action: str,
+    rewrite_blockers: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
+    pointer_indexed_metrics: dict[str, Any],
+) -> list[str]:
+    reasons = _body_offset_rewrite_blocker_reasons(rewrite_blockers)
+    hints: list[str] = []
+    if review_class == "rewrite_ready_residue":
+        hints.append("verify_validated_rewrite_output")
+    if _body_offset_has_exact_reason(reasons, "domain identity profile is report-only"):
+        hints.append("do_not_promote_report_only_profile")
+        if _domain_identities_have_field_aliases(domain_identities):
+            hints.append("collect_exact_private_field_layout_evidence")
+    if _body_offset_has_exact_reason(reasons, "source domain identity profile is report-only"):
+        hints.append("promote_source_profile_before_alias_rewrite")
+    if next_action == "add_exact_source_identity_or_keep_review_only":
+        hints.append("require_exact_function_build_source_identity")
+        hints.append("keep_review_only_without_trusted_source")
+    if next_action == "prove_source_stability_before_rewrite":
+        hints.append("prove_single_initializer_and_no_post_access_reassignment")
+    if next_action == "resolve_type_width_or_subfield_conflict":
+        hints.append("resolve_width_alignment_or_overlay_conflict")
+    if next_action == "model_pointer_indexed_layout_or_callback_table":
+        hints.append("model_pointer_indexed_entry_or_callback_table")
+    if _int_value(pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"), 0) > 0:
+        hints.append("separate_array_shape_from_canonical_body_rewrite")
+    if review_class in {"hot_cluster_missing_identity", "layout_hint_missing_identity"}:
+        hints.append("add_function_scoped_identity_or_keep_manual")
+    if review_class == "unclassified_offset_residue":
+        hints.append("classify_subsystem_and_source_before_promotion")
+    if not hints:
+        hints.append("manual_review")
+    return list(dict.fromkeys(hints))
+
+
+def _body_offset_rewrite_blocker_reasons(rewrite_blockers: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(reason)
+        for blocker in rewrite_blockers
+        for reason in blocker.get("reasons", []) or []
+        if str(reason)
+    ]
+
+
+def _body_offset_has_exact_reason(reasons: list[str], expected: str) -> bool:
+    expected_text = str(expected or "").strip().lower()
+    return any(str(reason or "").strip().lower() == expected_text for reason in reasons)
+
+
+def _domain_identities_have_field_aliases(domain_identities: list[dict[str, Any]]) -> bool:
+    for item in domain_identities:
+        if _int_value(item.get("field_count"), 0) > 0:
+            return True
+        fields = item.get("fields", [])
+        if isinstance(fields, list) and fields:
+            return True
+    return False
 
 
 def _body_offset_top_bases(

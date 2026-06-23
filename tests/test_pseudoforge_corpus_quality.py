@@ -10,6 +10,8 @@ from pathlib import Path
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     _base_stability_review_profile,
+    _body_offset_residue_promotion_hints,
+    _body_offset_residue_review_evidence,
     _decimal_status_like_literals,
     _decimal_status_target_review_queues,
     _layout_promotion_next_action_details,
@@ -823,6 +825,39 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             ),
         )
 
+    def test_body_offset_review_evidence_distinguishes_source_report_only(self) -> None:
+        blockers = [
+            {
+                "reasons": [
+                    "source domain identity profile is report-only",
+                    "trusted rewrite source is required for canonical body rewrite",
+                ]
+            }
+        ]
+
+        evidence = _body_offset_residue_review_evidence(
+            "source_identity_blocked_residue",
+            [],
+            [],
+            blockers,
+            [],
+            {},
+        )
+        hints = _body_offset_residue_promotion_hints(
+            "source_identity_blocked_residue",
+            "add_exact_source_identity_or_keep_review_only",
+            blockers,
+            [],
+            {},
+        )
+
+        self.assertIn("report_only_source_identity", evidence)
+        self.assertIn("trusted_source_required", evidence)
+        self.assertNotIn("report_only_profile_kept_closed", evidence)
+        self.assertIn("promote_source_profile_before_alias_rewrite", hints)
+        self.assertIn("require_exact_function_build_source_identity", hints)
+        self.assertNotIn("do_not_promote_report_only_profile", hints)
+
     def test_base_stability_profiles_split_initializer_and_reassignment_risk(self) -> None:
         self.assertEqual(
             "initializer_dominance_review",
@@ -1193,6 +1228,22 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual("Sample", body_offset_stats["top_functions"][0]["name"])
             self.assertEqual("rewrite_ready_residue", body_offset_stats["top_functions"][0]["review_class"])
             self.assertIn("sessionSpace", body_offset_stats["top_functions"][0]["top_bases"])
+            self.assertEqual(
+                1,
+                body_offset_stats["review_evidence"]["validated_rewrite_still_has_residue"],
+            )
+            self.assertEqual(
+                1,
+                body_offset_stats["promotion_hints"]["verify_validated_rewrite_output"],
+            )
+            self.assertIn(
+                "validated_rewrite_still_has_residue",
+                body_offset_stats["top_functions"][0]["review_evidence"],
+            )
+            self.assertIn(
+                "verify_validated_rewrite_output",
+                body_offset_stats["top_functions"][0]["promotion_hints"],
+            )
             self.assertEqual(2, report["layout_hint_stats"]["totals"]["hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["functions_with_hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["named_base_hints"])
