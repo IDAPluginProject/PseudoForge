@@ -740,6 +740,74 @@ __int64 __fastcall MiPfAllocateMdls(__int64 a1, unsigned int a2, _SLIST_ENTRY *a
                 self.assertIn("%s->%s" % (base, first_field), preview)
                 self.assertIn("%s->%s" % (base, last_field), preview)
 
+    def test_report_only_function_identity_blocks_source_less_local_layout_rewrite(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MiCreateSlabEntry(__int64 a1, __int64 a2, int a3, unsigned __int8 a4)
+{
+  __int64 SlabEntry;
+  int total;
+
+  SlabEntry = MiAllocateSlabEntry(a1);
+  if ( SlabEntry )
+  {
+    *(_DWORD *)(SlabEntry + 84) = a3;
+    total = *(_DWORD *)(SlabEntry + 92);
+    *(_DWORD *)(SlabEntry + 92) = total | 4;
+    *(_QWORD *)(SlabEntry + 40) = a2;
+    *(_QWORD *)(SlabEntry + 48) = a2 + a3;
+    total += *(_QWORD *)(SlabEntry + 40);
+    total += *(_QWORD *)(SlabEntry + 48);
+    total += *(_DWORD *)(SlabEntry + 84);
+    total += *(_DWORD *)(SlabEntry + 92);
+    total += *(_QWORD *)(SlabEntry + 40);
+    total += *(_QWORD *)(SlabEntry + 48);
+    return total + a4;
+  }
+  return 0;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        ready = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_ready"
+            and item.get("base") == "SlabEntry"
+        ]
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "SlabEntry"
+        ]
+
+        identities = self._profile_identities(plan, "windows.memory_manager.create_slab_entry")
+        self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        self.assertEqual([], ready)
+        self.assertTrue(
+            any(
+                "report-only function identity requires trusted rewrite source"
+                in item.get("blockers", [])
+                for item in blockers
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                apply_validated_layout_rewrites=True,
+            )
+            cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+
+        self.assertNotIn("layout_rewrite_preview", artifacts)
+        self.assertNotIn("SlabEntry->field_", cleaned)
+        self.assertIn("*(_DWORD *)(SlabEntry + 84)", cleaned)
+
     def test_report_only_vad_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """
@@ -892,6 +960,63 @@ ULONG_PTR __fastcall MiWsleFree(unsigned __int64 a1, unsigned __int64 a2, char a
             any(
                 item.get("kind") == "inferred_offset_rewrite_ready"
                 and item.get("base") == "v9"
+                for item in plan.comments
+            )
+        )
+
+    def test_report_only_direct_parameter_alias_blocks_rewrite(self) -> None:
+        plan = self._plan(
+            """
+ULONG_PTR __fastcall MiLockPageListAndLastPage(__int64 pageListLockContext, __int64 lastPage, __int64 pageList, int lockFlags)
+{
+  __int64 v5;
+
+  v5 = lastPage;
+  return *(_QWORD *)(v5 + 8)
+       + *(_QWORD *)(v5 + 16)
+       + *(unsigned __int8 *)(v5 + 24)
+       + *(_QWORD *)(v5 + 32)
+       + *(_QWORD *)(v5 + 40)
+       + *(unsigned __int8 *)(v5 + 48)
+       + *(_QWORD *)(v5 + 56)
+       + *(_QWORD *)(v5 + 64)
+       + *(unsigned __int8 *)(v5 + 72)
+       + *(_QWORD *)(v5 + 80)
+       + *(_QWORD *)(v5 + 88)
+       + *(unsigned __int8 *)(v5 + 96)
+       + *(_QWORD *)(v5 + 8)
+       + *(_QWORD *)(v5 + 16)
+       + *(unsigned __int8 *)(v5 + 24)
+       + *(_QWORD *)(v5 + 32)
+       + *(_QWORD *)(v5 + 40)
+       + *(unsigned __int8 *)(v5 + 48)
+       + pageListLockContext
+       + pageList
+       + lockFlags;
+}
+"""
+        )
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.memory_manager.lock_page_list_and_last_page",
+            "lastPage",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "v5"
+        ]
+
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertTrue(
+            any("source domain identity profile is report-only" in item["blockers"] for item in blockers)
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "v5"
                 for item in plan.comments
             )
         )

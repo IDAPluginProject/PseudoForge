@@ -27,6 +27,21 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "generic_identifier_tokens": 100,
                             "pointer_indexed_offset_deref_patterns": 9,
                         },
+                        "text_stats": {"inferred_offset_rewrite_blockers": 1},
+                        "body_offset_residue_review_stats": {
+                            "totals": {
+                                "functions_with_offset_residue": 4,
+                                "offset_deref_survivors": 40,
+                                "generic_parameter_survivors": 6,
+                                "functions_with_rewrite_blockers": 1,
+                                "functions_with_rewrite_ready": 2,
+                            },
+                            "review_classes": {
+                                "hot_cluster_missing_identity": 2,
+                                "unclassified_offset_residue": 3,
+                                "report_only_blocked_residue": 1,
+                            },
+                        },
                         "pointer_indexed_offset_stats": {
                             "totals": {
                                 "pointer_indexed_layout_rewrite_candidates": 2,
@@ -62,6 +77,21 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "generic_identifier_tokens": 120,
                             "pointer_indexed_offset_deref_patterns": 3,
                         },
+                        "text_stats": {"inferred_offset_rewrite_blockers": 4},
+                        "body_offset_residue_review_stats": {
+                            "totals": {
+                                "functions_with_offset_residue": 2,
+                                "offset_deref_survivors": 15,
+                                "generic_parameter_survivors": 2,
+                                "functions_with_rewrite_blockers": 4,
+                                "functions_with_rewrite_ready": 1,
+                            },
+                            "review_classes": {
+                                "hot_cluster_missing_identity": 1,
+                                "unclassified_offset_residue": 1,
+                                "report_only_blocked_residue": 4,
+                            },
+                        },
                         "pointer_indexed_offset_stats": {
                             "totals": {
                                 "pointer_indexed_layout_rewrite_candidates": 5,
@@ -96,6 +126,24 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
             self.assertEqual("regressed", metrics["body_generic_identifier_tokens"]["status"])
             self.assertEqual(-6, metrics["body_pointer_indexed_offset_deref_patterns"]["delta"])
             self.assertEqual("improved", metrics["body_pointer_indexed_offset_deref_patterns"]["status"])
+            self.assertEqual(3, metrics["inferred_offset_rewrite_blockers"]["delta"])
+            self.assertEqual("info", metrics["inferred_offset_rewrite_blockers"]["status"])
+            self.assertEqual(-2, metrics["body_offset_residue_functions"]["delta"])
+            self.assertEqual("improved", metrics["body_offset_residue_functions"]["status"])
+            self.assertEqual(-25, metrics["body_offset_deref_survivors"]["delta"])
+            self.assertEqual("improved", metrics["body_offset_deref_survivors"]["status"])
+            self.assertEqual(-4, metrics["body_offset_generic_parameter_survivors"]["delta"])
+            self.assertEqual("improved", metrics["body_offset_generic_parameter_survivors"]["status"])
+            self.assertEqual(-1, metrics["body_offset_hot_cluster_missing_identity_functions"]["delta"])
+            self.assertEqual("improved", metrics["body_offset_hot_cluster_missing_identity_functions"]["status"])
+            self.assertEqual(-2, metrics["body_offset_unclassified_residue_functions"]["delta"])
+            self.assertEqual("improved", metrics["body_offset_unclassified_residue_functions"]["status"])
+            self.assertEqual(3, metrics["body_offset_report_only_blocked_functions"]["delta"])
+            self.assertEqual("info", metrics["body_offset_report_only_blocked_functions"]["status"])
+            self.assertEqual(3, metrics["body_offset_rewrite_blocker_functions"]["delta"])
+            self.assertEqual("info", metrics["body_offset_rewrite_blocker_functions"]["status"])
+            self.assertEqual(-1, metrics["body_offset_rewrite_ready_functions"]["delta"])
+            self.assertEqual("info", metrics["body_offset_rewrite_ready_functions"]["status"])
             self.assertEqual(3, metrics["pointer_indexed_layout_rewrite_candidates"]["delta"])
             self.assertEqual("info", metrics["pointer_indexed_layout_rewrite_candidates"]["status"])
             self.assertEqual(3, metrics["pointer_indexed_rewrite_applied"]["delta"])

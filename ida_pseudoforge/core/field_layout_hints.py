@@ -11,6 +11,7 @@ from ida_pseudoforge.core.domain_identity import (
     MODE_REPORT_ONLY,
     DomainIdentityField,
     DomainIdentityMatch,
+    domain_identity_function_identity_candidates,
     domain_identity_match_for_base,
     domain_identity_matches,
     domain_identity_profiles_available,
@@ -76,6 +77,8 @@ _REWRITE_THRESHOLD_BLOCKERS = {
     _REWRITE_OFFSET_THRESHOLD_BLOCKER,
     _REWRITE_ACCESS_THRESHOLD_BLOCKER,
 }
+_REPORT_ONLY_FUNCTION_IDENTITY_BLOCKER = "report-only function identity requires trusted rewrite source"
+_REPORT_ONLY_SOURCE_IDENTITY_BLOCKER = "source domain identity profile is report-only"
 _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "direct_argument_alias",
     "direct_call_result_alias",
@@ -338,7 +341,13 @@ def field_layout_comments(
                     )
                     if temporary_provenance:
                         comments.append(temporary_provenance)
-                relocation = _field_base_relocation_evidence_comment(text or "", item, blocker, stability)
+                relocation = _field_base_relocation_evidence_comment(
+                    text or "",
+                    item,
+                    blocker,
+                    stability,
+                    profile_context=profile_context,
+                )
                 if relocation:
                     comments.append(relocation)
                 post_access_mutation = _field_post_access_mutation_blocker_comment(
@@ -702,7 +711,11 @@ def _domain_identity_matches_for_layouts(
             matches[base] = corrected_match
     direct_matches = dict(matches)
     for base in sorted(set(layouts) - set(matches)):
-        identity = _trusted_stable_base_source_identity(text or "", base)
+        identity = _trusted_stable_base_source_identity(
+            text or "",
+            base,
+            allow_report_only_source=True,
+        )
         if identity.get("source_provenance") not in _DOMAIN_IDENTITY_ALIAS_SOURCE_PROVENANCES:
             continue
         source = str(identity.get("source", "") or "")
@@ -2134,6 +2147,7 @@ def _field_base_relocation_evidence_comment(
     layout: _LayoutEvidence,
     blocker: dict[str, Any],
     stability: dict[str, Any],
+    profile_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     blockers = {
         str(item)
@@ -2142,7 +2156,12 @@ def _field_base_relocation_evidence_comment(
     }
     if "base is reassigned after layout access" not in blockers:
         return None
-    identity = _trusted_stable_base_source_identity(text, layout.base)
+    identity = _trusted_stable_base_source_identity(
+        text,
+        layout.base,
+        profile_context=profile_context,
+        allow_report_only_source=False,
+    )
     if not identity:
         return None
     stable_rhs = _trace_rhs_samples(stability.get("stable_post_access_reload_rhs", []))
@@ -3737,14 +3756,33 @@ def _field_rewrite_blockers(
             blockers.append("domain identity profile mode is unsupported")
     elif base_kind == "temp":
         if (
-            not _trusted_stable_base_source_identity(text, layout.base)
+            not _trusted_stable_base_source_identity(
+                text,
+                layout.base,
+                profile_context=profile_context,
+                allow_report_only_source=False,
+            )
             and not _trusted_decompiler_parameter_layout_identity(text, layout)
         ):
-            blockers.append("base is a decompiler temporary")
+            stable_identity = _stable_base_source_identity(text, layout.base)
+            source_blocker = _report_only_source_identity_blocker(
+                text,
+                stable_identity,
+                profile_context=profile_context,
+            )
+            blockers.append(source_blocker or "base is a decompiler temporary")
     elif base_kind == "generic":
         identity = _trusted_generic_parameter_layout_identity(text, layout)
         if not allow_generic_parameter_trust or not identity:
             blockers.append("base name is generic")
+    elif base_kind == "named":
+        report_only_blocker = _report_only_function_identity_rewrite_source_blocker(
+            text,
+            layout,
+            profile_context=profile_context,
+        )
+        if report_only_blocker:
+            blockers.append(report_only_blocker)
     elif base_kind == "argument":
         blockers.append("base name is unresolved argument identity")
     elif base_kind == "bugcheck":
@@ -6477,13 +6515,72 @@ def _is_allocation_like_call_result_name(name: str) -> bool:
     }
 
 
-def _trusted_stable_base_source_identity(text: str, base: str) -> dict[str, Any]:
+def _trusted_stable_base_source_identity(
+    text: str,
+    base: str,
+    profile_context: dict[str, Any] | None = None,
+    allow_report_only_source: bool = True,
+) -> dict[str, Any]:
     identity = _stable_base_source_identity(text, base)
     if not identity:
         return {}
     if identity.get("source_provenance") in _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES:
+        if not allow_report_only_source and _report_only_source_identity_blocker(
+            text,
+            identity,
+            profile_context=profile_context,
+        ):
+            return {}
         return identity
     return {}
+
+
+def _report_only_source_identity_blocker(
+    text: str,
+    identity: dict[str, Any],
+    profile_context: dict[str, Any] | None = None,
+) -> str:
+    source = str((identity or {}).get("source", "") or "").strip()
+    if not source:
+        return ""
+    if (identity or {}).get("source_provenance") not in _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES:
+        return ""
+    match = domain_identity_match_for_base(
+        text or "",
+        source,
+        non_identity_blockers=[],
+        profile_context=profile_context,
+    )
+    if match and match.effective_mode == MODE_REPORT_ONLY:
+        return _REPORT_ONLY_SOURCE_IDENTITY_BLOCKER
+    return ""
+
+
+def _report_only_function_identity_rewrite_source_blocker(
+    text: str,
+    layout: _LayoutEvidence,
+    profile_context: dict[str, Any] | None = None,
+) -> str:
+    if not _field_rewrite_threshold_policy(layout, text=text):
+        return ""
+    if _trusted_stable_base_source_identity(
+        text,
+        layout.base,
+        profile_context=profile_context,
+        allow_report_only_source=False,
+    ):
+        return ""
+    if _trusted_decompiler_parameter_layout_identity(text, layout):
+        return ""
+    if _trusted_generic_parameter_layout_identity(text, layout):
+        return ""
+    for candidate in domain_identity_function_identity_candidates(
+        text or "",
+        profile_context=profile_context,
+    ):
+        if candidate.effective_mode == MODE_REPORT_ONLY:
+            return _REPORT_ONLY_FUNCTION_IDENTITY_BLOCKER
+    return ""
 
 
 def _stable_source_provenance_class(

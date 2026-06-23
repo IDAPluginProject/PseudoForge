@@ -1375,9 +1375,10 @@ void __fastcall IopCompleteRequest(__int64 completionApc, __int64 a2, _QWORD *a3
         self.assertEqual(1, len(sources))
         self.assertEqual("completionApc", sources[0]["source"])
         self.assertEqual("parameter_back_container_alias", sources[0]["source_provenance"])
-        self.assertEqual([], blockers)
-        self.assertEqual(1, len(ready))
-        self.assertEqual("parameter_back_container_alias", ready[0]["source_provenance"])
+        self.assertTrue(
+            any("source domain identity profile is report-only" in item["blockers"] for item in blockers)
+        )
+        self.assertEqual([], ready)
 
     def test_temp_base_with_parameter_indirect_source_reports_source_hint(self) -> None:
         comments = field_layout_comments(

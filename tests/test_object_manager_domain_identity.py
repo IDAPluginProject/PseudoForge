@@ -260,6 +260,56 @@ void __fastcall ObpFreeObject(__int64 a1, __int64 a2, __int64 a3)
             )
         )
 
+    def test_report_only_field_pointer_alias_blocks_free_object_rewrite(self) -> None:
+        plan = self._plan(
+            """
+void __fastcall ObpFreeObject(__int64 objectHeader)
+{
+  __int64 v16;
+
+  v16 = *(_QWORD *)(objectHeader + 16);
+  *(_QWORD *)(v16 + 64) = 0;
+  *(_QWORD *)(v16 + 72) = 0;
+  *(_QWORD *)(v16 + 80) = 0;
+  *(_QWORD *)(v16 + 192) = 0;
+  *(_QWORD *)(v16 + 200) = 0;
+  *(_QWORD *)(v16 + 208) = 0;
+  *(_QWORD *)(v16 + 320) = 0;
+  *(_QWORD *)(v16 + 328) = 0;
+  *(_QWORD *)(v16 + 336) = 0;
+  *(_QWORD *)(v16 + 448) = 0;
+  *(_QWORD *)(v16 + 456) = 0;
+  *(_QWORD *)(v16 + 464) = 0;
+  *(_QWORD *)(v16 + 64) = 1;
+  *(_QWORD *)(v16 + 72) = 1;
+  *(_QWORD *)(v16 + 80) = 1;
+  *(_QWORD *)(v16 + 192) = 1;
+  *(_QWORD *)(v16 + 200) = 1;
+  *(_QWORD *)(v16 + 208) = 1;
+}
+"""
+        )
+
+        identity = self._single_identity(plan, "windows.object_manager.free_object")
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "v16"
+        ]
+
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertTrue(
+            any("source domain identity profile is report-only" in item["blockers"] for item in blockers)
+        )
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "v16"
+                for item in plan.comments
+            )
+        )
+
     def test_free_object_build_mismatch_blocks_signature_preview(self) -> None:
         capture = capture_from_pseudocode(
             """

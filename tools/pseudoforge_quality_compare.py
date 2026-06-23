@@ -47,7 +47,47 @@ METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("inferred_offset_rewrite_ready", ("text_stats", "inferred_offset_rewrite_ready"), "higher"),
     ("inferred_offset_rewrite_previews", ("text_stats", "inferred_offset_rewrite_previews"), "higher"),
     ("inferred_offset_rewrite_near_ready", ("text_stats", "inferred_offset_rewrite_near_ready"), "neutral"),
-    ("inferred_offset_rewrite_blockers", ("text_stats", "inferred_offset_rewrite_blockers"), "lower"),
+    ("inferred_offset_rewrite_blockers", ("text_stats", "inferred_offset_rewrite_blockers"), "neutral"),
+    (
+        "body_offset_residue_functions",
+        ("body_offset_residue_review_stats", "totals", "functions_with_offset_residue"),
+        "lower",
+    ),
+    (
+        "body_offset_deref_survivors",
+        ("body_offset_residue_review_stats", "totals", "offset_deref_survivors"),
+        "lower",
+    ),
+    (
+        "body_offset_generic_parameter_survivors",
+        ("body_offset_residue_review_stats", "totals", "generic_parameter_survivors"),
+        "lower",
+    ),
+    (
+        "body_offset_hot_cluster_missing_identity_functions",
+        ("body_offset_residue_review_stats", "review_classes", "hot_cluster_missing_identity"),
+        "lower",
+    ),
+    (
+        "body_offset_unclassified_residue_functions",
+        ("body_offset_residue_review_stats", "review_classes", "unclassified_offset_residue"),
+        "lower",
+    ),
+    (
+        "body_offset_report_only_blocked_functions",
+        ("body_offset_residue_review_stats", "review_classes", "report_only_blocked_residue"),
+        "neutral",
+    ),
+    (
+        "body_offset_rewrite_blocker_functions",
+        ("body_offset_residue_review_stats", "totals", "functions_with_rewrite_blockers"),
+        "neutral",
+    ),
+    (
+        "body_offset_rewrite_ready_functions",
+        ("body_offset_residue_review_stats", "totals", "functions_with_rewrite_ready"),
+        "neutral",
+    ),
     (
         "layout_preview_artifacts",
         ("layout_rewrite_preview_artifact_stats", "totals", "preview_artifacts"),
