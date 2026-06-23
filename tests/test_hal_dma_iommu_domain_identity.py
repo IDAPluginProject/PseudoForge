@@ -29,8 +29,12 @@ class HalDmaIommuDomainIdentityTests(unittest.TestCase):
                 """
 void __fastcall HalpDmaMapScatterTransferV3(__int64 a1, __int64 a2, __int64 a3, unsigned __int64 a4, unsigned int *a5, char a6, char a7, unsigned __int64 *a8)
 {
-  *a5 = (unsigned int)a4;
-  *a8 = a4 + a6 + a7 + a1 + a2 + a3;
+  *a5 = *(_DWORD *)(a1 + 520) + (unsigned int)a4;
+  *a8 = *(_QWORD *)(a1 + 144) + *(_QWORD *)(a2 + 32) + *(_QWORD *)(a3 + 56);
+  if ( *(_BYTE *)(a1 + 445) || *(_BYTE *)(a3 + 64) )
+  {
+    *a8 += a6 + a7;
+  }
 }
 """,
                 "windows.hal_dma_iommu.dma_map_scatter_transfer_v3",
@@ -119,6 +123,10 @@ char __fastcall HalpPciAccessIoConfigSpace(__int16 a1, unsigned __int8 a2, char 
                 """
 __int64 __fastcall HalpIommuDomainMapLogicalRange(ULONG_PTR a1, __int64 a2, unsigned __int64 a3, __int64 a4, ULONG_PTR a5)
 {
+  if ( *(_BYTE *)(a1 + 52) )
+  {
+    return IommupHvMapDeviceLogicalRange(a1, a2, a3, a4, a5);
+  }
   HalpIommuMapLogicalRange(0, *(_QWORD *)(a1 + 40), a2, a3, a4, a5);
   return IommupHvMapDeviceLogicalRange(a1, a2, a3, a4, a5);
 }
@@ -172,6 +180,14 @@ __int64 __fastcall HalpIommuDomainMapLogicalRange(ULONG_PTR a1, __int64 a2, unsi
                 else:
                     self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                     self.assertEqual([], plan.corrected_parameter_map)
+                    if profile_id == "windows.hal_dma_iommu.dma_map_scatter_transfer_v3":
+                        dma_identity = self._identity_by_role(identities, "dmaAdapter")
+                        sg_identity = self._identity_by_role(identities, "scatterGatherList")
+                        self.assertEqual({0x90, 0x1BD, 0x208}, self._field_offsets(dma_identity))
+                        self.assertEqual({0x38, 0x40}, self._field_offsets(sg_identity))
+                    if profile_id == "windows.hal_dma_iommu.iommu_domain_map_logical_range":
+                        domain_identity = self._identity_by_role(identities, "iommuDomain")
+                        self.assertEqual({0x28, 0x34}, self._field_offsets(domain_identity))
                 self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
@@ -299,3 +315,19 @@ __int64 __fastcall HalpDmaAllocateMapRegistersAtHighLevel(__int64 a1, int *a2)
 
     def _profile_identities(self, plan, profile_id: str) -> list[dict[str, object]]:
         return [item for item in self._identities(plan) if item.get("profile_id") == profile_id]
+
+    def _identity_by_role(
+        self,
+        identities: list[dict[str, object]],
+        role: str,
+    ) -> dict[str, object]:
+        matches = [item for item in identities if item.get("trusted_role") == role]
+        self.assertEqual(1, len(matches))
+        return matches[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

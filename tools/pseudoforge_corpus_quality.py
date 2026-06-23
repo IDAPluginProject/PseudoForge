@@ -404,11 +404,22 @@ FIELD_REWRITE_PARTIAL_OPPORTUNITY_DETAIL_RE = re.compile(
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 FIELD_REWRITE_BLOCKER_RE = re.compile(r"-\s+inferred_offset_rewrite_blockers:")
+FIELD_ALIAS_NAME_RE = re.compile(r"\bfield_[0-9A-Fa-f]+\b")
+DOMAIN_FIELD_OFFSET_RE = re.compile(r"\+0x[0-9A-Fa-f]+")
 FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
     r"(?P<reasons>.*?)\.\s+Review-only aliases remain available\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+DOMAIN_STRUCTURE_IDENTITY_DETAIL_RE = re.compile(
+    r"-\s+domain_structure_identity:\s+Domain identity for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+role\s+"
+    r"(?P<role>[A-Za-z_][A-Za-z0-9_]*)\s*,\s+structure\s+"
+    r"(?P<structure>[A-Za-z_][A-Za-z0-9_]*)\s*,\s+mode\s+"
+    r"(?P<mode>[A-Za-z0-9_-]+)\s*,\s+profile\s+"
+    r"(?P<profile_id>[A-Za-z0-9_.-]+)\s+parameter\s+"
+    r"(?P<parameter>.*?)\.\s+Fields\s+(?P<fields>.*?)\.\s+"
 )
 LAYOUT_HINT_RE = re.compile(
     r"-\s+inferred_offset_layout:\s+Offset layout hint:\s+"
@@ -747,6 +758,7 @@ def analyze_corpus(
                     rewrite_near_ready,
                     rewrite_partial_opportunities,
                     rewrite_blockers,
+                    domain_identities,
                     decimal_status_body_literals,
                     ntstatus_body_literals,
                 ) = _update_text_metrics(
@@ -896,6 +908,7 @@ def analyze_corpus(
                     stable_base_sources,
                     generic_base_evidence,
                     generic_base_trust_candidates,
+                    domain_identities,
                     rewrite_blocker_totals,
                     rewrite_blocker_bases,
                     rewrite_blocker_reasons,
@@ -991,6 +1004,7 @@ def analyze_corpus(
                             stable_base_sources,
                             generic_base_evidence,
                             generic_base_trust_candidates,
+                            domain_identities,
                         )
                     )
                 if decimal_status_body_literals:
@@ -3268,8 +3282,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Rewrite Blocker Review Queues",
             "",
-            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence | Source provenance | Promotion classes | Next actions |",
-            "| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+            "| Queue | Blockers | Functions | Max offsets | Max accesses | Top bases | Identity evidence | Source provenance | Promotion classes | Next actions | Next action details |",
+            "| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name in _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER:
@@ -3294,8 +3308,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("promotion_next_actions", {})).items()
         )
+        next_action_details = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("promotion_next_action_details", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 queue_name,
                 int(queue.get("blockers", 0) or 0),
@@ -3307,6 +3325,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(source_provenance),
                 _markdown_table_cell(promotion_classes),
                 _markdown_table_cell(next_actions),
+                _markdown_table_cell(next_action_details),
             )
         )
     lines.extend(
@@ -3332,8 +3351,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### `%s`" % queue_name,
                 "",
-                "| Function | EA | Base | Offsets | Accesses | Identity | Source | Promotion | Next action | Risk factors | Reasons |",
-                "| --- | --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+                "| Function | EA | Base | Offsets | Accesses | Identity | Source | Promotion | Next action | Details | Risk factors | Reasons |",
+                "| --- | --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for item in items:
@@ -3353,8 +3372,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 for reason in item.get("reasons", []) or []
                 if str(reason)
             )
+            next_action_details = ", ".join(
+                str(detail)
+                for detail in item.get("promotion_next_action_details", []) or []
+                if str(detail)
+            )
             lines.append(
-                "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(item.get("name", "")),
                     str(item.get("ea", "")),
@@ -3365,6 +3389,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     _markdown_table_cell(source_text),
                     _markdown_table_cell(item.get("promotion_review_class", "")),
                     _markdown_table_cell(item.get("promotion_next_action", "")),
+                    _markdown_table_cell(next_action_details),
                     _markdown_table_cell(risk_factors),
                     _markdown_table_cell(reasons),
                 )
@@ -3384,8 +3409,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Blocker Functions",
             "",
-            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Source provenance | Promotion classes | Next actions | Bases | Top reasons |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
+            "| Function | EA | Blockers | Reasons | Max offsets | Max accesses | Profiles | Identity evidence | Source provenance | Promotion classes | Next actions | Next action details | Bases | Top reasons |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in rewrite_blocker_stats.get("top_functions", []) or []:
@@ -3416,8 +3441,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("promotion_next_actions", {})).items()
         )
+        next_action_details = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("promotion_next_action_details", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -3430,6 +3459,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(source_provenance),
                 _markdown_table_cell(promotion_classes),
                 _markdown_table_cell(next_actions),
+                _markdown_table_cell(next_action_details),
                 bases,
                 reasons,
             )
@@ -5070,7 +5100,7 @@ def _update_text_metrics(
 ) -> tuple[Any, ...]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], {}, [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], {}, [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -5092,6 +5122,7 @@ def _update_text_metrics(
     rewrite_near_ready = _extract_layout_rewrite_near_ready(text)
     rewrite_partial_opportunities = _extract_layout_rewrite_partial_opportunities(text)
     rewrite_blockers = _extract_layout_rewrite_blockers(text)
+    domain_identities = _extract_domain_structure_identities(text)
     text_totals["inferred_offset_layout_hints"] += len(layout_hints)
     if layout_hints:
         text_totals["functions_with_inferred_offset_layout_hints"] += 1
@@ -5322,6 +5353,7 @@ def _update_text_metrics(
         rewrite_near_ready,
         rewrite_partial_opportunities,
         rewrite_blockers,
+        domain_identities,
         decimal_status_body_literals,
         ntstatus_body_literals,
     )
@@ -7215,6 +7247,38 @@ def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
     return blockers
 
 
+def _extract_domain_structure_identities(text: str) -> list[dict[str, Any]]:
+    identities = []
+    for match in DOMAIN_STRUCTURE_IDENTITY_DETAIL_RE.finditer(text or ""):
+        field_text = str(match.group("fields") or "").strip()
+        fields = _domain_identity_field_names(field_text)
+        identities.append(
+            {
+                "base": match.group("base"),
+                "role": match.group("role"),
+                "structure": match.group("structure"),
+                "mode": match.group("mode"),
+                "profile_id": match.group("profile_id"),
+                "parameter": str(match.group("parameter") or "").strip(),
+                "field_text": field_text,
+                "field_count": len(fields),
+                "fields": fields,
+                "has_observed_fields": bool(fields),
+            }
+        )
+    return identities
+
+
+def _domain_identity_field_names(field_text: str) -> list[str]:
+    if not field_text or field_text.lower().startswith("none observed"):
+        return []
+    aliases = list(dict.fromkeys(FIELD_ALIAS_NAME_RE.findall(field_text)))
+    offsets = list(dict.fromkeys(DOMAIN_FIELD_OFFSET_RE.findall(field_text)))
+    if len(aliases) >= len(offsets):
+        return aliases
+    return offsets
+
+
 def _parse_layout_hint_types(value: str) -> list[str]:
     result = []
     for item in str(value or "").split(","):
@@ -7883,6 +7947,7 @@ def _update_layout_rewrite_blocker_metrics(
     stable_base_sources: list[dict[str, Any]],
     generic_base_evidence: list[dict[str, Any]],
     generic_base_trust_candidates: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
     totals: Counter[str],
     bases: Counter[str],
     reasons: Counter[str],
@@ -7900,12 +7965,14 @@ def _update_layout_rewrite_blocker_metrics(
         generic_base_evidence,
         generic_base_trust_candidates,
     )
+    domain_identity_by_base = _domain_identity_by_base(domain_identities)
     totals["functions_with_blockers"] += 1
     for blocker in blockers:
         totals["blockers"] += 1
         base = str(blocker.get("base", "") or "unknown")
         evidence = layout_evidence.get(base, {})
         identity = identity_evidence.get(base, {"identity_evidence": "none"})
+        domain_identity = domain_identity_by_base.get(base, {})
         bases[base] += 1
         reason_items = [str(item) for item in blocker.get("reasons", []) or []]
         promotion_review_class = _layout_promotion_review_class(identity, reason_items)
@@ -7914,6 +7981,13 @@ def _update_layout_rewrite_blocker_metrics(
             identity,
             reason_items,
             promotion_review_class,
+            domain_identity,
+        )
+        promotion_next_action_details = _layout_promotion_next_action_details(
+            identity,
+            reason_items,
+            promotion_next_action,
+            domain_identity,
         )
         totals["reason_observations"] += len(reason_items)
         for reason in reason_items:
@@ -7937,9 +8011,15 @@ def _update_layout_rewrite_blocker_metrics(
                     "identity_source_provenance": str(identity.get("source_provenance", "") or ""),
                     "identity_source_rhs_kind": str(identity.get("source_rhs_kind", "") or ""),
                     "identity_confidence": _float_value(identity.get("confidence"), 0.0),
+                    "domain_profile_id": str(domain_identity.get("profile_id", "") or ""),
+                    "domain_role": str(domain_identity.get("role", "") or ""),
+                    "domain_mode": str(domain_identity.get("mode", "") or ""),
+                    "domain_field_count": _int_value(domain_identity.get("field_count"), 0),
+                    "domain_fields": list(domain_identity.get("fields", []) or []),
                     "promotion_review_class": promotion_review_class,
                     "promotion_risk_factors": promotion_risk_factors,
                     "promotion_next_action": promotion_next_action,
+                    "promotion_next_action_details": promotion_next_action_details,
                     "reasons": reason_items,
                     "summary_path": str(summary_path),
                 }
@@ -8035,6 +8115,29 @@ def _layout_identity_evidence_by_base(
     return result
 
 
+def _domain_identity_by_base(domain_identities: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in domain_identities:
+        base = str(item.get("base", "") or "unknown")
+        current = result.get(base)
+        if current is None:
+            result[base] = item
+            continue
+        current_score = (
+            _int_value(current.get("field_count"), 0),
+            1 if str(current.get("mode", "") or "") == "canonical-rewrite-eligible" else 0,
+            str(current.get("profile_id", "")),
+        )
+        candidate_score = (
+            _int_value(item.get("field_count"), 0),
+            1 if str(item.get("mode", "") or "") == "canonical-rewrite-eligible" else 0,
+            str(item.get("profile_id", "")),
+        )
+        if candidate_score > current_score:
+            result[base] = item
+    return result
+
+
 def _set_layout_identity_evidence(
     result: dict[str, dict[str, Any]],
     base: str,
@@ -8111,10 +8214,12 @@ def _layout_promotion_next_action(
     identity: dict[str, Any],
     reasons: list[str],
     review_class: str | None = None,
+    domain_identity: dict[str, Any] | None = None,
 ) -> str:
     reasons_lower = [str(reason or "").lower() for reason in reasons]
     identity_evidence = str(identity.get("identity_evidence", "") or "none")
     review = review_class or _layout_promotion_review_class(identity, reasons)
+    domain = domain_identity or {}
     if _has_layout_source_stability_risk(reasons):
         return "prove_source_stability_before_rewrite"
     if _has_layout_source_provenance_risk(identity):
@@ -8125,6 +8230,8 @@ def _layout_promotion_next_action(
         any("domain identity profile is report-only" in reason for reason in reasons_lower)
         and _has_layout_threshold_gap(reasons)
     ):
+        if _int_value(domain.get("field_count"), 0) > 0:
+            return "review_report_only_field_aliases"
         return "collect_more_exact_field_evidence"
     if review == "missing_identity_evidence" or identity_evidence == "none":
         return "add_exact_identity_or_keep_review_only"
@@ -8135,6 +8242,66 @@ def _layout_promotion_next_action(
     if review == "type_evidence_blocked":
         return "resolve_type_width_or_subfield_conflict"
     return "manual_review"
+
+
+def _layout_promotion_next_action_details(
+    identity: dict[str, Any],
+    reasons: list[str],
+    next_action: str | None = None,
+    domain_identity: dict[str, Any] | None = None,
+) -> list[str]:
+    details: list[str] = []
+    reasons_lower = [str(reason or "").lower() for reason in reasons]
+    identity_evidence = str(identity.get("identity_evidence", "") or "none")
+    provenance = str(identity.get("source_provenance", "") or "")
+    blocker_profile = str(identity.get("blocker_profile", "") or "")
+    domain = domain_identity or {}
+    action = next_action or _layout_promotion_next_action(identity, reasons, domain_identity=domain)
+
+    if action in {"collect_more_exact_field_evidence", "review_report_only_field_aliases"}:
+        details.append("report_only_profile")
+        if any("rewrite offset threshold" in reason for reason in reasons_lower):
+            details.append("offset_threshold_gap")
+        if any("rewrite access threshold" in reason for reason in reasons_lower):
+            details.append("access_threshold_gap")
+        if action == "review_report_only_field_aliases":
+            details.append("observed_field_aliases")
+    if action == "prove_source_stability_before_rewrite":
+        if any("multiple initializers" in reason for reason in reasons_lower):
+            details.append("multiple_initializers")
+        if any("reassigned" in reason for reason in reasons_lower):
+            details.append("post_access_reassignment")
+        if any("address is taken" in reason for reason in reasons_lower):
+            details.append("address_taken")
+        if any("indexed like an array" in reason for reason in reasons_lower):
+            details.append("indexed_array_base")
+    if action == "prove_source_provenance_before_rewrite":
+        details.append("source_provenance_%s" % (provenance or "unknown"))
+    if action == "resolve_type_width_or_subfield_conflict":
+        if any("mix narrow" in reason for reason in reasons_lower):
+            details.append("narrow_subfield_conflict")
+        if any("mix wide" in reason for reason in reasons_lower):
+            details.append("wide_overlay_conflict")
+        if any("irregular field" in reason for reason in reasons_lower):
+            details.append("irregular_overlay_conflict")
+        if any("not naturally aligned" in reason for reason in reasons_lower):
+            details.append("alignment_conflict")
+        if any("volatile-looking" in reason or "mmio/register" in reason for reason in reasons_lower):
+            details.append("volatile_or_mmio_conflict")
+    if action == "add_exact_identity_or_keep_review_only":
+        details.append("missing_identity_evidence")
+    if action == "collect_more_offset_access_evidence":
+        if any("rewrite offset threshold" in reason for reason in reasons_lower):
+            details.append("offset_threshold_gap")
+        if any("rewrite access threshold" in reason for reason in reasons_lower):
+            details.append("access_threshold_gap")
+    if action == "consider_validated_profile_promotion":
+        details.append(identity_evidence)
+        if blocker_profile:
+            details.append(blocker_profile)
+    if not details:
+        details.append("manual_review")
+    return details
 
 
 def _has_layout_source_provenance_risk(identity: dict[str, Any]) -> bool:
@@ -8256,6 +8423,11 @@ def _layout_rewrite_blocker_review_queues(
             str(item.get("promotion_next_action", "") or "manual_review")
             for item in items
         )
+        promotion_next_action_details = Counter(
+            str(detail)
+            for item in items
+            for detail in item.get("promotion_next_action_details", []) or []
+        )
         result[queue_name] = {
             "blockers": len(items),
             "functions": len(function_names),
@@ -8280,6 +8452,9 @@ def _layout_rewrite_blocker_review_queues(
             "promotion_risk_factors": _counter_to_dict(Counter(dict(promotion_risk_factors.most_common(top)))),
             "promotion_next_actions": _counter_to_dict(
                 Counter(dict(promotion_next_actions.most_common(top)))
+            ),
+            "promotion_next_action_details": _counter_to_dict(
+                Counter(dict(promotion_next_action_details.most_common(top)))
             ),
             "items": items[:top],
         }
@@ -8793,6 +8968,7 @@ def _rewrite_blocker_function_summary(
     stable_base_sources: list[dict[str, Any]],
     generic_base_evidence: list[dict[str, Any]],
     generic_base_trust_candidates: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
 ) -> dict[str, Any]:
     reasons = Counter()
     review_profiles = Counter()
@@ -8800,6 +8976,7 @@ def _rewrite_blocker_function_summary(
     identity_source_provenance = Counter()
     promotion_review_classes = Counter()
     promotion_next_actions = Counter()
+    promotion_next_action_details = Counter()
     bases = []
     layout_evidence = _layout_evidence_by_base(layout_hints)
     identity_by_base = _layout_identity_evidence_by_base(
@@ -8807,6 +8984,7 @@ def _rewrite_blocker_function_summary(
         generic_base_evidence,
         generic_base_trust_candidates,
     )
+    domain_identity_by_base = _domain_identity_by_base(domain_identities)
     max_offsets = 0
     max_access_count = 0
     max_layout_confidence = 0.0
@@ -8820,14 +8998,26 @@ def _rewrite_blocker_function_summary(
         max_layout_confidence = max(max_layout_confidence, _float_value(evidence.get("confidence"), 0.0))
         max_blocker_confidence = max(max_blocker_confidence, _float_value(blocker.get("confidence"), 0.0))
         identity = identity_by_base.get(base, {"identity_evidence": "none"})
+        domain_identity = domain_identity_by_base.get(base, {})
         reason_items = [str(reason) for reason in blocker.get("reasons", []) or []]
         identity_evidence[str(identity.get("identity_evidence", "") or "none")] += 1
         identity_source_provenance[str(identity.get("source_provenance", "") or "none")] += 1
         promotion_review_class = _layout_promotion_review_class(identity, reason_items)
         promotion_review_classes[promotion_review_class] += 1
-        promotion_next_actions[
-            _layout_promotion_next_action(identity, reason_items, promotion_review_class)
-        ] += 1
+        promotion_next_action = _layout_promotion_next_action(
+            identity,
+            reason_items,
+            promotion_review_class,
+            domain_identity,
+        )
+        promotion_next_actions[promotion_next_action] += 1
+        for detail in _layout_promotion_next_action_details(
+            identity,
+            reason_items,
+            promotion_next_action,
+            domain_identity,
+        ):
+            promotion_next_action_details[detail] += 1
         for reason in reason_items:
             reasons[str(reason)] += 1
         for profile in _layout_rewrite_blocker_review_profiles(reason_items):
@@ -8847,6 +9037,9 @@ def _rewrite_blocker_function_summary(
         "identity_source_provenance": _counter_to_dict(Counter(dict(identity_source_provenance.most_common(5)))),
         "promotion_review_classes": _counter_to_dict(Counter(dict(promotion_review_classes.most_common(5)))),
         "promotion_next_actions": _counter_to_dict(Counter(dict(promotion_next_actions.most_common(5)))),
+        "promotion_next_action_details": _counter_to_dict(
+            Counter(dict(promotion_next_action_details.most_common(5)))
+        ),
         "top_reasons": _counter_to_dict(Counter(dict(reasons.most_common(5)))),
         "summary_path": str(summary_path),
     }

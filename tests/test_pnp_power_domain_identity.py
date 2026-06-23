@@ -106,9 +106,15 @@ _BYTE *__fastcall PopFxQueryCurrentComponentPerfState(__int64 a1, __int64 a2, un
 {
   __int64 query;
   query = *(_QWORD *)(a1 + 64);
+  query += *(_QWORD *)(a1 + 72);
+  query += *(_QWORD *)(a2 + 424);
   if ( query )
   {
     guard_dispatch_icall_no_overrides(34, &query);
+  }
+  if ( *(_DWORD *)(a2 + 16) )
+  {
+    *a5 += *(_DWORD *)(a2 + 16);
   }
   *a5 = *(_QWORD *)(a2 + 32 * a3 + 8);
   *a6 = a4 != 0;
@@ -128,6 +134,10 @@ _BYTE *__fastcall PopFxQueryCurrentComponentPerfState(__int64 a1, __int64 a2, un
         self.assertTrue(all(not item.apply_to_idb for item in corrections))
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
         self.assertEqual([], plan.corrected_parameter_map)
+        device_identity = self._single_identity(plan, profile_id, "popFxDevice")
+        component_identity = self._single_identity(plan, profile_id, "popFxComponent")
+        self.assertEqual({0x40, 0x48}, self._field_offsets(device_identity))
+        self.assertEqual({0x10, 0x1A8}, self._field_offsets(component_identity))
         for fragment in [
             "PPOP_FX_DEVICE device",
             "PPOP_FX_COMPONENT component",
@@ -649,3 +659,10 @@ void __fastcall PipSetDevNodeState(__int64 deviceNode, int newDevNodeState)
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

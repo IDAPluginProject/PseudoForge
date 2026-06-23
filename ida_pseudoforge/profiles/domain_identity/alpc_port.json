@@ -1759,6 +1759,40 @@
             "PVOID"
           ],
           "source": "NtAlpcImpersonateClientOfPort message attributes argument",
+          "fields": [
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.7,
+              "note": "observed message attribute security quality-of-service word; report-only"
+            },
+            {
+              "offset": "0x14",
+              "name": "field_14",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.7,
+              "note": "observed message attribute impersonation level word; report-only"
+            },
+            {
+              "offset": "0x18",
+              "name": "field_18",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.7,
+              "note": "observed alternate message attribute security word; report-only"
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.7,
+              "note": "observed alternate message attribute impersonation word; report-only"
+            }
+          ],
           "rename_to": "messageAttributes",
           "rename_confidence": 0.88
         },

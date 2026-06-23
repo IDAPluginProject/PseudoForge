@@ -581,6 +581,10 @@ __int64 __fastcall NtAlpcImpersonateClientOfPort(HANDLE Handle, __int64 a2, unsi
   PVOID referencedObject;
   referencedObject = 0;
   ObReferenceObjectByHandle(Handle, 0, AlpcPortObjectType, 0, &referencedObject, 0);
+  if ( *(_DWORD *)(a2 + 16) || *(_DWORD *)(a2 + 20) )
+  {
+    return STATUS_SUCCESS;
+  }
   return a2 && a3 ? STATUS_SUCCESS : STATUS_ACCESS_DENIED;
 }
 """,
@@ -623,6 +627,12 @@ __int64 __fastcall NtAlpcImpersonateClientOfPort(HANDLE Handle, __int64 a2, unsi
         )
         self.assertEqual([], create_plan.corrected_parameter_map)
         self.assertEqual([], impersonate_plan.corrected_parameter_map)
+        message_attributes = self._single_identity(
+            impersonate_plan,
+            "windows.alpc_port.nt_impersonate_client_of_port",
+            "messageAttributes",
+        )
+        self.assertTrue({0x10, 0x14}.issubset(self._field_offsets(message_attributes)))
 
     def test_alpc_allocate_message_profile_corrects_private_message_preview(self) -> None:
         capture = capture_from_pseudocode(
@@ -846,3 +856,10 @@ void __fastcall AlpcpInitializePort(__int64 PortObject, char ConnectionPort, uns
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

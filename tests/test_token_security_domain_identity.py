@@ -108,6 +108,8 @@ __int64 __fastcall SeQuerySecurityAttributesToken(__int64 a1, __int64 a2, unsign
         self.assertTrue(all(not item.apply_to_idb for item in corrections))
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
         self.assertEqual([], plan.corrected_parameter_map)
+        token_identity = self._single_identity(plan, profile_id, "accessToken")
+        self.assertEqual({0x30}, self._field_offsets(token_identity))
         for fragment in [
             "PACCESS_TOKEN token",
             "PUNICODE_STRING attributeNames",
@@ -577,6 +579,13 @@ void __fastcall SeCaptureSubjectContext(PSECURITY_SUBJECT_CONTEXT SubjectContext
             identities = [item for item in identities if item.get("trusted_role") == role]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }
 
     def _identity_for_base(self, plan, profile_id: str, base: str) -> dict[str, object]:
         identities = [

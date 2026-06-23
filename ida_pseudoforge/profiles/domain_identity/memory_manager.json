@@ -144,7 +144,65 @@
             "PVOID",
             "PMI_SLAB_CONTEXT"
           ],
-          "source": "Memory Manager exact-name parameter role"
+          "source": "Memory Manager exact-name parameter role",
+          "fields": [
+            {
+              "offset": "0x80",
+              "name": "field_80",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed slab type/index selector; report-only"
+            },
+            {
+              "offset": "0x84",
+              "name": "field_84",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed slab allocation flags read; report-only"
+            },
+            {
+              "offset": "0x88",
+              "name": "field_88",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.74,
+              "note": "observed repeated slab mode bit tests; report-only"
+            },
+            {
+              "offset": "0x90",
+              "name": "field_90",
+              "type": "LONG",
+              "size": 4,
+              "confidence": 0.68,
+              "note": "observed slab context interlocked counter; report-only"
+            },
+            {
+              "offset": "0x98",
+              "name": "field_98",
+              "type": "LONG",
+              "size": 4,
+              "confidence": 0.68,
+              "note": "observed slab context interlocked counter path; report-only"
+            },
+            {
+              "offset": "0x9C",
+              "name": "field_9C",
+              "type": "LONG",
+              "size": 4,
+              "confidence": 0.68,
+              "note": "observed slab context interlocked counter fallback; report-only"
+            },
+            {
+              "offset": "0xB0",
+              "name": "field_B0",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed slab current-time cache read/write; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,
@@ -159,7 +217,33 @@
             "PVOID",
             "PMI_SLAB_ENTRY"
           ],
-          "source": "Memory Manager exact-name parameter role"
+          "source": "Memory Manager exact-name parameter role",
+          "fields": [
+            {
+              "offset": "0xB8",
+              "name": "field_B8",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.68,
+              "note": "observed slab entry list/context pointer access; report-only"
+            },
+            {
+              "offset": "0x4554",
+              "name": "field_4554",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.66,
+              "note": "observed slab entry bitset word before type identifier update; report-only"
+            },
+            {
+              "offset": "0x4900",
+              "name": "field_4900",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.66,
+              "note": "observed slab entry size/limit comparison; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 2,
@@ -662,7 +746,41 @@
             "PVOID",
             "PMI_PAGE_LIST_LOCK_CONTEXT"
           ],
-          "source": "Memory Manager exact-name parameter role"
+          "source": "Memory Manager exact-name parameter role",
+          "fields": [
+            {
+              "offset": "0x18",
+              "name": "field_18",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed last-page marker in shared lock path; report-only"
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "EX_SPIN_LOCK",
+              "size": 4,
+              "confidence": 0.74,
+              "note": "observed exclusive/shared spin lock operations; report-only"
+            },
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.68,
+              "note": "observed lock context address carried as an adjacent context slot; report-only"
+            },
+            {
+              "offset": "0x40",
+              "name": "field_40",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.7,
+              "note": "observed bit-test lock word for high-bit acquisition; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,
@@ -2311,7 +2429,25 @@
             "PVOID",
             "PVMP_CONTEXT"
           ],
-          "source": "VmpFillSlat reads the partition handle and records dense-fill state in the VMP context"
+          "source": "VmpFillSlat reads the partition handle and records dense-fill state in the VMP context",
+          "fields": [
+            {
+              "offset": "0x68",
+              "name": "field_68",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed partition handle forwarded to dense and sparse GPA map paths; report-only"
+            },
+            {
+              "offset": "0x88",
+              "name": "field_88",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.72,
+              "note": "observed dense-fill state flag update; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,

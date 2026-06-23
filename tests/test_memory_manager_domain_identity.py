@@ -412,8 +412,9 @@ NTSTATUS __fastcall MiCompleteProtoPteFault(__int64 context, __int64 argument1)
                 """
 __int64 __fastcall MiCreateSlabEntry(__int64 a1, __int64 a2, int a3, unsigned __int8 a4)
 {
-  *(_QWORD *)(a2 + 40) = a1;
-  return a3 + a4;
+  *(_QWORD *)(a2 + 184) = *(_QWORD *)(a1 + 176);
+  *(_DWORD *)(a2 + 17748) = *(_DWORD *)(a1 + 128);
+  return *(_DWORD *)(a1 + 136) + a3 + a4;
 }
 """,
                 "windows.memory_manager.create_slab_entry",
@@ -471,7 +472,8 @@ __int64 __fastcall MiPfAllocateMdls(__int64 a1, unsigned int a2, _SLIST_ENTRY *a
                 """
 void __fastcall MiLockPageListAndLastPage(__int64 a1, __int64 a2, __int64 a3, __int64 a4)
 {
-  *(_QWORD *)(a1 + 40) = a2 + a3 + a4;
+  *(_DWORD *)(a1 + 32) |= 0x40000000u;
+  *(_QWORD *)(a1 + 40) = *(_QWORD *)(a1 + 24) + a2 + a3 + a4;
 }
 """,
                 "windows.memory_manager.lock_page_list_and_last_page",
@@ -533,6 +535,7 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
 {
   if ( a3 == 512 )
   {
+    *(_WORD *)(a1 + 136) |= 1u;
     return HvlMapGpaPages(*(_QWORD *)(a1 + 104), *a4, a2, 1, (__int64)(a4 + 1), (__int64)a5);
   }
   return HvlMapSparseGpaPages(*(_QWORD *)(a1 + 104), a2, a3, (_DWORD)a4, (__int64)a5);
@@ -590,6 +593,21 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                     self.assertEqual(expected_field_count, len(plan.corrected_parameter_map[0].fields))
                 else:
                     self.assertEqual([], plan.corrected_parameter_map)
+                identities = self._profile_identities(plan, profile_id)
+                if profile_id == "windows.memory_manager.create_slab_entry":
+                    slab_context = self._single_identity(plan, profile_id, "slabContext")
+                    slab_entry = self._single_identity(plan, profile_id, "slabEntry")
+                    self.assertTrue({0x80, 0x88, 0xB0}.issubset(self._field_offsets(slab_context)))
+                    self.assertTrue({0xB8, 0x4554}.issubset(self._field_offsets(slab_entry)))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                if profile_id == "windows.memory_manager.lock_page_list_and_last_page":
+                    page_lock = self._single_identity(plan, profile_id, "pageListLockContext")
+                    self.assertTrue({0x18, 0x20, 0x28}.issubset(self._field_offsets(page_lock)))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                if profile_id == "windows.memory_manager.vmp_fill_slat":
+                    vmp_context = self._single_identity(plan, profile_id, "vmpContext")
+                    self.assertEqual({0x68, 0x88}, self._field_offsets(vmp_context))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                 self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
@@ -858,3 +876,10 @@ void __fastcall MiReferenceVad(__int64 vad_ptr)
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

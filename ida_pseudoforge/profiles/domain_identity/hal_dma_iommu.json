@@ -148,7 +148,33 @@
             "PVOID",
             "PHALP_DMA_ADAPTER"
           ],
-          "source": "HAL DMA/IOMMU exact-name parameter role"
+          "source": "HAL DMA/IOMMU exact-name parameter role",
+          "fields": [
+            {
+              "offset": "0x90",
+              "name": "field_90",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed scatter transfer logical-address limit comparison; report-only"
+            },
+            {
+              "offset": "0x1BD",
+              "name": "field_1BD",
+              "type": "UCHAR",
+              "size": 1,
+              "confidence": 0.72,
+              "note": "observed repeated scatter transfer mode flag check; report-only"
+            },
+            {
+              "offset": "0x208",
+              "name": "field_208",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.7,
+              "note": "observed DMA adapter transfer mode discriminator; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,
@@ -163,7 +189,17 @@
             "PVOID",
             "PHALP_DMA_TRANSFER_CONTEXT"
           ],
-          "source": "HAL DMA/IOMMU exact-name parameter role"
+          "source": "HAL DMA/IOMMU exact-name parameter role",
+          "fields": [
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.68,
+              "note": "observed transfer length base in scatter transfer page index calculation; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 2,
@@ -178,7 +214,25 @@
             "PVOID",
             "PSCATTER_GATHER_LIST"
           ],
-          "source": "HAL DMA/IOMMU exact-name parameter role"
+          "source": "HAL DMA/IOMMU exact-name parameter role",
+          "fields": [
+            {
+              "offset": "0x38",
+              "name": "field_38",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed scatter/gather current element pointer; report-only"
+            },
+            {
+              "offset": "0x40",
+              "name": "field_40",
+              "type": "UCHAR",
+              "size": 1,
+              "confidence": 0.7,
+              "note": "observed scatter/gather completion flag check; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 3,
@@ -920,7 +974,25 @@
             "PVOID",
             "PHALP_IOMMU_DOMAIN"
           ],
-          "source": "HalpIommuDomainMapLogicalRange tests domain mode and dispatches by domain backing"
+          "source": "HalpIommuDomainMapLogicalRange tests domain mode and dispatches by domain backing",
+          "fields": [
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed logical-range map backing pointer forwarded to HalpIommuMapLogicalRange; report-only"
+            },
+            {
+              "offset": "0x34",
+              "name": "field_34",
+              "type": "UCHAR",
+              "size": 1,
+              "confidence": 0.72,
+              "note": "observed HV/non-HV domain mode flag; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,

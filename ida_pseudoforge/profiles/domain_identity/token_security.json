@@ -1392,7 +1392,17 @@
             "PACCESS_TOKEN",
             "PVOID"
           ],
-          "source": "SeQuerySecurityAttributesToken locks token resource and forwards token to internal query"
+          "source": "SeQuerySecurityAttributesToken locks token resource and forwards token to internal query",
+          "fields": [
+            {
+              "offset": "0x30",
+              "name": "field_30",
+              "type": "PERESOURCE",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed token security-attribute resource lock acquire/release; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,

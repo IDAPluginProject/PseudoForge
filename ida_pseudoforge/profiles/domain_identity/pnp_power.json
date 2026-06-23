@@ -1235,7 +1235,25 @@
             "PVOID",
             "PPOP_FX_DEVICE"
           ],
-          "source": "PopFxQueryCurrentComponentPerfState reads the device query context and platform handle"
+          "source": "PopFxQueryCurrentComponentPerfState reads the device query context and platform handle",
+          "fields": [
+            {
+              "offset": "0x40",
+              "name": "field_40",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed platform query callback context; report-only"
+            },
+            {
+              "offset": "0x48",
+              "name": "field_48",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed platform query handle forwarded after callback context; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 1,
@@ -1250,7 +1268,25 @@
             "PVOID",
             "PPOP_FX_COMPONENT"
           ],
-          "source": "PopFxQueryCurrentComponentPerfState reads component perf-state cache and component index"
+          "source": "PopFxQueryCurrentComponentPerfState reads component perf-state cache and component index",
+          "fields": [
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.7,
+              "note": "observed component index fallback output; report-only"
+            },
+            {
+              "offset": "0x1A8",
+              "name": "field_1A8",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed component perf-state cache pointer; report-only"
+            }
+          ]
         },
         {
           "parameter_index": 2,
