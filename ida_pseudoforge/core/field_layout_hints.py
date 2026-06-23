@@ -26,6 +26,12 @@ _OFFSET_DEREF_RE = re.compile(
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
+_OFFSET_INDEXED_DEREF_RE = re.compile(
+    r"\*\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<index>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
 _INDEXED_ACCESS_RE = re.compile(
     r"\b(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*"
     r"\[\s*(?P<index>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\]"
@@ -441,6 +447,21 @@ def _collect_layouts(text: str) -> dict[str, _LayoutEvidence]:
         layout = layouts.setdefault(base, _LayoutEvidence(base=base))
         layout.access_count += 1
         layout.offset_access_counts[offset] += 1
+        layout.offsets.setdefault(offset, set()).add(type_name)
+    for match in _OFFSET_INDEXED_DEREF_RE.finditer(text):
+        base = match.group("base")
+        if _is_scalar_like_base(base):
+            continue
+        offset = _indexed_deref_byte_offset(match)
+        if offset is None:
+            continue
+        layout = layouts.setdefault(base, _LayoutEvidence(base=base))
+        layout.access_count += 1
+        layout.offset_access_counts[offset] += 1
+        type_name = _normalize_offset_access_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
         layout.offsets.setdefault(offset, set()).add(type_name)
     return layouts
 
@@ -3376,9 +3397,11 @@ def _field_rewrite_ready_comment(
                 "domain_role": domain_identity.role,
                 "domain_structure": domain_identity.structure,
             }
+    threshold_policy = _field_rewrite_threshold_policy(layout, text=text)
+    if not identity and threshold_policy == "allocation_alias_group_grace":
+        identity = _allocation_alias_group_identity(text, layout)
     if base_kind != "named" and not identity:
         return None
-    threshold_policy = _field_rewrite_threshold_policy(layout)
     if not threshold_policy:
         return None
     confidence = min(
@@ -3732,7 +3755,7 @@ def _field_rewrite_blockers(
 
 def _non_identity_layout_rewrite_blockers(text: str, layout: _LayoutEvidence) -> list[str]:
     blockers: list[str] = []
-    blockers.extend(_field_rewrite_threshold_blockers(layout))
+    blockers.extend(_field_rewrite_threshold_blockers(layout, text=text))
     blockers.extend(_mixed_offset_type_blockers(layout))
     if _has_volatile_access_type(layout):
         blockers.append(_VOLATILE_ACCESS_TYPE_BLOCKER)
@@ -3938,6 +3961,12 @@ def _layout_rewrite_access_count(text: str, layout: _LayoutEvidence) -> int:
         offset = _parse_offset(match.group("offset"))
         if offset in offsets:
             count += 1
+    for match in _OFFSET_INDEXED_DEREF_RE.finditer(text or ""):
+        if match.group("base") != layout.base:
+            continue
+        offset = _indexed_deref_byte_offset(match)
+        if offset in offsets:
+            count += 1
     return count
 
 
@@ -3947,6 +3976,12 @@ def _layout_rewrite_access_count_for_offsets(text: str, layout: _LayoutEvidence,
         if match.group("base") != layout.base:
             continue
         offset = _parse_offset(match.group("offset"))
+        if offset in offsets:
+            count += 1
+    for match in _OFFSET_INDEXED_DEREF_RE.finditer(text or ""):
+        if match.group("base") != layout.base:
+            continue
+        offset = _indexed_deref_byte_offset(match)
         if offset in offsets:
             count += 1
     return count
@@ -4302,9 +4337,12 @@ def _preview_type_name(type_names: set[str]) -> str:
     return "mixed(%s)" % "/".join(cleaned[:3])
 
 
-def _field_rewrite_threshold_blockers(layout: _LayoutEvidence) -> list[str]:
+def _field_rewrite_threshold_blockers(
+    layout: _LayoutEvidence,
+    text: str = "",
+) -> list[str]:
     blockers: list[str] = []
-    if _field_rewrite_threshold_policy(layout):
+    if _field_rewrite_threshold_policy(layout, text=text):
         return blockers
     if len(layout.offsets) < 8:
         blockers.append(_REWRITE_OFFSET_THRESHOLD_BLOCKER)
@@ -4313,11 +4351,18 @@ def _field_rewrite_threshold_blockers(layout: _LayoutEvidence) -> list[str]:
     return blockers
 
 
-def _field_rewrite_threshold_policy(layout: _LayoutEvidence) -> str:
+def _field_rewrite_threshold_policy(
+    layout: _LayoutEvidence,
+    text: str = "",
+) -> str:
     if len(layout.offsets) >= 8 and layout.access_count >= 12:
         return "standard"
     if _field_rewrite_named_threshold_grace(layout):
         return "named_threshold_grace"
+    if _field_rewrite_named_dense_threshold_grace(layout):
+        return "named_dense_threshold_grace"
+    if text and _field_rewrite_allocation_alias_group_grace(text, layout):
+        return "allocation_alias_group_grace"
     return ""
 
 
@@ -4331,11 +4376,104 @@ def _field_rewrite_named_threshold_grace(layout: _LayoutEvidence) -> bool:
     return False
 
 
+def _field_rewrite_named_dense_threshold_grace(layout: _LayoutEvidence) -> bool:
+    if _layout_base_kind(layout.base) != "named":
+        return False
+    if len(layout.offsets) >= 8:
+        return False
+    if len(layout.offsets) >= 5 and 8 <= layout.access_count < 12:
+        return True
+    if len(layout.offsets) >= 4 and 10 <= layout.access_count < 12:
+        return True
+    return False
+
+
+def _field_rewrite_allocation_alias_group_grace(text: str, layout: _LayoutEvidence) -> bool:
+    stats = _allocation_alias_group_stats(text, layout)
+    if not stats:
+        return False
+    return (
+        int(stats.get("base_count", 0) or 0) >= 2
+        and int(stats.get("offset_count", 0) or 0) >= 8
+        and int(stats.get("access_count", 0) or 0) >= 10
+    )
+
+
+def _allocation_alias_group_identity(text: str, layout: _LayoutEvidence) -> dict[str, Any]:
+    stats = _allocation_alias_group_stats(text, layout)
+    if not stats:
+        return {}
+    root = str(stats.get("root", "") or "")
+    if not root:
+        return {}
+    return {
+        "source": root,
+        "source_kind": "allocation",
+        "source_provenance": "allocation_alias_group",
+        "source_rhs_kind": "allocation_result_alias_group",
+        "source_aliases": ",".join(str(item) for item in stats.get("bases", []) or [] if str(item)),
+        "source_threshold_policy": "allocation_alias_group_grace",
+    }
+
+
+def _allocation_alias_group_stats(text: str, layout: _LayoutEvidence) -> dict[str, Any]:
+    first_access = _first_layout_access_start(text or "", layout.base)
+    if first_access < 0:
+        return {}
+    root = _allocation_source_root_before(text or "", layout.base, first_access, set())
+    if not root:
+        return {}
+    layouts = _collect_layouts(text or "")
+    group_bases = []
+    group_offsets: set[int] = set()
+    group_access_count = 0
+    for base, candidate in sorted(layouts.items()):
+        candidate_first_access = _first_layout_access_start(text or "", base)
+        if candidate_first_access < 0:
+            continue
+        candidate_root = _allocation_source_root_before(
+            text or "",
+            base,
+            candidate_first_access,
+            set(),
+        )
+        if candidate_root != root:
+            continue
+        group_bases.append(base)
+        group_offsets.update(int(offset) for offset in candidate.offsets)
+        group_access_count += int(candidate.access_count)
+    if len(group_bases) < 2:
+        return {}
+    return {
+        "root": root,
+        "bases": group_bases,
+        "base_count": len(group_bases),
+        "offset_count": len(group_offsets),
+        "access_count": group_access_count,
+    }
+
+
 def _parse_offset(value: str) -> int | None:
     try:
         return int(value, 16) if value.lower().startswith("0x") else int(value, 10)
     except ValueError:
         return None
+
+
+def _indexed_deref_byte_offset(match: re.Match[str]) -> int | None:
+    index = _parse_offset(match.group("index"))
+    if index is None or index <= 0:
+        return None
+    type_name = _normalize_offset_access_type(
+        match.group("type"),
+        match.group("pointer_stars"),
+    )
+    if not type_name:
+        return None
+    element_size = _field_type_storage_size(type_name)
+    if element_size <= 0:
+        return None
+    return index * element_size
 
 
 def _normalize_type_name(type_name: str) -> str:

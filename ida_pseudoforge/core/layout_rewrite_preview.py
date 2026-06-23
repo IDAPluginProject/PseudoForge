@@ -19,6 +19,12 @@ _OFFSET_ADDRESS_CAST_RE = re.compile(
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
+_OFFSET_INDEXED_DEREF_RE = re.compile(
+    r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<index>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
 
 _PREVIEW_ONLY_COMMENT = "Preview artifact only; body rewrite was not applied."
 _AUDIT_ONLY_NOT_APPLIED_COMMENT = "Audit only; body rewrite was not applied."
@@ -110,10 +116,10 @@ def build_layout_rewrite_preview_bundle(
     if apply_validated_body_rewrite:
         if validation.get("status") == "passed":
             if _has_partial_layout_rewrite_plan(plans):
-                canonical_text = _canonical_layout_rewrite_text(rewritten)
+                canonical_text = _canonical_layout_rewrite_text(rewritten, plans)
                 canonical_rewrite_status = "applied_partial"
             else:
-                canonical_text = _canonical_layout_rewrite_text(rewritten)
+                canonical_text = _canonical_layout_rewrite_text(rewritten, plans)
                 canonical_rewrite_status = "applied"
         else:
             canonical_rewrite_status = "blocked_by_validation"
@@ -170,6 +176,8 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
             }
         )
     for match in _REWRITE_PARTIAL_OPPORTUNITY_RE.finditer(text or ""):
+        if match.groupdict().get("source_provenance") == "domain_identity_report_only":
+            continue
         allowed_offsets = _parse_offset_list(match.group("safe_offsets"))
         excluded_offsets = _parse_offset_list(match.group("excluded_offsets"))
         if not allowed_offsets or not excluded_offsets:
@@ -246,6 +254,35 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
             offset,
         )
 
+    def replace_indexed_deref(match: re.Match[str]) -> str:
+        base = match.group("base")
+        rule = rewrite_rules.get(base)
+        if not rule:
+            return match.group(0)
+        index = _parse_offset(match.group("index"))
+        if index is None or index <= 0:
+            return match.group(0)
+        type_name = _rewritten_field_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
+        element_size = _indexed_element_size(type_name)
+        if element_size <= 0:
+            return match.group(0)
+        offset = index * element_size
+        allowed_offsets = rule.get("allowed_offsets")
+        if allowed_offsets is not None and offset not in allowed_offsets:
+            return match.group(0)
+        deref_prefix = _outer_value_deref_prefix(match.group("outer_stars"))
+        field_name = record_rewrite(base, offset)
+        return "%s%s->%s /* %s +0x%X */" % (
+            deref_prefix,
+            base,
+            field_name,
+            type_name,
+            offset,
+        )
+
     def replace_address_cast(match: re.Match[str]) -> str:
         base = match.group("base")
         rule = rewrite_rules.get(base)
@@ -270,6 +307,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         )
 
     rewritten = _OFFSET_DEREF_RE.sub(replace_deref, text or "")
+    rewritten = _OFFSET_INDEXED_DEREF_RE.sub(replace_indexed_deref, rewritten)
     rewritten = _OFFSET_ADDRESS_CAST_RE.sub(replace_address_cast, rewritten)
     return rewritten, {
         "rewritten_accesses": rewritten_accesses,
@@ -627,6 +665,23 @@ def _raw_offset_deref_for_plan_exists(text: str, plan: dict[str, Any]) -> bool:
             continue
         if offset is not None:
             return True
+    for match in _OFFSET_INDEXED_DEREF_RE.finditer(text or ""):
+        if match.group("base") != base:
+            continue
+        index = _parse_offset(match.group("index"))
+        if index is None:
+            continue
+        type_name = _rewritten_field_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
+        element_size = _indexed_element_size(type_name)
+        if element_size <= 0:
+            continue
+        offset = index * element_size
+        if allowed_offsets is not None and offset not in allowed_offsets:
+            continue
+        return True
     address_offsets = _plan_address_offsets(plan)
     for match in _OFFSET_ADDRESS_CAST_RE.finditer(text or ""):
         if match.group("base") != base:
@@ -707,6 +762,70 @@ def _cast_pointer_type(type_name: str, pointer_stars: str) -> str:
     return "%s %s" % (text, stars)
 
 
+def _indexed_element_size(type_name: str) -> int:
+    text = " ".join(str(type_name or "").replace("const ", "").replace("volatile ", "").split())
+    lowered = text.lower()
+    if text.endswith("*"):
+        return 8
+    sizes = {
+        "__int8": 1,
+        "signed __int8": 1,
+        "unsigned __int8": 1,
+        "char": 1,
+        "signed char": 1,
+        "unsigned char": 1,
+        "_BYTE": 1,
+        "BYTE": 1,
+        "BOOLEAN": 1,
+        "__int16": 2,
+        "signed __int16": 2,
+        "unsigned __int16": 2,
+        "short": 2,
+        "signed short": 2,
+        "unsigned short": 2,
+        "_WORD": 2,
+        "WORD": 2,
+        "wchar_t": 2,
+        "__int32": 4,
+        "signed __int32": 4,
+        "unsigned __int32": 4,
+        "int": 4,
+        "signed int": 4,
+        "unsigned int": 4,
+        "long": 4,
+        "signed long": 4,
+        "unsigned long": 4,
+        "_DWORD": 4,
+        "DWORD": 4,
+        "ULONG": 4,
+        "NTSTATUS": 4,
+        "__int64": 8,
+        "signed __int64": 8,
+        "unsigned __int64": 8,
+        "long long": 8,
+        "signed long long": 8,
+        "unsigned long long": 8,
+        "_QWORD": 8,
+        "QWORD": 8,
+        "ULONG64": 8,
+        "SIZE_T": 8,
+        "__int128": 16,
+        "signed __int128": 16,
+        "unsigned __int128": 16,
+        "_OWORD": 16,
+        "OWORD": 16,
+        "XMMWORD": 16,
+    }
+    if text in sizes:
+        return sizes[text]
+    lowered_sizes = {key.lower(): value for key, value in sizes.items()}
+    if lowered in lowered_sizes:
+        return lowered_sizes[lowered]
+    if re.fullmatch(r"P[A-Z0-9_]+", text):
+        return 8
+    return 0
+
+
 def _outer_value_deref_prefix(outer_stars: str) -> str:
     outer_depth = len(str(outer_stars or ""))
     if outer_depth <= 1:
@@ -714,10 +833,45 @@ def _outer_value_deref_prefix(outer_stars: str) -> str:
     return "*" * (outer_depth - 1)
 
 
-def _canonical_layout_rewrite_text(rewritten_text: str) -> str:
-    text = str(rewritten_text or "").replace(_PREVIEW_ONLY_COMMENT, _CANONICAL_APPLIED_COMMENT)
-    text = text.replace(_AUDIT_ONLY_NOT_APPLIED_COMMENT, _CANONICAL_APPLIED_COMMENT)
-    text = text.replace(_PARTIAL_REVIEW_ONLY_COMMENT, _CANONICAL_PARTIAL_APPLIED_COMMENT)
+def _canonical_layout_rewrite_text(
+    rewritten_text: str,
+    plans: list[dict[str, Any]] | None = None,
+) -> str:
+    text = str(rewritten_text or "")
+    plan_items = list(plans or [])
+    full_bases = {
+        str(plan.get("base", "") or "")
+        for plan in plan_items
+        if _plan_kind(plan) == "full" and str(plan.get("base", "") or "")
+    }
+    partial_bases = {
+        str(plan.get("base", "") or "")
+        for plan in plan_items
+        if _plan_kind(plan) == "partial" and str(plan.get("base", "") or "")
+    }
+    if not plan_items:
+        return text.rstrip() + "\n"
+
+    def replace_preview(match: re.Match[str]) -> str:
+        if match.group("base") not in full_bases:
+            return match.group(0)
+        return match.group(0).replace(_PREVIEW_ONLY_COMMENT, _CANONICAL_APPLIED_COMMENT)
+
+    def replace_ready(match: re.Match[str]) -> str:
+        if match.group("base") not in full_bases:
+            return match.group(0)
+        return match.group(0).replace(_AUDIT_ONLY_NOT_APPLIED_COMMENT, _CANONICAL_APPLIED_COMMENT)
+
+    def replace_partial(match: re.Match[str]) -> str:
+        if match.group("base") not in partial_bases:
+            return match.group(0)
+        if match.groupdict().get("source_provenance") == "domain_identity_report_only":
+            return match.group(0)
+        return match.group(0).replace(_PARTIAL_REVIEW_ONLY_COMMENT, _CANONICAL_PARTIAL_APPLIED_COMMENT)
+
+    text = _REWRITE_PREVIEW_RE.sub(replace_preview, text)
+    text = _REWRITE_READY_RE.sub(replace_ready, text)
+    text = _REWRITE_PARTIAL_OPPORTUNITY_RE.sub(replace_partial, text)
     return text.rstrip() + "\n"
 
 

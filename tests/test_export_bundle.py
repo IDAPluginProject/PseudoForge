@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
+from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
@@ -804,6 +805,102 @@ __int64 __fastcall LayoutPartialPreview(__int64 currentThread)
             self.assertTrue(
                 preview_metadata["validation"]["checks"]["preview_has_no_raw_offset_derefs_for_rewrite_scope"]
             )
+
+    def test_report_only_partial_opportunity_does_not_become_canonical_rewrite(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for sessionSpace: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for sessionSpace: 12 dereference(s) can map to 8 field alias(es) field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Preview artifact only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for resource: 12 safe dereference(s) across 8 safe offset(s), 2 excluded dereference(s) across 1 excluded offset(s), safe fields field_20, field_28, field_30, field_38, field_40, field_48, field_50, field_58. Safe offsets +0x20, +0x28, +0x30, +0x38, +0x40, +0x48, +0x50, +0x58; excluded offsets +0x10. Excluded reasons one or more offsets mix wide overlay access widths. Source provenance domain_identity_report_only from resource. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.77
+*/
+__int64 __fastcall MixedReportOnly(__int64 sessionSpace, __int64 resource)
+{
+  return *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(sessionSpace + 48)
+       + *(_QWORD *)(sessionSpace + 56)
+       + *(_QWORD *)(sessionSpace + 64)
+       + *(_QWORD *)(sessionSpace + 72)
+       + *(_QWORD *)(sessionSpace + 16)
+       + *(_QWORD *)(sessionSpace + 24)
+       + *(_QWORD *)(sessionSpace + 32)
+       + *(_QWORD *)(sessionSpace + 40)
+       + *(_QWORD *)(resource + 32)
+       + *(_QWORD *)(resource + 40)
+       + *(_QWORD *)(resource + 48)
+       + *(_QWORD *)(resource + 56)
+       + *(_QWORD *)(resource + 64)
+       + *(_QWORD *)(resource + 72)
+       + *(_QWORD *)(resource + 80)
+       + *(_QWORD *)(resource + 88)
+       + *(_DWORD *)(resource + 16)
+       + *(_QWORD *)(resource + 16);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "MixedReportOnly",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        self.assertIsNotNone(bundle.canonical_text)
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual(1, len(bundle.metadata["preview_plans"]))
+        self.assertEqual("sessionSpace", bundle.metadata["preview_plans"][0]["base"])
+        self.assertIn("sessionSpace->field_10 /* _QWORD +0x10 */", canonical_text)
+        self.assertIn("*(_QWORD *)(resource + 32)", canonical_text)
+        self.assertIn(
+            "Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented.",
+            canonical_text,
+        )
+        self.assertNotIn(
+            "Validated partial layout rewrite applied to canonical cleaned output.",
+            canonical_text,
+        )
+
+    def test_validated_layout_rewrite_handles_pointer_indexed_dereferences(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for context: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance generic_parameter_trust from context. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for context: 12 dereference(s) can map to 8 field alias(es) field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Source provenance generic_parameter_trust from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall PointerIndexedLayout(__int64 context)
+{
+  return *((_QWORD *)context + 2)
+       + *((_QWORD *)context + 3)
+       + *((_QWORD *)context + 4)
+       + *((_QWORD *)context + 5)
+       + *((_QWORD *)context + 6)
+       + *((_QWORD *)context + 7)
+       + *((_QWORD *)context + 8)
+       + *((_QWORD *)context + 9)
+       + *((_QWORD *)context + 2)
+       + *((_QWORD *)context + 3)
+       + *((_QWORD *)context + 4)
+       + *((_QWORD *)context + 5);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "PointerIndexedLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual(12, bundle.metadata["rewritten_accesses"])
+        self.assertIn("context->field_10 /* _QWORD +0x10 */", canonical_text)
+        self.assertIn("context->field_48 /* _QWORD +0x48 */", canonical_text)
+        self.assertNotIn("*((_QWORD *)context + 2)", canonical_text)
 
     def test_validated_layout_rewrite_normalizes_post_render_advertised_counts(self) -> None:
         cleaned_text = """

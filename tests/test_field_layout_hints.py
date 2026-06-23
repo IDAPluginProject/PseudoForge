@@ -869,6 +869,126 @@ __int64 __fastcall AccessGraceLayout(__int64 Irp)
         self.assertEqual(1, len(access_ready))
         self.assertEqual("named_threshold_grace", access_ready[0]["threshold_policy"])
 
+    def test_named_dense_layout_threshold_grace_promotes_small_stable_bases(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall DenseNamedLayout(__int64 MemoryRanges)
+{
+  return *(_QWORD *)(MemoryRanges + 24)
+       + *(_QWORD *)(MemoryRanges + 32)
+       + *(__int64 **)(MemoryRanges + 40)
+       + *(_QWORD *)(MemoryRanges + 56)
+       + *(_DWORD *)(MemoryRanges + 72)
+       + *(_QWORD *)(MemoryRanges + 24)
+       + *(_QWORD *)(MemoryRanges + 32)
+       + *(_QWORD *)(MemoryRanges + 56);
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("MemoryRanges", ready[0]["base"])
+        self.assertEqual("named_dense_threshold_grace", ready[0]["threshold_policy"])
+        self.assertIn("Threshold policy named_dense_threshold_grace", ready[0]["text"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual(8, previews[0]["access_count"])
+        self.assertEqual(5, previews[0]["field_count"])
+
+    def test_pointer_indexed_layout_rewrite_preview_counts_indexed_accesses(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PointerIndexedLayout(__int64 Token)
+{
+  return *((_QWORD *)Token + 2)
+       + *((_QWORD *)Token + 3)
+       + *((_QWORD *)Token + 4)
+       + *((_QWORD *)Token + 5)
+       + *((_QWORD *)Token + 6)
+       + *((_QWORD *)Token + 7)
+       + *((_QWORD *)Token + 8)
+       + *((_QWORD *)Token + 9)
+       + *((_QWORD *)Token + 2)
+       + *((_QWORD *)Token + 3)
+       + *((_QWORD *)Token + 4)
+       + *((_QWORD *)Token + 5);
+}
+"""
+        )
+
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+
+        self.assertEqual(1, len(ready))
+        self.assertEqual("Token", ready[0]["base"])
+        self.assertEqual(1, len(previews))
+        self.assertEqual("Token", previews[0]["base"])
+        self.assertEqual(12, previews[0]["access_count"])
+        self.assertEqual(8, previews[0]["field_count"])
+
+    def test_allocation_alias_group_threshold_grace_promotes_split_aliases(self) -> None:
+        comments = field_layout_comments(
+            """
+void __fastcall AllocationAliasLayout(__int64 context)
+{
+  __int64 pool;
+  __int64 newProviderRecord;
+
+  pool = 0LL;
+  newProviderRecord = ExAllocatePool2(0x100LL, 0x48uLL, 0x4B706E50u);
+  pool = newProviderRecord;
+  if ( newProviderRecord )
+  {
+    *(_DWORD *)(newProviderRecord + 4) = 72;
+    *(_BYTE *)(newProviderRecord + 8) = 0;
+    *(_DWORD *)(newProviderRecord + 12) = 1;
+    *(_DWORD *)(newProviderRecord + 16) = *(_DWORD *)(context + 16);
+    *(_QWORD *)(newProviderRecord + 24) = *(_QWORD *)(context + 8);
+    *(_DWORD *)(pool + 32) = *(_DWORD *)(context + 20);
+    *(_QWORD *)(pool + 40) = 0LL;
+    *(_QWORD *)(pool + 48) = qword_140000000;
+    *(_QWORD *)(pool + 56) = qword_140000008;
+    *(_QWORD *)(pool + 64) = qword_140000010;
+  }
+}
+"""
+        )
+
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
+        ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
+        previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+        ready_by_base = {item["base"]: item for item in ready}
+
+        self.assertFalse(
+            any(
+                item.get("base") in {"newProviderRecord", "pool"}
+                for item in blockers
+            )
+        )
+        self.assertIn("newProviderRecord", ready_by_base)
+        self.assertIn("pool", ready_by_base)
+        self.assertEqual(
+            "allocation_alias_group_grace",
+            ready_by_base["newProviderRecord"]["threshold_policy"],
+        )
+        self.assertEqual(
+            "allocation_alias_group_grace",
+            ready_by_base["pool"]["threshold_policy"],
+        )
+        self.assertEqual(
+            "named_call_result_alias",
+            ready_by_base["pool"]["source_provenance"],
+        )
+        self.assertEqual("newProviderRecord", ready_by_base["pool"]["source"])
+        self.assertEqual(
+            2,
+            len([item for item in previews if item.get("base") in {"newProviderRecord", "pool"}]),
+        )
+
     def test_generic_layout_does_not_use_named_threshold_grace(self) -> None:
         layout = _LayoutEvidence(base="context", access_count=12)
         for offset in (16, 24, 32, 40, 48, 56):
