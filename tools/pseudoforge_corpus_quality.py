@@ -8267,6 +8267,10 @@ def _layout_promotion_next_action_details(
         if action == "review_report_only_field_aliases":
             details.append("observed_field_aliases")
     if action == "prove_source_stability_before_rewrite":
+        if any("domain identity profile is report-only" in reason for reason in reasons_lower):
+            details.append("report_only_profile")
+        if _int_value(domain.get("field_count"), 0) > 0:
+            details.append("observed_field_aliases")
         if any("multiple initializers" in reason for reason in reasons_lower):
             details.append("multiple_initializers")
         if any("reassigned" in reason for reason in reasons_lower):
@@ -8275,6 +8279,18 @@ def _layout_promotion_next_action_details(
             details.append("address_taken")
         if any("indexed like an array" in reason for reason in reasons_lower):
             details.append("indexed_array_base")
+        if any("rewrite offset threshold" in reason for reason in reasons_lower):
+            details.append("offset_threshold_gap")
+        if any("rewrite access threshold" in reason for reason in reasons_lower):
+            details.append("access_threshold_gap")
+        if any("mix narrow" in reason for reason in reasons_lower):
+            details.append("narrow_subfield_conflict")
+        if any("mix wide" in reason for reason in reasons_lower):
+            details.append("wide_overlay_conflict")
+        if any("irregular field" in reason for reason in reasons_lower):
+            details.append("irregular_overlay_conflict")
+        if any("not naturally aligned" in reason for reason in reasons_lower):
+            details.append("alignment_conflict")
     if action == "prove_source_provenance_before_rewrite":
         details.append("source_provenance_%s" % (provenance or "unknown"))
     if action == "resolve_type_width_or_subfield_conflict":

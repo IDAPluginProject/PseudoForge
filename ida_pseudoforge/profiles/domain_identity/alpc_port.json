@@ -1829,7 +1829,89 @@
           "structure": "ALPC_MESSAGE",
           "mode": "report-only",
           "confidence": 0.72,
-          "source": "NtAlpcImpersonateClientOfPort ALPC message object resolved from message attributes"
+          "source": "NtAlpcImpersonateClientOfPort ALPC message object resolved from message attributes",
+          "fields": [
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed sender/port context pointer access; report-only"
+            },
+            {
+              "offset": "0x18",
+              "name": "field_18",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed paired message context pointer access; report-only"
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed client security pointer access; report-only"
+            },
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "UCHAR",
+              "size": 1,
+              "confidence": 0.7,
+              "note": "observed message state bit tests; report-only"
+            },
+            {
+              "offset": "0x88",
+              "name": "field_88",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed security context blob pointer access; report-only"
+            },
+            {
+              "offset": "0xB8",
+              "name": "field_B8",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed communication-info comparison; report-only"
+            },
+            {
+              "offset": "0xC0",
+              "name": "field_C0",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed owning port comparison; report-only"
+            },
+            {
+              "offset": "0xF4",
+              "name": "field_F4",
+              "type": "USHORT",
+              "size": 2,
+              "confidence": 0.68,
+              "note": "observed bit-test flag word; report-only"
+            },
+            {
+              "offset": "0x108",
+              "name": "field_108",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed message sequence/security token field; report-only"
+            },
+            {
+              "offset": "0x110",
+              "name": "field_110",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed message callback/impersonation sequence field; report-only"
+            }
+          ]
         },
         {
           "local_names": [

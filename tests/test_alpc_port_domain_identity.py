@@ -634,6 +634,63 @@ __int64 __fastcall NtAlpcImpersonateClientOfPort(HANDLE Handle, __int64 a2, unsi
         )
         self.assertTrue({0x10, 0x14}.issubset(self._field_offsets(message_attributes)))
 
+    def test_alpc_impersonate_message_object_fields_remain_report_only(self) -> None:
+        plan = self._plan(
+            """
+__int64 __stdcall NtAlpcImpersonateClientOfPort(HANDLE Handle, __int64 a2, unsigned __int64 a3)
+{
+  ULONG_PTR HandlePointer;
+  PVOID referencedObject;
+
+  referencedObject = 0;
+  ObReferenceObjectByHandle(Handle, 1u, AlpcPortObjectType, 0, &referencedObject, 0);
+  HandlePointer = *(_QWORD *)(referencedObject + 24);
+  *(_DWORD *)(HandlePointer + 264) = *(_DWORD *)(a2 + 16);
+  *(_DWORD *)(HandlePointer + 272) = *(_DWORD *)(a2 + 20);
+  if ( *(_QWORD *)(HandlePointer + 184) == *((_QWORD *)referencedObject + 2)
+    || *(PVOID *)(HandlePointer + 192) == referencedObject )
+  {
+    return *(unsigned __int8 *)(HandlePointer + 40)
+         + *(_QWORD *)(HandlePointer + 16)
+         + *(_QWORD *)(HandlePointer + 24)
+         + *(_QWORD *)(HandlePointer + 32)
+         + *(_QWORD *)(HandlePointer + 136)
+         + *(unsigned __int16 *)(HandlePointer + 244)
+         + *(_DWORD *)(HandlePointer + 264)
+         + *(_DWORD *)(HandlePointer + 272);
+  }
+  HandlePointer = ExGetHandlePointer((ULONG_PTR *)referencedObject);
+  return *(_DWORD *)(HandlePointer + 264);
+}
+"""
+        )
+        profile_id = "windows.alpc_port.nt_impersonate_client_of_port"
+        identity = self._identity_for_base(plan, profile_id, "HandlePointer")
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "HandlePointer"
+        ]
+
+        self.assertEqual("ALPC_MESSAGE", identity["structure_name"])
+        self.assertEqual("messageObject", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertIn("profile_report_only", identity["blockers"])
+        self.assertTrue(
+            {0x10, 0x18, 0x20, 0x28, 0x88, 0xB8, 0xC0, 0xF4, 0x108, 0x110}.issubset(
+                self._field_offsets(identity)
+            )
+        )
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "HandlePointer"
+                for item in plan.comments
+            )
+        )
+
     def test_alpc_allocate_message_profile_corrects_private_message_preview(self) -> None:
         capture = capture_from_pseudocode(
             """

@@ -766,6 +766,30 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             ),
         )
         self.assertEqual(
+            [
+                "report_only_profile",
+                "observed_field_aliases",
+                "multiple_initializers",
+                "offset_threshold_gap",
+                "access_threshold_gap",
+                "narrow_subfield_conflict",
+                "alignment_conflict",
+            ],
+            _layout_promotion_next_action_details(
+                {"identity_evidence": "stable_argument_source"},
+                [
+                    "domain identity profile is report-only",
+                    "base has multiple initializers before layout access",
+                    "rewrite offset threshold requires at least 8 offsets",
+                    "rewrite access threshold requires at least 12 accesses",
+                    "one or more offsets mix narrow subfield access widths",
+                    "one or more typed offsets are not naturally aligned",
+                ],
+                "prove_source_stability_before_rewrite",
+                {"field_count": 6},
+            ),
+        )
+        self.assertEqual(
             ["narrow_subfield_conflict", "alignment_conflict"],
             _layout_promotion_next_action_details(
                 {"identity_evidence": "stable_argument_source"},
