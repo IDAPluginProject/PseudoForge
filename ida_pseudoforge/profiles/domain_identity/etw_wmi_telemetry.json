@@ -2450,6 +2450,174 @@
           "source": "WmipEventNotification previous work item count local"
         }
       ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.etwp_ti_vad_query_event_write",
+      "source": "Reviewed EtwpTiVadQueryEventWrite ntoskrnl 26200.8457 threat-intelligence VAD event descriptor construction, zero-VAD fill loop, async handoff, and EtwWriteEx call; preview-only partial private prototype.",
+      "function_names": [
+        "EtwpTiVadQueryEventWrite"
+      ],
+      "parameter_count": 8,
+      "required_calls": [
+        "EtwWriteEx"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "userData",
+            "canonical_type": "PEVENT_DATA_DESCRIPTOR",
+            "accepted_types": [
+              "PEVENT_DATA_DESCRIPTOR",
+              "struct _EVENT_DATA_DESCRIPTOR *",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "userData",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "baseUserDataCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "int",
+              "ULONG"
+            ],
+            "semantic_role": "baseUserDataCount",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "zeroVadCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "int",
+              "ULONG"
+            ],
+            "semantic_role": "zeroVadCount",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "eventDescriptor",
+            "canonical_type": "PCEVENT_DESCRIPTOR",
+            "accepted_types": [
+              "PCEVENT_DESCRIPTOR",
+              "EVENT_DESCRIPTOR *",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "eventDescriptor",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 7,
+            "canonical_name": "asyncWrite",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "char",
+              "BOOLEAN",
+              "unsigned __int8"
+            ],
+            "semantic_role": "asyncWrite",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "userData",
+          "rename_to": "userData",
+          "rename_confidence": 0.86,
+          "structure": "EVENT_DATA_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PEVENT_DATA_DESCRIPTOR",
+            "struct _EVENT_DATA_DESCRIPTOR *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "EtwpTiVadQueryEventWrite appends descriptors before EtwWriteEx"
+        },
+        {
+          "parameter_index": 2,
+          "role": "baseUserDataCount",
+          "rename_to": "baseUserDataCount",
+          "rename_confidence": 0.84,
+          "structure": "EVENT_DATA_COUNT",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "ULONG"
+          ],
+          "source": "EtwpTiVadQueryEventWrite uses the input count to append one descriptor"
+        },
+        {
+          "parameter_index": 5,
+          "role": "zeroVadCount",
+          "rename_to": "zeroVadCount",
+          "rename_confidence": 0.82,
+          "structure": "VAD_EVENT_COUNT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned int",
+            "int",
+            "ULONG"
+          ],
+          "source": "EtwpTiVadQueryEventWrite drives the EtwpTiFillZeroVad loop count"
+        },
+        {
+          "parameter_index": 6,
+          "role": "eventDescriptor",
+          "rename_to": "eventDescriptor",
+          "rename_confidence": 0.86,
+          "structure": "EVENT_DESCRIPTOR",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PCEVENT_DESCRIPTOR",
+            "EVENT_DESCRIPTOR *",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "EtwpTiVadQueryEventWrite forwards the descriptor to EtwWriteEx"
+        },
+        {
+          "parameter_index": 7,
+          "role": "asyncWrite",
+          "rename_to": "asyncWrite",
+          "rename_confidence": 0.82,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "unsigned __int8"
+          ],
+          "source": "EtwpTiVadQueryEventWrite async branch selects EtwpTiAsyncVadQueryEventWrite"
+        }
+      ]
     }
   ]
 }

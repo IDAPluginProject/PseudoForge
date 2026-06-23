@@ -343,6 +343,46 @@ __int64 __fastcall DbgkWerCaptureLiveKernelDump(const wchar_t *a1, __int64 a2, _
         self.assertIn("ULONG optionFlags", rendered)
         self.assertEqual([], plan.corrected_parameter_map)
 
+    def test_etwp_ti_vad_query_event_write_profile_corrects_partial_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall EtwpTiVadQueryEventWrite(PEVENT_DATA_DESCRIPTOR UserData, int a2, unsigned int a3, int a4, __int64 a5, unsigned int a6, PCEVENT_DESCRIPTOR EventDescriptor, char a8)
+{
+  ULONG UserDataCount;
+  __int64 timestamp;
+
+  timestamp = 0;
+  UserDataCount = a3 + 1;
+  UserData[a3].Ptr = (ULONGLONG)&timestamp;
+  if ( a8 )
+  {
+    return EtwpTiAsyncVadQueryEventWrite((_DWORD)UserData, a2, UserDataCount, a4, a5, a6, (__int64)EventDescriptor);
+  }
+  return EtwWriteEx(EtwThreatIntProvRegHandle, EventDescriptor, 0, 0, 0, 0, UserDataCount, UserData);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.etw_wmi_telemetry.etwp_ti_vad_query_event_write"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        roles = self._roles(plan, profile_id)
+
+        self.assertEqual(5, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertIn("PEVENT_DATA_DESCRIPTOR userData", rendered)
+        self.assertIn("ULONG baseUserDataCount", rendered)
+        self.assertIn("ULONG zeroVadCount", rendered)
+        self.assertIn("PCEVENT_DESCRIPTOR eventDescriptor", rendered)
+        self.assertIn("BOOLEAN asyncWrite", rendered)
+        self.assertEqual("EVENT_DATA_DESCRIPTOR", roles["userData"])
+        self.assertEqual("EVENT_DATA_COUNT", roles["baseUserDataCount"])
+        self.assertEqual("VAD_EVENT_COUNT", roles["zeroVadCount"])
+        self.assertEqual("EVENT_DESCRIPTOR", roles["eventDescriptor"])
+        self.assertEqual("BOOLEAN", roles["asyncWrite"])
+        self.assertEqual([], plan.corrected_parameter_map)
+
     def test_trace_event_control_and_callback_roles(self) -> None:
         trace_event_plan = self._plan(
             """

@@ -74,6 +74,22 @@ __int64 __fastcall HalpIommuDomainGetLogicalAddressRange(__int64 a1, _QWORD *a2,
                     "PULONG_PTR logicalAddressLimit",
                 ],
             ),
+            (
+                """
+__int64 __fastcall HalpDmaAllocateEmergencyResources(__int64 a1)
+{
+  if ( !HalpMmAllocCtxAlloc(a1, 56) )
+  {
+    return STATUS_INSUFFICIENT_RESOURCES;
+  }
+  return MmAllocateMappingAddress(0x1000, 0x446C6148) != 0 ? STATUS_SUCCESS : STATUS_INSUFFICIENT_RESOURCES;
+}
+""",
+                "windows.hal_dma_iommu.dma_allocate_emergency_resources",
+                [
+                    "PHALP_MM_ALLOC_CONTEXT allocationContext",
+                ],
+            ),
         ]
 
         for text, profile_id, expected_fragments in samples:

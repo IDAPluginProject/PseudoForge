@@ -36,6 +36,7 @@
         "CmObReferenceObjectByHandle",
         "CmpDumpKeyToBuffer",
         "ExReferenceCallBackBlock",
+        "HalpMmAllocCtxAlloc",
         "HalpMmAllocCtxFree",
         "KiCheckVpBackingLongSpinWaitHypercall",
         "PipCreateDependencyNode",

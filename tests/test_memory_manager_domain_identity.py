@@ -478,6 +478,27 @@ void __fastcall MiLockPageListAndLastPage(__int64 a1, __int64 a2, __int64 a3, __
                     "ULONG_PTR lockFlags",
                 ],
             ),
+            (
+                """
+__int64 __fastcall MiValidateAddPhysicalMemoryParameters(ULONG *a1, __int64 *a2, _DWORD *a3, __int64 a4, __int64 a5, __int64 a6)
+{
+  *(_DWORD *)(a6 + 40) = a4 | 1;
+  *(_QWORD *)(a6 + 48) = a1;
+  *(_QWORD *)(a6 + 32) = *(_QWORD *)a3 >> 12;
+  MiLogAddPhysicalMemory((unsigned __int16 *)a1, a2, (__int64)a3, a4, 0LL);
+  return 0;
+}
+""",
+                "windows.memory_manager.validate_add_physical_memory_parameters",
+                [
+                    "PMMPARTITION partition",
+                    "PPHYSICAL_ADDRESS startPhysicalAddress",
+                    "PULONGLONG byteCount",
+                    "ULONG addFlags",
+                    "ULONG_PTR callerContext",
+                    "PMI_ADD_PHYSICAL_MEMORY_CONTEXT addMemoryContext",
+                ],
+            ),
         ]
 
         for text, profile_id, expected_fragments in samples:

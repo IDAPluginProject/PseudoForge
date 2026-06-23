@@ -521,6 +521,55 @@
           "source": "HAL DMA/IOMMU exact-name parameter role"
         }
       ]
+    },
+    {
+      "id": "windows.hal_dma_iommu.dma_allocate_emergency_resources",
+      "source": "Reviewed HalpDmaAllocateEmergencyResources ntoskrnl 26200.8457 emergency MDL and mapping-address allocation through HalpMmAllocCtxAlloc and MmAllocateMappingAddress; preview-only private prototype.",
+      "function_names": [
+        "HalpDmaAllocateEmergencyResources"
+      ],
+      "parameter_count": 1,
+      "required_calls": [
+        "HalpMmAllocCtxAlloc",
+        "MmAllocateMappingAddress"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "allocationContext",
+            "canonical_type": "PHALP_MM_ALLOC_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PHALP_MM_ALLOC_CONTEXT"
+            ],
+            "semantic_role": "allocationContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "allocationContext",
+          "rename_to": "allocationContext",
+          "rename_confidence": 0.86,
+          "structure": "HALP_MM_ALLOC_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PHALP_MM_ALLOC_CONTEXT"
+          ],
+          "source": "HalpDmaAllocateEmergencyResources allocation context forwarded to HalpMmAllocCtxAlloc"
+        }
+      ]
     }
   ]
 }

@@ -853,6 +853,34 @@ __int64 __fastcall CallbackBlockResidueSample()
         self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
         self.assertTrue(any("callee arity/helper residue" in warning for warning in warnings))
 
+    def test_hal_mm_alloc_ctx_alloc_live_ins_are_helper_arity_residue(self) -> None:
+        text = """
+__int64 __fastcall HalEmergencyResourceResidueSample(__int64 argument0)
+{
+  __int64 v1; // rcx
+
+  return HalpMmAllocCtxAlloc(argument0, 56) && HalpMmAllocCtxAlloc(v1, 56);
+}
+"""
+        capture = FunctionCapture(
+            name="HalEmergencyResourceResidueSample",
+            prototype="__int64 __fastcall HalEmergencyResourceResidueSample(__int64 argument0)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("callee_arity_residue_candidate", diagnostics[0].candidate_action)
+        self.assertEqual("HalpMmAllocCtxAlloc", diagnostics[0].callee_name)
+        self.assertEqual("callee_arity_residue_candidate", diagnostics[0].callee_contract_action)
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+        self.assertTrue(any("callee arity/helper residue" in warning for warning in warnings))
+
     def test_repeated_dif_thunk_slots_are_helper_thunk_candidates(self) -> None:
         text = """
 bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)

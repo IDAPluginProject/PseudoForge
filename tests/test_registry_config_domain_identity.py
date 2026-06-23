@@ -504,6 +504,95 @@ __int64 __fastcall CmpFindValueByName(ULONG_PTR a1)
         self.assertIn("PCM_KEY_VALUE_SEARCH_CONTEXT valueSearchContext", rendered)
         self.assertEqual([], plan.corrected_parameter_map)
 
+    def test_registry_followup_profiles_correct_weak_hexrays_parameter_types(self) -> None:
+        samples = [
+            (
+                """
+__int64 __fastcall CmSaveKeyToBuffer(int a1, __int64 a2, __int64 a3)
+{
+  PVOID Object;
+  CmObReferenceObjectByHandle(a1, 0, 0, 0, (__int64)&Object, 0);
+  return CmpDumpKeyToBuffer(Object, 0, a2, a3);
+}
+""",
+                "windows.registry_config.cm_save_key_to_buffer",
+                [
+                    "HANDLE keyHandle",
+                    "PVOID outputBuffer",
+                    "SIZE_T outputBufferLength",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char a4, int *a5, __int64 *a6, __int64 a7)
+{
+  __int64 context;
+  HvpGetCellContextInitialize(&context);
+  HvpDoAllocateCell(a1, (__int64)a6, (__int64)&context);
+  if ( a4 )
+  {
+    HvFreeCell(a1, a2);
+  }
+  *a5 = a2;
+  *a6 = HvpGetCellContextMove(a7, &context);
+  return 0;
+}
+""",
+                "windows.registry_config.hv_reallocate_cell",
+                [
+                    "PHHIVE hive",
+                    "HCELL_INDEX oldCell",
+                    "ULONG newCellSize",
+                    "BOOLEAN freeOldCell",
+                    "PHCELL_INDEX newCell",
+                    "PVOID * newCellData",
+                    "PHVP_GET_CELL_CONTEXT getCellContext",
+                ],
+            ),
+        ]
+
+        for text, profile_id, expected_fragments in samples:
+            with self.subTest(profile_id=profile_id):
+                capture = capture_from_pseudocode(text, source_path=SOURCE_PATH)
+                plan = build_clean_plan(capture)
+                rendered = render_cleaned_pseudocode(capture, plan)
+                corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+                identities = self._profile_identities(plan, profile_id)
+
+                self.assertEqual(len(expected_fragments), len(corrections))
+                self.assertTrue(all(item.apply_to_preview for item in corrections))
+                self.assertTrue(all(not item.apply_to_idb for item in corrections))
+                self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                self.assertEqual([], plan.corrected_parameter_map)
+                for fragment in expected_fragments:
+                    self.assertIn(fragment, rendered)
+
+    def test_registry_hive_cell_build_mismatch_blocks_type_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char a4, int *a5, __int64 *a6, __int64 a7)
+{
+  __int64 context;
+  HvpGetCellContextInitialize(&context);
+  HvpDoAllocateCell(a1, (__int64)a6, (__int64)&context);
+  *a5 = a2;
+  HvpGetCellContextMove(a7, &context);
+  return 0;
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.registry_config.hv_reallocate_cell"
+        ]
+
+        self.assertEqual(7, len(corrections))
+        self.assertTrue(all("build_mismatch" in item.blockers for item in corrections))
+        self.assertTrue(all(not item.apply_to_preview for item in corrections))
+
     def test_report_only_registry_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """

@@ -2073,6 +2073,343 @@
           "source": "CmRegisterCallbackEx callback cookie output argument"
         }
       ]
+    },
+    {
+      "id": "windows.registry_config.cm_save_key_to_buffer",
+      "source": "Reviewed CmSaveKeyToBuffer ntoskrnl 26200.8457 key handle reference, registry process attach, and CmpDumpKeyToBuffer handoff; preview-only private prototype.",
+      "function_names": [
+        "CmSaveKeyToBuffer"
+      ],
+      "parameter_count": 3,
+      "required_calls": [
+        "CmObReferenceObjectByHandle",
+        "CmpDumpKeyToBuffer"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "keyHandle",
+            "canonical_type": "HANDLE",
+            "accepted_types": [
+              "int",
+              "HANDLE",
+              "__int64"
+            ],
+            "semantic_role": "keyHandle",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "outputBuffer",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *"
+            ],
+            "semantic_role": "outputBuffer",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "outputBufferLength",
+            "canonical_type": "SIZE_T",
+            "accepted_types": [
+              "__int64",
+              "SIZE_T",
+              "size_t",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "outputBufferLength",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyHandle",
+          "rename_to": "keyHandle",
+          "rename_confidence": 0.88,
+          "structure": "HANDLE",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "int",
+            "HANDLE",
+            "__int64"
+          ],
+          "source": "CmSaveKeyToBuffer handle passed to CmObReferenceObjectByHandle"
+        },
+        {
+          "parameter_index": 1,
+          "role": "outputBuffer",
+          "rename_to": "outputBuffer",
+          "rename_confidence": 0.84,
+          "structure": "REGISTRY_SAVE_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "CmSaveKeyToBuffer output buffer forwarded to CmpDumpKeyToBuffer"
+        },
+        {
+          "parameter_index": 2,
+          "role": "outputBufferLength",
+          "rename_to": "outputBufferLength",
+          "rename_confidence": 0.82,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "SIZE_T",
+            "size_t",
+            "ULONG_PTR"
+          ],
+          "source": "CmSaveKeyToBuffer output length forwarded to CmpDumpKeyToBuffer"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.hv_reallocate_cell",
+      "source": "Reviewed HvReallocateCell ntoskrnl 26200.8457 HHIVE cell reallocation flow through HvpGetCellFlat/Paged, HvpDoAllocateCell, HvFreeCell, and HvpGetCellContextMove; preview-only private prototype.",
+      "function_names": [
+        "HvReallocateCell"
+      ],
+      "parameter_count": 7,
+      "required_calls": [
+        "HvpGetCellContextInitialize",
+        "HvpDoAllocateCell",
+        "HvpGetCellContextMove"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "hive",
+            "canonical_type": "PHHIVE",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID",
+              "PHHIVE"
+            ],
+            "semantic_role": "hive",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "oldCell",
+            "canonical_type": "HCELL_INDEX",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "HCELL_INDEX"
+            ],
+            "semantic_role": "oldCell",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "newCellSize",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "newCellSize",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "freeOldCell",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "char",
+              "BOOLEAN",
+              "unsigned __int8"
+            ],
+            "semantic_role": "freeOldCell",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "newCell",
+            "canonical_type": "PHCELL_INDEX",
+            "accepted_types": [
+              "int *",
+              "_DWORD *",
+              "PULONG",
+              "PHCELL_INDEX"
+            ],
+            "semantic_role": "newCellOutput",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "newCellData",
+            "canonical_type": "PVOID *",
+            "accepted_types": [
+              "__int64 *",
+              "_QWORD *",
+              "PVOID *"
+            ],
+            "semantic_role": "newCellDataOutput",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "getCellContext",
+            "canonical_type": "PHVP_GET_CELL_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PHVP_GET_CELL_CONTEXT"
+            ],
+            "semantic_role": "getCellContext",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "hive",
+          "rename_to": "hive",
+          "rename_confidence": 0.88,
+          "structure": "HHIVE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "PHHIVE"
+          ],
+          "source": "HvReallocateCell hive parameter used by HvpGetCellFlat/Paged and HvFreeCell"
+        },
+        {
+          "parameter_index": 1,
+          "role": "oldCell",
+          "rename_to": "oldCell",
+          "rename_confidence": 0.88,
+          "structure": "HCELL_INDEX",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "HCELL_INDEX"
+          ],
+          "source": "HvReallocateCell old cell index returned unchanged or freed after reallocation"
+        },
+        {
+          "parameter_index": 2,
+          "role": "newCellSize",
+          "rename_to": "newCellSize",
+          "rename_confidence": 0.86,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "HvReallocateCell requested cell payload size rounded to allocation granularity"
+        },
+        {
+          "parameter_index": 3,
+          "role": "freeOldCell",
+          "rename_to": "freeOldCell",
+          "rename_confidence": 0.84,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "unsigned __int8"
+          ],
+          "source": "HvReallocateCell boolean gate for HvFreeCell on successful reallocation"
+        },
+        {
+          "parameter_index": 4,
+          "role": "newCellOutput",
+          "rename_to": "newCell",
+          "rename_confidence": 0.86,
+          "structure": "HCELL_INDEX_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int *",
+            "_DWORD *",
+            "PULONG",
+            "PHCELL_INDEX"
+          ],
+          "source": "HvReallocateCell output receives old or newly allocated cell index"
+        },
+        {
+          "parameter_index": 5,
+          "role": "newCellDataOutput",
+          "rename_to": "newCellData",
+          "rename_confidence": 0.86,
+          "structure": "HIVE_CELL_DATA_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "PVOID *"
+          ],
+          "source": "HvReallocateCell output receives old or newly allocated cell data pointer"
+        },
+        {
+          "parameter_index": 6,
+          "role": "getCellContext",
+          "rename_to": "getCellContext",
+          "rename_confidence": 0.84,
+          "structure": "HVP_GET_CELL_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PHVP_GET_CELL_CONTEXT"
+          ],
+          "source": "HvReallocateCell caller context updated through HvpGetCellContextMove"
+        }
+      ]
     }
   ]
 }

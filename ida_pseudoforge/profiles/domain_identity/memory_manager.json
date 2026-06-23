@@ -1735,6 +1735,211 @@
           "source": "MiUnlockAndDereferenceVadShared current thread APC delivery local"
         }
       ]
+    },
+    {
+      "id": "windows.memory_manager.validate_add_physical_memory_parameters",
+      "source": "Reviewed MiValidateAddPhysicalMemoryParameters ntoskrnl 26200.8457 physical-memory range alignment, context population, and MiLogAddPhysicalMemory handoff; preview-only private prototype.",
+      "function_names": [
+        "MiValidateAddPhysicalMemoryParameters"
+      ],
+      "parameter_count": 6,
+      "required_calls": [
+        "MiLogAddPhysicalMemory"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "partition",
+            "canonical_type": "PMMPARTITION",
+            "accepted_types": [
+              "ULONG *",
+              "__int64",
+              "PVOID",
+              "PMMPARTITION"
+            ],
+            "semantic_role": "memoryPartition",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "startPhysicalAddress",
+            "canonical_type": "PPHYSICAL_ADDRESS",
+            "accepted_types": [
+              "__int64 *",
+              "_QWORD *",
+              "PPHYSICAL_ADDRESS",
+              "PULONGLONG"
+            ],
+            "semantic_role": "startPhysicalAddress",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "byteCount",
+            "canonical_type": "PULONGLONG",
+            "accepted_types": [
+              "_DWORD *",
+              "__int64 *",
+              "_QWORD *",
+              "PULONGLONG",
+              "PULONG_PTR"
+            ],
+            "semantic_role": "byteCount",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "addFlags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "__int64",
+              "ULONG",
+              "ULONG_PTR",
+              "unsigned int",
+              "int"
+            ],
+            "semantic_role": "addFlags",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "callerContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "callerContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "addMemoryContext",
+            "canonical_type": "PMI_ADD_PHYSICAL_MEMORY_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_ADD_PHYSICAL_MEMORY_CONTEXT"
+            ],
+            "semantic_role": "addMemoryContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "memoryPartition",
+          "rename_to": "partition",
+          "rename_confidence": 0.86,
+          "structure": "MMPARTITION",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG *",
+            "__int64",
+            "PVOID",
+            "PMMPARTITION"
+          ],
+          "source": "MiValidateAddPhysicalMemoryParameters partition compared with MiSystemPartition"
+        },
+        {
+          "parameter_index": 1,
+          "role": "startPhysicalAddress",
+          "rename_to": "startPhysicalAddress",
+          "rename_confidence": 0.86,
+          "structure": "PHYSICAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "PPHYSICAL_ADDRESS",
+            "PULONGLONG"
+          ],
+          "source": "MiValidateAddPhysicalMemoryParameters start address alignment and PFN conversion"
+        },
+        {
+          "parameter_index": 2,
+          "role": "byteCount",
+          "rename_to": "byteCount",
+          "rename_confidence": 0.84,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "_DWORD *",
+            "__int64 *",
+            "_QWORD *",
+            "PULONGLONG",
+            "PULONG_PTR"
+          ],
+          "source": "MiValidateAddPhysicalMemoryParameters length alignment and page-count conversion"
+        },
+        {
+          "parameter_index": 3,
+          "role": "addFlags",
+          "rename_to": "addFlags",
+          "rename_confidence": 0.82,
+          "structure": "MI_ADD_PHYSICAL_MEMORY_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "ULONG_PTR",
+            "unsigned int",
+            "int"
+          ],
+          "source": "MiValidateAddPhysicalMemoryParameters flag mask validation"
+        },
+        {
+          "parameter_index": 4,
+          "role": "callerContext",
+          "rename_to": "callerContext",
+          "rename_confidence": 0.78,
+          "structure": "MEMORY_ADD_CALLER_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "MiValidateAddPhysicalMemoryParameters caller context copied into add-memory context"
+        },
+        {
+          "parameter_index": 5,
+          "role": "addMemoryContext",
+          "rename_to": "addMemoryContext",
+          "rename_confidence": 0.88,
+          "structure": "MI_ADD_PHYSICAL_MEMORY_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_ADD_PHYSICAL_MEMORY_CONTEXT"
+          ],
+          "source": "MiValidateAddPhysicalMemoryParameters output context receives PFN range, flags, partition, and caller context"
+        }
+      ]
     }
   ]
 }
