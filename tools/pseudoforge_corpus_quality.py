@@ -129,6 +129,7 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "base_identity_candidates",
     "temp_base_identity_candidates",
     "generic_base_identity_candidates",
+    "source_identity_gap_candidates",
     "base_stability_blockers",
     "multiple_initializer_base_blockers",
     "reassigned_base_blockers",
@@ -4926,6 +4927,11 @@ def _body_offset_residue_review_class(
         return "rewrite_ready_residue"
     if rewrite_blockers:
         if any(
+            _has_layout_trusted_source_gap([str(reason) for reason in blocker.get("reasons", []) or []])
+            for blocker in rewrite_blockers
+        ):
+            return "source_identity_blocked_residue"
+        if any(
             "domain identity profile is report-only" in str(reason)
             for blocker in rewrite_blockers
             for reason in blocker.get("reasons", []) or []
@@ -4975,6 +4981,8 @@ def _body_offset_residue_next_action(
         return "verify_validated_rewrite_or_partial_residue"
     if review_class == "report_only_blocked_residue":
         return "keep_report_only_and_collect_exact_promotion_evidence"
+    if review_class == "source_identity_blocked_residue":
+        return "add_exact_source_identity_or_keep_review_only"
     if review_class == "source_stability_blocked_residue":
         return "prove_source_stability_before_rewrite"
     if review_class == "type_conflict_blocked_residue":
@@ -8617,6 +8625,8 @@ def _layout_identity_evidence_score(item: dict[str, Any]) -> tuple[int, int, int
 
 def _layout_promotion_review_class(identity: dict[str, Any], reasons: list[str]) -> str:
     identity_evidence = str(identity.get("identity_evidence", "") or "none")
+    if _has_layout_trusted_source_gap(reasons):
+        return "trusted_source_missing"
     if identity_evidence == "none":
         return "missing_identity_evidence"
     if _has_layout_source_stability_risk(reasons):
@@ -8641,6 +8651,8 @@ def _layout_promotion_review_class(identity: dict[str, Any], reasons: list[str])
 def _layout_promotion_risk_factors(identity: dict[str, Any], reasons: list[str]) -> list[str]:
     identity_evidence = str(identity.get("identity_evidence", "") or "none")
     factors = []
+    if _has_layout_trusted_source_gap(reasons):
+        factors.append("trusted_source_gap")
     if identity_evidence == "none":
         factors.append("missing_identity_evidence")
     if _has_layout_source_stability_risk(reasons):
@@ -8666,6 +8678,8 @@ def _layout_promotion_next_action(
     identity_evidence = str(identity.get("identity_evidence", "") or "none")
     review = review_class or _layout_promotion_review_class(identity, reasons)
     domain = domain_identity or {}
+    if _has_layout_trusted_source_gap(reasons):
+        return "add_exact_source_identity_or_keep_review_only"
     if _has_layout_source_stability_risk(reasons):
         return "prove_source_stability_before_rewrite"
     if _has_layout_source_provenance_risk(identity):
@@ -8752,6 +8766,10 @@ def _layout_promotion_next_action_details(
             details.append("volatile_or_mmio_conflict")
     if action == "add_exact_identity_or_keep_review_only":
         details.append("missing_identity_evidence")
+    if action == "add_exact_source_identity_or_keep_review_only":
+        details.append("trusted_source_required")
+        if identity_evidence == "none":
+            details.append("missing_identity_evidence")
     if action == "collect_more_offset_access_evidence":
         if any("rewrite offset threshold" in reason for reason in reasons_lower):
             details.append("offset_threshold_gap")
@@ -8787,6 +8805,13 @@ def _has_layout_source_stability_risk(reasons: list[str]) -> bool:
     )
 
 
+def _has_layout_trusted_source_gap(reasons: list[str]) -> bool:
+    return any(
+        "trusted rewrite source is required" in str(reason or "").lower()
+        for reason in reasons
+    )
+
+
 def _has_layout_type_evidence_risk(reasons: list[str]) -> bool:
     return any(
         any(
@@ -8818,6 +8843,9 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
         if "base name is generic" in lowered:
             profiles.add("base_identity_candidates")
             profiles.add("generic_base_identity_candidates")
+        if "trusted rewrite source is required" in lowered:
+            profiles.add("base_identity_candidates")
+            profiles.add("source_identity_gap_candidates")
         if "multiple initializers" in lowered:
             profiles.add("base_stability_blockers")
             profiles.add("multiple_initializer_base_blockers")

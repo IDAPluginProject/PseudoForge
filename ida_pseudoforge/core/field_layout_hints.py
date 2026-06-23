@@ -79,6 +79,7 @@ _REWRITE_THRESHOLD_BLOCKERS = {
 }
 _REPORT_ONLY_FUNCTION_IDENTITY_BLOCKER = "report-only function identity requires trusted rewrite source"
 _REPORT_ONLY_SOURCE_IDENTITY_BLOCKER = "source domain identity profile is report-only"
+_TRUSTED_REWRITE_SOURCE_REQUIRED_BLOCKER = "trusted rewrite source is required for canonical body rewrite"
 _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES = {
     "direct_argument_alias",
     "direct_call_result_alias",
@@ -3391,37 +3392,16 @@ def _field_rewrite_ready_comment(
     corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
 ) -> dict[str, Any] | None:
     base_kind = _layout_base_kind(layout.base)
-    identity = _trusted_stable_base_source_identity(text, layout.base)
-    if not identity:
-        identity = _trusted_decompiler_parameter_layout_identity(text, layout)
-    if not identity:
-        identity = _trusted_generic_parameter_layout_identity(text, layout)
-    if not identity:
-        non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
-        domain_identity = _domain_identity_for_layout(
-            text,
-            layout,
-            non_identity_blockers,
-            profile_context=profile_context,
-            corrected_parameter_map=corrected_parameter_map,
-        )
-        if domain_identity and domain_identity.effective_mode == MODE_CANONICAL_REWRITE_ELIGIBLE:
-            source_provenance, source_rhs_kind = _domain_identity_rewrite_source(domain_identity)
-            identity = {
-                "source": domain_identity.base,
-                "source_kind": "domain",
-                "source_provenance": source_provenance,
-                "source_rhs_kind": source_rhs_kind,
-                "domain_profile_id": domain_identity.profile_id,
-                "domain_role": domain_identity.role,
-                "domain_structure": domain_identity.structure,
-            }
     threshold_policy = _field_rewrite_threshold_policy(layout, text=text)
-    if not identity and threshold_policy == "allocation_alias_group_grace":
-        identity = _allocation_alias_group_identity(text, layout)
-    if base_kind != "named" and not identity:
-        return None
     if not threshold_policy:
+        return None
+    identity = _trusted_canonical_layout_rewrite_identity(
+        text,
+        layout,
+        profile_context=profile_context,
+        corrected_parameter_map=corrected_parameter_map,
+    )
+    if not identity:
         return None
     confidence = min(
         0.8,
@@ -3783,6 +3763,18 @@ def _field_rewrite_blockers(
         )
         if report_only_blocker:
             blockers.append(report_only_blocker)
+        else:
+            threshold_policy = _field_rewrite_threshold_policy(layout, text=text)
+            trusted_identity = _trusted_canonical_layout_rewrite_identity(
+                text,
+                layout,
+                profile_context=profile_context,
+                corrected_parameter_map=corrected_parameter_map,
+                domain_identity=domain_identity,
+                non_identity_blockers=non_identity_blockers,
+            )
+            if threshold_policy and not trusted_identity:
+                blockers.append(_TRUSTED_REWRITE_SOURCE_REQUIRED_BLOCKER)
     elif base_kind == "argument":
         blockers.append("base name is unresolved argument identity")
     elif base_kind == "bugcheck":
@@ -3899,6 +3891,54 @@ def _trusted_layout_rewrite_identity(text: str, layout: _LayoutEvidence) -> dict
     identity = _trusted_generic_parameter_layout_identity(text, layout)
     if identity:
         return identity
+    return {}
+
+
+def _trusted_canonical_layout_rewrite_identity(
+    text: str,
+    layout: _LayoutEvidence,
+    profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
+    domain_identity: DomainIdentityMatch | None = None,
+    non_identity_blockers: list[str] | None = None,
+) -> dict[str, Any]:
+    identity = _trusted_stable_base_source_identity(
+        text,
+        layout.base,
+        profile_context=profile_context,
+        allow_report_only_source=False,
+    )
+    if identity:
+        return identity
+    identity = _trusted_decompiler_parameter_layout_identity(text, layout)
+    if identity:
+        return identity
+    identity = _trusted_generic_parameter_layout_identity(text, layout)
+    if identity:
+        return identity
+    if domain_identity is None:
+        if non_identity_blockers is None:
+            non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
+        domain_identity = _domain_identity_for_layout(
+            text,
+            layout,
+            non_identity_blockers,
+            profile_context=profile_context,
+            corrected_parameter_map=corrected_parameter_map,
+        )
+    if domain_identity and domain_identity.effective_mode == MODE_CANONICAL_REWRITE_ELIGIBLE:
+        source_provenance, source_rhs_kind = _domain_identity_rewrite_source(domain_identity)
+        return {
+            "source": domain_identity.base,
+            "source_kind": "domain",
+            "source_provenance": source_provenance,
+            "source_rhs_kind": source_rhs_kind,
+            "domain_profile_id": domain_identity.profile_id,
+            "domain_role": domain_identity.role,
+            "domain_structure": domain_identity.structure,
+        }
+    if _field_rewrite_threshold_policy(layout, text=text) == "allocation_alias_group_grace":
+        return _allocation_alias_group_identity(text, layout)
     return {}
 
 
@@ -5681,7 +5721,7 @@ def _parameter_direct_source_identity(
 ) -> dict[str, Any]:
     if base_alias_assignment_count <= 0:
         return {}
-    if _layout_base_kind(base) != "temp":
+    if _layout_base_kind(base) not in {"named", "temp"}:
         return {}
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(source or "")):
         return {}

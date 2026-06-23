@@ -46,6 +46,16 @@ METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("inferred_offset_subfield_overlays", ("text_stats", "inferred_offset_subfield_overlays"), "neutral"),
     ("inferred_offset_rewrite_ready", ("text_stats", "inferred_offset_rewrite_ready"), "higher"),
     ("inferred_offset_rewrite_previews", ("text_stats", "inferred_offset_rewrite_previews"), "higher"),
+    (
+        "layout_rewrite_ready_source_none",
+        ("layout_rewrite_ready_stats", "source_provenance", "none"),
+        "lower",
+    ),
+    (
+        "layout_rewrite_preview_source_none",
+        ("layout_rewrite_preview_stats", "source_provenance", "none"),
+        "lower",
+    ),
     ("inferred_offset_rewrite_near_ready", ("text_stats", "inferred_offset_rewrite_near_ready"), "neutral"),
     ("inferred_offset_rewrite_blockers", ("text_stats", "inferred_offset_rewrite_blockers"), "neutral"),
     (
@@ -165,6 +175,10 @@ METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     ("api_semantic_rejections", ("api_semantic_stats", "rejections"), "lower"),
 )
+ZERO_DEFAULT_METRIC_PATHS = {
+    ("layout_rewrite_ready_stats", "source_provenance", "none"),
+    ("layout_rewrite_preview_stats", "source_provenance", "none"),
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -214,6 +228,9 @@ def compare_quality_reports(old_path: str | Path, new_path: str | Path) -> dict[
     for label, path, direction in METRIC_SPECS:
         old_value = _read_metric(old, path)
         new_value = _read_metric(new, path)
+        if path in ZERO_DEFAULT_METRIC_PATHS:
+            old_value = 0 if old_value is None else old_value
+            new_value = 0 if new_value is None else new_value
         delta = _metric_delta(old_value, new_value)
         metrics.append(
             {

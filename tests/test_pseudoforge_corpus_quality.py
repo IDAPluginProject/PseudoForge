@@ -618,6 +618,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             _layout_rewrite_blocker_review_profiles(["base name is generic"]),
         )
         self.assertEqual(
+            ["base_identity_candidates", "source_identity_gap_candidates"],
+            _layout_rewrite_blocker_review_profiles(
+                ["trusted rewrite source is required for canonical body rewrite"]
+            ),
+        )
+        self.assertEqual(
             ["base_stability_blockers", "multiple_initializer_base_blockers"],
             _layout_rewrite_blocker_review_profiles(
                 ["base has multiple initializers before layout access"]
@@ -732,6 +738,14 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             ),
         )
         self.assertEqual(
+            "add_exact_source_identity_or_keep_review_only",
+            _layout_promotion_next_action(
+                {"identity_evidence": "none"},
+                ["trusted rewrite source is required for canonical body rewrite"],
+                "trusted_source_missing",
+            ),
+        )
+        self.assertEqual(
             ["report_only_profile", "offset_threshold_gap"],
             _layout_promotion_next_action_details(
                 {"identity_evidence": "stable_argument_source"},
@@ -798,6 +812,14 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     "one or more typed offsets are not naturally aligned",
                 ],
                 "resolve_type_width_or_subfield_conflict",
+            ),
+        )
+        self.assertEqual(
+            ["trusted_source_required", "missing_identity_evidence"],
+            _layout_promotion_next_action_details(
+                {"identity_evidence": "none"},
+                ["trusted rewrite source is required for canonical body rewrite"],
+                "add_exact_source_identity_or_keep_review_only",
             ),
         )
 

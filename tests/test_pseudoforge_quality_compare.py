@@ -28,6 +28,12 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "pointer_indexed_offset_deref_patterns": 9,
                         },
                         "text_stats": {"inferred_offset_rewrite_blockers": 1},
+                        "layout_rewrite_ready_stats": {
+                            "source_provenance": {"none": 2, "domain_identity": 1}
+                        },
+                        "layout_rewrite_preview_stats": {
+                            "source_provenance": {"none": 2, "domain_identity": 1}
+                        },
                         "body_offset_residue_review_stats": {
                             "totals": {
                                 "functions_with_offset_residue": 4,
@@ -78,6 +84,12 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "pointer_indexed_offset_deref_patterns": 3,
                         },
                         "text_stats": {"inferred_offset_rewrite_blockers": 4},
+                        "layout_rewrite_ready_stats": {
+                            "source_provenance": {"domain_identity": 3}
+                        },
+                        "layout_rewrite_preview_stats": {
+                            "source_provenance": {"domain_identity": 3}
+                        },
                         "body_offset_residue_review_stats": {
                             "totals": {
                                 "functions_with_offset_residue": 2,
@@ -128,6 +140,10 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
             self.assertEqual("improved", metrics["body_pointer_indexed_offset_deref_patterns"]["status"])
             self.assertEqual(3, metrics["inferred_offset_rewrite_blockers"]["delta"])
             self.assertEqual("info", metrics["inferred_offset_rewrite_blockers"]["status"])
+            self.assertEqual(-2, metrics["layout_rewrite_ready_source_none"]["delta"])
+            self.assertEqual("improved", metrics["layout_rewrite_ready_source_none"]["status"])
+            self.assertEqual(-2, metrics["layout_rewrite_preview_source_none"]["delta"])
+            self.assertEqual("improved", metrics["layout_rewrite_preview_source_none"]["status"])
             self.assertEqual(-2, metrics["body_offset_residue_functions"]["delta"])
             self.assertEqual("improved", metrics["body_offset_residue_functions"]["status"])
             self.assertEqual(-25, metrics["body_offset_deref_survivors"]["delta"])

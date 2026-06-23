@@ -816,7 +816,7 @@ __int64 __fastcall AccessLimitedLayout(__int64 sessionSpace)
         self.assertEqual(8, access_near_ready[0]["access_count"])
         self.assertIn("missing access threshold only", access_near_ready[0]["text"])
 
-    def test_named_layout_threshold_grace_promotes_near_ready_candidates(self) -> None:
+    def test_named_layout_threshold_grace_blocks_without_trusted_source(self) -> None:
         offset_grace = field_layout_comments(
             """
 __int64 __fastcall OffsetGraceLayout(__int64 deviceObject)
@@ -860,16 +860,27 @@ __int64 __fastcall AccessGraceLayout(__int64 Irp)
         access_ready = [
             item for item in access_grace if item.get("kind") == "inferred_offset_rewrite_ready"
         ]
+        offset_blockers = [
+            item for item in offset_grace if item.get("kind") == "inferred_offset_rewrite_blockers"
+        ]
+        access_blockers = [
+            item for item in access_grace if item.get("kind") == "inferred_offset_rewrite_blockers"
+        ]
 
-        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in offset_grace))
-        self.assertEqual(1, len(offset_ready))
-        self.assertEqual("named_threshold_grace", offset_ready[0]["threshold_policy"])
-        self.assertIn("Threshold policy named_threshold_grace", offset_ready[0]["text"])
-        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in access_grace))
-        self.assertEqual(1, len(access_ready))
-        self.assertEqual("named_threshold_grace", access_ready[0]["threshold_policy"])
+        self.assertEqual([], offset_ready)
+        self.assertEqual(1, len(offset_blockers))
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            offset_blockers[0]["blockers"],
+        )
+        self.assertEqual([], access_ready)
+        self.assertEqual(1, len(access_blockers))
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            access_blockers[0]["blockers"],
+        )
 
-    def test_named_dense_layout_threshold_grace_promotes_small_stable_bases(self) -> None:
+    def test_named_dense_layout_threshold_grace_blocks_without_trusted_source(self) -> None:
         comments = field_layout_comments(
             """
 __int64 __fastcall DenseNamedLayout(__int64 MemoryRanges)
@@ -890,14 +901,13 @@ __int64 __fastcall DenseNamedLayout(__int64 MemoryRanges)
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
 
-        self.assertEqual([], blockers)
-        self.assertEqual(1, len(ready))
-        self.assertEqual("MemoryRanges", ready[0]["base"])
-        self.assertEqual("named_dense_threshold_grace", ready[0]["threshold_policy"])
-        self.assertIn("Threshold policy named_dense_threshold_grace", ready[0]["text"])
-        self.assertEqual(1, len(previews))
-        self.assertEqual(8, previews[0]["access_count"])
-        self.assertEqual(5, previews[0]["field_count"])
+        self.assertEqual(1, len(blockers))
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
+        self.assertEqual([], ready)
+        self.assertEqual([], previews)
 
     def test_pointer_indexed_layout_rewrite_preview_counts_indexed_accesses(self) -> None:
         comments = field_layout_comments(
@@ -922,15 +932,18 @@ __int64 __fastcall PointerIndexedLayout(__int64 Token)
 
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
 
-        self.assertEqual(1, len(ready))
-        self.assertEqual("Token", ready[0]["base"])
-        self.assertEqual(1, len(previews))
-        self.assertEqual("Token", previews[0]["base"])
-        self.assertEqual(12, previews[0]["access_count"])
-        self.assertEqual(8, previews[0]["field_count"])
+        self.assertEqual([], ready)
+        self.assertEqual([], previews)
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("Token", blockers[0]["base"])
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
 
-    def test_pointer_indexed_first_access_allows_stable_named_base_promotion(self) -> None:
+    def test_pointer_indexed_first_access_stays_blocked_without_trusted_source(self) -> None:
         comments = field_layout_comments(
             """
 __int64 __fastcall PointerIndexedStableBase(__int64 source)
@@ -962,12 +975,16 @@ __int64 __fastcall PointerIndexedStableBase(__int64 source)
                 for item in blockers
             )
         )
-        self.assertEqual(1, len(ready))
-        self.assertEqual("pool", ready[0]["base"])
-        self.assertEqual("named_dense_threshold_grace", ready[0]["threshold_policy"])
-        self.assertEqual(1, len(previews))
-        self.assertEqual(8, previews[0]["access_count"])
-        self.assertEqual(5, previews[0]["field_count"])
+        self.assertEqual([], ready)
+        self.assertEqual([], previews)
+        self.assertTrue(
+            any(
+                item.get("base") == "pool"
+                and "trusted rewrite source is required for canonical body rewrite"
+                in item.get("blockers", [])
+                for item in blockers
+            )
+        )
 
     def test_pointer_indexed_post_access_reassignment_still_blocks_rewrite(self) -> None:
         comments = field_layout_comments(
@@ -3589,7 +3606,7 @@ __int64 __fastcall UntrustedGenericContext(__int64 a1)
             any(item.get("kind") == "inferred_offset_rewrite_partial_opportunity" for item in comments)
         )
 
-    def test_named_layout_without_negative_evidence_has_no_rewrite_blocker(self) -> None:
+    def test_named_layout_without_trusted_source_keeps_rewrite_blocked(self) -> None:
         comments = field_layout_comments(
             """
 __int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
@@ -3611,22 +3628,17 @@ __int64 __fastcall StrongNamedLayout(__int64 sessionSpace)
         )
 
         self.assertTrue(any(item.get("kind") == "inferred_offset_field_aliases" for item in comments))
-        self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_blockers" for item in comments))
+        blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
         previews = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_preview"]
-        self.assertEqual(1, len(ready))
-        self.assertEqual("sessionSpace", ready[0]["base"])
-        self.assertEqual("named", ready[0]["base_kind"])
-        self.assertEqual(8, ready[0]["offset_count"])
-        self.assertEqual(12, ready[0]["access_count"])
-        self.assertIn("no rewrite blockers found", ready[0]["text"])
-        self.assertIn("Audit only; body rewrite was not applied", ready[0]["text"])
-        self.assertEqual(1, len(previews))
-        self.assertEqual("sessionSpace", previews[0]["base"])
-        self.assertEqual("none", previews[0]["source_provenance"])
-        self.assertEqual(12, previews[0]["access_count"])
-        self.assertEqual(8, previews[0]["field_count"])
-        self.assertIn("field_10", previews[0]["text"])
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("sessionSpace", blockers[0]["base"])
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
+        self.assertEqual([], ready)
+        self.assertEqual([], previews)
 
     def test_stable_one_time_base_alias_assignment_does_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
@@ -3757,11 +3769,13 @@ __int64 __fastcall TerminalBaseReassignmentLayout(__int64 sessionSpace, __int64 
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
         ready = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_ready"]
 
-        self.assertEqual([], blockers)
-        self.assertEqual(1, len(ready))
-        self.assertEqual("sessionSpace", ready[0]["base"])
-        self.assertEqual(8, ready[0]["offset_count"])
-        self.assertEqual(12, ready[0]["access_count"])
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("sessionSpace", blockers[0]["base"])
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
+        self.assertEqual([], ready)
 
     def test_named_layout_rewrite_blocker_reports_mixed_type_and_base_mutation(self) -> None:
         comments = field_layout_comments(
@@ -3961,8 +3975,12 @@ __int64 __fastcall SameWidthAliasLayout(__int64 sessionSpace)
         self.assertEqual(1, len(aliases))
         self.assertIn("field_10=+0x10 mixed(_DWORD/unsigned int)", aliases[0]["text"])
         self.assertEqual([], overlays)
-        self.assertEqual([], blockers)
-        self.assertEqual(1, len(ready))
+        self.assertEqual(1, len(blockers))
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
+        self.assertEqual([], ready)
 
     def test_unsigned_int8_alias_does_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
@@ -3992,9 +4010,13 @@ __int64 __fastcall ByteAliasLayout(__int64 sessionSpace)
 
         self.assertEqual(1, len(aliases))
         self.assertIn("field_21=+0x21 mixed(_BYTE/unsigned __int8)", aliases[0]["text"])
-        self.assertEqual([], blockers)
-        self.assertEqual(1, len(ready))
-        self.assertEqual(1, len(previews))
+        self.assertEqual(1, len(blockers))
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
+        self.assertEqual([], ready)
+        self.assertEqual([], previews)
 
     def test_signed_fixed_width_aliases_do_not_block_rewrite(self) -> None:
         comments = field_layout_comments(
@@ -4025,8 +4047,12 @@ __int64 __fastcall SignedFixedWidthAliasLayout(__int64 sessionSpace)
         self.assertIn("field_20=+0x20 mixed(_WORD/signed __int16)", aliases[0]["text"])
         self.assertIn("field_24=+0x24 mixed(_DWORD/signed __int32)", aliases[0]["text"])
         self.assertIn("field_28=+0x28 mixed(_QWORD/signed __int64)", aliases[0]["text"])
-        self.assertEqual([], blockers)
-        self.assertEqual(1, len(ready))
+        self.assertEqual(1, len(blockers))
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
+        )
+        self.assertEqual([], ready)
 
     def test_signed_fixed_width_alignment_still_blocks_unsafe_rewrite(self) -> None:
         comments = field_layout_comments(
@@ -5069,8 +5095,7 @@ __int64 __fastcall CastEquivalentInitializerLayout(__int64 a1)
         self.assertEqual([], blockers)
         self.assertEqual(1, len(ready))
         self.assertEqual("sessionSpace", ready[0]["base"])
-        self.assertEqual(8, ready[0]["offset_count"])
-        self.assertEqual(12, ready[0]["access_count"])
+        self.assertEqual("parameter_direct_alias", ready[0]["source_provenance"])
 
     def test_type_blocked_named_layout_reports_partial_rewrite_opportunity(self) -> None:
         comments = field_layout_comments(
@@ -5102,27 +5127,12 @@ __int64 __fastcall PartialTypeBlockedLayout(__int64 sessionSpace)
         blockers = [item for item in comments if item.get("kind") == "inferred_offset_rewrite_blockers"]
 
         self.assertEqual(1, len(blockers))
-        self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
-        self.assertEqual(1, len(partial))
-        self.assertEqual("sessionSpace", partial[0]["base"])
-        self.assertEqual("named", partial[0]["base_kind"])
-        self.assertEqual(8, partial[0]["safe_offset_count"])
-        self.assertEqual(12, partial[0]["safe_access_count"])
-        self.assertEqual(1, partial[0]["excluded_offset_count"])
-        self.assertEqual(2, partial[0]["excluded_access_count"])
-        self.assertEqual(
-            ["one or more offsets mix narrow subfield access widths"],
-            partial[0]["excluded_reasons"],
+        self.assertIn(
+            "trusted rewrite source is required for canonical body rewrite",
+            blockers[0]["blockers"],
         )
-        self.assertEqual(8, len(partial[0]["safe_fields"]))
-        self.assertEqual(1, len(partial[0]["excluded_fields"]))
-        self.assertEqual(0x206, partial[0]["excluded_fields"][0]["offset"])
-        self.assertEqual([0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48], partial[0]["safe_offsets"])
-        self.assertEqual([0x206], partial[0]["excluded_offsets"])
-        self.assertIn("safe fields field_10", partial[0]["text"])
-        self.assertIn("Safe offsets +0x10, +0x18, +0x20", partial[0]["text"])
-        self.assertIn("excluded offsets +0x206", partial[0]["text"])
-        self.assertIn("canonical body rewrite remains disabled", partial[0]["text"])
+        self.assertIn("one or more offsets mix narrow subfield access widths", blockers[0]["blockers"])
+        self.assertEqual([], partial)
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_preview" for item in comments))
 
 
