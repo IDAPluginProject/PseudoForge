@@ -494,6 +494,54 @@ __int64 __fastcall KiRestoreProcessorControlState(PKSPECIAL_REGISTERS ProcessorC
             any(item.get("name") == "domain_identity/trap_processor_state.json" for item in manifests)
         )
 
+    def test_ki_retire_dpc_list_active_timer_table_fields_are_report_only(self) -> None:
+        plan = self._plan(
+            """
+signed __int16 __fastcall KiRetireDpcList(struct _KPRCB *argument0)
+{
+  __int64 active;
+  unsigned __int64 tickCount;
+
+  active = KiSelectActiveTimerTable(argument0, 1);
+  if ( active )
+  {
+    tickCount = MEMORY[0xFFFFF78000000008];
+    *(_QWORD *)(active + 16896) = KiLastPseudoHrTimerExpiration;
+    *(_QWORD *)(active + 16904) = KiLastNonHrTimerExpiration;
+    *(_DWORD *)(active + 16912) = tickCount >> 18;
+    *(_DWORD *)(active + 16916) = tickCount >> 18;
+    KiTimerExpiration((_DWORD)argument0, 0, tickCount, 1, 0);
+  }
+  return 0;
+}
+"""
+        )
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.trap_processor_state.ki_retire_dpc_list",
+            "active",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "active"
+        ]
+
+        self.assertEqual("KI_ACTIVE_TIMER_TABLE", identity["structure_name"])
+        self.assertEqual("activeTimerTable", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual({0x4200, 0x4208, 0x4210, 0x4214}, self._field_offsets(identity))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "active"
+                for item in plan.comments
+            )
+        )
+
     def _plan(self, text: str, source_path: str = SOURCE_PATH):
         capture = capture_from_pseudocode(text, source_path=source_path)
         return build_clean_plan(capture)
@@ -530,3 +578,10 @@ __int64 __fastcall KiRestoreProcessorControlState(PKSPECIAL_REGISTERS ProcessorC
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

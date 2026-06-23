@@ -766,6 +766,54 @@ void __stdcall CcSetFileSizes(PFILE_OBJECT FileObject, PCC_FILE_SIZES FileSizes)
             any(item.get("name") == "domain_identity/file_cache_section.json" for item in manifests)
         )
 
+    def test_queue_async_get_device_guid_work_item_fields_are_report_only(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall CcQueueAsyncGetDeviceGuid(__int64 argument0, void *object)
+{
+  char *PoolWithTag;
+
+  PoolWithTag = (char *)ExAllocatePoolWithTag((POOL_TYPE)1536, 0x30uLL, 0x65546343u);
+  if ( PoolWithTag )
+  {
+    ObfReferenceObjectWithTag(object, 0);
+    *((_QWORD *)PoolWithTag + 1) = object;
+    *(_QWORD *)PoolWithTag = argument0;
+    *((_QWORD *)PoolWithTag + 2) = 0LL;
+    *((_QWORD *)PoolWithTag + 4) = CcGetDeviceGuidAsync;
+    *((_QWORD *)PoolWithTag + 5) = PoolWithTag;
+    ExQueueWorkItem((PWORK_QUEUE_ITEM)(PoolWithTag + 16), NormalWorkQueue);
+  }
+  return 0;
+}
+"""
+        )
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.file_cache_section.cc_queue_async_get_device_guid",
+            "PoolWithTag",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "PoolWithTag"
+        ]
+
+        self.assertEqual("CC_DEVICE_GUID_WORK_ITEM", identity["structure_name"])
+        self.assertEqual("deviceGuidWorkItem", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual({0x0, 0x8, 0x10, 0x20, 0x28}, self._field_offsets(identity))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "PoolWithTag"
+                for item in plan.comments
+            )
+        )
+
     def _plan(self, text: str, source_path: str = SOURCE_PATH):
         capture = capture_from_pseudocode(text, source_path=source_path)
         return build_clean_plan(capture)
@@ -799,3 +847,10 @@ void __stdcall CcSetFileSizes(PFILE_OBJECT FileObject, PCC_FILE_SIZES FileSizes)
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

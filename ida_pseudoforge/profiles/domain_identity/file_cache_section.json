@@ -1806,6 +1806,100 @@
           "source": "MmIsFileObjectAPagingFile paging file tree node local"
         }
       ]
+    },
+    {
+      "id": "windows.file_cache_section.cc_queue_async_get_device_guid",
+      "source": "Reviewed CcQueueAsyncGetDeviceGuid ntoskrnl 26200.8457 async Cache Manager work item allocation and queue path; report-only field evidence for the allocated work context.",
+      "function_names": [
+        "CcQueueAsyncGetDeviceGuid"
+      ],
+      "required_calls": [
+        "ExQueueWorkItem"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "volumeContext",
+          "rename_to": "volumeContext",
+          "rename_confidence": 0.78,
+          "structure": "CC_VOLUME_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "CcQueueAsyncGetDeviceGuid stores the first argument in the queued context and decrements it on allocation failure"
+        },
+        {
+          "parameter_index": 1,
+          "role": "deviceObject",
+          "rename_to": "deviceObject",
+          "rename_confidence": 0.82,
+          "structure": "DEVICE_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "CcQueueAsyncGetDeviceGuid references the device object before queueing the async worker"
+        },
+        {
+          "local_names": [
+            "PoolWithTag"
+          ],
+          "role": "deviceGuidWorkItem",
+          "structure": "CC_DEVICE_GUID_WORK_ITEM",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "CcQueueAsyncGetDeviceGuid allocates a 0x30-byte context containing a WORK_QUEUE_ITEM and callback context",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "field_0",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed stored volume/cache context; report-only"
+            },
+            {
+              "offset": "0x8",
+              "name": "field_8",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed referenced object pointer; report-only"
+            },
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "WORK_QUEUE_ITEM",
+              "size": 16,
+              "confidence": 0.74,
+              "note": "observed work item list entry base; report-only"
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "PWORKER_THREAD_ROUTINE",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed CcGetDeviceGuidAsync routine pointer; report-only"
+            },
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "PVOID",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed self/context pointer passed to worker; report-only"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

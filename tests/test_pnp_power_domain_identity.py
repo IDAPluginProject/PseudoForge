@@ -570,6 +570,54 @@ void __fastcall PipSetDevNodeState(__int64 deviceNode, int newDevNodeState)
             )
         )
 
+    def test_unregister_plugplay_notification_fields_are_report_only(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall PnpUnregisterPlugPlayNotification(PVOID P, char argument1)
+{
+  struct _FAST_MUTEX *notifyMutex;
+
+  notifyMutex = (struct _FAST_MUTEX *)*((_QWORD *)P + 8);
+  PnpDereferenceNotify(P);
+  if ( argument1 )
+  {
+    ExAcquireResourceExclusiveLite(*((PERESOURCE *)P + 9), TRUE);
+    ExReleaseResourceLite(*((PERESOURCE *)P + 9));
+  }
+  if ( !*((_BYTE *)P + 58) )
+  {
+    *((_BYTE *)P + 58) = 1;
+  }
+  return (ULONG_PTR)notifyMutex;
+}
+"""
+        )
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.pnp_power.unregister_plugplay_notification",
+            "notificationEntry",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "notificationEntry"
+        ]
+
+        self.assertEqual("PNP_NOTIFICATION_ENTRY", identity["structure_name"])
+        self.assertEqual("notificationEntry", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual({0x3A, 0x40, 0x48}, self._field_offsets(identity))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "notificationEntry"
+                for item in plan.comments
+            )
+        )
+
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(
             """

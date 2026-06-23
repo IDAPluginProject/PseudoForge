@@ -2510,6 +2510,55 @@
           "source": "VmpFillSlat receives mapped page count from HvlMap* and scales dense result"
         }
       ]
+    },
+    {
+      "id": "windows.memory_manager.unlink_bad_pages",
+      "source": "Reviewed MiUnlinkBadPages ntoskrnl 26200.8457 PFN database walk; report-only field evidence for the computed MMPFN entry.",
+      "function_names": [
+        "MiUnlinkBadPages"
+      ],
+      "required_calls": [
+        "MiSafeLockPage",
+        "MiUnlockPage"
+      ],
+      "parameters": [
+        {
+          "local_names": [
+            "i"
+          ],
+          "role": "pfnEntry",
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiUnlinkBadPages computes the PFN database entry as 48 * page index plus the PFN database bias",
+          "fields": [
+            {
+              "offset": "0x18",
+              "name": "field_18",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed bad-page list flag update; report-only"
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.74,
+              "note": "observed page state bit updates; report-only"
+            },
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed PFN owner/resource lookup bits; report-only"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

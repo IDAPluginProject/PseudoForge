@@ -1056,6 +1056,77 @@
           "source": "HalpIommuDomainMapLogicalRange forwards final map context to both map paths"
         }
       ]
+    },
+    {
+      "id": "windows.hal_dma_iommu.timer_measure_processors_worker",
+      "source": "Reviewed HalpTimerMeasureProcessorsWorker ntoskrnl 26200.8457 HAL timer rendezvous worker; report-only field evidence for the per-processor measurement context.",
+      "function_names": [
+        "HalpTimerMeasureProcessorsWorker"
+      ],
+      "required_calls": [
+        "HalpFindTimer",
+        "HalpTimerReadTimerPairWithLatencyLimit"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "timerMeasureContext",
+          "rename_to": "timerMeasureContext",
+          "rename_confidence": 0.82,
+          "structure": "HALP_TIMER_MEASURE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "HalpTimerMeasureProcessorsWorker uses the worker argument as a shared rendezvous and timer-id context",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "field_0",
+              "type": "LONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed interlocked participant countdown; report-only"
+            },
+            {
+              "offset": "0x4",
+              "name": "field_4",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed first rendezvous sequence counter; report-only"
+            },
+            {
+              "offset": "0x8",
+              "name": "field_8",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed second rendezvous sequence counter; report-only"
+            },
+            {
+              "offset": "0xC",
+              "name": "field_C",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.70,
+              "note": "observed release flag for measuring processors; report-only"
+            },
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed HAL timer selection id; report-only"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

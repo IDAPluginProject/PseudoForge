@@ -186,6 +186,64 @@ void __fastcall PspExitProcess(char is_full_cleanup, __int64 eprocess_ptr)
             any(item.get("name") == "domain_identity/process_thread.json" for item in manifests)
         )
 
+    def test_convert_silo_to_server_silo_globals_fields_are_report_only(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall PspConvertSiloToServerSilo(__int64 argument0, __int64 argument1, ULONG_PTR handle, int argument3)
+{
+  char *Pool2;
+  struct _KTHREAD *currentThread;
+
+  Pool2 = (char *)ExAllocatePool2(0x100, 0x598uLL, 0x476C6953u);
+  *((_DWORD *)Pool2 + 318) = 0;
+  *((_DWORD *)Pool2 + 319) = 259;
+  *((_DWORD *)Pool2 + 334) = argument3;
+  currentThread = KeGetCurrentThread();
+  PspLockJobExclusive(argument0, currentThread);
+  if ( (*(_DWORD *)(argument0 + 256) & 0x400000) != 0 )
+  {
+    *(_QWORD *)(argument0 + 1504) = Pool2;
+  }
+  PspUnlockJob(argument0, currentThread);
+  return 0;
+}
+"""
+        )
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.process_thread.psp_convert_silo_to_server_silo",
+            "Pool2",
+        )
+        job_identity = self._identity_for_base(
+            plan,
+            "windows.process_thread.psp_convert_silo_to_server_silo",
+            "jobObject",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") in {"Pool2", "jobObject"}
+        ]
+
+        self.assertEqual("PS_SERVER_SILO_GLOBALS", identity["structure_name"])
+        self.assertEqual("serverSiloGlobals", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual({0x4F8, 0x4FC, 0x538}, self._field_offsets(identity))
+        self.assertEqual("EJOB", job_identity["structure_name"])
+        self.assertTrue(job_identity["suppress_layout_inference"])
+        self.assertEqual(set(), self._field_offsets(job_identity))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(any(item.get("base") == "jobObject" for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "Pool2"
+                for item in plan.comments
+            )
+        )
+
     def _plan(self, text: str, source_path: str = SOURCE_PATH):
         capture = capture_from_pseudocode(text, source_path=source_path)
         return build_clean_plan(capture)
@@ -201,3 +259,10 @@ void __fastcall PspExitProcess(char is_full_cleanup, __int64 eprocess_ptr)
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        return {
+            int(field.get("offset", -1))
+            for field in identity.get("fields", []) or []
+            if isinstance(field, dict)
+        }

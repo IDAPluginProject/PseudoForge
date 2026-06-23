@@ -1167,6 +1167,71 @@
           "source": "PspCallThreadNotifyRoutines create-vs-exit selector"
         }
       ]
+    },
+    {
+      "id": "windows.process_thread.psp_convert_silo_to_server_silo",
+      "source": "Reviewed PspConvertSiloToServerSilo ntoskrnl 26200.8457 server silo conversion path; report-only field evidence for the allocated server silo globals block.",
+      "function_names": [
+        "PspConvertSiloToServerSilo"
+      ],
+      "required_calls": [
+        "PspLockJobExclusive",
+        "PspUnlockJob"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "jobObject",
+          "rename_to": "jobObject",
+          "rename_confidence": 0.82,
+          "structure": "EJOB",
+          "mode": "report-only",
+          "suppress_layout_inference": true,
+          "confidence": 0.80,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PEJOB"
+          ],
+          "source": "PspConvertSiloToServerSilo locks and updates the target job object during server silo conversion; EJOB layout inference is suppressed to avoid promoting broad private object offsets from this narrow conversion helper"
+        },
+        {
+          "local_names": [
+            "Pool2"
+          ],
+          "role": "serverSiloGlobals",
+          "structure": "PS_SERVER_SILO_GLOBALS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "PspConvertSiloToServerSilo allocates a 0x598-byte server silo globals block before attaching it to the job",
+          "fields": [
+            {
+              "offset": "0x4F8",
+              "name": "field_4F8",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed initialized server silo globals scalar; report-only"
+            },
+            {
+              "offset": "0x4FC",
+              "name": "field_4FC",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed initialized server silo globals version/state; report-only"
+            },
+            {
+              "offset": "0x538",
+              "name": "field_538",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.72,
+              "note": "observed policy/configuration scalar copied from argument3; report-only"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

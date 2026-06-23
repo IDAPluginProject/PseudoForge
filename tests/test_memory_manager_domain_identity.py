@@ -790,6 +790,58 @@ void __fastcall MiInsertVad(__int64 vadNode, __int64 parentVadShort, char insert
             )
         )
 
+    def test_unlink_bad_pages_identifies_computed_pfn_entry_fields_report_only(self) -> None:
+        plan = self._plan(
+            """
+__int64 __fastcall MiUnlinkBadPages(ULONG_PTR BugCheckParameter2, ULONG_PTR argument1)
+{
+  ULONG_PTR i;
+  __int64 v6;
+  __int64 v7;
+  __int64 v8;
+  char lockState;
+
+  for ( i = 48 * BugCheckParameter2 - 0x220000000000LL; BugCheckParameter2 < argument1; i += 48LL )
+  {
+    lockState = MiSafeLockPage(BugCheckParameter2, v6, v7, v8);
+    if ( lockState != 17 )
+    {
+      *(_DWORD *)(i + 32) &= 0x7FFFFFFF;
+      *(_QWORD *)(i + 24) |= 0x4000000000000000uLL;
+      *(_QWORD *)(i + 40) >>= 43;
+      MiUnlockPage(i, lockState);
+    }
+  }
+  return 0;
+}
+"""
+        )
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.memory_manager.unlink_bad_pages",
+            "i",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "i"
+        ]
+
+        self.assertEqual("MMPFN", identity["structure_name"])
+        self.assertEqual("pfnEntry", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual({0x18, 0x20, 0x28}, self._field_offsets(identity))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "i"
+                for item in plan.comments
+            )
+        )
+
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(
             """

@@ -1349,6 +1349,75 @@
           "source": "PopFxQueryCurrentComponentPerfState writes whether the cached performance state changed"
         }
       ]
+    },
+    {
+      "id": "windows.pnp_power.unregister_plugplay_notification",
+      "source": "Reviewed PnpUnregisterPlugPlayNotification ntoskrnl 26200.8457 unregister path through deferred registration list removal, resource locking, and PnpDereferenceNotify; report-only layout identity.",
+      "function_names": [
+        "PnpUnregisterPlugPlayNotification"
+      ],
+      "required_calls": [
+        "PnpDereferenceNotify"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "notificationEntry",
+          "rename_to": "notificationEntry",
+          "rename_confidence": 0.82,
+          "structure": "PNP_NOTIFICATION_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "PnpUnregisterPlugPlayNotification uses the first argument as the notification entry referenced by deferred-list nodes",
+          "fields": [
+            {
+              "offset": "0x3A",
+              "name": "field_3A",
+              "type": "UCHAR",
+              "size": 1,
+              "confidence": 0.72,
+              "note": "observed unregister-complete state byte; report-only"
+            },
+            {
+              "offset": "0x40",
+              "name": "field_40",
+              "type": "PFAST_MUTEX",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed optional notify mutex pointer; report-only"
+            },
+            {
+              "offset": "0x48",
+              "name": "field_48",
+              "type": "PERESOURCE",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed notification resource pointer acquired for unregister; report-only"
+            }
+          ]
+        },
+        {
+          "parameter_index": 1,
+          "role": "useResourceLock",
+          "rename_to": "useResourceLock",
+          "rename_confidence": 0.78,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "unsigned __int8",
+            "int"
+          ],
+          "source": "PnpUnregisterPlugPlayNotification chooses ERESOURCE locking when the second argument is set"
+        }
+      ]
     }
   ]
 }

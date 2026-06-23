@@ -289,6 +289,51 @@ __int64 __fastcall HalpIommuDomainGetLogicalAddressRange(__int64 a1, _QWORD *a2,
         self.assertIn("__int64 __fastcall HalpIommuDomainGetLogicalAddressRange(", rendered)
         self.assertNotIn("NTSTATUS __fastcall HalpIommuDomainGetLogicalAddressRange(", rendered)
 
+    def test_timer_measure_worker_context_fields_are_report_only(self) -> None:
+        plan = self._plan(
+            """
+ULONG_PTR __fastcall HalpTimerMeasureProcessorsWorker(ULONG_PTR Argument)
+{
+  int timerId;
+
+  timerId = *(_DWORD *)(Argument + 16);
+  HalpFindTimer(timerId, 0, 0, 0, 1);
+  _InterlockedExchangeAdd((volatile signed __int32 *)Argument, -1);
+  _InterlockedIncrement((volatile signed __int32 *)(Argument + 4));
+  _InterlockedIncrement((volatile signed __int32 *)(Argument + 8));
+  *(_DWORD *)(Argument + 12) = 1;
+  HalpTimerReadTimerPairWithLatencyLimit(0, 0, 0, 0, 0);
+  return 0;
+}
+"""
+        )
+
+        identity = self._identity_by_role(
+            self._profile_identities(
+                plan,
+                "windows.hal_dma_iommu.timer_measure_processors_worker",
+            ),
+            "timerMeasureContext",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "timerMeasureContext"
+        ]
+
+        self.assertEqual("HALP_TIMER_MEASURE_CONTEXT", identity["structure_name"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertTrue({0xC, 0x10}.issubset(self._field_offsets(identity)))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "timerMeasureContext"
+                for item in plan.comments
+            )
+        )
+
     def test_hal_dma_iommu_manifest_is_reported_when_pack_is_used(self) -> None:
         self._plan(
             """

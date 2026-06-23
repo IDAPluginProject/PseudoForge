@@ -796,6 +796,78 @@
           "source": "KiIdleLoop selected next thread local"
         }
       ]
+    },
+    {
+      "id": "windows.trap_processor_state.ki_retire_dpc_list",
+      "source": "Reviewed KiRetireDpcList ntoskrnl 26200.8457 DPC retirement and active timer-table update path; report-only field evidence for the selected active timer table.",
+      "function_names": [
+        "KiRetireDpcList"
+      ],
+      "required_calls": [
+        "KiSelectActiveTimerTable",
+        "KiTimerExpiration"
+      ],
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "currentPrcb",
+          "rename_to": "currentPrcb",
+          "rename_confidence": 0.82,
+          "structure": "KPRCB",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "struct _KPRCB *",
+            "PKPRCB",
+            "__int64"
+          ],
+          "source": "KiRetireDpcList retires DPC work for the current PRCB argument"
+        },
+        {
+          "local_names": [
+            "active"
+          ],
+          "role": "activeTimerTable",
+          "structure": "KI_ACTIVE_TIMER_TABLE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "source": "KiRetireDpcList receives the active timer table from KiSelectActiveTimerTable before updating pseudo/non-HR expiration state",
+          "fields": [
+            {
+              "offset": "0x4200",
+              "name": "field_4200",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed pseudo-HR timer expiration value; report-only"
+            },
+            {
+              "offset": "0x4208",
+              "name": "field_4208",
+              "type": "ULONG64",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed non-HR timer expiration value; report-only"
+            },
+            {
+              "offset": "0x4210",
+              "name": "field_4210",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.70,
+              "note": "observed timer timestamp bucket scalar; report-only"
+            },
+            {
+              "offset": "0x4214",
+              "name": "field_4214",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.70,
+              "note": "observed non-HR timestamp bucket scalar; report-only"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
