@@ -663,6 +663,26 @@ __int64 __fastcall MemberAssignmentNameBoundarySample()
         self.assertTrue(any("v7 appears to be a live-in register value (r13d)" in warning for warning in warnings))
         self.assertFalse(any("v70 is declared but has no direct assignment" in warning for warning in warnings))
 
+    def test_member_read_and_comparison_do_not_count_as_assignment_evidence(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MemberReadComparisonSample()
+{
+  unsigned int v7; // r13d
+  unsigned int v8; // r8d
+
+  if ( v7.AllFields == 0 )
+    return UseField(v7.AllFields);
+  return UseField(v8.AllFields);
+}
+"""
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertTrue(any("v7 appears to be a live-in register value (r13d)" in warning for warning in warnings))
+        self.assertTrue(any("v8 appears to be a live-in register value (r8d)" in warning for warning in warnings))
+
     def test_signature_parameters_are_not_reported_as_unassigned_locals(self) -> None:
         text = """
 NTSTATUS __stdcall NtReadFile(
@@ -740,6 +760,39 @@ __int64 EtwWriteKMSecurityEvent()
             any("v3 appears to be a live-in register value (r10)" in warning
                 and "Hex-Rays may have omitted a function parameter" in warning for warning in warnings)
         )
+
+    def test_mixed_abi_register_usage_is_manual_review_not_parameter_gap(self) -> None:
+        text = """
+__int64 __fastcall MixedLiveInUsageSample(int flag)
+{
+  int v1; // r8d
+
+  ConsumeLiveIn(v1);
+  if ( flag )
+    return v1;
+  return 0;
+}
+"""
+        capture = FunctionCapture(
+            name="MixedLiveInUsageSample",
+            prototype="__int64 __fastcall MixedLiveInUsageSample(int flag)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="int", is_arg=False),
+            ],
+        )
+
+        warnings = unassigned_local_usage_warnings(capture, [])
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+
+        self.assertEqual(1, len(warnings))
+        self.assertIn("classified as abi_argument/mixed", warnings[0])
+        self.assertIn("manual review is required", warnings[0])
+        self.assertNotIn("Hex-Rays may have omitted a function parameter", warnings[0])
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("mixed", diagnostics[0].usage_class)
+        self.assertEqual("manual_review_candidate", diagnostics[0].candidate_action)
+        self.assertFalse(diagnostics[0].legacy_candidate_action)
 
     def test_true_public_abi_gap_remains_caller_parameter_gap_candidate(self) -> None:
         text = """

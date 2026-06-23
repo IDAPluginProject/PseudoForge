@@ -685,14 +685,14 @@ def _live_in_register_evidence_note(
         return note
     if usage_class == "return_expression":
         return "Hex-Rays may have left an unrecovered return/default-path register carrier"
-    if register_class == "abi_argument" and usage_class in {"call_argument", "mixed"}:
+    if usage_class == "mixed":
+        return "manual review is required before treating this as a parameter gap"
+    if register_class == "abi_argument" and usage_class == "call_argument":
         return "Hex-Rays may have omitted a function parameter"
-    if register_class == "syscall_thunk" and usage_class in {"call_argument", "mixed"}:
+    if register_class == "syscall_thunk" and usage_class == "call_argument":
         return "Hex-Rays may have preserved a thunk/syscall input or scratch register"
     if register_class == "nonvolatile_state":
         return "Hex-Rays may have preserved register or trap-state context without a recovered assignment"
-    if usage_class == "mixed":
-        return "manual review is required before treating this as a parameter gap"
     return "treat this as report-only live-in register evidence until stronger context is available"
 
 
@@ -709,14 +709,14 @@ def _callee_contract_evidence_note(action: str) -> str:
 def _live_in_candidate_action(register_class: str, usage_class: str) -> str:
     if usage_class == "return_expression":
         return "return_carrier_candidate"
-    if register_class == "abi_argument" and usage_class in {"call_argument", "mixed"}:
+    if usage_class == "mixed":
+        return "manual_review_candidate"
+    if register_class == "abi_argument" and usage_class == "call_argument":
         return "caller_parameter_gap_candidate"
-    if register_class == "syscall_thunk" and usage_class in {"call_argument", "mixed"}:
+    if register_class == "syscall_thunk" and usage_class == "call_argument":
         return "thunk_input_candidate"
     if register_class == "nonvolatile_state":
         return "state_preservation_candidate"
-    if usage_class == "mixed":
-        return "manual_review_candidate"
     return "live_in_register_report_only"
 
 
@@ -1033,13 +1033,13 @@ def _argument_mentions_name_by_value(argument: str, name: str) -> bool:
 def _return_expression_usage(text: str, name: str) -> bool:
     pattern = re.compile(r"\breturn\s+(?P<expr>[^;\n]*\b%s\b[^;\n]*);" % re.escape(name))
     for match in pattern.finditer(text or ""):
-        expression = _mask_skipped_call_expressions(match.group("expr"))
+        expression = _mask_call_expressions(match.group("expr"))
         if _argument_mentions_name_by_value(expression, name):
             return True
     return False
 
 
-def _mask_skipped_call_expressions(text: str) -> str:
+def _mask_call_expressions(text: str) -> str:
     result = text or ""
     call_pattern = re.compile(r"\b(?P<call>[A-Za-z_][A-Za-z0-9_]*)\s*\(")
     search_start = 0
@@ -1047,10 +1047,6 @@ def _mask_skipped_call_expressions(text: str) -> str:
         match = call_pattern.search(result, search_start)
         if not match:
             break
-        call_name = match.group("call")
-        if call_name.lower() not in CALL_PARSE_SKIP_NAMES:
-            search_start = match.end()
-            continue
         open_index = match.end() - 1
         close_index = _matching_paren_index(result, open_index)
         if close_index < 0:
