@@ -1940,6 +1940,364 @@
           "source": "MiValidateAddPhysicalMemoryParameters output context receives PFN range, flags, partition, and caller context"
         }
       ]
+    },
+    {
+      "id": "windows.memory_manager.vmp_fill_gpn_ranges",
+      "source": "Reviewed VmpFillGpnRanges ntoskrnl 26200.8457 VPN-to-GPN range conversion loop, coalesced range output, and output-count accounting; preview-only private prototype.",
+      "function_names": [
+        "VmpFillGpnRanges"
+      ],
+      "parameter_count": 6,
+      "required_calls": [
+        "VmpConvertPortionVpnRangeToGpnRange"
+      ],
+      "prototype": {
+        "return_type": "PVOID",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "partitionId",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "partitionId",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "vpnRange",
+            "canonical_type": "PVMP_VPN_RANGE",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PVMP_VPN_RANGE"
+            ],
+            "semantic_role": "vpnRange",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "gpnRanges",
+            "canonical_type": "PVMP_GPN_RANGE",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PVMP_GPN_RANGE"
+            ],
+            "semantic_role": "gpnRangeOutput",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "gpnRangeCount",
+            "canonical_type": "PULONG64",
+            "accepted_types": [
+              "__int64 *",
+              "_QWORD *",
+              "PULONG64"
+            ],
+            "semantic_role": "gpnRangeCount",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "gpnRangeCapacity",
+            "canonical_type": "ULONG64",
+            "accepted_types": [
+              "__int64",
+              "ULONG64",
+              "unsigned __int64"
+            ],
+            "semantic_role": "gpnRangeCapacity",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "conversionContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "conversionContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "partitionId",
+          "rename_to": "partitionId",
+          "rename_confidence": 0.8,
+          "structure": "VMP_PARTITION_ID",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "VmpFillGpnRanges forwards partition identity to the VPN-to-GPN converter"
+        },
+        {
+          "parameter_index": 1,
+          "role": "vpnRange",
+          "rename_to": "vpnRange",
+          "rename_confidence": 0.86,
+          "structure": "VMP_VPN_RANGE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PVMP_VPN_RANGE"
+          ],
+          "source": "VmpFillGpnRanges consumes VPN range chunks until empty"
+        },
+        {
+          "parameter_index": 2,
+          "role": "gpnRangeOutput",
+          "rename_to": "gpnRanges",
+          "rename_confidence": 0.86,
+          "structure": "VMP_GPN_RANGE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PVMP_GPN_RANGE"
+          ],
+          "source": "VmpFillGpnRanges writes coalesced GPN range pairs"
+        },
+        {
+          "parameter_index": 3,
+          "role": "gpnRangeCount",
+          "rename_to": "gpnRangeCount",
+          "rename_confidence": 0.86,
+          "structure": "ULONG64_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "PULONG64"
+          ],
+          "source": "VmpFillGpnRanges increments the output range count"
+        },
+        {
+          "parameter_index": 4,
+          "role": "gpnRangeCapacity",
+          "rename_to": "gpnRangeCapacity",
+          "rename_confidence": 0.82,
+          "structure": "RANGE_CAPACITY",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "ULONG64",
+            "unsigned __int64"
+          ],
+          "source": "VmpFillGpnRanges stops when output count reaches capacity"
+        },
+        {
+          "parameter_index": 5,
+          "role": "conversionContext",
+          "rename_to": "conversionContext",
+          "rename_confidence": 0.78,
+          "structure": "VMP_CONVERSION_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "VmpFillGpnRanges forwards conversion context to VmpConvertPortionVpnRangeToGpnRange"
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.vmp_fill_slat",
+      "source": "Reviewed VmpFillSlat ntoskrnl 26200.8457 dense and sparse GPA page mapping paths through HvlMapGpaPages/HvlMapSparseGpaPages and mapped-page output update; preview-only private prototype.",
+      "function_names": [
+        "VmpFillSlat"
+      ],
+      "parameter_count": 5,
+      "required_calls": [
+        "HvlMapGpaPages",
+        "HvlMapSparseGpaPages"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "vmpContext",
+            "canonical_type": "PVMP_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PVMP_CONTEXT"
+            ],
+            "semantic_role": "vmpContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "mapFlags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "mapFlags",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "pageCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "__int64",
+              "ULONG",
+              "int"
+            ],
+            "semantic_role": "pageCount",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "gpaRanges",
+            "canonical_type": "PULONG64",
+            "accepted_types": [
+              "_QWORD *",
+              "PULONG64",
+              "__int64 *"
+            ],
+            "semantic_role": "gpaRanges",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "mappedPageCount",
+            "canonical_type": "PULONG64",
+            "accepted_types": [
+              "_QWORD *",
+              "PULONG64",
+              "__int64 *"
+            ],
+            "semantic_role": "mappedPageCount",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "vmpContext",
+          "rename_to": "vmpContext",
+          "rename_confidence": 0.86,
+          "structure": "VMP_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PVMP_CONTEXT"
+          ],
+          "source": "VmpFillSlat reads the partition handle and records dense-fill state in the VMP context"
+        },
+        {
+          "parameter_index": 1,
+          "role": "mapFlags",
+          "rename_to": "mapFlags",
+          "rename_confidence": 0.82,
+          "structure": "VMP_SLAT_MAP_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "VmpFillSlat forwards map flags to dense and sparse GPA mapping"
+        },
+        {
+          "parameter_index": 2,
+          "role": "pageCount",
+          "rename_to": "pageCount",
+          "rename_confidence": 0.84,
+          "structure": "PAGE_COUNT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "ULONG",
+            "int"
+          ],
+          "source": "VmpFillSlat checks for 512-page dense mapping before sparse fallback"
+        },
+        {
+          "parameter_index": 3,
+          "role": "gpaRanges",
+          "rename_to": "gpaRanges",
+          "rename_confidence": 0.86,
+          "structure": "VMP_GPA_RANGE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_QWORD *",
+            "PULONG64",
+            "__int64 *"
+          ],
+          "source": "VmpFillSlat reads dense range pairs and forwards sparse GPA range input"
+        },
+        {
+          "parameter_index": 4,
+          "role": "mappedPageCount",
+          "rename_to": "mappedPageCount",
+          "rename_confidence": 0.86,
+          "structure": "ULONG64_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_QWORD *",
+            "PULONG64",
+            "__int64 *"
+          ],
+          "source": "VmpFillSlat receives mapped page count from HvlMap* and scales dense result"
+        }
+      ]
     }
   ]
 }

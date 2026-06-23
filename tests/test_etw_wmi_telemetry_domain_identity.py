@@ -383,6 +383,43 @@ NTSTATUS __fastcall EtwpTiVadQueryEventWrite(PEVENT_DATA_DESCRIPTOR UserData, in
         self.assertEqual("BOOLEAN", roles["asyncWrite"])
         self.assertEqual([], plan.corrected_parameter_map)
 
+    def test_cov_samp_stack_hash_check_profile_corrects_partial_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall EtwpCovSampStackHashCheck(ULONG_PTR *a1, __int64 a2, unsigned __int8 *a3, unsigned int a4)
+{
+  ULONG_PTR hash;
+  volatile signed __int32 *slot;
+
+  hash = a1[167];
+  while ( a4 )
+  {
+    hash = *a3++ + 37 * hash;
+    --a4;
+  }
+  return EtwpCovSampStackHashLookup(a1[164], hash, &slot);
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.etw_wmi_telemetry.cov_samp_stack_hash_check"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        roles = self._roles(plan, profile_id)
+
+        self.assertEqual(3, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertIn("PETWP_COV_SAMP_STACK_HASH_CONTEXT stackHashContext", rendered)
+        self.assertIn("__int64 argument1", rendered)
+        self.assertIn("PUCHAR stackBytes", rendered)
+        self.assertIn("ULONG stackByteCount", rendered)
+        self.assertEqual("ETWP_COV_SAMP_STACK_HASH_CONTEXT", roles["stackHashContext"])
+        self.assertEqual("STACK_SAMPLE_BYTES", roles["stackBytes"])
+        self.assertEqual("BUFFER_LENGTH", roles["stackByteCount"])
+        self.assertEqual([], plan.corrected_parameter_map)
+
     def test_trace_event_control_and_callback_roles(self) -> None:
         trace_event_plan = self._plan(
             """

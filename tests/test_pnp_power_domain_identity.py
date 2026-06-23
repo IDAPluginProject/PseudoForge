@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -97,6 +98,45 @@ __int64 __fastcall PnpRequestDeviceAction(PDEVICE_OBJECT DeviceObject, PNP_DEVIC
         self.assertEqual("PNP_DEVICE_ACTION_ENTRY_OUTPUT", roles["actionEntryOutput"])
         self.assertEqual("PNP_DEVICE_ACTION_ENTRY", roles["deviceActionEntry"])
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in self._profile_identities(plan, "windows.pnp_power.request_device_action")))
+
+    def test_popfx_current_component_perf_state_corrects_weak_parameter_types(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+_BYTE *__fastcall PopFxQueryCurrentComponentPerfState(__int64 a1, __int64 a2, unsigned int a3, char a4, _QWORD *a5, _BYTE *a6)
+{
+  __int64 query;
+  query = *(_QWORD *)(a1 + 64);
+  if ( query )
+  {
+    guard_dispatch_icall_no_overrides(34, &query);
+  }
+  *a5 = *(_QWORD *)(a2 + 32 * a3 + 8);
+  *a6 = a4 != 0;
+  return a6;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.pnp_power.popfx_query_current_component_perf_state"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identities = self._profile_identities(plan, profile_id)
+
+        self.assertEqual(6, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        self.assertEqual([], plan.corrected_parameter_map)
+        for fragment in [
+            "PPOP_FX_DEVICE device",
+            "PPOP_FX_COMPONENT component",
+            "ULONG perfStateUnit",
+            "BOOLEAN updateReason",
+            "PULONG64 currentPerfState",
+            "PBOOLEAN changed",
+        ]:
+            self.assertIn(fragment, rendered)
 
     def test_device_node_allocation_and_state_roles(self) -> None:
         allocate_plan = self._plan(

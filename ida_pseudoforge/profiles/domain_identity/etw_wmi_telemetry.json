@@ -2618,6 +2618,114 @@
           "source": "EtwpTiVadQueryEventWrite async branch selects EtwpTiAsyncVadQueryEventWrite"
         }
       ]
+    },
+    {
+      "id": "windows.etw_wmi_telemetry.cov_samp_stack_hash_check",
+      "source": "Reviewed EtwpCovSampStackHashCheck ntoskrnl 26200.8457 coverage-sampling stack byte hash, shared push-lock lookup, and insert path; preview-only partial private prototype.",
+      "function_names": [
+        "EtwpCovSampStackHashCheck"
+      ],
+      "parameter_count": 4,
+      "required_calls": [
+        "EtwpCovSampStackHashLookup"
+      ],
+      "prototype": {
+        "return_type": "BOOLEAN",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "stackHashContext",
+            "canonical_type": "PETWP_COV_SAMP_STACK_HASH_CONTEXT",
+            "accepted_types": [
+              "ULONG_PTR *",
+              "__int64",
+              "PVOID",
+              "PETWP_COV_SAMP_STACK_HASH_CONTEXT"
+            ],
+            "semantic_role": "stackHashContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "stackBytes",
+            "canonical_type": "PUCHAR",
+            "accepted_types": [
+              "unsigned __int8 *",
+              "PUCHAR",
+              "PVOID"
+            ],
+            "semantic_role": "stackBytes",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "stackByteCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "int"
+            ],
+            "semantic_role": "stackByteCount",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "stackHashContext",
+          "rename_to": "stackHashContext",
+          "rename_confidence": 0.86,
+          "structure": "ETWP_COV_SAMP_STACK_HASH_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR *",
+            "__int64",
+            "PVOID",
+            "PETWP_COV_SAMP_STACK_HASH_CONTEXT"
+          ],
+          "source": "EtwpCovSampStackHashCheck reads hash-table locks and buckets from the context"
+        },
+        {
+          "parameter_index": 2,
+          "role": "stackBytes",
+          "rename_to": "stackBytes",
+          "rename_confidence": 0.86,
+          "structure": "STACK_SAMPLE_BYTES",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "unsigned __int8 *",
+            "PUCHAR",
+            "PVOID"
+          ],
+          "source": "EtwpCovSampStackHashCheck consumes stack bytes while computing the hash"
+        },
+        {
+          "parameter_index": 3,
+          "role": "stackByteCount",
+          "rename_to": "stackByteCount",
+          "rename_confidence": 0.84,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "EtwpCovSampStackHashCheck drives stack byte hashing loop length"
+        }
+      ]
     }
   ]
 }

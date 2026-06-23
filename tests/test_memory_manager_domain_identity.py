@@ -499,6 +499,50 @@ __int64 __fastcall MiValidateAddPhysicalMemoryParameters(ULONG *a1, __int64 *a2,
                     "PMI_ADD_PHYSICAL_MEMORY_CONTEXT addMemoryContext",
                 ],
             ),
+            (
+                """
+__int64 __fastcall VmpFillGpnRanges(int a1, __int64 a2, __int64 a3, __int64 *a4, __int64 a5, __int64 a6)
+{
+  __int128 range;
+  int count;
+  count = 0;
+  range = 0;
+  VmpConvertPortionVpnRangeToGpnRange(a1, a2, -1, a6, (__int64)&range, (__int64)&count, 0);
+  *(_OWORD *)(a3 + 16 * *a4) = range;
+  ++*a4;
+  return *a4 == a5;
+}
+""",
+                "windows.memory_manager.vmp_fill_gpn_ranges",
+                [
+                    "ULONG partitionId",
+                    "PVMP_VPN_RANGE vpnRange",
+                    "PVMP_GPN_RANGE gpnRanges",
+                    "PULONG64 gpnRangeCount",
+                    "ULONG64 gpnRangeCapacity",
+                    "ULONG_PTR conversionContext",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWORD *a5)
+{
+  if ( a3 == 512 )
+  {
+    return HvlMapGpaPages(*(_QWORD *)(a1 + 104), *a4, a2, 1, (__int64)(a4 + 1), (__int64)a5);
+  }
+  return HvlMapSparseGpaPages(*(_QWORD *)(a1 + 104), a2, a3, (_DWORD)a4, (__int64)a5);
+}
+""",
+                "windows.memory_manager.vmp_fill_slat",
+                [
+                    "PVMP_CONTEXT vmpContext",
+                    "ULONG mapFlags",
+                    "ULONG pageCount",
+                    "PULONG64 gpaRanges",
+                    "PULONG64 mappedPageCount",
+                ],
+            ),
         ]
 
         for text, profile_id, expected_fragments in samples:

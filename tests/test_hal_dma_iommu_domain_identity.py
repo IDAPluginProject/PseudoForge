@@ -90,6 +90,44 @@ __int64 __fastcall HalpDmaAllocateEmergencyResources(__int64 a1)
                     "PHALP_MM_ALLOC_CONTEXT allocationContext",
                 ],
             ),
+            (
+                """
+char __fastcall HalpPciAccessIoConfigSpace(__int16 a1, unsigned __int8 a2, char a3, __int64 a4, unsigned int a5, int a6, int a7)
+{
+  int Address;
+  Address = 8 * (a3 & 0xE0 | ((a3 & 0x1F | (32 * (a2 | 0xFFFF8000))) << 8));
+  HalpPCIPerformConfigAccess((__int64)HalpPCIConfigReadHandlers, (__int64)&Address, a4, a5, a6);
+  return a7 == 0;
+}
+""",
+                "windows.hal_dma_iommu.pci_access_io_config_space",
+                [
+                    "USHORT segment",
+                    "UCHAR bus",
+                    "UCHAR deviceFunction",
+                    "PVOID buffer",
+                    "ULONG offset",
+                    "ULONG length",
+                    "BOOLEAN writeAccess",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall HalpIommuDomainMapLogicalRange(ULONG_PTR a1, __int64 a2, unsigned __int64 a3, __int64 a4, ULONG_PTR a5)
+{
+  HalpIommuMapLogicalRange(0, *(_QWORD *)(a1 + 40), a2, a3, a4, a5);
+  return IommupHvMapDeviceLogicalRange(a1, a2, a3, a4, a5);
+}
+""",
+                "windows.hal_dma_iommu.iommu_domain_map_logical_range",
+                [
+                    "PHALP_IOMMU_DOMAIN domain",
+                    "ULONG_PTR logicalAddress",
+                    "SIZE_T byteCount",
+                    "ULONG_PTR mapFlags",
+                    "ULONG_PTR mapContext",
+                ],
+            ),
         ]
 
         for text, profile_id, expected_fragments in samples:

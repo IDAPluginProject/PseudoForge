@@ -570,6 +570,397 @@
           "source": "HalpDmaAllocateEmergencyResources allocation context forwarded to HalpMmAllocCtxAlloc"
         }
       ]
+    },
+    {
+      "id": "windows.hal_dma_iommu.pci_access_io_config_space",
+      "source": "Reviewed HalpPciAccessIoConfigSpace ntoskrnl 26200.8457 PCI config address construction, read/write handler selection, HalpPCIPerformConfigAccess handoff, and CF8 cleanup; preview-only private prototype.",
+      "function_names": [
+        "HalpPciAccessIoConfigSpace"
+      ],
+      "parameter_count": 7,
+      "required_calls": [
+        "HalpPCIPerformConfigAccess"
+      ],
+      "prototype": {
+        "return_type": "BOOLEAN",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "segment",
+            "canonical_type": "USHORT",
+            "accepted_types": [
+              "__int16",
+              "USHORT",
+              "unsigned __int16"
+            ],
+            "semantic_role": "pciSegment",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "bus",
+            "canonical_type": "UCHAR",
+            "accepted_types": [
+              "unsigned __int8",
+              "UCHAR",
+              "char"
+            ],
+            "semantic_role": "pciBus",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "deviceFunction",
+            "canonical_type": "UCHAR",
+            "accepted_types": [
+              "char",
+              "UCHAR",
+              "unsigned __int8"
+            ],
+            "semantic_role": "pciDeviceFunction",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "buffer",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "void *"
+            ],
+            "semantic_role": "configBuffer",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "offset",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "int"
+            ],
+            "semantic_role": "configOffset",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "length",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int"
+            ],
+            "semantic_role": "configLength",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "writeAccess",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "int",
+              "BOOLEAN",
+              "char"
+            ],
+            "semantic_role": "writeAccess",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "pciSegment",
+          "rename_to": "segment",
+          "rename_confidence": 0.8,
+          "structure": "PCI_SEGMENT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int16",
+            "USHORT",
+            "unsigned __int16"
+          ],
+          "source": "HalpPciAccessIoConfigSpace rejects nonzero segment before CF8 access"
+        },
+        {
+          "parameter_index": 1,
+          "role": "pciBus",
+          "rename_to": "bus",
+          "rename_confidence": 0.84,
+          "structure": "PCI_BUS_NUMBER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned __int8",
+            "UCHAR",
+            "char"
+          ],
+          "source": "HalpPciAccessIoConfigSpace folds bus into PCI config address"
+        },
+        {
+          "parameter_index": 2,
+          "role": "pciDeviceFunction",
+          "rename_to": "deviceFunction",
+          "rename_confidence": 0.84,
+          "structure": "PCI_SLOT_NUMBER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "char",
+            "UCHAR",
+            "unsigned __int8"
+          ],
+          "source": "HalpPciAccessIoConfigSpace folds device/function bits into PCI config address"
+        },
+        {
+          "parameter_index": 3,
+          "role": "configBuffer",
+          "rename_to": "buffer",
+          "rename_confidence": 0.84,
+          "structure": "PCI_CONFIG_BUFFER",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "void *"
+          ],
+          "source": "HalpPciAccessIoConfigSpace forwards buffer to HalpPCIPerformConfigAccess"
+        },
+        {
+          "parameter_index": 4,
+          "role": "configOffset",
+          "rename_to": "offset",
+          "rename_confidence": 0.84,
+          "structure": "PCI_CONFIG_OFFSET",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "HalpPciAccessIoConfigSpace validates offset + length before access"
+        },
+        {
+          "parameter_index": 5,
+          "role": "configLength",
+          "rename_to": "length",
+          "rename_confidence": 0.82,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int"
+          ],
+          "source": "HalpPciAccessIoConfigSpace validates and forwards access length"
+        },
+        {
+          "parameter_index": 6,
+          "role": "writeAccess",
+          "rename_to": "writeAccess",
+          "rename_confidence": 0.82,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "int",
+            "BOOLEAN",
+            "char"
+          ],
+          "source": "HalpPciAccessIoConfigSpace selects read or write handler table"
+        }
+      ]
+    },
+    {
+      "id": "windows.hal_dma_iommu.iommu_domain_map_logical_range",
+      "source": "Reviewed HalpIommuDomainMapLogicalRange ntoskrnl 26200.8457 domain HV/non-HV branch to HalpIommuMapLogicalRange and IommupHvMapDeviceLogicalRange; preview-only private prototype.",
+      "function_names": [
+        "HalpIommuDomainMapLogicalRange"
+      ],
+      "parameter_count": 5,
+      "required_calls": [
+        "HalpIommuMapLogicalRange",
+        "IommupHvMapDeviceLogicalRange"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "domain",
+            "canonical_type": "PHALP_IOMMU_DOMAIN",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID",
+              "PHALP_IOMMU_DOMAIN"
+            ],
+            "semantic_role": "iommuDomain",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "logicalAddress",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "logicalAddress",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "byteCount",
+            "canonical_type": "SIZE_T",
+            "accepted_types": [
+              "unsigned __int64",
+              "SIZE_T",
+              "ULONG_PTR",
+              "__int64"
+            ],
+            "semantic_role": "byteCount",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "mapFlags",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "ULONG"
+            ],
+            "semantic_role": "mapFlags",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "mapContext",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "mapContext",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "iommuDomain",
+          "rename_to": "domain",
+          "rename_confidence": 0.88,
+          "structure": "HALP_IOMMU_DOMAIN",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "PHALP_IOMMU_DOMAIN"
+          ],
+          "source": "HalpIommuDomainMapLogicalRange tests domain mode and dispatches by domain backing"
+        },
+        {
+          "parameter_index": 1,
+          "role": "logicalAddress",
+          "rename_to": "logicalAddress",
+          "rename_confidence": 0.84,
+          "structure": "LOGICAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "HalpIommuDomainMapLogicalRange forwards logical address to both map paths"
+        },
+        {
+          "parameter_index": 2,
+          "role": "byteCount",
+          "rename_to": "byteCount",
+          "rename_confidence": 0.84,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "unsigned __int64",
+            "SIZE_T",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "HalpIommuDomainMapLogicalRange forwards range length to both map paths"
+        },
+        {
+          "parameter_index": 3,
+          "role": "mapFlags",
+          "rename_to": "mapFlags",
+          "rename_confidence": 0.8,
+          "structure": "IOMMU_MAP_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "ULONG"
+          ],
+          "source": "HalpIommuDomainMapLogicalRange forwards mapping flags to both map paths"
+        },
+        {
+          "parameter_index": 4,
+          "role": "mapContext",
+          "rename_to": "mapContext",
+          "rename_confidence": 0.78,
+          "structure": "IOMMU_MAP_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "HalpIommuDomainMapLogicalRange forwards final map context to both map paths"
+        }
+      ]
     }
   ]
 }

@@ -22,9 +22,13 @@
       "callees": [
         "CmpAcquireShutdownRundown",
         "CmpReleaseShutdownRundown",
+        "ExfReleasePushLockShared",
         "KiUnstackDetachProcess",
+        "MiLockPageInline",
         "MiLockWorkingSetShared",
-        "PnpReleaseDependencyRelationsLock"
+        "MiReleaseControlAreaWaiters",
+        "PnpReleaseDependencyRelationsLock",
+        "VmpProcessContextUnlockShared"
       ],
       "action": "internal_lock_helper_residue",
       "confidence": 0.72,
@@ -38,8 +42,18 @@
         "ExReferenceCallBackBlock",
         "HalpMmAllocCtxAlloc",
         "HalpMmAllocCtxFree",
+        "HalpIommuEnableInterrupts",
+        "HvpGenerateLogEntryDirtyData",
+        "HvpGenerateLogEntryHeader",
+        "HvpGenerateLogEntryMetadata",
+        "IommupHvSetRootFaultReportingReady",
+        "IommupHvUnblockDefaultDma",
         "KiCheckVpBackingLongSpinWaitHypercall",
+        "MiEndingOffsetWithLock",
+        "MiRemoveLockedPageCharge",
         "PipCreateDependencyNode",
+        "AlpcMessageDestroyProcedure",
+        "VslReinitializeIumDebuggerTransport",
         "guard_dispatch_icall_no_overrides"
       ],
       "callee_patterns": [

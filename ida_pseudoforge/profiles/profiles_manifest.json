@@ -99,7 +99,7 @@
       "source": "PseudoForge curated internal helper and thunk callee contracts",
       "schema": "pseudoforge_callee_contracts_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "4FC52F5217D3704A9CC630E260EFAF89555572D4C44075F7EFE9DAF157DABF1B",
+      "sha256": "16330F6E6857DAE7B7623585E2A96B6B294958C55FAB5B8344E76743D943567A",
       "counts": {
         "contracts": 3
       }
@@ -148,9 +148,9 @@
       "source": "PseudoForge curated ntoskrnl ETW/WMI telemetry role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "1B0902A3B7E4D459991FB230DE95C8B8C9A6417D56A92AC43BFD5C07E33839C5",
+      "sha256": "D62103CF07485889E8E8ABD3492DF946FEC9DA836C2B5E414B0857E1F09AF7A7",
       "counts": {
-        "profiles": 28
+        "profiles": 29
       }
     },
     "domain_identity/executive_async.json": {
@@ -248,9 +248,9 @@
       "source": "PseudoForge curated ntoskrnl PnP/Power Manager device lifecycle role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "F263BF954314FDF901C42E2B96BDD10081C51F78E71E53F2BA91AC97D058C4EF",
+      "sha256": "D4E2A14146DC08C8157E87AA3A26BFFB30B39F42B7202F4547DD8248439F503D",
       "counts": {
-        "profiles": 19
+        "profiles": 21
       }
     },
     "domain_identity/memory_manager.json": {
@@ -258,9 +258,9 @@
       "source": "PseudoForge curated ntoskrnl Memory Manager VAD/address-space role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "8A75E4D59F1BC915E54CE68D797713E116BBC2ABA49A421A7F4166E6E4FACC92",
+      "sha256": "FE02F06D9E7039DCDC33EA0450875C41F5E5B9D567B0AB3E8793D27E59BFC8B3",
       "counts": {
-        "profiles": 30
+        "profiles": 32
       }
     },
     "domain_identity/registry_config.json": {
@@ -298,9 +298,9 @@
       "source": "PseudoForge curated ntoskrnl token/security/audit role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "13F8D7A9EA1BAC057FE51B936AEEE62C88CB3037D355A74BBF40CC20D3C40579",
+      "sha256": "52D1622E6542CC8711B3C3CFF7F433B0EC1494B23D257AC1A8408CF9B398B9DC",
       "counts": {
-        "profiles": 22
+        "profiles": 23
       }
     },
     "registry_domain.json": {
@@ -342,13 +342,13 @@
     },
     "domain_identity/hal_dma_iommu.json": {
       "counts": {
-        "profiles": 4
+        "profiles": 6
       },
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated ntoskrnl HAL DMA/IOMMU role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "55471E57650B2D1A30B9539122CD9BF5CD7A4047CD4FD9EA4E89F24E0052A5BA"
+      "sha256": "8DE218449573821E201A858EC731407FD690FB8F4153940865CAFE1108384199"
     }
   }
 }

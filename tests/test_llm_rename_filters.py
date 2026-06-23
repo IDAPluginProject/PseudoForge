@@ -881,6 +881,59 @@ __int64 __fastcall HalEmergencyResourceResidueSample(__int64 argument0)
         self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
         self.assertTrue(any("callee arity/helper residue" in warning for warning in warnings))
 
+    def test_recent_kernel_helper_live_ins_are_residue_not_caller_gaps(self) -> None:
+        text = """
+__int64 __fastcall RecentKernelHelperResidueSample()
+{
+  __int64 v1; // rcx
+  __int64 v2; // rdx
+  __int64 v3; // r8
+  __int64 v4; // r9
+  __int64 v5; // rcx
+  __int64 v6; // rdx
+  __int64 v7; // r8
+  __int64 v8; // r9
+  __int64 v9; // rcx
+  __int64 v10; // rdx
+  __int64 v11; // r8
+
+  HalpIommuEnableInterrupts(v1, v2);
+  VslReinitializeIumDebuggerTransport(v3, v4);
+  MiReleaseControlAreaWaiters(v5, v6, v7, v8);
+  return MiRemoveLockedPageCharge(v9, v10, v11);
+}
+"""
+        capture = FunctionCapture(
+            name="RecentKernelHelperResidueSample",
+            prototype="__int64 __fastcall RecentKernelHelperResidueSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False),
+                LocalVariable(name="v2", type="__int64", is_arg=False),
+                LocalVariable(name="v3", type="__int64", is_arg=False),
+                LocalVariable(name="v4", type="__int64", is_arg=False),
+                LocalVariable(name="v5", type="__int64", is_arg=False),
+                LocalVariable(name="v6", type="__int64", is_arg=False),
+                LocalVariable(name="v7", type="__int64", is_arg=False),
+                LocalVariable(name="v8", type="__int64", is_arg=False),
+                LocalVariable(name="v9", type="__int64", is_arg=False),
+                LocalVariable(name="v10", type="__int64", is_arg=False),
+                LocalVariable(name="v11", type="__int64", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        warnings = unassigned_local_usage_warnings(capture, [])
+        actions_by_callee = {}
+        for item in diagnostics:
+            actions_by_callee.setdefault(item.callee_name, set()).add(item.candidate_action)
+
+        self.assertIn("callee_arity_residue_candidate", actions_by_callee["HalpIommuEnableInterrupts"])
+        self.assertIn("callee_arity_residue_candidate", actions_by_callee["VslReinitializeIumDebuggerTransport"])
+        self.assertIn("internal_lock_helper_residue", actions_by_callee["MiReleaseControlAreaWaiters"])
+        self.assertIn("callee_arity_residue_candidate", actions_by_callee["MiRemoveLockedPageCharge"])
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+
     def test_repeated_dif_thunk_slots_are_helper_thunk_candidates(self) -> None:
         text = """
 bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)

@@ -81,6 +81,43 @@ void __fastcall SeCaptureSubjectContext(__int64 a1)
         )
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments))
 
+    def test_query_security_attributes_token_corrects_weak_parameter_types(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall SeQuerySecurityAttributesToken(__int64 a1, __int64 a2, unsigned int a3, _OWORD *a4, size_t a5, _DWORD *a6)
+{
+  unsigned int status;
+  KeEnterCriticalRegion();
+  ExAcquireResourceSharedLite(*(PERESOURCE *)(a1 + 48), TRUE);
+  status = SepInternalQuerySecurityAttributesTokenEx(a1, 0, a2, a3, 0, a4, a5, a6);
+  ExReleaseResourceLite(*(PERESOURCE *)(a1 + 48));
+  KeLeaveCriticalRegion();
+  return status;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.token_security.query_security_attributes_token"
+        corrections = [item for item in plan.type_corrections if item.profile_id == profile_id]
+        identities = self._profile_identities(plan, profile_id)
+
+        self.assertEqual(6, len(corrections))
+        self.assertTrue(all(item.apply_to_preview for item in corrections))
+        self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        self.assertEqual([], plan.corrected_parameter_map)
+        for fragment in [
+            "PACCESS_TOKEN token",
+            "PUNICODE_STRING attributeNames",
+            "ULONG attributeCount",
+            "PVOID attributeBuffer",
+            "SIZE_T attributeBufferLength",
+            "PULONG returnLength",
+        ]:
+            self.assertIn(fragment, rendered)
+
     def test_assign_primary_token_requires_subject_context_pair(self) -> None:
         without_callees = self._plan(
             """

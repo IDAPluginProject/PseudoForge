@@ -1276,6 +1276,201 @@
           "source": "SepAuditAssignPrimaryToken audit record buffer local"
         }
       ]
+    },
+    {
+      "id": "windows.token_security.query_security_attributes_token",
+      "source": "Reviewed SeQuerySecurityAttributesToken ntoskrnl 26200.8457 token resource lock, attribute query handoff, output buffer validation, and return-length update; preview-only private prototype.",
+      "function_names": [
+        "SeQuerySecurityAttributesToken"
+      ],
+      "parameter_count": 6,
+      "required_calls": [
+        "SepInternalQuerySecurityAttributesTokenEx"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "token",
+            "canonical_type": "PACCESS_TOKEN",
+            "accepted_types": [
+              "__int64",
+              "PACCESS_TOKEN",
+              "PVOID"
+            ],
+            "semantic_role": "accessToken",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "attributeNames",
+            "canonical_type": "PUNICODE_STRING",
+            "accepted_types": [
+              "__int64",
+              "PUNICODE_STRING",
+              "PVOID"
+            ],
+            "semantic_role": "attributeNames",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "attributeCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "int"
+            ],
+            "semantic_role": "attributeCount",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "attributeBuffer",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "_OWORD *",
+              "PVOID",
+              "__int64"
+            ],
+            "semantic_role": "attributeBuffer",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "attributeBufferLength",
+            "canonical_type": "SIZE_T",
+            "accepted_types": [
+              "size_t",
+              "SIZE_T",
+              "ULONG",
+              "__int64"
+            ],
+            "semantic_role": "attributeBufferLength",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "returnLength",
+            "canonical_type": "PULONG",
+            "accepted_types": [
+              "_DWORD *",
+              "PULONG",
+              "ULONG *"
+            ],
+            "semantic_role": "returnLength",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "accessToken",
+          "rename_to": "token",
+          "rename_confidence": 0.88,
+          "structure": "ACCESS_TOKEN",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "__int64",
+            "PACCESS_TOKEN",
+            "PVOID"
+          ],
+          "source": "SeQuerySecurityAttributesToken locks token resource and forwards token to internal query"
+        },
+        {
+          "parameter_index": 1,
+          "role": "attributeNames",
+          "rename_to": "attributeNames",
+          "rename_confidence": 0.82,
+          "structure": "SECURITY_ATTRIBUTE_NAME_LIST",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "PUNICODE_STRING",
+            "PVOID"
+          ],
+          "source": "SeQuerySecurityAttributesToken forwards attribute name list to internal query"
+        },
+        {
+          "parameter_index": 2,
+          "role": "attributeCount",
+          "rename_to": "attributeCount",
+          "rename_confidence": 0.82,
+          "structure": "SECURITY_ATTRIBUTE_COUNT",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int"
+          ],
+          "source": "SeQuerySecurityAttributesToken forwards requested attribute count"
+        },
+        {
+          "parameter_index": 3,
+          "role": "attributeBuffer",
+          "rename_to": "attributeBuffer",
+          "rename_confidence": 0.84,
+          "structure": "SECURITY_ATTRIBUTES_INFORMATION",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_OWORD *",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "SeQuerySecurityAttributesToken validates and forwards the output buffer"
+        },
+        {
+          "parameter_index": 4,
+          "role": "attributeBufferLength",
+          "rename_to": "attributeBufferLength",
+          "rename_confidence": 0.84,
+          "structure": "BUFFER_LENGTH",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "size_t",
+            "SIZE_T",
+            "ULONG",
+            "__int64"
+          ],
+          "source": "SeQuerySecurityAttributesToken validates output buffer length"
+        },
+        {
+          "parameter_index": 5,
+          "role": "returnLength",
+          "rename_to": "returnLength",
+          "rename_confidence": 0.84,
+          "structure": "ULONG_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_DWORD *",
+            "PULONG",
+            "ULONG *"
+          ],
+          "source": "SeQuerySecurityAttributesToken forwards return length output"
+        }
+      ]
     }
   ]
 }
