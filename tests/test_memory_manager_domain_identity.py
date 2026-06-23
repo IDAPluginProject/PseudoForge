@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
@@ -554,6 +558,19 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
             "windows.memory_manager.vmp_fill_gpn_ranges": "PVOID __fastcall VmpFillGpnRanges(",
             "windows.memory_manager.vmp_fill_slat": "NTSTATUS __fastcall VmpFillSlat(",
         }
+        corrected_parameter_expectations = {
+            "windows.memory_manager.store_work_item_process": ("store", "ST_STORE_SM_TRAITS", 9),
+            "windows.memory_manager.create_shared_zero_pages": (
+                "sharedZeroPageContext",
+                "MI_SHARED_ZERO_PAGE_CONTEXT",
+                8,
+            ),
+            "windows.memory_manager.pf_allocate_mdls": (
+                "pageFileMdlContext",
+                "MI_PAGEFILE_MDL_CONTEXT",
+                9,
+            ),
+        }
 
         for text, profile_id, expected_fragments in samples:
             with self.subTest(profile_id=profile_id):
@@ -564,10 +581,146 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
 
                 self.assertEqual(len(expected_fragments), len(corrections))
                 self.assertTrue(all(item.apply_to_preview for item in corrections))
-                self.assertEqual([], plan.corrected_parameter_map)
+                expected_map = corrected_parameter_expectations.get(profile_id)
+                if expected_map:
+                    expected_name, expected_structure, expected_field_count = expected_map
+                    self.assertEqual(1, len(plan.corrected_parameter_map))
+                    self.assertEqual(expected_name, plan.corrected_parameter_map[0].new_name)
+                    self.assertEqual(expected_structure, plan.corrected_parameter_map[0].structure)
+                    self.assertEqual(expected_field_count, len(plan.corrected_parameter_map[0].fields))
+                else:
+                    self.assertEqual([], plan.corrected_parameter_map)
                 self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
+
+    def test_private_memory_profiles_use_validated_layout_rewrite_when_evidence_is_dense(self) -> None:
+        samples = [
+            (
+                """
+__int64 __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(__int64 a1, unsigned __int64 a2, unsigned __int64 a3)
+{
+  __int64 total;
+
+  total = *(_QWORD *)(a1 + 24)
+        + *(unsigned int *)(a1 + 904)
+        + *(_QWORD *)(a1 + 2280)
+        + *(unsigned __int8 *)(a1 + 2368);
+  total += *(unsigned __int8 *)(a1 + 2370)
+        + *(_QWORD *)(a1 + 2376)
+        + *(_QWORD *)(a1 + 6800)
+        + *(_QWORD *)(a1 + 6808)
+        + *(unsigned int *)(a1 + 6816);
+  total += *(_QWORD *)(a1 + 24)
+        + *(unsigned __int8 *)(a1 + 2368)
+        + *(_QWORD *)(a1 + 6800)
+        + *(unsigned int *)(a1 + 6816);
+  return total + a2 + a3;
+}
+""",
+                "store",
+                "field_18",
+                "field_1AA0",
+                13,
+            ),
+            (
+                """
+__int64 __fastcall MiCreateSharedZeroPages(__int64 a1, __int64 *a2)
+{
+  __int64 total;
+
+  total = *(_QWORD *)(a1 + 8)
+        + *(_QWORD *)(a1 + 16)
+        + *(_QWORD *)(a1 + 24)
+        + *(unsigned int *)(a1 + 32);
+  total += *(unsigned int *)(a1 + 36)
+        + *(unsigned int *)(a1 + 48)
+        + *(_QWORD *)(a1 + 56)
+        + *(_QWORD *)(a1 + 64);
+  total += *(_QWORD *)(a1 + 8)
+        + *(_QWORD *)(a1 + 24)
+        + *(unsigned int *)(a1 + 32)
+        + *(_QWORD *)(a1 + 56);
+  *a2 = total;
+  return STATUS_SUCCESS;
+}
+""",
+                "sharedZeroPageContext",
+                "field_8",
+                "field_40",
+                12,
+            ),
+            (
+                """
+__int64 __fastcall MiPfAllocateMdls(__int64 a1, unsigned int a2, _SLIST_ENTRY *a3, volatile signed __int64 *a4)
+{
+  __int64 total;
+
+  total = *(_QWORD *)(a1 + 8)
+        + *(_QWORD *)(a1 + 16)
+        + *(_QWORD *)(a1 + 24)
+        + *(unsigned int *)(a1 + 184);
+  total += *(unsigned int *)(a1 + 188)
+        + *(unsigned int *)(a1 + 196)
+        + *(_QWORD *)(a1 + 200)
+        + *(unsigned int *)(a1 + 212)
+        + *(_QWORD *)(a1 + 232);
+  total += *(_QWORD *)(a1 + 16)
+        + *(unsigned int *)(a1 + 184)
+        + *(_QWORD *)(a1 + 232);
+  return total + a2 + (a3 != 0) + *a4;
+}
+""",
+                "pageFileMdlContext",
+                "field_8",
+                "field_E8",
+                12,
+            ),
+        ]
+
+        for text, base, first_field, last_field, expected_accesses in samples:
+            with self.subTest(base=base):
+                capture = capture_from_pseudocode(text, source_path=SOURCE_PATH)
+                plan = build_clean_plan(capture)
+                ready = [
+                    item
+                    for item in plan.comments
+                    if item.get("kind") == "inferred_offset_rewrite_ready"
+                    and item.get("base") == base
+                ]
+                blockers = [
+                    item
+                    for item in plan.comments
+                    if item.get("kind") == "inferred_offset_rewrite_blockers"
+                    and item.get("base") == base
+                ]
+
+                self.assertEqual(1, len(plan.corrected_parameter_map))
+                self.assertEqual(base, plan.corrected_parameter_map[0].new_name)
+                self.assertEqual([], blockers)
+                self.assertEqual(1, len(ready))
+                self.assertEqual("domain_identity", ready[0]["source_provenance"])
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    artifacts = write_export_bundle(
+                        temp_dir,
+                        capture,
+                        plan,
+                        entrypoint="ida_interactive",
+                        apply_validated_layout_rewrites=True,
+                    )
+                    preview = Path(artifacts["layout_rewrite_preview"]).read_text(encoding="utf-8")
+                    metadata = json.loads(
+                        Path(artifacts["layout_rewrite_preview_metadata"]).read_text(
+                            encoding="utf-8"
+                        )
+                    )
+
+                self.assertEqual("applied", metadata["canonical_rewrite_status"])
+                self.assertEqual([base], metadata["rewritten_bases"])
+                self.assertEqual(expected_accesses, metadata["rewritten_accesses"])
+                self.assertIn("%s->%s" % (base, first_field), preview)
+                self.assertIn("%s->%s" % (base, last_field), preview)
 
     def test_report_only_vad_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(

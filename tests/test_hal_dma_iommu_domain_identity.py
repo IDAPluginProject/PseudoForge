@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
@@ -149,11 +153,99 @@ __int64 __fastcall HalpIommuDomainMapLogicalRange(ULONG_PTR a1, __int64 a2, unsi
                 self.assertEqual(len(expected_fragments), len(corrections))
                 self.assertTrue(all(item.apply_to_preview for item in corrections))
                 self.assertTrue(all(not item.apply_to_idb for item in corrections))
-                self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
-                self.assertEqual([], plan.corrected_parameter_map)
+                if profile_id == "windows.hal_dma_iommu.dma_allocate_map_registers_high_level":
+                    dma_identity = [
+                        item for item in identities if item.get("trusted_role") == "dmaAdapter"
+                    ]
+                    self.assertEqual(1, len(dma_identity))
+                    self.assertEqual("canonical-rewrite-eligible", dma_identity[0]["effective_mode"])
+                    self.assertTrue(
+                        any(
+                            field.get("name") == "field_78" and field.get("offset") == 0x78
+                            for field in dma_identity[0]["fields"]
+                        )
+                    )
+                    self.assertEqual(1, len(plan.corrected_parameter_map))
+                    self.assertEqual("dmaAdapter", plan.corrected_parameter_map[0].new_name)
+                    self.assertEqual("HALP_DMA_ADAPTER", plan.corrected_parameter_map[0].structure)
+                    self.assertEqual(9, len(plan.corrected_parameter_map[0].fields))
+                else:
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                    self.assertEqual([], plan.corrected_parameter_map)
                 self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
+
+    def test_dma_allocate_map_registers_uses_validated_layout_rewrite(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall HalpDmaAllocateMapRegistersAtHighLevel(__int64 a1, int *a2)
+{
+  __int64 total;
+
+  total = *(_QWORD *)(a1 + 48)
+        + *(_QWORD *)(a1 + 56)
+        + *(_QWORD *)(a1 + 96)
+        + *(unsigned int *)(a1 + 104);
+  total += *(_QWORD *)(a1 + 112)
+        + *(unsigned int *)(a1 + 120)
+        + *(_QWORD *)(a1 + 160)
+        + *(unsigned __int8 *)(a1 + 345);
+  if ( *(unsigned __int8 *)(a1 + 442) )
+  {
+    total += *(unsigned __int8 *)(a1 + 442);
+  }
+  total += *(_QWORD *)(a1 + 112)
+        + *(unsigned int *)(a1 + 120)
+        + *(unsigned __int8 *)(a1 + 442);
+  *a2 = (unsigned int)total;
+  return STATUS_SUCCESS;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        ready = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_ready"
+            and item.get("base") == "dmaAdapter"
+        ]
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "dmaAdapter"
+        ]
+
+        self.assertEqual(1, len(plan.corrected_parameter_map))
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("domain_identity", ready[0]["source_provenance"])
+        self.assertEqual(
+            "windows.hal_dma_iommu.dma_allocate_map_registers_high_level",
+            ready[0]["domain_profile_id"],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                apply_validated_layout_rewrites=True,
+            )
+            preview = Path(artifacts["layout_rewrite_preview"]).read_text(encoding="utf-8")
+            metadata = json.loads(
+                Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual("applied", metadata["canonical_rewrite_status"])
+        self.assertEqual(["dmaAdapter"], metadata["rewritten_bases"])
+        self.assertEqual(13, metadata["rewritten_accesses"])
+        self.assertIn("dmaAdapter->field_30", preview)
+        self.assertIn("dmaAdapter->field_1BA", preview)
+        self.assertNotIn("*(unsigned __int8 *)(dmaAdapter + 442)", preview)
 
     def test_hal_dma_iommu_build_mismatch_blocks_type_preview(self) -> None:
         capture = capture_from_pseudocode(

@@ -195,7 +195,12 @@
     },
     {
       "id": "windows.memory_manager.store_work_item_process",
-      "source": "Reviewed ST_STORE<SM_TRAITS>::StWorkItemProcess ntoskrnl 26200.8457 store work item dispatch and store context offset residue; preview-only private C++ method prototype.",
+      "source": "Reviewed ST_STORE<SM_TRAITS>::StWorkItemProcess ntoskrnl 10.0.26200.8457 store work item dispatch and stable store offset residue; generic field aliases intentionally avoid undocumented private field names.",
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": true,
+        "apply_to_idb_default": false
+      },
       "function_names": [
         "StWorkItemProcess"
       ],
@@ -260,14 +265,32 @@
           "rename_to": "store",
           "rename_confidence": 0.88,
           "structure": "ST_STORE_SM_TRAITS",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.84,
           "accepted_types": [
             "__int64",
             "PVOID",
             "PST_STORE_SM_TRAITS"
           ],
-          "source": "Memory Manager exact-name parameter role"
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "base_stability",
+            "base_escape"
+          ],
+          "source": "ST_STORE<SM_TRAITS>::StWorkItemProcess exact-name store parameter with 17 stable accesses across 9 offsets in ntoskrnl 10.0.26200.8457 random500 residue review",
+          "fields": [
+            {"offset": "0x18", "name": "field_18", "type": "ULONG_PTR", "size": 8, "confidence": 0.84},
+            {"offset": "0x388", "name": "field_388", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x8E8", "name": "field_8E8", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x940", "name": "field_940", "type": "UCHAR", "size": 1, "confidence": 0.84},
+            {"offset": "0x942", "name": "field_942", "type": "UCHAR", "size": 1, "confidence": 0.82},
+            {"offset": "0x948", "name": "field_948", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x1A90", "name": "field_1A90", "type": "ULONG_PTR", "size": 8, "confidence": 0.84},
+            {"offset": "0x1A98", "name": "field_1A98", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x1AA0", "name": "field_1AA0", "type": "ULONG", "size": 4, "confidence": 0.84}
+          ]
         },
         {
           "parameter_index": 1,
@@ -305,7 +328,12 @@
     },
     {
       "id": "windows.memory_manager.create_shared_zero_pages",
-      "source": "Reviewed MiCreateSharedZeroPages ntoskrnl 26200.8457 shared zero-page creation context and PFN/list output residue; preview-only private prototype.",
+      "source": "Reviewed MiCreateSharedZeroPages ntoskrnl 10.0.26200.8457 shared zero-page creation context and stable context offset residue; generic field aliases intentionally avoid undocumented private field names.",
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": true,
+        "apply_to_idb_default": false
+      },
       "function_names": [
         "MiCreateSharedZeroPages"
       ],
@@ -352,14 +380,31 @@
           "rename_to": "sharedZeroPageContext",
           "rename_confidence": 0.86,
           "structure": "MI_SHARED_ZERO_PAGE_CONTEXT",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.82,
           "accepted_types": [
             "__int64",
             "PVOID",
             "PMI_SHARED_ZERO_PAGE_CONTEXT"
           ],
-          "source": "Memory Manager exact-name parameter role"
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "base_stability",
+            "base_escape"
+          ],
+          "source": "MiCreateSharedZeroPages exact-name sharedZeroPageContext parameter with 14 stable accesses across 8 offsets in ntoskrnl 10.0.26200.8457 random500 residue review",
+          "fields": [
+            {"offset": "0x8", "name": "field_8", "type": "ULONG_PTR", "size": 8, "confidence": 0.84},
+            {"offset": "0x10", "name": "field_10", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x18", "name": "field_18", "type": "ULONG_PTR", "size": 8, "confidence": 0.82, "note": "same-width pointer/integer observations"},
+            {"offset": "0x20", "name": "field_20", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x24", "name": "field_24", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x30", "name": "field_30", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x38", "name": "field_38", "type": "PVOID", "size": 8, "confidence": 0.82},
+            {"offset": "0x40", "name": "field_40", "type": "ULONG_PTR", "size": 8, "confidence": 0.82}
+          ]
         },
         {
           "parameter_index": 1,
@@ -381,7 +426,12 @@
     },
     {
       "id": "windows.memory_manager.pf_allocate_mdls",
-      "source": "Reviewed MiPfAllocateMdls ntoskrnl 26200.8457 pagefile MDL allocation context, SLIST, and outstanding-count flow; preview-only private prototype.",
+      "source": "Reviewed MiPfAllocateMdls ntoskrnl 10.0.26200.8457 pagefile MDL allocation context, SLIST, and stable pagefile context offset residue; generic field aliases intentionally avoid undocumented private field names.",
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": true,
+        "apply_to_idb_default": false
+      },
       "function_names": [
         "MiPfAllocateMdls"
       ],
@@ -455,14 +505,32 @@
           "rename_to": "pageFileMdlContext",
           "rename_confidence": 0.88,
           "structure": "MI_PAGEFILE_MDL_CONTEXT",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.84,
           "accepted_types": [
             "__int64",
             "PVOID",
             "PMI_PAGEFILE_MDL_CONTEXT"
           ],
-          "source": "Memory Manager exact-name parameter role"
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "base_stability",
+            "base_escape"
+          ],
+          "source": "MiPfAllocateMdls exact-name pageFileMdlContext parameter with 12 stable accesses across 9 offsets in ntoskrnl 10.0.26200.8457 random500 residue review",
+          "fields": [
+            {"offset": "0x8", "name": "field_8", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x10", "name": "field_10", "type": "ULONG_PTR", "size": 8, "confidence": 0.84},
+            {"offset": "0x18", "name": "field_18", "type": "PVOID", "size": 8, "confidence": 0.82},
+            {"offset": "0xB8", "name": "field_B8", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0xBC", "name": "field_BC", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0xC4", "name": "field_C4", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0xC8", "name": "field_C8", "type": "PVOID", "size": 8, "confidence": 0.82},
+            {"offset": "0xD4", "name": "field_D4", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0xE8", "name": "field_E8", "type": "PVOID", "size": 8, "confidence": 0.82, "note": "same-width pointer/list observations"}
+          ]
         },
         {
           "parameter_index": 1,

@@ -260,7 +260,12 @@
     },
     {
       "id": "windows.hal_dma_iommu.dma_allocate_map_registers_high_level",
-      "source": "Reviewed HalpDmaAllocateMapRegistersAtHighLevel map-register allocation context and generic-base residue; preview-only private prototype.",
+      "source": "Reviewed HalpDmaAllocateMapRegistersAtHighLevel map-register allocation context and stable dmaAdapter offset residue in ntoskrnl 10.0.26200.8457; generic field aliases intentionally avoid undocumented private field names.",
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": true,
+        "apply_to_idb_default": false
+      },
       "function_names": [
         "HalpDmaAllocateMapRegistersAtHighLevel"
       ],
@@ -306,14 +311,32 @@
           "rename_to": "dmaAdapter",
           "rename_confidence": 0.88,
           "structure": "HALP_DMA_ADAPTER",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.84,
           "accepted_types": [
             "__int64",
             "PVOID",
             "PHALP_DMA_ADAPTER"
           ],
-          "source": "HAL DMA/IOMMU exact-name parameter role"
+          "force_report_only_on": [
+            "overlay",
+            "type_conflict",
+            "unaligned",
+            "base_stability",
+            "base_escape"
+          ],
+          "source": "HalpDmaAllocateMapRegistersAtHighLevel exact-name dmaAdapter parameter with 16 stable accesses across 9 offsets in ntoskrnl 10.0.26200.8457 random500 residue review",
+          "fields": [
+            {"offset": "0x30", "name": "field_30", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x38", "name": "field_38", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x60", "name": "field_60", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x68", "name": "field_68", "type": "ULONG", "size": 4, "confidence": 0.82},
+            {"offset": "0x70", "name": "field_70", "type": "ULONG_PTR", "size": 8, "confidence": 0.84},
+            {"offset": "0x78", "name": "field_78", "type": "ULONG", "size": 4, "confidence": 0.84},
+            {"offset": "0xA0", "name": "field_A0", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
+            {"offset": "0x159", "name": "field_159", "type": "UCHAR", "size": 1, "confidence": 0.82},
+            {"offset": "0x1BA", "name": "field_1BA", "type": "UCHAR", "size": 1, "confidence": 0.84}
+          ]
         },
         {
           "parameter_index": 1,
