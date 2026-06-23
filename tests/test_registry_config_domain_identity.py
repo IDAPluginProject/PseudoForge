@@ -441,6 +441,7 @@ __int64 __fastcall CmpSetSecurityDescriptorInfo(ULONG_PTR a1, _DWORD *a2, size_t
         self.assertEqual(9, len(corrections))
         self.assertTrue(all(item.apply_to_preview for item in corrections))
         self.assertTrue(all(not item.apply_to_idb for item in corrections))
+        self.assertIn("NTSTATUS __fastcall CmpSetSecurityDescriptorInfo(", rendered)
         self.assertIn("PCM_KEY_CONTROL_BLOCK keyControlBlock", rendered)
         self.assertIn("PSECURITY_INFORMATION securityInformation", rendered)
         self.assertIn("PSECURITY_DESCRIPTOR newSecurityDescriptor", rendered)
@@ -501,6 +502,7 @@ __int64 __fastcall CmpFindValueByName(ULONG_PTR a1)
 
         self.assertEqual(1, len(corrections))
         self.assertTrue(corrections[0].apply_to_preview)
+        self.assertIn("PCM_KEY_VALUE __fastcall CmpFindValueByName(", rendered)
         self.assertIn("PCM_KEY_VALUE_SEARCH_CONTEXT valueSearchContext", rendered)
         self.assertEqual([], plan.corrected_parameter_map)
 
@@ -550,6 +552,10 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
                 ],
             ),
         ]
+        expected_signatures = {
+            "windows.registry_config.cm_save_key_to_buffer": "NTSTATUS __fastcall CmSaveKeyToBuffer(",
+            "windows.registry_config.hv_reallocate_cell": "NTSTATUS __fastcall HvReallocateCell(",
+        }
 
         for text, profile_id, expected_fragments in samples:
             with self.subTest(profile_id=profile_id):
@@ -564,6 +570,7 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
                 self.assertTrue(all(not item.apply_to_idb for item in corrections))
                 self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                 self.assertEqual([], plan.corrected_parameter_map)
+                self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
 

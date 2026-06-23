@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from ida_pseudoforge.core.api_semantics import FUNCTION_SIGNATURE_OVERRIDES
+from ida_pseudoforge.core.domain_identity import DomainIdentityPrototype, domain_identity_function_prototypes
 from ida_pseudoforge.core.kernel_semantics import (
     looks_like_callback_registration_toggle,
     looks_like_driver_entry,
@@ -65,12 +66,13 @@ def apply_profile_parameter_type_corrections(
     capture: FunctionCapture,
     plan: CleanPlan,
 ) -> str:
+    prototype = _select_profile_signature_prototype(capture, plan)
     corrections = {
         item.parameter_index: item
         for item in plan.type_corrections
         if item.apply_to_preview and not item.blockers and item.canonical_type
     }
-    if not corrections:
+    if not corrections and prototype is None:
         return text
 
     function_names = _signature_function_name_candidates(capture)
@@ -84,12 +86,43 @@ def apply_profile_parameter_type_corrections(
         if end_index < index:
             return text
         signature = "\n".join(lines[index:end_index + 1])
-        corrected = _correct_signature_parameters(signature, corrections)
+        corrected = _correct_signature_prototype(signature, prototype, function_names)
+        corrected = _correct_signature_parameters(corrected, corrections)
         if corrected == signature:
             return text
         lines = lines[:index] + corrected.splitlines() + lines[end_index + 1:]
         return "\n".join(lines)
     return text
+
+
+def _select_profile_signature_prototype(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+) -> DomainIdentityPrototype | None:
+    prototypes = [
+        item
+        for item in domain_identity_function_prototypes(
+            capture.pseudocode,
+            profile_context=capture.profile_context,
+        )
+        if item.signature_preview and not item.blockers
+    ]
+    if not prototypes:
+        return None
+
+    correction_profile_ids = {
+        item.profile_id
+        for item in plan.type_corrections
+        if item.apply_to_preview and not item.blockers
+    }
+    if correction_profile_ids:
+        prototypes = [item for item in prototypes if item.profile_id in correction_profile_ids]
+    if len(prototypes) != 1:
+        return None
+    prototype = prototypes[0]
+    if not prototype.return_type and not prototype.calling_convention:
+        return None
+    return prototype
 
 
 def _signature_function_name_candidates(capture: FunctionCapture) -> list[str]:
@@ -169,6 +202,91 @@ def _correct_signature_parameters(
     for start, end, replacement in sorted(replacements, reverse=True):
         updated_parameters = updated_parameters[:start] + replacement + updated_parameters[end:]
     return signature[:open_index + 1] + updated_parameters + signature[close_index:]
+
+
+def _correct_signature_prototype(
+    signature: str,
+    prototype: DomainIdentityPrototype | None,
+    function_names: list[str],
+) -> str:
+    if prototype is None:
+        return signature
+    open_index = signature.find("(")
+    if open_index < 0:
+        return signature
+
+    leader = signature[:open_index].rstrip()
+    trailing_space = signature[len(leader):open_index]
+    name_span = _signature_name_span(leader, function_names)
+    if name_span is None:
+        return signature
+
+    existing_specifiers = leader[:name_span[0]].strip()
+    function_name = leader[name_span[0]:name_span[1]].strip()
+    if not function_name:
+        return signature
+
+    calling_convention = prototype.calling_convention or _signature_calling_convention(existing_specifiers)
+    return_type = prototype.return_type or _signature_return_type(existing_specifiers, calling_convention)
+    specifiers = " ".join(item for item in (return_type, calling_convention) if item)
+    if not specifiers:
+        return signature
+    replacement = "%s %s" % (specifiers, function_name)
+    return replacement + trailing_space + signature[open_index:]
+
+
+def _signature_name_span(
+    leader: str,
+    function_names: list[str],
+) -> tuple[int, int] | None:
+    best: tuple[int, int] | None = None
+    for function_name in sorted(function_names, key=len, reverse=True):
+        if not function_name:
+            continue
+        match = re.search(r"%s\s*\Z" % re.escape(function_name), leader)
+        if match:
+            best = (match.start(), match.end())
+            break
+    if best is not None:
+        return _extend_qualified_name_span(leader, best)
+
+    match = re.search(
+        r"((?:[A-Za-z_~][A-Za-z0-9_~<>:$]*::)*[A-Za-z_~][A-Za-z0-9_~<>:$]*)\s*\Z",
+        leader,
+    )
+    if not match:
+        return None
+    return (match.start(1), match.end(1))
+
+
+def _extend_qualified_name_span(
+    leader: str,
+    span: tuple[int, int],
+) -> tuple[int, int]:
+    start, end = span
+    prefix_match = re.search(
+        r"((?:[A-Za-z_~][A-Za-z0-9_~<>:$]*::)+)\Z",
+        leader[:start],
+    )
+    if prefix_match:
+        start = prefix_match.start(1)
+    return start, end
+
+
+def _signature_calling_convention(specifiers: str) -> str:
+    match = re.search(r"\b__(?:cdecl|fastcall|stdcall|thiscall|vectorcall)\b", specifiers)
+    return match.group(0) if match else ""
+
+
+def _signature_return_type(
+    specifiers: str,
+    calling_convention: str,
+) -> str:
+    value = specifiers.strip()
+    if calling_convention:
+        value = re.sub(r"\s*%s\b" % re.escape(calling_convention), "", value, count=1).strip()
+    value = re.sub(r"\s*__(?:cdecl|fastcall|stdcall|thiscall|vectorcall)\b", "", value).strip()
+    return value
 
 
 def _parameter_name(parameter: str) -> str:

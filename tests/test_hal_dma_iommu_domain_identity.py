@@ -129,6 +129,14 @@ __int64 __fastcall HalpIommuDomainMapLogicalRange(ULONG_PTR a1, __int64 a2, unsi
                 ],
             ),
         ]
+        expected_signatures = {
+            "windows.hal_dma_iommu.dma_map_scatter_transfer_v3": "void __fastcall HalpDmaMapScatterTransferV3(",
+            "windows.hal_dma_iommu.dma_allocate_map_registers_high_level": "NTSTATUS __fastcall HalpDmaAllocateMapRegistersAtHighLevel(",
+            "windows.hal_dma_iommu.iommu_domain_get_logical_address_range": "NTSTATUS __fastcall HalpIommuDomainGetLogicalAddressRange(",
+            "windows.hal_dma_iommu.dma_allocate_emergency_resources": "NTSTATUS __fastcall HalpDmaAllocateEmergencyResources(",
+            "windows.hal_dma_iommu.pci_access_io_config_space": "BOOLEAN __fastcall HalpPciAccessIoConfigSpace(",
+            "windows.hal_dma_iommu.iommu_domain_map_logical_range": "NTSTATUS __fastcall HalpIommuDomainMapLogicalRange(",
+        }
 
         for text, profile_id, expected_fragments in samples:
             with self.subTest(profile_id=profile_id):
@@ -143,6 +151,7 @@ __int64 __fastcall HalpIommuDomainMapLogicalRange(ULONG_PTR a1, __int64 a2, unsi
                 self.assertTrue(all(not item.apply_to_idb for item in corrections))
                 self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                 self.assertEqual([], plan.corrected_parameter_map)
+                self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
 
@@ -159,6 +168,7 @@ __int64 __fastcall HalpIommuDomainGetLogicalAddressRange(__int64 a1, _QWORD *a2,
             source_path=MISMATCH_SOURCE_PATH,
         )
         plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
         corrections = [
             item
             for item in plan.type_corrections
@@ -168,6 +178,8 @@ __int64 __fastcall HalpIommuDomainGetLogicalAddressRange(__int64 a1, _QWORD *a2,
         self.assertEqual(6, len(corrections))
         self.assertTrue(all("build_mismatch" in item.blockers for item in corrections))
         self.assertTrue(all(not item.apply_to_preview for item in corrections))
+        self.assertIn("__int64 __fastcall HalpIommuDomainGetLogicalAddressRange(", rendered)
+        self.assertNotIn("NTSTATUS __fastcall HalpIommuDomainGetLogicalAddressRange(", rendered)
 
     def test_hal_dma_iommu_manifest_is_reported_when_pack_is_used(self) -> None:
         self._plan(

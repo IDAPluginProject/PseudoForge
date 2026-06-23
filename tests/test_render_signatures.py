@@ -3,11 +3,13 @@ from __future__ import annotations
 import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.domain_identity import DomainIdentityPrototype
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, ParameterTypeCorrection
 from ida_pseudoforge.core.render import _find_signature_end as legacy_find_signature_end
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.render_signatures import (
+    _correct_signature_prototype,
     apply_known_function_signature,
     apply_profile_parameter_type_corrections,
     find_signature_end,
@@ -193,6 +195,27 @@ __int64 __fastcall IopExample(__int64 a1)
             rendered,
         )
         self.assertIn("return *(_QWORD *)(store + 24) + workItem + workItemContext;", rendered)
+
+    def test_profile_prototype_calling_convention_does_not_keep_existing_convention_as_return_type(self) -> None:
+        prototype = DomainIdentityPrototype(
+            profile_id="test.prototype",
+            function_name="NtExample",
+            return_type="",
+            calling_convention="__stdcall",
+            parameters=(),
+            signature_preview=True,
+            body_canonical_rewrite=False,
+            apply_to_idb_default=False,
+        )
+
+        rendered = _correct_signature_prototype(
+            "__int64 __fastcall NtExample(int a1)",
+            prototype,
+            ["NtExample"],
+        )
+
+        self.assertEqual("__int64 __stdcall NtExample(int a1)", rendered)
+        self.assertNotIn("__fastcall __stdcall", rendered)
 
     def test_find_signature_end_handles_multiline_signatures(self) -> None:
         lines = [

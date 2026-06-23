@@ -591,10 +591,12 @@ __int64 __fastcall NtAlpcImpersonateClientOfPort(HANDLE Handle, __int64 a2, unsi
         create_rendered = render_cleaned_pseudocode(create_capture, create_plan)
         impersonate_rendered = render_cleaned_pseudocode(impersonate_capture, impersonate_plan)
 
+        self.assertIn("NTSTATUS __stdcall NtAlpcCreatePortSection(", create_rendered)
         self.assertIn(
             "HANDLE portHandle, ULONG flags, HANDLE sectionHandle, SIZE_T sectionSize, PULONG_PTR alpcSectionHandle, PSIZE_T actualSectionSize",
             create_rendered,
         )
+        self.assertIn("NTSTATUS __stdcall NtAlpcImpersonateClientOfPort(", impersonate_rendered)
         self.assertIn(
             "HANDLE portHandle, PALPC_MESSAGE_ATTRIBUTES messageAttributes, ULONG_PTR flags",
             impersonate_rendered,

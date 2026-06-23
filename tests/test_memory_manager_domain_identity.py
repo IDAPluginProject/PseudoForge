@@ -544,6 +544,16 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                 ],
             ),
         ]
+        expected_signatures = {
+            "windows.memory_manager.create_slab_entry": "NTSTATUS __fastcall MiCreateSlabEntry(",
+            "windows.memory_manager.store_work_item_process": "NTSTATUS __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(",
+            "windows.memory_manager.create_shared_zero_pages": "NTSTATUS __fastcall MiCreateSharedZeroPages(",
+            "windows.memory_manager.pf_allocate_mdls": "NTSTATUS __fastcall MiPfAllocateMdls(",
+            "windows.memory_manager.lock_page_list_and_last_page": "void __fastcall MiLockPageListAndLastPage(",
+            "windows.memory_manager.validate_add_physical_memory_parameters": "NTSTATUS __fastcall MiValidateAddPhysicalMemoryParameters(",
+            "windows.memory_manager.vmp_fill_gpn_ranges": "PVOID __fastcall VmpFillGpnRanges(",
+            "windows.memory_manager.vmp_fill_slat": "NTSTATUS __fastcall VmpFillSlat(",
+        }
 
         for text, profile_id, expected_fragments in samples:
             with self.subTest(profile_id=profile_id):
@@ -555,6 +565,7 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                 self.assertEqual(len(expected_fragments), len(corrections))
                 self.assertTrue(all(item.apply_to_preview for item in corrections))
                 self.assertEqual([], plan.corrected_parameter_map)
+                self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
 
