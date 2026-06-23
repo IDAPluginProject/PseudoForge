@@ -12,6 +12,10 @@
       - driver_entry: DriverEntry-style dispatch table, unload routine, and device creation sequence detected confidence=0.92
       - driver_dispatch_table: IRP major-function table initialization is present confidence=0.90
       - device_extension_layout: DeviceExtension field offsets can be rendered as a preview-only inferred driver extension confidence=0.84
+      - inferred_offset_layout: Offset layout hint: extension has 8 typed dereference(s) across 3 offset(s) +0x8, +0x240, +0x2D8; observed types: PIO_WORKITEM, PVOID, _QWORD. Review as an inferred structure base. confidence=0.81
+      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for extension: rewrite offset threshold requires at least 8 offsets; rewrite access threshold requires at least 12 accesses; base is also indexed like an array. Review-only aliases remain available. confidence=0.77
+      - inferred_offset_base_stability: Base stability evidence for extension: 2 initializer(s) before first layout access across 1 distinct RHS (deviceObject->DeviceExtension); 0 post-access assignment(s), 0 followed by later layout access. Review initializer dominance before enabling canonical rewrite. confidence=0.67
+      - inferred_offset_post_access_mutation_blocker: Post-access mutation blocker for extension: post-access assignments 0, risky 0, stable reloads 0, reasons base is also indexed like an array, trust class mutation_blocked. Canonical rewrite remains blocked until later layout accesses are proven to use the same base object. confidence=0.62
     Renames: DeferredContext->extension(0.93,kernel-driver-entry), DestinationString->deviceName(0.93,kernel-driver-entry), DeviceObject->deviceObject(0.93,kernel-driver-entry), a1->driverObject(0.99,prototype), a2->registryPath(0.99,prototype), i->majorIndex(0.93,kernel-driver-entry), v3->status(0.94,kernel-status)
 */
 

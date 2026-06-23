@@ -438,7 +438,13 @@
             "void *",
             "OBJECT_HEADER_LIKE *"
           ],
-          "source": "ObpFreeObject object header-like teardown context; report-only layout identity"
+          "source": "ObpFreeObject object header-like teardown context; report-only layout identity",
+          "fields": [
+            {"offset": "0x18", "name": "field_18", "type": "ULONG", "size": 4, "confidence": 0.78, "note": "observed teardown scalar access"},
+            {"offset": "0x1A", "name": "field_1A", "type": "USHORT", "size": 2, "confidence": 0.74, "note": "observed header subfield access"},
+            {"offset": "0x1B", "name": "field_1B", "type": "UCHAR", "size": 1, "confidence": 0.72, "note": "observed header subfield access"},
+            {"offset": "0x20", "name": "field_20", "type": "ULONG_PTR", "size": 8, "confidence": 0.78}
+          ]
         }
       ]
     },

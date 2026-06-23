@@ -12,6 +12,7 @@ from tools.pseudoforge_corpus_quality import (
     _base_stability_review_profile,
     _decimal_status_like_literals,
     _decimal_status_target_review_queues,
+    _layout_promotion_next_action,
     _layout_rewrite_blocker_review_profiles,
     _nested_status_pointer_store_literals,
     _ntstatus_family_literals,
@@ -667,6 +668,54 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             ["type_evidence_blockers", "alignment_type_blockers"],
             _layout_rewrite_blocker_review_profiles(
                 ["one or more typed offsets are not naturally aligned"]
+            ),
+        )
+
+    def test_layout_promotion_next_action_prioritizes_fail_closed_review(self) -> None:
+        self.assertEqual(
+            "collect_more_exact_field_evidence",
+            _layout_promotion_next_action(
+                {"identity_evidence": "stable_argument_source"},
+                [
+                    "domain identity profile is report-only",
+                    "rewrite offset threshold requires at least 8 offsets",
+                ],
+                "threshold_blocked",
+            ),
+        )
+        self.assertEqual(
+            "prove_source_stability_before_rewrite",
+            _layout_promotion_next_action(
+                {"identity_evidence": "stable_argument_source"},
+                ["base is reassigned after layout access"],
+                "source_stability_blocked",
+            ),
+        )
+        self.assertEqual(
+            "resolve_type_width_or_subfield_conflict",
+            _layout_promotion_next_action(
+                {"identity_evidence": "stable_argument_source"},
+                ["one or more offsets mix narrow subfield access widths"],
+                "type_evidence_blocked",
+            ),
+        )
+        self.assertEqual(
+            "add_exact_identity_or_keep_review_only",
+            _layout_promotion_next_action(
+                {"identity_evidence": "none"},
+                ["rewrite access threshold requires at least 12 accesses"],
+                "missing_identity_evidence",
+            ),
+        )
+        self.assertEqual(
+            "prove_source_provenance_before_rewrite",
+            _layout_promotion_next_action(
+                {
+                    "identity_evidence": "stable_argument_source",
+                    "source_provenance": "unknown_source_alias",
+                },
+                [],
+                "source_provenance_blocked",
             ),
         )
 
@@ -1560,6 +1609,12 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 ]["promotion_review_classes"],
             )
             self.assertEqual(
+                {"add_exact_identity_or_keep_review_only": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "threshold_gap_candidates"
+                ]["promotion_next_actions"],
+            )
+            self.assertEqual(
                 1,
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
@@ -1582,6 +1637,12 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
                 ]["promotion_review_classes"],
+            )
+            self.assertEqual(
+                {"consider_validated_profile_promotion": 1},
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["promotion_next_actions"],
             )
             self.assertEqual(
                 "v14",
@@ -1624,6 +1685,12 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 report["layout_rewrite_blocker_stats"]["review_queues"][
                     "base_identity_candidates"
                 ]["items"][0]["promotion_review_class"],
+            )
+            self.assertEqual(
+                "consider_validated_profile_promotion",
+                report["layout_rewrite_blocker_stats"]["review_queues"][
+                    "base_identity_candidates"
+                ]["items"][0]["promotion_next_action"],
             )
             self.assertEqual(
                 ["identity_only"],
@@ -1675,6 +1742,15 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 {"stable_source_promotion_review": 1, "missing_identity_evidence": 1},
                 report["layout_rewrite_blocker_stats"]["top_functions"][0][
                     "promotion_review_classes"
+                ],
+            )
+            self.assertEqual(
+                {
+                    "add_exact_identity_or_keep_review_only": 1,
+                    "consider_validated_profile_promotion": 1,
+                },
+                report["layout_rewrite_blocker_stats"]["top_functions"][0][
+                    "promotion_next_actions"
                 ],
             )
             self.assertEqual(8, report["layout_rewrite_blocker_stats"]["top_functions"][0]["max_offsets"])
@@ -2603,23 +2679,23 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 | direct_argument_alias=1 | stable_source_promotion_review=1 |",
+                "| `base_identity_candidates` | 1 | 1 | 8 | 13 | v14=1 | stable_argument_source=1 | direct_argument_alias=1 | stable_source_promotion_review=1 | consider_validated_profile_promotion=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `Sample` | `0x140001000` | `v14` | 8 | 13 | stable_argument_source | direct_argument_alias, argument, argument2 | stable_source_promotion_review | identity_only | base is a decompiler temporary |",
+                "| `Sample` | `0x140001000` | `v14` | 8 | 13 | stable_argument_source | direct_argument_alias, argument, argument2 | stable_source_promotion_review | consider_validated_profile_promotion | identity_only | base is a decompiler temporary |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 |",
+                "| `threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 | add_exact_identity_or_keep_review_only=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 |",
+                "| `offset_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 | add_exact_identity_or_keep_review_only=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 |",
+                "| `access_threshold_gap_candidates` | 1 | 1 | 3 | 6 | sessionSpace=1 | none=1 | none=1 | missing_identity_evidence=1 | add_exact_identity_or_keep_review_only=1 |",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

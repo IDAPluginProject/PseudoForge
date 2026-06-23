@@ -425,6 +425,12 @@ NTSTATUS __stdcall CmRegisterCallbackEx(__int64 a1, __int64 a2, __int64 a3, __in
             """
 __int64 __fastcall CmpSetSecurityDescriptorInfo(ULONG_PTR a1, _DWORD *a2, size_t a3, ULONG_PTR a4, int a5, __int64 a6, __int64 a7, __int64 a8, __int64 a9)
 {
+  *(_QWORD *)(a1 + 32) = a8;
+  *(_DWORD *)(a1 + 40) |= 1;
+  *(_DWORD *)(a8 + 68) = *a2;
+  *(_QWORD *)(a8 + 88) = a4;
+  *(_DWORD *)(a8 + 96) = 0;
+  *(_BYTE *)(a8 + 100) = 1;
   CmGetKCBCacheSecurity(a1, a7);
   RtlpSetSecurityObject(0, *a2, a3, (unsigned int)&a4, 0, a5, a6, a9);
   return CmpTraceSecurityChanging(a1, a4, *a2, a3, a4);
@@ -459,6 +465,15 @@ __int64 __fastcall CmpSetSecurityDescriptorInfo(ULONG_PTR a1, _DWORD *a2, size_t
                 "poolTypeContext": "GENERIC_MAPPING_CONTEXT",
             },
             {item["trusted_role"]: item["structure_name"] for item in identities},
+        )
+        fields_by_role = {
+            item["trusted_role"]: {field["name"] for field in item["fields"]}
+            for item in identities
+        }
+        self.assertEqual({"field_20", "field_28"}, fields_by_role["keyControlBlock"])
+        self.assertEqual(
+            {"field_44", "field_58", "field_60", "field_64"},
+            fields_by_role["transactionLogEntry"],
         )
         self.assertTrue(all(item.get("effective_mode") == "report-only" for item in identities))
         self.assertEqual([], plan.corrected_parameter_map)
@@ -510,6 +525,46 @@ __int64 __fastcall CmpFindValueByName(ULONG_PTR a1)
         samples = [
             (
                 """
+__int64 __fastcall CmpInsertSecurityCellList(ULONG_PTR a1, ULONG_PTR a2, int a3, char a4)
+{
+  if ( (*(_BYTE *)(a1 + 140) & 1) != 0 )
+  {
+    HvpGetCellFlat(a1, (unsigned int)a3);
+  }
+  else
+  {
+    HvpGetCellPaged(a1);
+  }
+  return CmpAddSecurityCellToCache(a1, (unsigned int)a3);
+}
+""",
+                "windows.registry_config.cmp_insert_security_cell_list",
+                [
+                    "PHHIVE hive",
+                    "HCELL_INDEX securityCell",
+                    "HCELL_INDEX insertCell",
+                    "BOOLEAN insertBeforeCurrent",
+                ],
+            ),
+            (
+                """
+void __fastcall CmpFreeKeyControlBlock(ULONG_PTR a1)
+{
+  if ( *(_QWORD *)(a1 + 120) != a1 + 120 )
+  {
+    KeBugCheckEx(0x51u, 0x11uLL, a1, 0LL, 0LL);
+  }
+  *(_DWORD *)(a1 + 8) |= 0x10000u;
+  ExFreeToLookasideListEx(&CmpKcbLookaside, (PVOID)a1);
+}
+""",
+                "windows.registry_config.cmp_free_key_control_block",
+                [
+                    "PCM_KEY_CONTROL_BLOCK keyControlBlock",
+                ],
+            ),
+            (
+                """
 __int64 __fastcall CmSaveKeyToBuffer(int a1, __int64 a2, __int64 a3)
 {
   PVOID Object;
@@ -553,6 +608,8 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
             ),
         ]
         expected_signatures = {
+            "windows.registry_config.cmp_insert_security_cell_list": "NTSTATUS __fastcall CmpInsertSecurityCellList(",
+            "windows.registry_config.cmp_free_key_control_block": "void __fastcall CmpFreeKeyControlBlock(",
             "windows.registry_config.cm_save_key_to_buffer": "NTSTATUS __fastcall CmSaveKeyToBuffer(",
             "windows.registry_config.hv_reallocate_cell": "NTSTATUS __fastcall HvReallocateCell(",
         }

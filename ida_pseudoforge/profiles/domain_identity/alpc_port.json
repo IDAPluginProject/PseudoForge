@@ -857,7 +857,15 @@
           "structure": "ALPC_MESSAGE",
           "mode": "report-only",
           "confidence": 0.74,
-          "source": "AlpcpAllocateMessage allocated message buffer local"
+          "source": "AlpcpAllocateMessage allocated message buffer local",
+          "fields": [
+            {"offset": "0x8", "name": "field_8", "type": "ULONG_PTR", "size": 8, "confidence": 0.76, "note": "observed message self-link/header access"},
+            {"offset": "0x10", "name": "field_10", "type": "USHORT", "size": 2, "confidence": 0.72, "note": "observed mixed byte/word header access; report-only"},
+            {"offset": "0x12", "name": "field_12", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed header dword zeroing"},
+            {"offset": "0x16", "name": "field_16", "type": "USHORT", "size": 2, "confidence": 0.72, "note": "observed header word zeroing"},
+            {"offset": "0x20", "name": "field_20", "type": "ULONG_PTR", "size": 8, "confidence": 0.74},
+            {"offset": "0x28", "name": "field_28", "type": "ULONG_PTR", "size": 8, "confidence": 0.74}
+          ]
         }
       ]
     },

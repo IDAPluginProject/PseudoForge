@@ -2005,7 +2005,15 @@
             "PVOID",
             "PMI_ADD_PHYSICAL_MEMORY_CONTEXT"
           ],
-          "source": "MiValidateAddPhysicalMemoryParameters output context receives PFN range, flags, partition, and caller context"
+          "source": "MiValidateAddPhysicalMemoryParameters output context receives PFN range, flags, partition, and caller context",
+          "fields": [
+            {"offset": "0x10", "name": "field_10", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed start PFN store"},
+            {"offset": "0x18", "name": "field_18", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed end PFN store"},
+            {"offset": "0x20", "name": "field_20", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed page-count store"},
+            {"offset": "0x28", "name": "field_28", "type": "ULONG", "size": 4, "confidence": 0.78, "note": "observed add-flags store"},
+            {"offset": "0x30", "name": "field_30", "type": "PMMPARTITION", "size": 8, "confidence": 0.78, "note": "observed partition pointer store"},
+            {"offset": "0x38", "name": "field_38", "type": "ULONG_PTR", "size": 8, "confidence": 0.76, "note": "observed caller context store"}
+          ]
         }
       ]
     },

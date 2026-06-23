@@ -1585,7 +1585,11 @@
             "PVOID",
             "PCM_KEY_CONTROL_BLOCK"
           ],
-          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role",
+          "fields": [
+            {"offset": "0x20", "name": "field_20", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed key-control-block pointer-sized access"},
+            {"offset": "0x28", "name": "field_28", "type": "ULONG", "size": 4, "confidence": 0.76, "note": "observed key-control-block scalar access"}
+          ]
         },
         {
           "parameter_index": 1,
@@ -1695,7 +1699,13 @@
             "PVOID",
             "PCM_TRANS_SECURITY_ENTRY"
           ],
-          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role"
+          "source": "CmpSetSecurityDescriptorInfo exact-name parameter role",
+          "fields": [
+            {"offset": "0x44", "name": "field_44", "type": "ULONG", "size": 4, "confidence": 0.76},
+            {"offset": "0x58", "name": "field_58", "type": "ULONG_PTR", "size": 8, "confidence": 0.78},
+            {"offset": "0x60", "name": "field_60", "type": "ULONG", "size": 4, "confidence": 0.76},
+            {"offset": "0x64", "name": "field_64", "type": "UCHAR", "size": 1, "confidence": 0.74}
+          ]
         },
         {
           "parameter_index": 8,
@@ -2184,6 +2194,209 @@
       ]
     },
     {
+      "id": "windows.registry_config.cmp_insert_security_cell_list",
+      "source": "Reviewed CmpInsertSecurityCellList ntoskrnl 26200.8457 HHIVE security-cell link insertion flow through HvpGetCellFlat/Paged, HvpMarkCellDirty, and CmpAddSecurityCellToCache; preview-only private prototype.",
+      "function_names": [
+        "CmpInsertSecurityCellList"
+      ],
+      "parameter_count": 4,
+      "required_calls": [
+        "CmpAddSecurityCellToCache"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "hive",
+            "canonical_type": "PHHIVE",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID",
+              "PHHIVE"
+            ],
+            "semantic_role": "hive",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "securityCell",
+            "canonical_type": "HCELL_INDEX",
+            "accepted_types": [
+              "ULONG_PTR",
+              "unsigned int",
+              "ULONG",
+              "HCELL_INDEX"
+            ],
+            "semantic_role": "securityCell",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "insertCell",
+            "canonical_type": "HCELL_INDEX",
+            "accepted_types": [
+              "int",
+              "unsigned int",
+              "ULONG",
+              "HCELL_INDEX"
+            ],
+            "semantic_role": "insertCell",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "insertBeforeCurrent",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "char",
+              "BOOLEAN",
+              "unsigned __int8",
+              "int"
+            ],
+            "semantic_role": "insertBeforeCurrent",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "hive",
+          "rename_to": "hive",
+          "rename_confidence": 0.88,
+          "structure": "HHIVE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "PHHIVE"
+          ],
+          "source": "CmpInsertSecurityCellList hive parameter used for HvpGetCellFlat/Paged and dirty/release helpers",
+          "fields": [
+            {"offset": "0x8C", "name": "field_8C", "type": "UCHAR", "size": 1, "confidence": 0.78, "note": "observed flat-hive branch flag access"}
+          ]
+        },
+        {
+          "parameter_index": 1,
+          "role": "securityCell",
+          "rename_to": "securityCell",
+          "rename_confidence": 0.84,
+          "structure": "HCELL_INDEX",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG_PTR",
+            "unsigned int",
+            "ULONG",
+            "HCELL_INDEX"
+          ],
+          "source": "CmpInsertSecurityCellList existing security cell index"
+        },
+        {
+          "parameter_index": 2,
+          "role": "insertCell",
+          "rename_to": "insertCell",
+          "rename_confidence": 0.84,
+          "structure": "HCELL_INDEX",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "int",
+            "unsigned int",
+            "ULONG",
+            "HCELL_INDEX"
+          ],
+          "source": "CmpInsertSecurityCellList cell index inserted into the security-cell links"
+        },
+        {
+          "parameter_index": 3,
+          "role": "insertBeforeCurrent",
+          "rename_to": "insertBeforeCurrent",
+          "rename_confidence": 0.8,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "char",
+            "BOOLEAN",
+            "unsigned __int8",
+            "int"
+          ],
+          "source": "CmpInsertSecurityCellList branch flag selecting insertion side"
+        }
+      ]
+    },
+    {
+      "id": "windows.registry_config.cmp_free_key_control_block",
+      "source": "Reviewed CmpFreeKeyControlBlock ntoskrnl 26200.8457 key-control-block teardown path through CmPerfCounters, bugcheck guards, transient pool release, KCB lookaside free, and private KCB residue offsets; preview-only private prototype.",
+      "function_names": [
+        "CmpFreeKeyControlBlock"
+      ],
+      "parameter_count": 1,
+      "required_calls": [
+        "ExFreeToLookasideListEx"
+      ],
+      "prototype": {
+        "return_type": "void",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "keyControlBlock",
+            "canonical_type": "PCM_KEY_CONTROL_BLOCK",
+            "accepted_types": [
+              "ULONG_PTR",
+              "__int64",
+              "PVOID",
+              "PCM_KEY_CONTROL_BLOCK"
+            ],
+            "semantic_role": "keyControlBlock",
+            "type_confidence": 0.86,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "keyControlBlock",
+          "rename_to": "keyControlBlock",
+          "rename_confidence": 0.9,
+          "structure": "CM_KEY_CONTROL_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.86,
+          "accepted_types": [
+            "ULONG_PTR",
+            "__int64",
+            "PVOID",
+            "PCM_KEY_CONTROL_BLOCK"
+          ],
+          "source": "CmpFreeKeyControlBlock key-control-block parameter freed to CmpKcbLookaside",
+          "fields": [
+            {"offset": "0x8", "name": "field_8", "type": "ULONG", "size": 4, "confidence": 0.78, "note": "observed teardown flag tests and updates"},
+            {"offset": "0x20", "name": "field_20", "type": "ULONG_PTR", "size": 8, "confidence": 0.76},
+            {"offset": "0x78", "name": "field_78", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed self-referential list guard"},
+            {"offset": "0xC8", "name": "field_C8", "type": "PVOID", "size": 8, "confidence": 0.78, "note": "observed pool pointer released with CMNb tag"},
+            {"offset": "0x128", "name": "field_128", "type": "ULONG_PTR", "size": 8, "confidence": 0.76, "note": "observed transient-pool pointer with low-bit tag"}
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.registry_config.hv_reallocate_cell",
       "source": "Reviewed HvReallocateCell ntoskrnl 26200.8457 HHIVE cell reallocation flow through HvpGetCellFlat/Paged, HvpDoAllocateCell, HvFreeCell, and HvpGetCellContextMove; preview-only private prototype.",
       "function_names": [
@@ -2316,7 +2529,10 @@
             "PVOID",
             "PHHIVE"
           ],
-          "source": "HvReallocateCell hive parameter used by HvpGetCellFlat/Paged and HvFreeCell"
+          "source": "HvReallocateCell hive parameter used by HvpGetCellFlat/Paged and HvFreeCell",
+          "fields": [
+            {"offset": "0x8C", "name": "field_8C", "type": "UCHAR", "size": 1, "confidence": 0.76, "note": "observed flat-hive branch flag access"}
+          ]
         },
         {
           "parameter_index": 1,
