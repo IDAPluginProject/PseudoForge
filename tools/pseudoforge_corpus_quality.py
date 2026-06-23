@@ -144,6 +144,7 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
     "manual_review",
 )
 _LAYOUT_REWRITE_BLOCKER_MARKDOWN_ITEM_LIMIT = 5
+_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT = 20
 _BASE_STABILITY_REVIEW_PROFILE_ORDER = (
     "initializer_dominance_review",
     "initializer_and_reassignment_risk",
@@ -608,6 +609,11 @@ def analyze_corpus(
     rewrite_blocker_review_profiles: Counter[str] = Counter()
     rewrite_blocker_review_queues: dict[str, list[dict[str, Any]]] = {}
     rewrite_blocker_totals = Counter()
+    body_offset_residue_totals = Counter()
+    body_offset_residue_subsystems: Counter[str] = Counter()
+    body_offset_residue_next_actions: Counter[str] = Counter()
+    body_offset_residue_review_classes: Counter[str] = Counter()
+    body_offset_residue_blocker_reasons: Counter[str] = Counter()
     decimal_status_residue_values: Counter[str] = Counter()
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
@@ -652,6 +658,7 @@ def analyze_corpus(
     top_rewrite_near_ready_functions = []
     top_rewrite_partial_opportunity_functions = []
     top_rewrite_blocker_functions = []
+    top_body_offset_residue_functions = []
     top_decimal_status_residue_functions = []
     top_nested_status_store_functions = []
     top_ntstatus_body_unprofiled_functions = []
@@ -918,6 +925,34 @@ def analyze_corpus(
                     ea,
                     summary_path,
                 )
+                body_offset_residue_item = _body_offset_residue_function_summary(
+                    name,
+                    ea,
+                    summary_path,
+                    prototype_metrics,
+                    layout_hints,
+                    hot_field_clusters,
+                    indexed_callback_tables,
+                    stable_base_sources,
+                    base_stability,
+                    generic_base_evidence,
+                    generic_base_trust_candidates,
+                    temp_provenance,
+                    rewrite_ready,
+                    rewrite_blockers,
+                    domain_identities,
+                    pointer_indexed_metrics,
+                )
+                if body_offset_residue_item:
+                    _update_body_offset_residue_metrics(
+                        body_offset_residue_item,
+                        body_offset_residue_totals,
+                        body_offset_residue_subsystems,
+                        body_offset_residue_next_actions,
+                        body_offset_residue_review_classes,
+                        body_offset_residue_blocker_reasons,
+                    )
+                    top_body_offset_residue_functions.append(body_offset_residue_item)
                 if layout_hints:
                     top_layout_hint_functions.append(
                         _layout_hint_function_summary(name, ea, summary_path, layout_hints)
@@ -1221,6 +1256,14 @@ def analyze_corpus(
             str(item["name"]),
         )
     )
+    top_body_offset_residue_functions.sort(
+        key=lambda item: (
+            -int(item["priority_score"]),
+            -int(item["offset_deref_survivors"]),
+            -int(item["field_access_pressure"]),
+            str(item["name"]),
+        )
+    )
     top_decimal_status_residue_functions.sort(
         key=lambda item: (
             -int(item["literal_count"]),
@@ -1476,6 +1519,14 @@ def analyze_corpus(
             ),
             "top_functions": top_rewrite_blocker_functions[:top],
         },
+        "body_offset_residue_review_stats": {
+            "totals": _body_offset_residue_totals_dict(body_offset_residue_totals),
+            "subsystems": _counter_to_dict(Counter(dict(body_offset_residue_subsystems.most_common(top)))),
+            "next_actions": _counter_to_dict(Counter(dict(body_offset_residue_next_actions.most_common(top)))),
+            "review_classes": _counter_to_dict(Counter(dict(body_offset_residue_review_classes.most_common(top)))),
+            "blocker_reasons": _counter_to_dict(Counter(dict(body_offset_residue_blocker_reasons.most_common(top)))),
+            "top_functions": top_body_offset_residue_functions[:top],
+        },
         "prototype_correction_stats": {
             "totals": _prototype_correction_totals_dict(prototype_totals),
             "blocker_counts": _counter_to_dict(Counter(dict(prototype_blockers.most_common(top)))),
@@ -1566,7 +1617,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     decimal_status_residue_stats = _coerce_dict(report.get("decimal_status_residue_stats", {}))
     status_store_residue_stats = _coerce_dict(report.get("status_store_residue_stats", {}))
     prototype_correction_stats = _coerce_dict(report.get("prototype_correction_stats", {}))
+    body_offset_residue_stats = _coerce_dict(report.get("body_offset_residue_review_stats", {}))
     prototype_correction_totals = _coerce_dict(prototype_correction_stats.get("totals", {}))
+    body_offset_residue_totals = _coerce_dict(body_offset_residue_stats.get("totals", {}))
     ntstatus_review_queues = _coerce_dict(ntstatus_body_residue_stats.get("review_queues", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
     subfield_overlay_totals = _coerce_dict(subfield_overlay_stats.get("totals", {}))
@@ -1760,6 +1813,94 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 str(item.get("ea", "")),
                 int(item.get("generic_parameter_survivors", 0) or 0),
                 int(item.get("offset_deref_survivors", 0) or 0),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Body Offset Residue Review Queue",
+            "",
+            "- Functions with offset residue: `%s`"
+            % body_offset_residue_totals.get("functions_with_offset_residue", 0),
+            "- Offset deref survivors: `%s`"
+            % body_offset_residue_totals.get("offset_deref_survivors", 0),
+            "- Generic parameter survivors in residue functions: `%s`"
+            % body_offset_residue_totals.get("generic_parameter_survivors", 0),
+            "- Rewrite-ready residue functions: `%s`"
+            % body_offset_residue_totals.get("functions_with_rewrite_ready", 0),
+            "- Rewrite-blocked residue functions: `%s`"
+            % body_offset_residue_totals.get("functions_with_rewrite_blockers", 0),
+            "- Domain-identity residue functions: `%s`"
+            % body_offset_residue_totals.get("functions_with_domain_identity", 0),
+            "",
+            "### Residue Subsystems",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("subsystems", {})),
+            "Subsystem",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Next Actions",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("next_actions", {})),
+            "Action",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Review Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("review_classes", {})),
+            "Class",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Body Offset Residue Functions",
+            "",
+            "| Function | EA | Subsystem | Class | Next action | Score | Offset derefs | Field pressure | Ready | Blockers | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join(str(base) for base in item.get("top_bases", []) or [])
+        reasons = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("blocker_reasons", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                str(item.get("subsystem", "")),
+                str(item.get("review_class", "")),
+                str(item.get("next_action", "")),
+                int(item.get("priority_score", 0) or 0),
+                int(item.get("offset_deref_survivors", 0) or 0),
+                int(item.get("field_access_pressure", 0) or 0),
+                int(item.get("body_rewrite_ready", 0) or 0),
+                int(item.get("body_rewrite_blockers", 0) or 0),
+                _markdown_table_cell(bases),
+                _markdown_table_cell(reasons),
             )
         )
     lines.extend(
@@ -4561,6 +4702,311 @@ def _prototype_correction_totals_dict(counter: Counter[str]) -> dict[str, int]:
     for key in required_keys:
         result.setdefault(key, 0)
     return result
+
+
+def _body_offset_residue_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    prototype_metrics: dict[str, Any],
+    layout_hints: list[dict[str, Any]],
+    hot_field_clusters: list[dict[str, Any]],
+    indexed_callback_tables: list[dict[str, Any]],
+    stable_base_sources: list[dict[str, Any]],
+    base_stability: list[dict[str, Any]],
+    generic_base_evidence: list[dict[str, Any]],
+    generic_base_trust_candidates: list[dict[str, Any]],
+    temp_provenance: dict[str, list[dict[str, Any]]],
+    rewrite_ready: list[dict[str, Any]],
+    rewrite_blockers: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
+    pointer_indexed_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    offset_deref_survivors = _int_value(prototype_metrics.get("offset_deref_survivors"), 0)
+    if offset_deref_survivors <= 0:
+        return {}
+    blocker_reasons = Counter(
+        str(reason)
+        for blocker in rewrite_blockers
+        for reason in blocker.get("reasons", []) or []
+        if str(reason)
+    )
+    subsystem = _body_offset_residue_subsystem(name, prototype_metrics, domain_identities)
+    source_evidence_count = len(stable_base_sources) + len(generic_base_trust_candidates)
+    field_access_pressure = max(
+        [
+            _int_value(item.get("access_count"), 0)
+            for item in [*layout_hints, *hot_field_clusters]
+        ]
+        or [0]
+    )
+    review_class = _body_offset_residue_review_class(
+        prototype_metrics,
+        layout_hints,
+        hot_field_clusters,
+        stable_base_sources,
+        generic_base_evidence,
+        generic_base_trust_candidates,
+        rewrite_blockers,
+        domain_identities,
+        pointer_indexed_metrics,
+    )
+    next_action = _body_offset_residue_next_action(
+        review_class,
+        prototype_metrics,
+        layout_hints,
+        hot_field_clusters,
+        stable_base_sources,
+        generic_base_evidence,
+        generic_base_trust_candidates,
+        rewrite_ready,
+        rewrite_blockers,
+        domain_identities,
+        pointer_indexed_metrics,
+    )
+    priority_score = offset_deref_survivors
+    priority_score += field_access_pressure // 2
+    priority_score += 30 if subsystem in {"registry", "memory", "object", "security"} else 0
+    priority_score += 20 if rewrite_blockers else 0
+    priority_score += 15 if hot_field_clusters else 0
+    priority_score += 10 if source_evidence_count else 0
+    return {
+        "ea": ea,
+        "name": name,
+        "subsystem": subsystem,
+        "review_class": review_class,
+        "next_action": next_action,
+        "priority_score": priority_score,
+        "offset_deref_survivors": offset_deref_survivors,
+        "generic_parameter_survivors": _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
+        "body_rewrite_ready": _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
+        "body_rewrite_blockers": _int_value(prototype_metrics.get("body_rewrite_blockers"), 0),
+        "layout_hint_count": len(layout_hints),
+        "hot_field_cluster_count": len(hot_field_clusters),
+        "indexed_callback_table_count": len(indexed_callback_tables),
+        "stable_base_source_count": len(stable_base_sources),
+        "generic_base_evidence_count": len(generic_base_evidence),
+        "generic_base_trust_candidate_count": len(generic_base_trust_candidates),
+        "temp_provenance_blocked_count": len(temp_provenance.get("blocked", []) or []),
+        "domain_identity_count": len(domain_identities),
+        "domain_report_only_count": sum(
+            1
+            for item in domain_identities
+            if str(item.get("mode", "") or "") == "report-only"
+        ),
+        "field_access_pressure": field_access_pressure,
+        "pointer_indexed_offset_deref_patterns": _int_value(
+            pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"),
+            0,
+        ),
+        "top_bases": _body_offset_top_bases(
+            layout_hints,
+            hot_field_clusters,
+            indexed_callback_tables,
+            rewrite_blockers,
+            domain_identities,
+        ),
+        "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(5)))),
+        "profile_counts": _coerce_dict(prototype_metrics.get("function_identity_profiles", {})),
+        "summary_path": str(summary_path),
+    }
+
+
+def _update_body_offset_residue_metrics(
+    item: dict[str, Any],
+    totals: Counter[str],
+    subsystems: Counter[str],
+    next_actions: Counter[str],
+    review_classes: Counter[str],
+    blocker_reasons: Counter[str],
+) -> None:
+    totals["functions_with_offset_residue"] += 1
+    totals["offset_deref_survivors"] += _int_value(item.get("offset_deref_survivors"), 0)
+    totals["generic_parameter_survivors"] += _int_value(item.get("generic_parameter_survivors"), 0)
+    if _int_value(item.get("body_rewrite_ready"), 0) > 0:
+        totals["functions_with_rewrite_ready"] += 1
+    if _int_value(item.get("body_rewrite_blockers"), 0) > 0:
+        totals["functions_with_rewrite_blockers"] += 1
+    if _int_value(item.get("domain_identity_count"), 0) > 0:
+        totals["functions_with_domain_identity"] += 1
+    if _int_value(item.get("hot_field_cluster_count"), 0) > 0:
+        totals["functions_with_hot_field_clusters"] += 1
+    if _int_value(item.get("stable_base_source_count"), 0) > 0:
+        totals["functions_with_stable_base_sources"] += 1
+    if _int_value(item.get("indexed_callback_table_count"), 0) > 0:
+        totals["functions_with_indexed_callback_tables"] += 1
+    subsystems[str(item.get("subsystem", "") or "other")] += 1
+    next_actions[str(item.get("next_action", "") or "manual_review")] += 1
+    review_classes[str(item.get("review_class", "") or "manual_review")] += 1
+    for reason, count in _coerce_dict(item.get("blocker_reasons", {})).items():
+        blocker_reasons[str(reason)] += _int_value(count, 0)
+
+
+def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
+    required_keys = [
+        "functions_with_offset_residue",
+        "offset_deref_survivors",
+        "generic_parameter_survivors",
+        "functions_with_rewrite_ready",
+        "functions_with_rewrite_blockers",
+        "functions_with_domain_identity",
+        "functions_with_hot_field_clusters",
+        "functions_with_stable_base_sources",
+        "functions_with_indexed_callback_tables",
+    ]
+    result = _counter_to_dict(counter)
+    for key in required_keys:
+        result.setdefault(key, 0)
+    return result
+
+
+def _body_offset_residue_subsystem(
+    name: str,
+    prototype_metrics: dict[str, Any],
+    domain_identities: list[dict[str, Any]],
+) -> str:
+    profile_text = " ".join(
+        [
+            *[str(key) for key in _coerce_dict(prototype_metrics.get("function_identity_profiles", {})).keys()],
+            *[str(item.get("profile_id", "")) for item in domain_identities],
+        ]
+    )
+    profile_map = {
+        "registry_config": "registry",
+        "memory_manager": "memory",
+        "object_manager": "object",
+        "token_security": "security",
+        "alpc_port": "alpc",
+        "hal_dma_iommu": "hal",
+        "pnp_power": "pnp",
+        "etw_wmi_telemetry": "etw",
+    }
+    for token, subsystem in profile_map.items():
+        if token in profile_text:
+            return subsystem
+    prefix_map = (
+        ("Cmp", "registry"),
+        ("Cm", "registry"),
+        ("Hv", "registry"),
+        ("Hvp", "registry"),
+        ("Mi", "memory"),
+        ("Mm", "memory"),
+        ("Vmp", "memory"),
+        ("Ob", "object"),
+        ("Se", "security"),
+        ("Alpc", "alpc"),
+        ("NtAlpc", "alpc"),
+        ("Hal", "hal"),
+        ("Pnp", "pnp"),
+        ("Pi", "pnp"),
+        ("Pop", "power"),
+        ("Etw", "etw"),
+        ("Etwp", "etw"),
+    )
+    for prefix, subsystem in prefix_map:
+        if name.startswith(prefix):
+            return subsystem
+    if name.startswith("?St") or name.startswith("?Sm"):
+        return "store_manager"
+    return "other"
+
+
+def _body_offset_residue_review_class(
+    prototype_metrics: dict[str, Any],
+    layout_hints: list[dict[str, Any]],
+    hot_field_clusters: list[dict[str, Any]],
+    stable_base_sources: list[dict[str, Any]],
+    generic_base_evidence: list[dict[str, Any]],
+    generic_base_trust_candidates: list[dict[str, Any]],
+    rewrite_blockers: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
+    pointer_indexed_metrics: dict[str, Any],
+) -> str:
+    if _int_value(prototype_metrics.get("body_rewrite_ready"), 0) > 0:
+        return "rewrite_ready_residue"
+    if rewrite_blockers:
+        if any(
+            "domain identity profile is report-only" in str(reason)
+            for blocker in rewrite_blockers
+            for reason in blocker.get("reasons", []) or []
+        ):
+            return "report_only_blocked_residue"
+        if any(
+            _has_layout_source_stability_risk([str(reason) for reason in blocker.get("reasons", []) or []])
+            for blocker in rewrite_blockers
+        ):
+            return "source_stability_blocked_residue"
+        if any(
+            _has_layout_type_evidence_risk([str(reason) for reason in blocker.get("reasons", []) or []])
+            for blocker in rewrite_blockers
+        ):
+            return "type_conflict_blocked_residue"
+        return "identity_or_threshold_blocked_residue"
+    if hot_field_clusters and not domain_identities:
+        return "hot_cluster_missing_identity"
+    if layout_hints and not domain_identities:
+        return "layout_hint_missing_identity"
+    if generic_base_evidence or generic_base_trust_candidates:
+        return "generic_base_identity_review"
+    if stable_base_sources:
+        return "stable_source_identity_review"
+    if _int_value(pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"), 0) > 0:
+        return "pointer_indexed_residue"
+    return "unclassified_offset_residue"
+
+
+def _body_offset_residue_next_action(
+    review_class: str,
+    prototype_metrics: dict[str, Any],
+    layout_hints: list[dict[str, Any]],
+    hot_field_clusters: list[dict[str, Any]],
+    stable_base_sources: list[dict[str, Any]],
+    generic_base_evidence: list[dict[str, Any]],
+    generic_base_trust_candidates: list[dict[str, Any]],
+    rewrite_ready: list[dict[str, Any]],
+    rewrite_blockers: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
+    pointer_indexed_metrics: dict[str, Any],
+) -> str:
+    del prototype_metrics, layout_hints, stable_base_sources, generic_base_evidence
+    del generic_base_trust_candidates, rewrite_ready, rewrite_blockers, domain_identities
+    del pointer_indexed_metrics
+    if review_class == "rewrite_ready_residue":
+        return "verify_validated_rewrite_or_partial_residue"
+    if review_class == "report_only_blocked_residue":
+        return "keep_report_only_and_collect_exact_promotion_evidence"
+    if review_class == "source_stability_blocked_residue":
+        return "prove_source_stability_before_rewrite"
+    if review_class == "type_conflict_blocked_residue":
+        return "resolve_type_width_or_subfield_conflict"
+    if review_class == "identity_or_threshold_blocked_residue":
+        return "add_exact_identity_or_collect_threshold_evidence"
+    if review_class == "hot_cluster_missing_identity":
+        return "add_function_scoped_identity_for_hot_cluster" if hot_field_clusters else "manual_review"
+    if review_class == "layout_hint_missing_identity":
+        return "add_domain_profile_or_keep_review_only"
+    if review_class == "generic_base_identity_review":
+        return "prove_generic_base_identity_before_promotion"
+    if review_class == "stable_source_identity_review":
+        return "consider_validated_profile_promotion"
+    if review_class == "pointer_indexed_residue":
+        return "model_pointer_indexed_layout_or_callback_table"
+    return "manual_review"
+
+
+def _body_offset_top_bases(
+    layout_hints: list[dict[str, Any]],
+    hot_field_clusters: list[dict[str, Any]],
+    indexed_callback_tables: list[dict[str, Any]],
+    rewrite_blockers: list[dict[str, Any]],
+    domain_identities: list[dict[str, Any]],
+) -> list[str]:
+    bases = Counter()
+    for item in [*layout_hints, *hot_field_clusters, *indexed_callback_tables, *rewrite_blockers, *domain_identities]:
+        base = str(item.get("base", "") or "")
+        if base:
+            bases[base] += 1
+    return [base for base, _count in bases.most_common(8)]
 
 
 def _dict_list(value: Any) -> list[dict[str, Any]]:

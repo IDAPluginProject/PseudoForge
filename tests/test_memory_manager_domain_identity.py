@@ -842,6 +842,104 @@ __int64 __fastcall MiUnlinkBadPages(ULONG_PTR BugCheckParameter2, ULONG_PTR argu
             )
         )
 
+    def test_wsle_free_adds_report_only_pfn_hot_cluster_identity(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+ULONG_PTR __fastcall MiWsleFree(unsigned __int64 a1, unsigned __int64 a2, char a3, unsigned __int64 a4)
+{
+  __int64 v9;
+  ULONG_PTR result;
+
+  v9 = 48 * ((a4 >> 12) & 0xFFFFFFFFFFLL) - 0x220000000000LL;
+  result = *(_QWORD *)(v9 + 8)
+         + *(_QWORD *)(v9 + 16)
+         + *(_QWORD *)(v9 + 24)
+         + *(unsigned int *)(v9 + 32)
+         + *(unsigned __int8 *)(v9 + 34)
+         + *(unsigned int *)(v9 + 36)
+         + *(_QWORD *)(v9 + 40);
+  MiInsertPageInFreeOrZeroedList((v9 + 0x220000000000LL) / 48);
+  MiInsertPageInList(v9, 4);
+  return result + a1 + a2 + a3 + a4;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        identity = self._identity_for_base(
+            plan,
+            "windows.memory_manager.wsle_free",
+            "v9",
+        )
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "v9"
+        ]
+
+        self.assertIn("ULONG_PTR __fastcall MiWsleFree(", rendered)
+        self.assertIn("char freeFlags", rendered)
+        self.assertIn("unsigned __int64 pteValue", rendered)
+        self.assertEqual("MMPFN", identity["structure_name"])
+        self.assertEqual("pfnEntry", identity["trusted_role"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual({0x8, 0x10, 0x18, 0x20, 0x22, 0x24, 0x28}, self._field_offsets(identity))
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "v9"
+                for item in plan.comments
+            )
+        )
+
+    def test_prefetch_virtual_memory_preview_signature_only(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __int64 a3, int a4)
+{
+  __int64 status;
+
+  if ( a3 == 1 )
+  {
+    status = 0;
+  }
+  else
+  {
+    status = *(_DWORD *)(a3 + 184);
+  }
+  if ( (a4 & 0x10000) != 0 )
+  {
+    MiPrefetchPreallocatePages(a1, a2, a3, a4, 0, 0, 0);
+  }
+  status += MmAccessFault(0, *(_QWORD *)a2, 0, a4);
+  MiPfCoalesceAndIssueIOs(a2, a3, 0);
+  return status;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        identities = self._profile_identities(
+            plan,
+            "windows.memory_manager.prefetch_virtual_memory",
+        )
+
+        self.assertIn("NTSTATUS __fastcall MiPrefetchVirtualMemory(", rendered)
+        self.assertIn("ULONG_PTR rangeCount", rendered)
+        self.assertIn("PMEMORY_RANGE_ENTRY memoryRanges", rendered)
+        self.assertIn("__int64 partitionOrSentinel", rendered)
+        self.assertIn("ULONG prefetchFlags", rendered)
+        self.assertEqual(4, len(identities))
+        self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
+        )
+
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(
             """

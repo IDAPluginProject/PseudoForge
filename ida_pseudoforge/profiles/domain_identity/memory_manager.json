@@ -1923,6 +1923,305 @@
       ]
     },
     {
+      "id": "windows.memory_manager.wsle_free",
+      "source": "Reviewed MiWsleFree ntoskrnl 26200.8457 working-set release path through PFN database entry updates, share-count transitions, page-list insertion, and page-file release. Function-scoped report-only identity; v9 is reused for related PFN entries and must not be body-rewritten without source-family dominance proof.",
+      "function_names": [
+        "MiWsleFree"
+      ],
+      "parameter_count": 4,
+      "required_calls": [
+        "MiInsertPageInList",
+        "MiInsertPageInFreeOrZeroedList"
+      ],
+      "prototype": {
+        "return_type": "ULONG_PTR",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "pteAddress",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "__int64"
+            ],
+            "semantic_role": "pteAddress",
+            "type_confidence": 0.74,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "virtualAddress",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "__int64"
+            ],
+            "semantic_role": "virtualAddress",
+            "type_confidence": 0.74,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "freeFlags",
+            "canonical_type": "UCHAR",
+            "accepted_types": [
+              "char",
+              "UCHAR",
+              "unsigned __int8",
+              "int"
+            ],
+            "semantic_role": "freeFlags",
+            "type_confidence": 0.72,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "pteValue",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "__int64"
+            ],
+            "semantic_role": "pteValue",
+            "type_confidence": 0.72,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "pteAddress",
+          "rename_to": "pteAddress",
+          "rename_confidence": 0.76,
+          "structure": "MMPTE_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "MiWsleFree forwards the original PTE address into MiRewriteTrimPteAsDemandZero"
+        },
+        {
+          "parameter_index": 1,
+          "role": "virtualAddress",
+          "rename_to": "virtualAddress",
+          "rename_confidence": 0.76,
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "MiWsleFree derives the PTE address from the virtual-address range"
+        },
+        {
+          "parameter_index": 2,
+          "role": "freeFlags",
+          "rename_to": "freeFlags",
+          "rename_confidence": 0.74,
+          "structure": "MI_WSLE_FREE_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "char",
+            "UCHAR",
+            "unsigned __int8",
+            "int"
+          ],
+          "source": "MiWsleFree tests free-mode flags before PFN release"
+        },
+        {
+          "parameter_index": 3,
+          "role": "pteValue",
+          "rename_to": "pteValue",
+          "rename_confidence": 0.74,
+          "structure": "MMPTE_VALUE",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64"
+          ],
+          "source": "MiWsleFree extracts the PFN and high-bit state from the PTE value"
+        },
+        {
+          "local_names": [
+            "v9"
+          ],
+          "role": "pfnEntry",
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiWsleFree PFN database entry hot cluster; v9 is reassigned to the containing page-table PFN entry later in the function, so aliases remain report-only",
+          "fields": [
+            {"offset": "0x8", "name": "field_8", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed PFN link/PTE backpointer style access"},
+            {"offset": "0x10", "name": "field_10", "type": "ULONG_PTR", "size": 8, "confidence": 0.76, "note": "observed PTE value/page-file encoded field access"},
+            {"offset": "0x18", "name": "field_18", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed lock/share-count field updates"},
+            {"offset": "0x20", "name": "field_20", "type": "ULONG", "size": 4, "confidence": 0.78, "note": "observed PFN state/reference-count packed field access"},
+            {"offset": "0x22", "name": "field_22", "type": "UCHAR", "size": 1, "confidence": 0.72, "note": "observed PFN state subfield access"},
+            {"offset": "0x24", "name": "field_24", "type": "ULONG", "size": 4, "confidence": 0.74, "note": "observed page-color/list state field access"},
+            {"offset": "0x28", "name": "field_28", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed PFN high-bit/page-location field access"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.prefetch_virtual_memory",
+      "source": "Reviewed MiPrefetchVirtualMemory ntoskrnl 26200.8457 memory-range prefetch loop, partition selection, MmAccessFault dispatch, and coalesced in-page support list processing. Preview-only private prototype; internal list-entry bodies remain untyped.",
+      "function_names": [
+        "MiPrefetchVirtualMemory"
+      ],
+      "parameter_count": 4,
+      "required_calls": [
+        "MmAccessFault",
+        "MiPfCoalesceAndIssueIOs"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "rangeCount",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "__int64",
+              "SIZE_T"
+            ],
+            "semantic_role": "memoryRangeCount",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "memoryRanges",
+            "canonical_type": "PMEMORY_RANGE_ENTRY",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMEMORY_RANGE_ENTRY",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "memoryRanges",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "partitionOrSentinel",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID"
+            ],
+            "semantic_role": "partitionOrSystemSentinel",
+            "type_confidence": 0.72,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "prefetchFlags",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "int",
+              "ULONG",
+              "unsigned int",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "prefetchFlags",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "memoryRangeCount",
+          "rename_to": "rangeCount",
+          "rename_confidence": 0.8,
+          "structure": "MEMORY_RANGE_COUNT",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64",
+            "SIZE_T"
+          ],
+          "source": "MiPrefetchVirtualMemory iterates memory-range entries until rangeCount is consumed"
+        },
+        {
+          "parameter_index": 1,
+          "role": "memoryRanges",
+          "rename_to": "memoryRanges",
+          "rename_confidence": 0.8,
+          "structure": "MEMORY_RANGE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMEMORY_RANGE_ENTRY",
+            "ULONG_PTR"
+          ],
+          "source": "MiPrefetchVirtualMemory reads 16-byte memory range entries from this array"
+        },
+        {
+          "parameter_index": 2,
+          "role": "partitionOrSystemSentinel",
+          "rename_to": "partitionOrSentinel",
+          "rename_confidence": 0.74,
+          "structure": "MMPARTITION_OR_SENTINEL",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID"
+          ],
+          "source": "MiPrefetchVirtualMemory treats value 1 as a system-partition sentinel and otherwise validates partition-like flags"
+        },
+        {
+          "parameter_index": 3,
+          "role": "prefetchFlags",
+          "rename_to": "prefetchFlags",
+          "rename_confidence": 0.8,
+          "structure": "MI_PREFETCH_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "ULONG",
+            "unsigned int",
+            "ULONG_PTR"
+          ],
+          "source": "MiPrefetchVirtualMemory tests prefetch control bits 0x80, 0x400, 0x10000, and 0x20000"
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.validate_add_physical_memory_parameters",
       "source": "Reviewed MiValidateAddPhysicalMemoryParameters ntoskrnl 26200.8457 physical-memory range alignment, context population, and MiLogAddPhysicalMemory handoff; preview-only private prototype.",
       "function_names": [
