@@ -434,6 +434,36 @@ __int64 __fastcall MiCreatePfnTemplate(__int64 a1, __int16 a2, unsigned __int16 
             ),
             (
                 """
+char __fastcall MiFreePagesFromMdl(ULONG_PTR a1, unsigned int a2, char a3, int a4)
+{
+  ULONG_PTR *pfnArray;
+  ULONG_PTR pageCount;
+
+  if ( _bittest16((const signed __int16 *)(a1 + 10), 9u) )
+  {
+    MiRetardMdl(a1);
+  }
+  if ( (*(_BYTE *)(a1 + 10) & 1) != 0 )
+  {
+    MmUnmapLockedPages(*(PVOID *)(a1 + 24), (PMDL)a1);
+  }
+  pfnArray = (ULONG_PTR *)(a1 + 48);
+  pageCount = (((*(_DWORD *)(a1 + 32) + *(_DWORD *)(a1 + 44)) & 0xFFF)
+       + (unsigned __int64)*(unsigned int *)(a1 + 40)
+       + 4095) >> 12;
+  MiFreeMdlPageRun(*pfnArray, pageCount, a2, a3, 0);
+  MiZeroAndReleasePages(0, a2, a3);
+  *(_WORD *)(a1 + 10) &= ~2u;
+  return a4 != 0;
+}
+""",
+                "windows.memory_manager.free_pages_from_mdl",
+                [
+                    "PMDL mdl",
+                ],
+            ),
+            (
+                """
 __int64 __fastcall MiCreateSlabEntry(__int64 a1, __int64 a2, int a3, unsigned __int8 a4)
 {
   *(_QWORD *)(a2 + 184) = *(_QWORD *)(a1 + 176);
@@ -577,6 +607,7 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
         ]
         expected_signatures = {
             "windows.memory_manager.create_pfn_template": "ULONG_PTR __fastcall MiCreatePfnTemplate(",
+            "windows.memory_manager.free_pages_from_mdl": "char __fastcall MiFreePagesFromMdl(",
             "windows.memory_manager.create_slab_entry": "NTSTATUS __fastcall MiCreateSlabEntry(",
             "windows.memory_manager.store_work_item_process": "NTSTATUS __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(",
             "windows.memory_manager.create_shared_zero_pages": "NTSTATUS __fastcall MiCreateSharedZeroPages(",
@@ -629,6 +660,18 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                     ]
                     self.assertEqual("MMPFN", pfn_template["structure_name"])
                     self.assertTrue({0x0, 0x10, 0x18, 0x20, 0x28}.issubset(self._field_offsets(pfn_template)))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                    self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+                if profile_id == "windows.memory_manager.free_pages_from_mdl":
+                    mdl = self._single_identity(plan, profile_id, "mdl")
+                    blockers = [
+                        item
+                        for item in plan.comments
+                        if item.get("kind") == "inferred_offset_rewrite_blockers"
+                        and item.get("base") == "mdl"
+                    ]
+                    self.assertEqual("MDL", mdl["structure_name"])
+                    self.assertEqual({0xA, 0x18, 0x20, 0x28, 0x2C}, self._field_offsets(mdl))
                     self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                     self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
                 if profile_id == "windows.memory_manager.create_slab_entry":
