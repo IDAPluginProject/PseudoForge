@@ -62,6 +62,109 @@
       ]
     },
     {
+      "id": "windows.memory_manager.create_pfn_template",
+      "source": "Reviewed MiCreatePfnTemplate ntoskrnl 26200.8457 PFN template initialization path through MiSetPfnTbFlushStamp, MiSetPfnIdentity, MiSetPfnContainingFrame, and MiSetPageTablePfnBuddy; preview-only PMMPFN signature correction, no private MMPFN body rewrite.",
+      "function_names": [
+        "MiCreatePfnTemplate"
+      ],
+      "parameter_count": 3,
+      "required_calls": [
+        "MiSetPfnTbFlushStamp",
+        "MiSetPfnIdentity",
+        "MiSetPfnContainingFrame",
+        "MiSetPageTablePfnBuddy"
+      ],
+      "prototype": {
+        "return_type": "ULONG_PTR",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "pfnTemplate",
+            "canonical_type": "PMMPFN",
+            "accepted_types": [
+              "__int64",
+              "ULONG_PTR",
+              "PVOID",
+              "PMMPFN"
+            ],
+            "semantic_role": "pfnTemplate",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "pfnTemplate",
+          "rename_to": "pfnTemplate",
+          "rename_confidence": 0.86,
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "ULONG_PTR",
+            "PVOID",
+            "PMMPFN"
+          ],
+          "source": "MiCreatePfnTemplate zeroes and initializes a caller-supplied MMPFN template before PFN helper updates",
+          "fields": [
+            {
+              "offset": "0x0",
+              "name": "field_0",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.70,
+              "note": "observed zeroed PFN template quadword; report-only"
+            },
+            {
+              "offset": "0x8",
+              "name": "field_8",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.70,
+              "note": "observed prototype PTE template field; report-only"
+            },
+            {
+              "offset": "0x10",
+              "name": "field_10",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.70,
+              "note": "observed demand-zero PTE storage; report-only"
+            },
+            {
+              "offset": "0x18",
+              "name": "field_18",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.70,
+              "note": "observed PFN state quadword update; report-only"
+            },
+            {
+              "offset": "0x20",
+              "name": "field_20",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.70,
+              "note": "observed MMPFN bitfield word with mixed-width access; report-only"
+            },
+            {
+              "offset": "0x28",
+              "name": "field_28",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.70,
+              "note": "observed PFN frame/flags quadword update; report-only"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.create_slab_entry",
       "source": "Reviewed MiCreateSlabEntry ntoskrnl 26200.8457 slab entry creation and SlabEntry offset residue; preview-only role prototype, no private slab field rewrite.",
       "function_names": [
