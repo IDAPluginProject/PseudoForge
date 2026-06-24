@@ -5734,8 +5734,9 @@ def _body_offset_residue_subsystem(
     prefix_map = (
         ("Cmp", "registry"),
         ("Cm", "registry"),
-        ("Hv", "registry"),
+        ("Hvl", "hypervisor"),
         ("Hvp", "registry"),
+        ("Hv", "registry"),
         ("Mi", "memory"),
         ("Mm", "memory"),
         ("Vmp", "memory"),

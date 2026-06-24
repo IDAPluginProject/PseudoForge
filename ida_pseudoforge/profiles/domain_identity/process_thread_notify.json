@@ -344,7 +344,13 @@
     },
     {
       "id": "windows.process_thread_notify.ps_remove_create_thread_notify",
-      "source": "Reviewed PsRemoveCreateThreadNotifyRoutine callback lookup, compare-exchange removal, rundown wait, and free flow.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed PsRemoveCreateThreadNotifyRoutine callback lookup, compare-exchange removal, rundown wait, and free flow; random500 26100.8457 replay preserves the exact notify-routine removal role.",
       "function_names": [
         "PsRemoveCreateThreadNotifyRoutine"
       ],

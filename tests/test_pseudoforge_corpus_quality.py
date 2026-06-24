@@ -16,6 +16,7 @@ from tools.pseudoforge_corpus_quality import (
     _body_offset_residue_promotion_hints,
     _body_offset_residue_next_action_details,
     _body_offset_residue_review_evidence,
+    _body_offset_residue_subsystem,
     _body_offset_rewrite_safety_policy,
     _decimal_status_like_literals,
     _decimal_status_target_review_queues,
@@ -3708,6 +3709,24 @@ __int64 __fastcall ExpressionSource(__int64 context)
         self.assertEqual("MiWsleFree", low_confidence_queue["items"][0]["name"])
         self.assertIn("raise profile confidence", low_confidence_queue["recommended_next_step"])
         self.assertEqual("BuildMismatch", build_queue["items"][0]["name"])
+
+    def test_body_offset_subsystem_keeps_hive_and_hypervisor_prefixes_separate(self) -> None:
+        self.assertEqual(
+            "registry",
+            _body_offset_residue_subsystem("HvReallocateCell", {}, []),
+        )
+        self.assertEqual(
+            "registry",
+            _body_offset_residue_subsystem("HvpGenerateLogEntry", {}, []),
+        )
+        self.assertEqual(
+            "hypervisor",
+            _body_offset_residue_subsystem("HvlSharedIsr", {}, []),
+        )
+        self.assertEqual(
+            "hypervisor",
+            _body_offset_residue_subsystem("HvlDmaConfigureDeviceDomain", {}, []),
+        )
 
     def test_cli_filters_by_ea_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

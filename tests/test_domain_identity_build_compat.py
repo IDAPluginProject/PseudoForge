@@ -33,7 +33,10 @@ COMPATIBLE_26100_PROFILE_IDS = {
     "windows.object_manager.free_object",
     "windows.pnp_power.popfx_query_current_component_perf_state",
     "windows.process_thread.psp_convert_silo_to_server_silo",
+    "windows.process_thread_notify.ps_remove_create_thread_notify",
+    "windows.registry_config.cm_save_key_to_buffer",
     "windows.registry_config.cmp_free_key_control_block",
+    "windows.registry_config.cmp_find_value_by_name",
     "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread",
     "windows.registry_config.cmp_insert_security_cell_list",
     "windows.registry_config.cmp_set_security_descriptor_info",
@@ -41,6 +44,14 @@ COMPATIBLE_26100_PROFILE_IDS = {
     "windows.registry_config.hv_reallocate_cell",
     "windows.token_security.query_security_attributes_token",
     "windows.trap_processor_state.ki_retire_dpc_list",
+    "windows.executive_async.exp_get_next_callback",
+}
+
+
+CANONICAL_REWRITE_26100_PROFILE_IDS = {
+    "windows.memory_manager.create_shared_zero_pages",
+    "windows.memory_manager.pf_allocate_mdls",
+    "windows.memory_manager.store_work_item_process",
 }
 
 
@@ -76,6 +87,45 @@ class DomainIdentityBuildCompatTests(unittest.TestCase):
                 self.assertTrue(
                     all(
                         str(parameter.get("mode", "report-only")) == "report-only"
+                        for parameter in profile.get("parameters", [])
+                        if isinstance(parameter, dict)
+                    )
+                )
+                prototype = profile.get("prototype", {})
+                if isinstance(prototype, dict):
+                    self.assertTrue(
+                        all(
+                            not bool(parameter.get("apply_to_idb", False))
+                            for parameter in prototype.get("parameters", [])
+                            if isinstance(parameter, dict)
+                        )
+                    )
+
+    def test_26100_canonical_rewrite_profiles_keep_idb_mutation_closed(self) -> None:
+        profiles = self._profiles_by_id()
+        missing = sorted(CANONICAL_REWRITE_26100_PROFILE_IDS.difference(profiles))
+
+        self.assertEqual([], missing)
+        for profile_id in sorted(CANONICAL_REWRITE_26100_PROFILE_IDS):
+            with self.subTest(profile_id=profile_id):
+                profile = profiles[profile_id]
+                blockers = domain_identity._profile_context_blockers(
+                    profile,
+                    {"image": "ntoskrnl.exe", "arch": "x64", "build": "26100.8457"},
+                )
+                mismatch_blockers = domain_identity._profile_context_blockers(
+                    profile,
+                    {"image": "ntoskrnl.exe", "arch": "x64", "build": "99999.1"},
+                )
+                rewrite_policy = domain_identity._profile_rewrite_policy(profile)
+
+                self.assertNotIn("build_mismatch", blockers)
+                self.assertIn("build_mismatch", mismatch_blockers)
+                self.assertTrue(rewrite_policy["body_canonical_rewrite"])
+                self.assertFalse(rewrite_policy["apply_to_idb_default"])
+                self.assertTrue(
+                    any(
+                        str(parameter.get("mode", "")) == "canonical-rewrite-eligible"
                         for parameter in profile.get("parameters", [])
                         if isinstance(parameter, dict)
                     )

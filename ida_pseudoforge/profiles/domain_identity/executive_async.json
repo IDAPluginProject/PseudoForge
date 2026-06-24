@@ -1749,7 +1749,13 @@
     },
     {
       "id": "windows.executive_async.exp_get_next_callback",
-      "source": "Reviewed ExpGetNextCallback ntoskrnl 26200.8457 executive callback list iterator through ExpCallbackListHead, ObReferenceObjectSafeWithTag, and ObfDereferenceObjectWithTag; preview-only iterator signature, no private callback block field rewrite.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed ExpGetNextCallback ntoskrnl 26200.8457 executive callback list iterator through ExpCallbackListHead, ObReferenceObjectSafeWithTag, and ObfDereferenceObjectWithTag; random500 26100.8457 replay preserves the exact previous-callback-object iterator role. Preview-only iterator signature, no private callback block field rewrite.",
       "function_names": [
         "ExpGetNextCallback"
       ],

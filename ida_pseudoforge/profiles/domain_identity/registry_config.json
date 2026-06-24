@@ -1372,7 +1372,13 @@
     },
     {
       "id": "windows.registry_config.cmp_find_value_by_name",
-      "source": "Reviewed CmpFindValueByName wrapper around CmpFindNameInListWithStatus.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed CmpFindValueByName wrapper around CmpFindNameInListWithStatus; random500 26100.8457 replay preserves the exact value-search context role.",
       "function_names": [
         "CmpFindValueByName"
       ],
@@ -2092,7 +2098,13 @@
     },
     {
       "id": "windows.registry_config.cm_save_key_to_buffer",
-      "source": "Reviewed CmSaveKeyToBuffer ntoskrnl 26200.8457 key handle reference, registry process attach, and CmpDumpKeyToBuffer handoff; preview-only private prototype.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed CmSaveKeyToBuffer ntoskrnl 26200.8457 key handle reference, registry process attach, and CmpDumpKeyToBuffer handoff; random500 26100.8457 replay preserves the exact key-handle/output-buffer/length roles. Preview-only private prototype.",
       "function_names": [
         "CmSaveKeyToBuffer"
       ],

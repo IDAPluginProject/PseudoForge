@@ -642,7 +642,13 @@
     },
     {
       "id": "windows.memory_manager.store_work_item_process",
-      "source": "Reviewed ST_STORE<SM_TRAITS>::StWorkItemProcess ntoskrnl 10.0.26200.8457 store work item dispatch and stable store offset residue; generic field aliases intentionally avoid undocumented private field names.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed ST_STORE<SM_TRAITS>::StWorkItemProcess ntoskrnl 10.0.26200.8457 store work item dispatch and stable store offset residue; random500 26100.8457 replay preserves the exact store/work-item parameter roles. Generic field aliases intentionally avoid undocumented private field names.",
       "rewrite_policy": {
         "signature_preview": true,
         "body_canonical_rewrite": true,
@@ -775,7 +781,13 @@
     },
     {
       "id": "windows.memory_manager.create_shared_zero_pages",
-      "source": "Reviewed MiCreateSharedZeroPages ntoskrnl 10.0.26200.8457 shared zero-page creation context and stable context offset residue; generic field aliases intentionally avoid undocumented private field names.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed MiCreateSharedZeroPages ntoskrnl 10.0.26200.8457 shared zero-page creation context and stable context offset residue; random500 26100.8457 replay preserves the exact shared-zero-page context/output-list roles. Generic field aliases intentionally avoid undocumented private field names.",
       "rewrite_policy": {
         "signature_preview": true,
         "body_canonical_rewrite": true,
@@ -873,7 +885,13 @@
     },
     {
       "id": "windows.memory_manager.pf_allocate_mdls",
-      "source": "Reviewed MiPfAllocateMdls ntoskrnl 10.0.26200.8457 pagefile MDL allocation context, SLIST, and stable pagefile context offset residue; generic field aliases intentionally avoid undocumented private field names.",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed MiPfAllocateMdls ntoskrnl 10.0.26200.8457 pagefile MDL allocation context, SLIST, and stable pagefile context offset residue; random500 26100.8457 replay preserves the exact pagefile-MDL context/count/list/outstanding-count roles. Generic field aliases intentionally avoid undocumented private field names.",
       "rewrite_policy": {
         "signature_preview": true,
         "body_canonical_rewrite": true,
