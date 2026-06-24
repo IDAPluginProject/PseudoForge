@@ -1226,6 +1226,75 @@ ULONG_PTR __fastcall MiLockPageListAndLastPage(__int64 pageListLockContext, __in
             )
         )
 
+    def test_make_system_address_valid_preview_signature_and_stability_blocker(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MiMakeSystemAddressValid(ULONG_PTR a1, int a2, unsigned __int8 a3, char a4)
+{
+  unsigned __int64 currentProcess;
+
+  currentProcess = (unsigned __int64)KeGetCurrentThread()->ApcState.Process;
+  if ( *(_BYTE *)(currentProcess + 352) != 1 )
+  {
+    MmAccessFault(2uLL, a1, 0, a4);
+  }
+  MiUnlockPageTableInternal(currentProcess, a1);
+  MiUnlockWorkingSetShared(currentProcess, a3);
+  currentProcess = 0x4000000000LL;
+  return a2 + a3 + a4;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.memory_manager.make_system_address_valid"
+        roles = {
+            str(item["trusted_role"]): str(item["structure_name"])
+            for item in self._profile_identities(plan, profile_id)
+        }
+
+        self.assertIn("NTSTATUS __fastcall MiMakeSystemAddressValid(", rendered)
+        self.assertIn("ULONG_PTR virtualAddress", rendered)
+        self.assertIn("UCHAR workingSetUnlockFlags", rendered)
+        self.assertIn("UCHAR makeValidFlags", rendered)
+        self.assertEqual("VIRTUAL_ADDRESS", roles["virtualAddress"])
+        self.assertEqual("MI_WORKING_SET_UNLOCK_FLAGS", roles["workingSetUnlockFlags"])
+        self.assertEqual("MI_MAKE_VALID_FLAGS", roles["makeValidFlags"])
+        self.assertEqual("EPROCESS", roles["currentProcess"])
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                for item in plan.comments
+            )
+        )
+
+    def test_make_system_address_valid_build_mismatch_blocks_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall MiMakeSystemAddressValid(ULONG_PTR a1, int a2, unsigned __int8 a3, char a4)
+{
+  MmAccessFault(2uLL, a1, 0, a4);
+  MiUnlockWorkingSetShared(0, a3);
+  MiUnlockPageTableInternal(0, a1);
+  return a2 + a3 + a4;
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.memory_manager.make_system_address_valid"
+        ]
+
+        self.assertTrue(corrections)
+        self.assertTrue(all("build_mismatch" in item.blockers for item in corrections))
+        self.assertFalse(any(item.apply_to_preview for item in corrections))
+        self.assertNotIn("UCHAR makeValidFlags", rendered)
+
     def test_prefetch_virtual_memory_preview_signature_only(self) -> None:
         capture = capture_from_pseudocode(
             """

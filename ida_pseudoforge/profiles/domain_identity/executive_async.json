@@ -1748,6 +1748,67 @@
       ]
     },
     {
+      "id": "windows.executive_async.exp_get_next_callback",
+      "source": "Reviewed ExpGetNextCallback ntoskrnl 26200.8457 executive callback list iterator through ExpCallbackListHead, ObReferenceObjectSafeWithTag, and ObfDereferenceObjectWithTag; preview-only iterator signature, no private callback block field rewrite.",
+      "function_names": [
+        "ExpGetNextCallback"
+      ],
+      "parameter_count": 1,
+      "required_calls": [
+        "ExpLockCallbackListShared",
+        "ObReferenceObjectSafeWithTag",
+        "ObfDereferenceObjectWithTag"
+      ],
+      "prototype": {
+        "return_type": "PVOID",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "previousCallbackObject",
+            "canonical_type": "PVOID",
+            "accepted_types": [
+              "_QWORD *",
+              "PVOID",
+              "void *",
+              "__int64"
+            ],
+            "semantic_role": "previousCallbackObject",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "rename_to": "previousCallbackObject",
+          "role": "previousCallbackObject",
+          "structure": "CALLBACK_OBJECT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "_QWORD *",
+            "PVOID",
+            "void *",
+            "__int64"
+          ],
+          "source": "ExpGetNextCallback resumes iteration from the previous callback object and dereferences it after list traversal"
+        },
+        {
+          "local_names": [
+            "v5"
+          ],
+          "role": "callbackListEntry",
+          "structure": "LIST_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.74,
+          "source": "ExpGetNextCallback walks ExpCallbackListHead and derives the callback object from list entry minus five pointer slots"
+        }
+      ]
+    },
+    {
       "id": "windows.executive_async.exp_timer_apc_routine",
       "source": "Reviewed ExpTimerApcRoutine executive timer APC callback and object dereference path.",
       "function_names": [

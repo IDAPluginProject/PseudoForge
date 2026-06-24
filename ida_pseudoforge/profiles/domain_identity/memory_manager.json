@@ -2262,6 +2262,130 @@
       ]
     },
     {
+      "id": "windows.memory_manager.make_system_address_valid",
+      "source": "Reviewed MiMakeSystemAddressValid ntoskrnl 26200.8457 system PTE validation path through page-table locking, MmAccessFault dispatch, and working-set unlock. Preview-only parameter correction; process/selfmap lock offset residue remains source-stability blocked.",
+      "function_names": [
+        "MiMakeSystemAddressValid"
+      ],
+      "parameter_count": 4,
+      "required_calls": [
+        "MmAccessFault",
+        "MiUnlockWorkingSetShared",
+        "MiUnlockPageTableInternal"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "virtualAddress",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "ULONG_PTR",
+              "unsigned __int64",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "virtualAddress",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "workingSetUnlockFlags",
+            "canonical_type": "UCHAR",
+            "accepted_types": [
+              "unsigned __int8",
+              "UCHAR",
+              "char",
+              "int"
+            ],
+            "semantic_role": "workingSetUnlockFlags",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "makeValidFlags",
+            "canonical_type": "UCHAR",
+            "accepted_types": [
+              "char",
+              "UCHAR",
+              "unsigned __int8",
+              "int"
+            ],
+            "semantic_role": "makeValidFlags",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "virtualAddress",
+          "rename_to": "virtualAddress",
+          "rename_confidence": 0.84,
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "ULONG_PTR",
+            "unsigned __int64",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MiMakeSystemAddressValid forwards this address to MmAccessFault and PTE derivation"
+        },
+        {
+          "parameter_index": 2,
+          "role": "workingSetUnlockFlags",
+          "rename_to": "workingSetUnlockFlags",
+          "rename_confidence": 0.78,
+          "structure": "MI_WORKING_SET_UNLOCK_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "unsigned __int8",
+            "UCHAR",
+            "char",
+            "int"
+          ],
+          "source": "MiMakeSystemAddressValid passes this flag into MiUnlockWorkingSetShared"
+        },
+        {
+          "parameter_index": 3,
+          "role": "makeValidFlags",
+          "rename_to": "makeValidFlags",
+          "rename_confidence": 0.78,
+          "structure": "MI_MAKE_VALID_FLAGS",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "char",
+            "UCHAR",
+            "unsigned __int8",
+            "int"
+          ],
+          "source": "MiMakeSystemAddressValid tests bit flags 0x1, 0x4, and 0x8 before fault/bugcheck paths"
+        },
+        {
+          "local_names": [
+            "currentProcess"
+          ],
+          "role": "currentProcess",
+          "structure": "EPROCESS",
+          "mode": "report-only",
+          "confidence": 0.72,
+          "source": "MiMakeSystemAddressValid reloads and mutates currentProcess-like locals; keep offset aliases review-only until initializer dominance is proven"
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.wsle_free",
       "source": "Reviewed MiWsleFree ntoskrnl 26200.8457 working-set release path through PFN database entry updates, share-count transitions, page-list insertion, and page-file release. Function-scoped report-only identity; v9 is reused for related PFN entries and must not be body-rewritten without source-family dominance proof.",
       "function_names": [

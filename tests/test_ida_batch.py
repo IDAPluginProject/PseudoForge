@@ -113,6 +113,27 @@ class IdaBatchTests(unittest.TestCase):
         self.assertEqual("26200.8457", context["build"])
         self.assertEqual("x64", context["arch"])
 
+    def test_ida_batch_profile_context_uses_target_binary_version_build(self) -> None:
+        def fake_profile_context(path_text: str) -> dict[str, object]:
+            path = Path(path_text)
+            if path.suffix.lower() == ".i64":
+                return {"image": "ntoskrnl.exe", "arch": "x64"}
+            return {"image": "ntoskrnl.exe", "build": "26100.8457"}
+
+        original = ida_batch_module.profile_context_from_source_path
+        ida_batch_module.profile_context_from_source_path = fake_profile_context
+        try:
+            context = _batch_profile_context(
+                Path(r"F:\scratch\ntoskrnl.exe.i64"),
+                Path(r"F:\scratch\ntoskrnl.exe"),
+            )
+        finally:
+            ida_batch_module.profile_context_from_source_path = original
+
+        self.assertEqual("ntoskrnl.exe", context["image"])
+        self.assertEqual("26100.8457", context["build"])
+        self.assertEqual("x64", context["arch"])
+
     def test_ida_batch_target_binary_context_keeps_domain_parameter_renames(self) -> None:
         context = _batch_profile_context(
             Path(r"D:\bin\os\26200.8457\ntoskrnl.exe.i64"),

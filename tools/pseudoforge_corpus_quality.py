@@ -234,6 +234,7 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "high_offset_residue": 14,
     "medium_offset_residue": 7,
     "high_field_access_pressure": 8,
+    "source_build_mismatch": 12,
     "report_only_field_alias_available": 10,
     "exact_private_layout_required": 8,
     "source_stability_gate": 8,
@@ -5074,6 +5075,9 @@ def _body_offset_residue_function_summary(
         pointer_indexed_metrics,
         offset_shape_profile,
     )
+    if _body_offset_has_build_mismatch(prototype_metrics, domain_identities):
+        review_evidence.append("source_build_mismatch")
+        review_evidence = list(dict.fromkeys(review_evidence))
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
         next_action,
@@ -5519,6 +5523,8 @@ def _body_offset_residue_next_action_details(
             details.append("field_aliases_available_for_manual_review")
     if "report_only_source_identity" in evidence:
         details.append("promote_source_identity_before_alias_rewrite")
+    if "source_build_mismatch" in evidence:
+        details.append("resolve_profile_build_or_source_identity_before_rewrite")
     if "trusted_source_required" in evidence:
         details.append("exact_function_build_source_identity_required")
     if "source_stability_risk" in evidence:
@@ -5559,6 +5565,21 @@ def _body_offset_residue_next_action_details(
     return list(dict.fromkeys(details))
 
 
+def _body_offset_has_build_mismatch(
+    prototype_metrics: dict[str, Any],
+    domain_identities: list[dict[str, Any]],
+) -> bool:
+    for counter_name in ("function_identity_blockers", "correction_blockers", "body_rewrite_blocker_counts"):
+        if _int_value(_coerce_dict(prototype_metrics.get(counter_name, {})).get("build_mismatch"), 0) > 0:
+            return True
+    for item in domain_identities:
+        blockers = _string_list(item.get("blockers"))
+        blockers.extend(_string_list(item.get("forced_report_only_reasons")))
+        if "build_mismatch" in blockers:
+            return True
+    return False
+
+
 def _body_offset_residue_fail_closed_gate(
     review_class: str,
     review_evidence: list[str],
@@ -5570,6 +5591,8 @@ def _body_offset_residue_fail_closed_gate(
     hints = {str(item) for item in promotion_hints if str(item)}
     if "validated_rewrite_still_has_residue" in evidence:
         return "validated_rewrite_residue_review"
+    if "source_build_mismatch" in evidence or "resolve_profile_build_or_source_identity_before_rewrite" in details:
+        return "source_build_mismatch"
     if "report_only_profile_kept_closed" in evidence:
         return "report_only_private_layout"
     if "report_only_source_identity" in evidence:
@@ -5615,6 +5638,8 @@ def _body_offset_residue_priority_factors(
         factors.append("medium_offset_residue")
     if field_access_pressure >= 12:
         factors.append("high_field_access_pressure")
+    if "source_build_mismatch" in evidence or "resolve_profile_build_or_source_identity_before_rewrite" in details:
+        factors.append("source_build_mismatch")
     if "field_aliases_available_for_manual_review" in details:
         factors.append("report_only_field_alias_available")
     if (

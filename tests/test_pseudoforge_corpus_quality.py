@@ -1004,25 +1004,30 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
 
-            def write_function(ea: str, name: str, text: str) -> None:
+            def write_function(
+                ea: str,
+                name: str,
+                text: str,
+                summary_extra: dict[str, object] | None = None,
+            ) -> None:
                 function_dir = root / "functions" / ("%s_%s" % (ea.replace("0x", ""), name))
                 function_dir.mkdir(parents=True)
                 cleaned_name = "%s.cleaned.cpp" % name
                 summary_name = "%s.ida-batch-summary.json" % name
+                summary = {
+                    "mode": "ida_batch_export",
+                    "function": name,
+                    "function_ea": ea,
+                    "artifacts": {
+                        "cleaned_pseudocode": cleaned_name,
+                        "summary": summary_name,
+                    },
+                }
+                if summary_extra:
+                    summary.update(summary_extra)
                 (function_dir / cleaned_name).write_text(text, encoding="utf-8")
                 (function_dir / summary_name).write_text(
-                    json.dumps(
-                        {
-                            "mode": "ida_batch_export",
-                            "function": name,
-                            "function_ea": ea,
-                            "artifacts": {
-                                "cleaned_pseudocode": cleaned_name,
-                                "summary": summary_name,
-                            },
-                        },
-                        indent=2,
-                    ),
+                    json.dumps(summary, indent=2),
                     encoding="utf-8",
                 )
 
@@ -1070,6 +1075,37 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 ),
             )
             write_function(
+                "0x140025000",
+                "MiBuildMismatchResidue",
+                "\n".join(
+                    [
+                        "/*",
+                        "    Kernel insights:",
+                        "      - domain_structure_identity: Domain identity for memoryContext: role memoryContext, structure MI_PRIVATE_CONTEXT, mode report-only, profile windows.memory_manager.build_mismatch parameter 0. Fields field_10=+0x10 ULONG_PTR, field_18=+0x18 ULONG_PTR.",
+                        "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for memoryContext: domain identity profile is report-only; trusted rewrite source is required for canonical body rewrite. Review-only aliases remain available. confidence=0.73",
+                        "*/",
+                        "__int64 __fastcall MiBuildMismatchResidue(PVOID memoryContext)",
+                        "{",
+                        "  return *(_QWORD *)(memoryContext + 0x10)",
+                        "       + *(_QWORD *)(memoryContext + 0x18)",
+                        "       + *(_QWORD *)(memoryContext + 0x20)",
+                        "       + *(_QWORD *)(memoryContext + 0x28);",
+                        "}",
+                        "",
+                    ]
+                ),
+                {
+                    "domain_identity_summary": {
+                        "total_hits": 1,
+                        "report_only_hits": 1,
+                        "preview_rewrite_hits": 0,
+                        "canonical_rewrite_eligible_hits": 0,
+                        "blocker_counts": {"build_mismatch": 1, "profile_report_only": 1},
+                        "profile_counts": {"windows.memory_manager.build_mismatch": 1},
+                    }
+                },
+            )
+            write_function(
                 "0x140030000",
                 "ParameterResidue",
                 "\n".join(
@@ -1095,11 +1131,11 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("fail_closed_gates", stats)
             self.assertIn("review_focuses", stats)
             self.assertEqual(
-                1,
+                2,
                 queues["report_only_exact_promotion_candidates"]["functions"],
             )
             self.assertEqual(
-                1,
+                2,
                 queues["source_identity_required"]["functions"],
             )
             self.assertEqual(
@@ -1111,7 +1147,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 queues["parameter_profile_candidates"]["functions"],
             )
             self.assertEqual(
-                1,
+                2,
                 stats["next_action_details"]["field_aliases_available_for_manual_review"],
             )
             self.assertEqual(
@@ -1119,9 +1155,11 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 stats["next_action_details"]["resolve_width_alignment_or_overlay_before_rewrite"],
             )
             self.assertEqual(1, stats["fail_closed_gates"]["report_only_private_layout"])
+            self.assertEqual(1, stats["fail_closed_gates"]["source_build_mismatch"])
             self.assertEqual(1, stats["fail_closed_gates"]["type_conflict_required"])
-            self.assertEqual(2, stats["priority_factors"]["core_subsystem"])
-            self.assertEqual(1, stats["priority_factors"]["report_only_field_alias_available"])
+            self.assertEqual(3, stats["priority_factors"]["core_subsystem"])
+            self.assertEqual(1, stats["priority_factors"]["source_build_mismatch"])
+            self.assertEqual(2, stats["priority_factors"]["report_only_field_alias_available"])
             self.assertTrue(
                 any(
                     key.startswith("registry/report_only_private_layout")
@@ -1136,21 +1174,29 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "exact private layout source",
                 queues["report_only_exact_promotion_candidates"]["recommended_next_step"],
             )
-            self.assertEqual(
-                "CmpQueueResidue",
-                queues["report_only_exact_promotion_candidates"]["items"][0]["name"],
+            cmp_queue_item = next(
+                item
+                for item in queues["report_only_exact_promotion_candidates"]["items"]
+                if item["name"] == "CmpQueueResidue"
             )
             self.assertEqual(
                 "report_only_private_layout",
-                queues["report_only_exact_promotion_candidates"]["items"][0]["fail_closed_gate"],
+                cmp_queue_item["fail_closed_gate"],
             )
             self.assertIn(
                 "report_only_field_alias_available",
-                queues["report_only_exact_promotion_candidates"]["items"][0]["priority_factors"],
+                cmp_queue_item["priority_factors"],
             )
             self.assertIn(
                 "review_focus",
                 queues["report_only_exact_promotion_candidates"]["items"][0],
+            )
+            self.assertTrue(
+                any(
+                    item["name"] == "MiBuildMismatchResidue"
+                    and item["fail_closed_gate"] == "source_build_mismatch"
+                    for item in queues["report_only_exact_promotion_candidates"]["items"]
+                )
             )
             self.assertIn(
                 "exact_function_build_source_identity_required",

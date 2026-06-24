@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core import capture as capture_module
 from ida_pseudoforge.core.domain_identity_summary import (
     domain_identity_summary_payload,
     format_domain_identity_summary,
@@ -374,6 +375,17 @@ LONG_PTR __stdcall ObfDereferenceObject(PVOID referencedObject)
         self.assertEqual("ntoskrnl.exe", capture.profile_context["image"])
         self.assertEqual("26200.8457", capture.profile_context["build"])
         self.assertEqual("x64", capture.profile_context["arch"])
+
+    def test_source_path_uses_file_version_build_when_path_has_no_build_folder(self) -> None:
+        original = capture_module._build_number_from_file_version
+        capture_module._build_number_from_file_version = lambda path: "26100.8457"
+        try:
+            context = capture_module.profile_context_from_source_path(r"F:\scratch\ntoskrnl.exe")
+        finally:
+            capture_module._build_number_from_file_version = original
+
+        self.assertEqual("ntoskrnl.exe", context["image"])
+        self.assertEqual("26100.8457", context["build"])
 
     def test_report_only_create_handle_identity_blocks_offset_rewrite(self) -> None:
         plan = self._plan(

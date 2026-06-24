@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ctypes
 import re
+import sys
 from pathlib import Path
 
 from ida_pseudoforge.core.normalize import (
@@ -81,7 +83,54 @@ def _build_number_from_source_path(path: Path) -> str:
         match = re.fullmatch(r"\d{4,6}(?:\.\d{1,6})+", str(part))
         if match:
             return match.group(0)
-    return ""
+    return _build_number_from_file_version(path)
+
+
+def _build_number_from_file_version(path: Path) -> str:
+    if sys.platform != "win32":
+        return ""
+    if not path.is_file():
+        return ""
+    try:
+        version = ctypes.windll.version
+        size = version.GetFileVersionInfoSizeW(str(path), None)
+        if not size:
+            return ""
+        buffer = ctypes.create_string_buffer(size)
+        if not version.GetFileVersionInfoW(str(path), 0, size, buffer):
+            return ""
+        value = ctypes.c_void_p()
+        value_len = ctypes.c_uint()
+        if not version.VerQueryValueW(buffer, "\\", ctypes.byref(value), ctypes.byref(value_len)):
+            return ""
+        if not value.value or value_len.value < 13:
+            return ""
+        fixed_info = _VSFixedFileInfo.from_address(value.value)
+        build = (fixed_info.dwFileVersionLS >> 16) & 0xFFFF
+        revision = fixed_info.dwFileVersionLS & 0xFFFF
+        if not build:
+            return ""
+        return "%d.%d" % (build, revision)
+    except Exception:
+        return ""
+
+
+class _VSFixedFileInfo(ctypes.Structure):
+    _fields_ = [
+        ("dwSignature", ctypes.c_uint32),
+        ("dwStrucVersion", ctypes.c_uint32),
+        ("dwFileVersionMS", ctypes.c_uint32),
+        ("dwFileVersionLS", ctypes.c_uint32),
+        ("dwProductVersionMS", ctypes.c_uint32),
+        ("dwProductVersionLS", ctypes.c_uint32),
+        ("dwFileFlagsMask", ctypes.c_uint32),
+        ("dwFileFlags", ctypes.c_uint32),
+        ("dwFileOS", ctypes.c_uint32),
+        ("dwFileType", ctypes.c_uint32),
+        ("dwFileSubtype", ctypes.c_uint32),
+        ("dwFileDateMS", ctypes.c_uint32),
+        ("dwFileDateLS", ctypes.c_uint32),
+    ]
 
 
 def _arch_from_source_path(path: Path) -> str:

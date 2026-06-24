@@ -4,6 +4,7 @@ import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.profiles import loader as profile_loader
 
 
@@ -609,6 +610,77 @@ BOOLEAN __stdcall KeInsertQueueDpc(int Dpc, PVOID SystemArgument1, PVOID SystemA
                 for item in self._identities(plan)
             )
         )
+
+    def test_exp_get_next_callback_preview_signature_and_iterator_roles(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+unsigned __int64 __fastcall ExpGetNextCallback(_QWORD *a1)
+{
+  __int64 *v5;
+  __int64 *v4;
+
+  ExpLockCallbackListShared(KeGetCurrentThread());
+  v5 = (__int64 *)ExpCallbackListHead;
+  if ( a1 )
+  {
+    v5 = (__int64 *)a1[5];
+  }
+  while ( v5 != &ExpCallbackListHead )
+  {
+    v4 = v5 - 5;
+    if ( ObReferenceObjectSafeWithTag((__int64)(v5 - 5), 0x6E457845) )
+    {
+      break;
+    }
+    v5 = (__int64 *)*v5;
+  }
+  ExpUnlockCallbackListShared(KeGetCurrentThread());
+  if ( a1 )
+  {
+    ObfDereferenceObjectWithTag(a1, 0x6E457845);
+  }
+  return (unsigned __int64)v4;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.executive_async.exp_get_next_callback"
+        roles = self._roles(plan, profile_id)
+
+        self.assertIn("PVOID __fastcall ExpGetNextCallback(PVOID previousCallbackObject)", rendered)
+        self.assertEqual("CALLBACK_OBJECT", roles["previousCallbackObject"])
+        self.assertEqual("LIST_ENTRY", roles["callbackListEntry"])
+        self.assertFalse(
+            any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
+        )
+
+    def test_exp_get_next_callback_build_mismatch_blocks_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+unsigned __int64 __fastcall ExpGetNextCallback(_QWORD *a1)
+{
+  ExpLockCallbackListShared(KeGetCurrentThread());
+  ObReferenceObjectSafeWithTag((__int64)a1, 0x6E457845);
+  ObfDereferenceObjectWithTag(a1, 0x6E457845);
+  return (unsigned __int64)a1;
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.executive_async.exp_get_next_callback"
+        ]
+
+        self.assertEqual(1, len(corrections))
+        self.assertIn("build_mismatch", corrections[0].blockers)
+        self.assertFalse(corrections[0].apply_to_preview)
+        self.assertNotIn("PVOID previousCallbackObject", rendered)
 
     def test_executive_async_manifest_is_reported_when_pack_is_used(self) -> None:
         self._plan(
