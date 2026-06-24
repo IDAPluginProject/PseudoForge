@@ -10,6 +10,7 @@ from pathlib import Path
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     _base_stability_review_profile,
+    _body_offset_residue_item_matches_queue,
     _body_offset_residue_promotion_hints,
     _body_offset_residue_next_action_details,
     _body_offset_residue_review_evidence,
@@ -1039,6 +1040,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                         "/*",
                         "    Kernel insights:",
                         "      - domain_structure_identity: Domain identity for keyControlBlock: role keyControlBlock, structure CM_KEY_CONTROL_BLOCK, mode report-only, profile windows.registry_config.queue parameter 0. Fields field_10=+0x10 ULONG_PTR, field_18=+0x18 ULONG_PTR.",
+                        "      - inferred_offset_stable_base_source: Stable base source for keyControlBlock: transactionLogEntry (parameter source, parameter_direct_alias), 4 typed dereference(s) across 4 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68",
                         "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for keyControlBlock: domain identity profile is report-only; source domain identity profile is report-only; trusted rewrite source is required for canonical body rewrite. Review-only aliases remain available. confidence=0.73",
                         "*/",
                         "__int64 __fastcall CmpQueueResidue(PVOID keyControlBlock)",
@@ -1136,7 +1138,15 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             )
             self.assertEqual(
                 2,
+                queues["report_only_field_alias_review"]["functions"],
+            )
+            self.assertEqual(
+                2,
                 queues["source_identity_required"]["functions"],
+            )
+            self.assertEqual(
+                1,
+                queues["source_provenance_review"]["functions"],
             )
             self.assertEqual(
                 1,
@@ -1154,12 +1164,22 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 1,
                 stats["next_action_details"]["resolve_width_alignment_or_overlay_before_rewrite"],
             )
+            self.assertEqual(
+                1,
+                stats["next_action_details"]["stable_source_provenance_available_for_review"],
+            )
+            self.assertEqual(
+                1,
+                stats["next_action_details"]["direct_parameter_source_alias_available"],
+            )
             self.assertEqual(1, stats["fail_closed_gates"]["report_only_private_layout"])
             self.assertEqual(1, stats["fail_closed_gates"]["source_build_mismatch"])
             self.assertEqual(1, stats["fail_closed_gates"]["type_conflict_required"])
             self.assertEqual(3, stats["priority_factors"]["core_subsystem"])
             self.assertEqual(1, stats["priority_factors"]["source_build_mismatch"])
             self.assertEqual(2, stats["priority_factors"]["report_only_field_alias_available"])
+            self.assertEqual(1, stats["priority_factors"]["stable_source_provenance_available"])
+            self.assertEqual(1, stats["priority_factors"]["direct_parameter_source_alias"])
             self.assertTrue(
                 any(
                     key.startswith("registry/report_only_private_layout")
@@ -1174,6 +1194,14 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "exact private layout source",
                 queues["report_only_exact_promotion_candidates"]["recommended_next_step"],
             )
+            self.assertIn(
+                "canonical rewrite",
+                queues["report_only_field_alias_review"]["recommended_next_step"],
+            )
+            self.assertIn(
+                "parameter_direct_alias",
+                queues["source_provenance_review"]["stable_source_provenance"],
+            )
             cmp_queue_item = next(
                 item
                 for item in queues["report_only_exact_promotion_candidates"]["items"]
@@ -1186,6 +1214,22 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn(
                 "report_only_field_alias_available",
                 cmp_queue_item["priority_factors"],
+            )
+            self.assertEqual(
+                {"parameter_direct_alias": 1},
+                cmp_queue_item["stable_source_provenance"],
+            )
+            self.assertEqual(
+                {"parameter": 1},
+                cmp_queue_item["stable_source_kinds"],
+            )
+            self.assertEqual(
+                {"transactionLogEntry": 1},
+                cmp_queue_item["top_stable_sources"],
+            )
+            self.assertEqual(
+                {"windows.registry_config.queue": 1},
+                cmp_queue_item["domain_profiles"],
             )
             self.assertIn(
                 "review_focus",
@@ -1202,6 +1246,48 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "exact_function_build_source_identity_required",
                 queues["source_identity_required"]["items"][0]["next_action_details"],
             )
+
+    def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:
+        report_only_item = {
+            "review_class": "report_only_blocked_residue",
+            "fail_closed_gate": "report_only_private_layout",
+            "next_action_details": [
+                "field_aliases_available_for_manual_review",
+                "defer_low_pressure_residue",
+            ],
+            "priority_factors": [
+                "core_subsystem",
+                "report_only_field_alias_available",
+                "core_report_only_deferred_shape",
+            ],
+            "review_evidence": ["report_only_profile_kept_closed"],
+        }
+        low_pressure_item = {
+            "review_class": "low_pressure_offset_residue",
+            "fail_closed_gate": "low_pressure_deferred",
+            "next_action_details": ["defer_low_pressure_residue"],
+            "priority_factors": ["low_pressure_deferred"],
+            "review_evidence": ["low_pressure_offset_residue"],
+        }
+
+        self.assertTrue(
+            _body_offset_residue_item_matches_queue(
+                "report_only_field_alias_review",
+                report_only_item,
+            )
+        )
+        self.assertFalse(
+            _body_offset_residue_item_matches_queue(
+                "low_pressure_deferred",
+                report_only_item,
+            )
+        )
+        self.assertTrue(
+            _body_offset_residue_item_matches_queue(
+                "low_pressure_deferred",
+                low_pressure_item,
+            )
+        )
 
     def test_base_stability_profiles_split_initializer_and_reassignment_risk(self) -> None:
         self.assertEqual(

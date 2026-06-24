@@ -169,8 +169,14 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "report_only_exact_promotion_candidates": (
         "Report-only identities with useful aliases; keep canonical rewrite closed until exact private layout source is proven."
     ),
+    "report_only_field_alias_review": (
+        "Report-only identities with field aliases already available for review, but still closed for canonical rewrite."
+    ),
     "source_identity_required": (
         "Candidates blocked by missing trusted function/build/source identity before alias promotion."
+    ),
+    "source_provenance_review": (
+        "Candidates with stable source provenance evidence that can guide exact source identity review."
     ),
     "source_stability_required": (
         "Candidates whose base object may move, reload, or be reassigned after layout access."
@@ -201,8 +207,14 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     "report_only_exact_promotion_candidates": (
         "Read the cleaned body, verify field aliases against exact private layout source evidence, then promote only with source identity."
     ),
+    "report_only_field_alias_review": (
+        "Use the aliases as review shorthand only; do not enable canonical rewrite until exact build/source identity is proven."
+    ),
     "source_identity_required": (
         "Collect exact function, build, source object, and initializer evidence before enabling canonical rewrite."
+    ),
+    "source_provenance_review": (
+        "Follow the recorded direct or field-pointer source alias, then require exact function/build/source identity before promotion."
     ),
     "source_stability_required": (
         "Prove a single stable initializer and no risky post-access reassignment for the candidate base."
@@ -243,6 +255,11 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "validated_rewrite_residue": 7,
     "parameter_type_followup": 5,
     "dense_shape_without_identity": 6,
+    "stable_source_provenance_available": 7,
+    "parameter_field_pointer_alias_review": 8,
+    "direct_parameter_source_alias": 6,
+    "high_pressure_report_only_alias": 7,
+    "core_report_only_deferred_shape": 5,
 }
 _BASE_STABILITY_REVIEW_PROFILE_ORDER = (
     "initializer_dominance_review",
@@ -2115,8 +2132,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Generic params | Subsystems | Gates | Factors | Classes | Details | Next step |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Generic params | Subsystems | Gates | Factors | Classes | Details | Source provenance | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2142,8 +2159,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("priority_factors", {})).items()
         )
+        source_provenance = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("stable_source_provenance", {})).items()
+        )
+        domain_profiles = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2155,6 +2180,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(factors),
                 _markdown_table_cell(review_classes),
                 _markdown_table_cell(details),
+                _markdown_table_cell(source_provenance),
+                _markdown_table_cell(domain_profiles),
                 _markdown_table_cell(str(queue.get("recommended_next_step", "") or "")),
             )
         )
@@ -5095,6 +5122,7 @@ def _body_offset_residue_function_summary(
         domain_identities,
         pointer_indexed_metrics,
         offset_shape_profile,
+        stable_base_sources,
     )
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -5144,6 +5172,18 @@ def _body_offset_residue_function_summary(
         "hot_field_cluster_count": len(hot_field_clusters),
         "indexed_callback_table_count": len(indexed_callback_tables),
         "stable_base_source_count": len(stable_base_sources),
+        "stable_source_provenance": _body_offset_source_counter(
+            stable_base_sources,
+            "source_provenance",
+        ),
+        "stable_source_kinds": _body_offset_source_counter(
+            stable_base_sources,
+            "source_kind",
+        ),
+        "top_stable_sources": _body_offset_source_counter(
+            stable_base_sources,
+            "source",
+        ),
         "generic_base_evidence_count": len(generic_base_evidence),
         "generic_base_trust_candidate_count": len(generic_base_trust_candidates),
         "temp_provenance_blocked_count": len(temp_provenance.get("blocked", []) or []),
@@ -5172,6 +5212,7 @@ def _body_offset_residue_function_summary(
         "next_action_details": next_action_details,
         "offset_shape_profile": offset_shape_profile,
         "profile_counts": _coerce_dict(prototype_metrics.get("function_identity_profiles", {})),
+        "domain_profiles": _profile_counter(domain_identities),
         "summary_path": str(summary_path),
     }
 
@@ -5509,11 +5550,18 @@ def _body_offset_residue_next_action_details(
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
     offset_shape_profile: dict[str, Any],
+    stable_base_sources: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     del review_class
     reasons = _body_offset_rewrite_blocker_reasons(rewrite_blockers)
     evidence = {str(item) for item in review_evidence if str(item)}
     hints = {str(item) for item in promotion_hints if str(item)}
+    stable_sources = stable_base_sources or []
+    stable_source_provenance = {
+        str(item.get("source_provenance", "") or "")
+        for item in stable_sources
+        if str(item.get("source_provenance", "") or "")
+    }
     details: list[str] = []
     if "validated_rewrite_still_has_residue" in evidence:
         details.append("manual_reread_validated_rewrite_output")
@@ -5537,6 +5585,14 @@ def _body_offset_residue_next_action_details(
         details.append("model_pointer_indexed_table_separately")
     if "hot_field_cluster_missing_identity" in evidence:
         details.append("add_function_scoped_identity_for_hot_cluster")
+    if stable_sources:
+        details.append("stable_source_provenance_available_for_review")
+    if "parameter_field_pointer_alias" in stable_source_provenance:
+        details.append("parameter_field_pointer_alias_requires_source_profile")
+    if stable_source_provenance.intersection({"parameter_direct_alias", "direct_argument_alias"}):
+        details.append("direct_parameter_source_alias_available")
+    if "named_call_result_alias" in stable_source_provenance:
+        details.append("named_call_result_source_alias_available")
     if _has_layout_trusted_source_gap(reasons):
         details.append("trusted_source_gate_is_blocking")
     if _has_layout_source_stability_risk(reasons):
@@ -5656,6 +5712,12 @@ def _body_offset_residue_priority_factors(
         factors.append("pointer_indexed_shape")
     if "validated_rewrite_still_has_residue" in evidence:
         factors.append("validated_rewrite_residue")
+    if "stable_source_provenance_available_for_review" in details:
+        factors.append("stable_source_provenance_available")
+    if "parameter_field_pointer_alias_requires_source_profile" in details:
+        factors.append("parameter_field_pointer_alias_review")
+    if "direct_parameter_source_alias_available" in details:
+        factors.append("direct_parameter_source_alias")
     if generic_parameter_survivors > 0 and review_class in {
         "parameter_offset_shape_review",
         "context_offset_shape_review",
@@ -5668,6 +5730,17 @@ def _body_offset_residue_priority_factors(
         factors.append("dense_shape_without_identity")
     if review_class == "low_pressure_offset_residue":
         factors.append("low_pressure_deferred")
+    if "report_only_field_alias_available" in factors and (
+        offset_deref_survivors >= 24
+        or field_access_pressure >= 12
+    ):
+        factors.append("high_pressure_report_only_alias")
+    if (
+        "report_only_field_alias_available" in factors
+        and "core_subsystem" in factors
+        and "defer_low_pressure_residue" in details
+    ):
+        factors.append("core_report_only_deferred_shape")
     return list(dict.fromkeys(factors))
 
 
@@ -5841,6 +5914,18 @@ def _offset_deref_top_base_offsets(
     return result
 
 
+def _body_offset_source_counter(
+    items: list[dict[str, Any]],
+    key: str,
+) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        value = str(item.get(key, "") or "").strip()
+        if value:
+            counter[value] += 1
+    return _counter_to_dict(counter)
+
+
 def _body_offset_top_bases(
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
@@ -5866,7 +5951,9 @@ def _body_offset_residue_review_queues(
 ) -> dict[str, Any]:
     queue_names = [
         "report_only_exact_promotion_candidates",
+        "report_only_field_alias_review",
         "source_identity_required",
+        "source_provenance_review",
         "source_stability_required",
         "type_conflict_required",
         "pointer_indexed_layout_candidates",
@@ -5896,6 +5983,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
     next_action = str(item.get("next_action", "") or "")
     evidence = {str(value) for value in item.get("review_evidence", []) or [] if str(value)}
     details = {str(value) for value in item.get("next_action_details", []) or [] if str(value)}
+    priority_factors = {str(value) for value in item.get("priority_factors", []) or [] if str(value)}
+    fail_closed_gate = str(item.get("fail_closed_gate", "") or "")
     if queue_name == "report_only_exact_promotion_candidates":
         return bool(
             evidence.intersection(
@@ -5905,6 +5994,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
                 }
             )
         )
+    if queue_name == "report_only_field_alias_review":
+        return "report_only_field_alias_available" in priority_factors
     if queue_name == "source_identity_required":
         return (
             next_action == "add_exact_source_identity_or_keep_review_only"
@@ -5912,6 +6003,11 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
             or "report_only_source_identity" in evidence
             or "trusted_source_gate_is_blocking" in details
             or "promote_source_identity_before_alias_rewrite" in details
+        )
+    if queue_name == "source_provenance_review":
+        return (
+            _int_value(item.get("stable_base_source_count"), 0) > 0
+            or "stable_source_provenance_available_for_review" in details
         )
     if queue_name == "source_stability_required":
         return (
@@ -5953,8 +6049,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
         )
     if queue_name == "low_pressure_deferred":
         return (
-            review_class == "low_pressure_offset_residue"
-            or "defer_low_pressure_residue" in details
+            fail_closed_gate == "low_pressure_deferred"
+            or review_class == "low_pressure_offset_residue"
         )
     return False
 
@@ -5971,6 +6067,9 @@ def _body_offset_residue_review_queue_summary(
     priority_factors: Counter[str] = Counter()
     fail_closed_gates = Counter(str(item.get("fail_closed_gate", "") or "review_only") for item in items)
     review_focuses = Counter(str(item.get("review_focus", "") or "review_only") for item in items)
+    stable_source_provenance: Counter[str] = Counter()
+    stable_source_kinds: Counter[str] = Counter()
+    domain_profiles: Counter[str] = Counter()
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
@@ -5978,6 +6077,12 @@ def _body_offset_residue_review_queue_summary(
         for factor in item.get("priority_factors", []) or []:
             if str(factor):
                 priority_factors[str(factor)] += 1
+        for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
+            stable_source_provenance[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("stable_source_kinds", {})).items():
+            stable_source_kinds[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
+            domain_profiles[str(key)] += _int_value(value, 0)
     return {
         "queue": queue_name,
         "description": _BODY_OFFSET_QUEUE_DESCRIPTIONS.get(queue_name, "Manual body offset residue review queue."),
@@ -6001,6 +6106,11 @@ def _body_offset_residue_review_queue_summary(
         "priority_factors": _counter_to_dict(Counter(dict(priority_factors.most_common(limit)))),
         "fail_closed_gates": _counter_to_dict(Counter(dict(fail_closed_gates.most_common(limit)))),
         "review_focuses": _counter_to_dict(Counter(dict(review_focuses.most_common(limit)))),
+        "stable_source_provenance": _counter_to_dict(
+            Counter(dict(stable_source_provenance.most_common(limit)))
+        ),
+        "stable_source_kinds": _counter_to_dict(Counter(dict(stable_source_kinds.most_common(limit)))),
+        "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
         "items": [
             _body_offset_residue_review_queue_item(item)
             for item in items[:limit]
@@ -6047,6 +6157,10 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
             if str(base)
         ],
         "blocker_reasons": _coerce_dict(item.get("blocker_reasons", {})),
+        "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
+        "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
+        "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+        "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
         "summary_path": str(item.get("summary_path", "") or ""),
     }
 
