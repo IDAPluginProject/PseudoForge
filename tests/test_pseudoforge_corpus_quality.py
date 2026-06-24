@@ -11,6 +11,7 @@ from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     _base_stability_review_profile,
     _body_offset_residue_promotion_hints,
+    _body_offset_residue_next_action_details,
     _body_offset_residue_review_evidence,
     _decimal_status_like_literals,
     _decimal_status_target_review_queues,
@@ -861,6 +862,63 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
         self.assertIn("require_exact_function_build_source_identity", hints)
         self.assertNotIn("do_not_promote_report_only_profile", hints)
 
+    def test_body_offset_next_action_details_explain_fail_closed_gates(self) -> None:
+        blockers = [
+            {
+                "reasons": [
+                    "domain identity profile is report-only",
+                    "source domain identity profile is report-only",
+                    "trusted rewrite source is required for canonical body rewrite",
+                    "base is reassigned after layout access",
+                    "one or more offsets mix wide overlay access widths",
+                    "rewrite offset threshold requires at least 8 offsets",
+                ]
+            }
+        ]
+        domain_identities = [
+            {
+                "base": "keyControlBlock",
+                "mode": "report-only",
+                "field_count": 2,
+            }
+        ]
+        evidence = _body_offset_residue_review_evidence(
+            "source_identity_blocked_residue",
+            [],
+            [],
+            blockers,
+            domain_identities,
+            {},
+            {"shape_class": "temp_offset_shape_review"},
+        )
+        hints = _body_offset_residue_promotion_hints(
+            "source_identity_blocked_residue",
+            "add_exact_source_identity_or_keep_review_only",
+            blockers,
+            domain_identities,
+            {},
+            {"shape_class": "temp_offset_shape_review"},
+        )
+        details = _body_offset_residue_next_action_details(
+            "source_identity_blocked_residue",
+            "add_exact_source_identity_or_keep_review_only",
+            evidence,
+            hints,
+            blockers,
+            domain_identities,
+            {},
+            {"shape_class": "temp_offset_shape_review"},
+        )
+
+        self.assertIn("keep_report_only_until_exact_private_layout_source", details)
+        self.assertIn("field_aliases_available_for_manual_review", details)
+        self.assertIn("promote_source_identity_before_alias_rewrite", details)
+        self.assertIn("exact_function_build_source_identity_required", details)
+        self.assertIn("prove_single_stable_source_before_body_rewrite", details)
+        self.assertIn("resolve_width_alignment_or_overlay_before_rewrite", details)
+        self.assertIn("collect_access_and_offset_threshold_evidence", details)
+        self.assertIn("trace_temp_initializer_before_promotion", details)
+
     def test_body_offset_shape_profile_splits_parameter_residue(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -941,6 +999,130 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual("ParameterResidue", item["name"])
             self.assertEqual("parameter_offset_shape_review", item["review_class"])
             self.assertIn("argument0", item["top_bases"])
+
+    def test_body_offset_review_queues_group_actionable_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def write_function(ea: str, name: str, text: str) -> None:
+                function_dir = root / "functions" / ("%s_%s" % (ea.replace("0x", ""), name))
+                function_dir.mkdir(parents=True)
+                cleaned_name = "%s.cleaned.cpp" % name
+                summary_name = "%s.ida-batch-summary.json" % name
+                (function_dir / cleaned_name).write_text(text, encoding="utf-8")
+                (function_dir / summary_name).write_text(
+                    json.dumps(
+                        {
+                            "mode": "ida_batch_export",
+                            "function": name,
+                            "function_ea": ea,
+                            "artifacts": {
+                                "cleaned_pseudocode": cleaned_name,
+                                "summary": summary_name,
+                            },
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_function(
+                "0x140010000",
+                "CmpQueueResidue",
+                "\n".join(
+                    [
+                        "/*",
+                        "    Kernel insights:",
+                        "      - domain_structure_identity: Domain identity for keyControlBlock: role keyControlBlock, structure CM_KEY_CONTROL_BLOCK, mode report-only, profile windows.registry_config.queue parameter 0. Fields field_10=+0x10 ULONG_PTR, field_18=+0x18 ULONG_PTR.",
+                        "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for keyControlBlock: domain identity profile is report-only; source domain identity profile is report-only; trusted rewrite source is required for canonical body rewrite. Review-only aliases remain available. confidence=0.73",
+                        "*/",
+                        "__int64 __fastcall CmpQueueResidue(PVOID keyControlBlock)",
+                        "{",
+                        "  return *(_QWORD *)(keyControlBlock + 0x10)",
+                        "       + *(_QWORD *)(keyControlBlock + 0x18)",
+                        "       + *(_QWORD *)(keyControlBlock + 0x20)",
+                        "       + *(_QWORD *)(keyControlBlock + 0x28);",
+                        "}",
+                        "",
+                    ]
+                ),
+            )
+            write_function(
+                "0x140020000",
+                "MiTypeConflictResidue",
+                "\n".join(
+                    [
+                        "/*",
+                        "    Kernel insights:",
+                        "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v5: one or more offsets mix wide overlay access widths; one or more typed offsets are not naturally aligned. Review-only aliases remain available. confidence=0.73",
+                        "*/",
+                        "__int64 __fastcall MiTypeConflictResidue(__int64 a1)",
+                        "{",
+                        "  __int64 v5;",
+                        "  v5 = a1;",
+                        "  return *(_QWORD *)(v5 + 0x10)",
+                        "       + *(_QWORD *)(v5 + 0x18)",
+                        "       + *(_QWORD *)(v5 + 0x20)",
+                        "       + *(_QWORD *)(v5 + 0x28);",
+                        "}",
+                        "",
+                    ]
+                ),
+            )
+            write_function(
+                "0x140030000",
+                "ParameterResidue",
+                "\n".join(
+                    [
+                        "__int64 __fastcall ParameterResidue(PVOID argument0)",
+                        "{",
+                        "  return *(_DWORD *)(argument0 + 0x10)",
+                        "       + *(_DWORD *)(argument0 + 0x18)",
+                        "       + *(_DWORD *)(argument0 + 0x20)",
+                        "       + *(_DWORD *)(argument0 + 0x28);",
+                        "}",
+                        "",
+                    ]
+                ),
+            )
+
+            report = analyze_corpus(root)
+            stats = report["body_offset_residue_review_stats"]
+            queues = stats["review_queues"]
+
+            self.assertIn("next_action_details", stats)
+            self.assertEqual(
+                1,
+                queues["report_only_exact_promotion_candidates"]["functions"],
+            )
+            self.assertEqual(
+                1,
+                queues["source_identity_required"]["functions"],
+            )
+            self.assertEqual(
+                1,
+                queues["type_conflict_required"]["functions"],
+            )
+            self.assertEqual(
+                1,
+                queues["parameter_profile_candidates"]["functions"],
+            )
+            self.assertEqual(
+                1,
+                stats["next_action_details"]["field_aliases_available_for_manual_review"],
+            )
+            self.assertEqual(
+                1,
+                stats["next_action_details"]["resolve_width_alignment_or_overlay_before_rewrite"],
+            )
+            self.assertEqual(
+                "CmpQueueResidue",
+                queues["report_only_exact_promotion_candidates"]["items"][0]["name"],
+            )
+            self.assertIn(
+                "exact_function_build_source_identity_required",
+                queues["source_identity_required"]["items"][0]["next_action_details"],
+            )
 
     def test_base_stability_profiles_split_initializer_and_reassignment_risk(self) -> None:
         self.assertEqual(
