@@ -48,6 +48,10 @@ OFFSET_DEREF_ITEM_RE = re.compile(
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
+DIRECT_BASE_DEREF_RE = re.compile(
+    r"\*\s*\(\s*[^()]*?\*\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
 POINTER_INDEXED_OFFSET_DEREF_RE = re.compile(
     r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
     r"(?P<pointer_stars>\*+)\s*\)\s*"
@@ -1948,6 +1952,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             % prototype_correction_totals.get("generic_parameter_survivors", 0),
             "- Offset-deref survivors: `%s`"
             % prototype_correction_totals.get("offset_deref_survivors", 0),
+            "- Direct-base deref survivors: `%s`"
+            % prototype_correction_totals.get("direct_base_deref_survivors", 0),
             "- Body canonical rewrite ready: `%s`"
             % prototype_correction_totals.get("body_rewrite_ready", 0),
             "- Negative controls: `%s`"
@@ -5196,6 +5202,7 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
     body_text = _strip_pseudoforge_header(cleaned_text) if cleaned_text else ""
     generic_parameter_survivors = _generic_parameter_survivor_count(body_text)
     offset_deref_survivors = len(OFFSET_DEREF_RE.findall(body_text))
+    direct_base_deref_survivors = len(DIRECT_BASE_DEREF_RE.findall(body_text))
     body_rewrite_ready = _int_value(body_rewrite_summary.get("rewrite_ready"), 0)
     body_rewrite_preview = _int_value(body_rewrite_summary.get("rewrite_preview"), 0)
     body_rewrite_blockers = _int_value(body_rewrite_summary.get("rewrite_blockers"), 0)
@@ -5228,6 +5235,7 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         "body_rewrite_source_provenance": _coerce_dict(body_rewrite_summary.get("source_provenance_counts", {})),
         "generic_parameter_survivors": generic_parameter_survivors,
         "offset_deref_survivors": offset_deref_survivors,
+        "direct_base_deref_survivors": direct_base_deref_survivors,
         "has_correction_evidence": has_correction_evidence,
         "profiles": _profile_counter(parameter_type_corrections),
         "function_identity_profiles": function_identity_profiles,
@@ -5264,6 +5272,7 @@ def _update_prototype_correction_metrics(
     )
     totals["generic_parameter_survivors"] += _int_value(metrics.get("generic_parameter_survivors"), 0)
     totals["offset_deref_survivors"] += _int_value(metrics.get("offset_deref_survivors"), 0)
+    totals["direct_base_deref_survivors"] += _int_value(metrics.get("direct_base_deref_survivors"), 0)
     if bool(metrics.get("has_correction_evidence")):
         totals["functions_with_correction_evidence"] += 1
     else:
@@ -5299,6 +5308,7 @@ def _prototype_correction_function_summary(
         "body_rewrite_blockers": _int_value(metrics.get("body_rewrite_blockers"), 0),
         "generic_parameter_survivors": _int_value(metrics.get("generic_parameter_survivors"), 0),
         "offset_deref_survivors": _int_value(metrics.get("offset_deref_survivors"), 0),
+        "direct_base_deref_survivors": _int_value(metrics.get("direct_base_deref_survivors"), 0),
         "profiles": _coerce_dict(metrics.get("profiles", {})),
         "canonical_types": _coerce_dict(metrics.get("canonical_types", {})),
         "blockers": _coerce_dict(metrics.get("correction_blockers", {})),
@@ -5369,6 +5379,7 @@ def _prototype_correction_queue_item(
         "blocked_parameter_type_corrections": _int_value(item.get("blocked_parameter_type_corrections"), 0),
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
+        "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
         "profiles": _coerce_dict(item.get("profiles", {})),
         "canonical_types": _coerce_dict(item.get("canonical_types", {})),
         "blockers": _coerce_dict(item.get("blockers", {})),
@@ -5408,6 +5419,10 @@ def _prototype_correction_queue_summary(
             _int_value(item.get("offset_deref_survivors"), 0)
             for item in items
         ),
+        "direct_base_deref_survivors": sum(
+            _int_value(item.get("direct_base_deref_survivors"), 0)
+            for item in items
+        ),
         "profiles": _counter_to_dict(Counter(dict(profiles.most_common(8)))),
         "canonical_types": _counter_to_dict(Counter(dict(canonical_types.most_common(8)))),
         "blockers": _counter_to_dict(Counter(dict(blockers.most_common(8)))),
@@ -5428,6 +5443,7 @@ def _prototype_correction_totals_dict(counter: Counter[str]) -> dict[str, int]:
         "body_rewrite_partial_opportunities",
         "generic_parameter_survivors",
         "offset_deref_survivors",
+        "direct_base_deref_survivors",
         "functions_with_correction_evidence",
         "negative_control_functions",
     ]
@@ -7782,6 +7798,13 @@ def _update_text_metrics(
 def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
     _count_pattern(text_totals, text, GENERIC_IDENTIFIER_RE, "generic_identifier_tokens", "functions_with_generic_identifiers")
     _count_pattern(text_totals, text, OFFSET_DEREF_RE, "offset_deref_patterns", "functions_with_offset_derefs")
+    _count_pattern(
+        text_totals,
+        text,
+        DIRECT_BASE_DEREF_RE,
+        "direct_base_deref_patterns",
+        "functions_with_direct_base_derefs",
+    )
     _count_pattern(
         text_totals,
         text,

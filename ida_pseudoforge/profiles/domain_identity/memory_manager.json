@@ -855,6 +855,7 @@
           ],
           "source": "MiCreateSharedZeroPages exact-name sharedZeroPageContext parameter with 14 stable accesses across 8 offsets in ntoskrnl 10.0.26200.8457 random500 residue review",
           "fields": [
+            {"offset": "0x0", "name": "field_0", "type": "ULONG", "size": 4, "confidence": 0.82, "note": "observed direct-base flag access in exact MiCreateSharedZeroPages profile"},
             {"offset": "0x8", "name": "field_8", "type": "ULONG_PTR", "size": 8, "confidence": 0.84},
             {"offset": "0x10", "name": "field_10", "type": "ULONG_PTR", "size": 8, "confidence": 0.82},
             {"offset": "0x18", "name": "field_18", "type": "ULONG_PTR", "size": 8, "confidence": 0.82, "note": "same-width pointer/integer observations"},

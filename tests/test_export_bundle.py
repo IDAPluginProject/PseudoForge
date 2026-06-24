@@ -902,6 +902,84 @@ __int64 __fastcall PointerIndexedLayout(__int64 context)
         self.assertIn("context->field_48 /* _QWORD +0x48 */", canonical_text)
         self.assertNotIn("*((_QWORD *)context + 2)", canonical_text)
 
+    def test_validated_layout_rewrite_handles_advertised_direct_base_field_zero(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for context: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance domain_identity from context. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for context: 14 dereference(s) can map to 9 field alias(es) field_0, field_8, field_10, field_18, field_20, field_28, field_30, field_38, field_40. Source provenance domain_identity from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall DirectBaseFieldZeroLayout(__int64 context)
+{
+  return *(_DWORD *)context
+       + *(_DWORD *)context
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 40)
+       + *(_DWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 24)
+       + *(_DWORD *)(context + 32)
+       + *(_QWORD *)(context + 56);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "DirectBaseFieldZeroLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual(14, bundle.metadata["rewritten_accesses"])
+        self.assertEqual(9, bundle.metadata["rewrite_results"]["context"]["rewritten_fields"])
+        self.assertIn("context->field_0 /* _DWORD +0x0 */", canonical_text)
+        self.assertNotIn("*(_DWORD *)context", canonical_text)
+
+    def test_validated_layout_rewrite_keeps_unadvertised_direct_base_raw(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for context: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance domain_identity from context. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for context: 12 dereference(s) can map to 8 field alias(es) field_8, field_10, field_18, field_20, field_28, field_30, field_38, field_40. Source provenance domain_identity from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall DirectBaseUnadvertisedLayout(__int64 context)
+{
+  return *(_DWORD *)context
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_DWORD *)(context + 32)
+       + *(_DWORD *)(context + 40)
+       + *(_DWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 24)
+       + *(_DWORD *)(context + 32)
+       + *(_QWORD *)(context + 56);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "DirectBaseUnadvertisedLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual(12, bundle.metadata["rewritten_accesses"])
+        self.assertIn("*(_DWORD *)context", canonical_text)
+        self.assertNotIn("context->field_0", canonical_text)
+
     def test_validated_layout_rewrite_extends_to_direct_source_alias_offsets(self) -> None:
         cleaned_text = """
 /*

@@ -27,6 +27,11 @@ _OFFSET_DEREF_RE = re.compile(
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
+_DIRECT_BASE_DEREF_RE = re.compile(
+    r"\*\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
+    r"(?P<pointer_stars>\*+)\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
 _OFFSET_INDEXED_DEREF_RE = re.compile(
     r"\*\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
     r"(?P<pointer_stars>\*+)\s*\)\s*"
@@ -238,7 +243,7 @@ def field_layout_comments(
         append_pattern = _domain_identity_append_pattern_comment(text or "", domain_identity, item)
         if append_pattern:
             comments.append(append_pattern)
-        preview = _field_preview_comment_from_layout(item, domain_identity)
+        preview = _field_preview_comment_from_layout(text or "", item, domain_identity)
         if preview:
             comments.append(preview)
         alias_preview = _field_alias_comment_from_layout(
@@ -1071,6 +1076,7 @@ def _domain_identity_append_pattern_comment(
     }
 
 def _field_preview_comment_from_layout(
+    text: str,
     layout: _LayoutEvidence,
     domain_identity: DomainIdentityMatch | None = None,
 ) -> dict[str, Any] | None:
@@ -1080,7 +1086,7 @@ def _field_preview_comment_from_layout(
             return None
     elif len(layout.offsets) < 8 or layout.access_count < 12:
         return None
-    fields = _preview_fields(layout, domain_identity)
+    fields = _preview_fields(layout, domain_identity, text=text)
     if not fields:
         return None
     field_text = "; ".join("+0x%X %s %s" % (item["offset"], item["type"], item["name"]) for item in fields[:8])
@@ -3493,10 +3499,15 @@ def _field_rewrite_preview_comment(
     ready: dict[str, Any],
     domain_identity: DomainIdentityMatch | None = None,
 ) -> dict[str, Any] | None:
-    fields = _preview_fields(layout, domain_identity)
+    fields = _preview_fields(layout, domain_identity, text=text)
     if not fields:
         return None
-    rewrite_count = _layout_rewrite_access_count(text, layout)
+    rewrite_offsets = {
+        int(item["offset"])
+        for item in fields
+        if isinstance(item.get("offset"), int)
+    }
+    rewrite_count = _layout_rewrite_access_count_for_offsets(text, layout, rewrite_offsets)
     if rewrite_count <= 0:
         return None
     field_names = [str(item["name"]) for item in fields if str(item.get("name", ""))]
@@ -4078,6 +4089,10 @@ def _layout_rewrite_access_count(text: str, layout: _LayoutEvidence) -> int:
 
 def _layout_rewrite_access_count_for_offsets(text: str, layout: _LayoutEvidence, offsets: set[int]) -> int:
     count = 0
+    if 0 in offsets:
+        for match in _DIRECT_BASE_DEREF_RE.finditer(text or ""):
+            if match.group("base") == layout.base:
+                count += 1
     for match in _OFFSET_DEREF_RE.finditer(text or ""):
         if match.group("base") != layout.base:
             continue

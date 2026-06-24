@@ -722,11 +722,11 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
         }
         corrected_parameter_expectations = {
             "windows.memory_manager.store_work_item_process": ("store", "ST_STORE_SM_TRAITS", 9),
-            "windows.memory_manager.create_shared_zero_pages": (
-                "sharedZeroPageContext",
-                "MI_SHARED_ZERO_PAGE_CONTEXT",
-                8,
-            ),
+                "windows.memory_manager.create_shared_zero_pages": (
+                    "sharedZeroPageContext",
+                    "MI_SHARED_ZERO_PAGE_CONTEXT",
+                    9,
+                ),
             "windows.memory_manager.pf_allocate_mdls": (
                 "pageFileMdlContext",
                 "MI_PAGEFILE_MDL_CONTEXT",
@@ -860,18 +860,20 @@ __int64 __fastcall MiCreateSharedZeroPages(__int64 a1, __int64 *a2)
         + *(unsigned int *)(a1 + 48)
         + *(_QWORD *)(a1 + 56)
         + *(_QWORD *)(a1 + 64);
+  total += *(_DWORD *)a1;
   total += *(_QWORD *)(a1 + 8)
         + *(_QWORD *)(a1 + 24)
         + *(unsigned int *)(a1 + 32)
         + *(_QWORD *)(a1 + 56);
+  total += *(_DWORD *)a1;
   *a2 = total;
   return STATUS_SUCCESS;
 }
 """,
                 "sharedZeroPageContext",
-                "field_8",
+                "field_0",
                 "field_40",
-                12,
+                14,
             ),
             (
                 """
@@ -944,6 +946,8 @@ __int64 __fastcall MiPfAllocateMdls(__int64 a1, unsigned int a2, _SLIST_ENTRY *a
                 self.assertEqual(expected_accesses, metadata["rewritten_accesses"])
                 self.assertIn("%s->%s" % (base, first_field), preview)
                 self.assertIn("%s->%s" % (base, last_field), preview)
+                if base == "sharedZeroPageContext":
+                    self.assertNotIn("*(_DWORD *)sharedZeroPageContext", preview)
 
     def test_report_only_function_identity_blocks_source_less_local_layout_rewrite(self) -> None:
         capture = capture_from_pseudocode(
