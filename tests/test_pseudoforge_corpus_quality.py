@@ -1091,6 +1091,9 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             queues = stats["review_queues"]
 
             self.assertIn("next_action_details", stats)
+            self.assertIn("priority_factors", stats)
+            self.assertIn("fail_closed_gates", stats)
+            self.assertIn("review_focuses", stats)
             self.assertEqual(
                 1,
                 queues["report_only_exact_promotion_candidates"]["functions"],
@@ -1115,9 +1118,39 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 1,
                 stats["next_action_details"]["resolve_width_alignment_or_overlay_before_rewrite"],
             )
+            self.assertEqual(1, stats["fail_closed_gates"]["report_only_private_layout"])
+            self.assertEqual(1, stats["fail_closed_gates"]["type_conflict_required"])
+            self.assertEqual(2, stats["priority_factors"]["core_subsystem"])
+            self.assertEqual(1, stats["priority_factors"]["report_only_field_alias_available"])
+            self.assertTrue(
+                any(
+                    key.startswith("registry/report_only_private_layout")
+                    for key in stats["review_focuses"]
+                )
+            )
+            self.assertIn(
+                "Report-only identities",
+                queues["report_only_exact_promotion_candidates"]["description"],
+            )
+            self.assertIn(
+                "exact private layout source",
+                queues["report_only_exact_promotion_candidates"]["recommended_next_step"],
+            )
             self.assertEqual(
                 "CmpQueueResidue",
                 queues["report_only_exact_promotion_candidates"]["items"][0]["name"],
+            )
+            self.assertEqual(
+                "report_only_private_layout",
+                queues["report_only_exact_promotion_candidates"]["items"][0]["fail_closed_gate"],
+            )
+            self.assertIn(
+                "report_only_field_alias_available",
+                queues["report_only_exact_promotion_candidates"]["items"][0]["priority_factors"],
+            )
+            self.assertIn(
+                "review_focus",
+                queues["report_only_exact_promotion_candidates"]["items"][0],
             )
             self.assertIn(
                 "exact_function_build_source_identity_required",

@@ -159,6 +159,90 @@ _BODY_OFFSET_SHAPE_REVIEW_CLASS_ORDER = (
     "low_pressure_offset_residue",
     "unclassified_offset_residue",
 )
+_BODY_OFFSET_CORE_SUBSYSTEMS = {
+    "registry",
+    "memory",
+    "object",
+    "security",
+}
+_BODY_OFFSET_QUEUE_DESCRIPTIONS = {
+    "report_only_exact_promotion_candidates": (
+        "Report-only identities with useful aliases; keep canonical rewrite closed until exact private layout source is proven."
+    ),
+    "source_identity_required": (
+        "Candidates blocked by missing trusted function/build/source identity before alias promotion."
+    ),
+    "source_stability_required": (
+        "Candidates whose base object may move, reload, or be reassigned after layout access."
+    ),
+    "type_conflict_required": (
+        "Candidates blocked by mixed width, overlay, or alignment evidence that must be resolved before rewrite."
+    ),
+    "pointer_indexed_layout_candidates": (
+        "Pointer-indexed table or callback-like shapes; model separately from canonical field rewrite."
+    ),
+    "dense_shape_identity_candidates": (
+        "Dense offset shapes with enough pressure but without a trusted structure/source identity."
+    ),
+    "parameter_profile_candidates": (
+        "Parameter-shaped residue where prototype/domain semantics should be validated first."
+    ),
+    "context_profile_candidates": (
+        "Context-shaped residue where an exact function context profile may improve review quality."
+    ),
+    "temp_source_identity_candidates": (
+        "Temporary-base residue that needs a trusted initializer/source trace before promotion."
+    ),
+    "low_pressure_deferred": (
+        "Low-pressure residue that should usually stay deferred unless a stronger profile appears."
+    ),
+}
+_BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
+    "report_only_exact_promotion_candidates": (
+        "Read the cleaned body, verify field aliases against exact private layout source evidence, then promote only with source identity."
+    ),
+    "source_identity_required": (
+        "Collect exact function, build, source object, and initializer evidence before enabling canonical rewrite."
+    ),
+    "source_stability_required": (
+        "Prove a single stable initializer and no risky post-access reassignment for the candidate base."
+    ),
+    "type_conflict_required": (
+        "Resolve subfield width, overlay, and alignment conflicts or keep aliases report-only."
+    ),
+    "pointer_indexed_layout_candidates": (
+        "Treat table slots and callback arrays as indexed layouts instead of field rewrites."
+    ),
+    "dense_shape_identity_candidates": (
+        "Add a function-scoped identity only when the dense base has exact source and build provenance."
+    ),
+    "parameter_profile_candidates": (
+        "Validate parameter meaning and corrected type evidence before adding or widening a profile."
+    ),
+    "context_profile_candidates": (
+        "Add a narrow context profile only when the context structure is function-scoped and source-backed."
+    ),
+    "temp_source_identity_candidates": (
+        "Trace the temp initializer and prove it aliases a trusted source object before promotion."
+    ),
+    "low_pressure_deferred": (
+        "Defer unless this function is a named subsystem target or repeated corpus evidence raises pressure."
+    ),
+}
+_BODY_OFFSET_PRIORITY_BONUSES = {
+    "core_subsystem": 8,
+    "high_offset_residue": 14,
+    "medium_offset_residue": 7,
+    "high_field_access_pressure": 8,
+    "report_only_field_alias_available": 10,
+    "exact_private_layout_required": 8,
+    "source_stability_gate": 8,
+    "type_conflict_gate": 8,
+    "pointer_indexed_shape": 6,
+    "validated_rewrite_residue": 7,
+    "parameter_type_followup": 5,
+    "dense_shape_without_identity": 6,
+}
 _BASE_STABILITY_REVIEW_PROFILE_ORDER = (
     "initializer_dominance_review",
     "initializer_and_reassignment_risk",
@@ -631,6 +715,9 @@ def analyze_corpus(
     body_offset_residue_review_evidence: Counter[str] = Counter()
     body_offset_residue_promotion_hints: Counter[str] = Counter()
     body_offset_residue_next_action_details: Counter[str] = Counter()
+    body_offset_residue_priority_factors: Counter[str] = Counter()
+    body_offset_residue_fail_closed_gates: Counter[str] = Counter()
+    body_offset_residue_review_focuses: Counter[str] = Counter()
     body_offset_residue_shape_classes: Counter[str] = Counter()
     body_offset_residue_base_classes: Counter[str] = Counter()
     decimal_status_residue_values: Counter[str] = Counter()
@@ -975,6 +1062,9 @@ def analyze_corpus(
                         body_offset_residue_review_evidence,
                         body_offset_residue_promotion_hints,
                         body_offset_residue_next_action_details,
+                        body_offset_residue_priority_factors,
+                        body_offset_residue_fail_closed_gates,
+                        body_offset_residue_review_focuses,
                         body_offset_residue_shape_classes,
                         body_offset_residue_base_classes,
                     )
@@ -1556,6 +1646,15 @@ def analyze_corpus(
             "next_action_details": _counter_to_dict(
                 Counter(dict(body_offset_residue_next_action_details.most_common(top)))
             ),
+            "priority_factors": _counter_to_dict(
+                Counter(dict(body_offset_residue_priority_factors.most_common(top)))
+            ),
+            "fail_closed_gates": _counter_to_dict(
+                Counter(dict(body_offset_residue_fail_closed_gates.most_common(top)))
+            ),
+            "review_focuses": _counter_to_dict(
+                Counter(dict(body_offset_residue_review_focuses.most_common(top)))
+            ),
             "offset_shape_classes": _counter_to_dict(Counter(dict(body_offset_residue_shape_classes.most_common(top)))),
             "offset_base_classes": _counter_to_dict(Counter(dict(body_offset_residue_base_classes.most_common(top)))),
             "review_queues": _body_offset_residue_review_queues(
@@ -1948,6 +2047,45 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Residue Priority Factors",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("priority_factors", {})),
+            "Priority factor",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Fail-Closed Gates",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("fail_closed_gates", {})),
+            "Fail-closed gate",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Review Focuses",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("review_focuses", {})),
+            "Review focus",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Residue Offset Shape Classes",
             "",
         ]
@@ -1976,8 +2114,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Functions | Offset derefs | Generic params | Subsystems | Classes | Details |",
-            "| --- | ---: | ---: | ---: | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Generic params | Subsystems | Gates | Factors | Classes | Details | Next step |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -1995,16 +2133,28 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("next_action_details", {})).items()
         )
+        gates = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("fail_closed_gates", {})).items()
+        )
+        factors = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("priority_factors", {})).items()
+        )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
+                _markdown_table_cell(str(queue.get("description", "") or "")),
                 int(queue.get("functions", 0) or 0),
                 int(queue.get("offset_deref_survivors", 0) or 0),
                 int(queue.get("generic_parameter_survivors", 0) or 0),
                 _markdown_table_cell(subsystems),
+                _markdown_table_cell(gates),
+                _markdown_table_cell(factors),
                 _markdown_table_cell(review_classes),
                 _markdown_table_cell(details),
+                _markdown_table_cell(str(queue.get("recommended_next_step", "") or "")),
             )
         )
     lines.extend(
@@ -2012,8 +2162,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | EA | Subsystem | Class | Next action | Details | Score | Offset derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Subsystem | Focus | Gate | Factors | Class | Next action | Details | Score | Offset derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -2027,12 +2177,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         evidence = ", ".join(str(value) for value in item.get("review_evidence", []) or [])
         promotion_hints = ", ".join(str(value) for value in item.get("promotion_hints", []) or [])
         next_action_details = ", ".join(str(value) for value in item.get("next_action_details", []) or [])
+        priority_factors = ", ".join(str(value) for value in item.get("priority_factors", []) or [])
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
                 str(item.get("subsystem", "")),
+                str(item.get("review_focus", "")),
+                str(item.get("fail_closed_gate", "")),
+                _markdown_table_cell(priority_factors),
                 str(item.get("review_class", "")),
                 str(item.get("next_action", "")),
                 _markdown_table_cell(next_action_details),
@@ -4938,6 +5092,23 @@ def _body_offset_residue_function_summary(
         pointer_indexed_metrics,
         offset_shape_profile,
     )
+    fail_closed_gate = _body_offset_residue_fail_closed_gate(
+        review_class,
+        review_evidence,
+        next_action_details,
+        promotion_hints,
+    )
+    priority_factors = _body_offset_residue_priority_factors(
+        subsystem,
+        review_class,
+        review_evidence,
+        promotion_hints,
+        next_action_details,
+        offset_deref_survivors,
+        _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
+        field_access_pressure,
+    )
+    review_focus = _body_offset_residue_review_focus(subsystem, fail_closed_gate, priority_factors)
     priority_score = offset_deref_survivors
     priority_score += field_access_pressure // 2
     priority_score += 30 if subsystem in {"registry", "memory", "object", "security"} else 0
@@ -4950,6 +5121,7 @@ def _body_offset_residue_function_summary(
         priority_score += 6
     if "pointer_indexed_array_or_table_shape" in review_evidence:
         priority_score += 6
+    priority_score += _body_offset_residue_priority_bonus(priority_factors)
     return {
         "ea": ea,
         "name": name,
@@ -4957,6 +5129,9 @@ def _body_offset_residue_function_summary(
         "review_class": review_class,
         "next_action": next_action,
         "priority_score": priority_score,
+        "review_focus": review_focus,
+        "fail_closed_gate": fail_closed_gate,
+        "priority_factors": priority_factors,
         "offset_deref_survivors": offset_deref_survivors,
         "generic_parameter_survivors": _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         "body_rewrite_ready": _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
@@ -5007,6 +5182,9 @@ def _update_body_offset_residue_metrics(
     review_evidence: Counter[str],
     promotion_hints: Counter[str],
     next_action_details: Counter[str],
+    priority_factors: Counter[str],
+    fail_closed_gates: Counter[str],
+    review_focuses: Counter[str],
     shape_classes: Counter[str],
     base_classes: Counter[str],
 ) -> None:
@@ -5039,6 +5217,15 @@ def _update_body_offset_residue_metrics(
     for detail in item.get("next_action_details", []) or []:
         if str(detail):
             next_action_details[str(detail)] += 1
+    for factor in item.get("priority_factors", []) or []:
+        if str(factor):
+            priority_factors[str(factor)] += 1
+    fail_closed_gate = str(item.get("fail_closed_gate", "") or "")
+    if fail_closed_gate:
+        fail_closed_gates[fail_closed_gate] += 1
+    review_focus = str(item.get("review_focus", "") or "")
+    if review_focus:
+        review_focuses[review_focus] += 1
     shape_profile = _coerce_dict(item.get("offset_shape_profile", {}))
     shape_class = str(shape_profile.get("shape_class", "") or "")
     if shape_class:
@@ -5372,6 +5559,109 @@ def _body_offset_residue_next_action_details(
     return list(dict.fromkeys(details))
 
 
+def _body_offset_residue_fail_closed_gate(
+    review_class: str,
+    review_evidence: list[str],
+    next_action_details: list[str],
+    promotion_hints: list[str],
+) -> str:
+    evidence = {str(item) for item in review_evidence if str(item)}
+    details = {str(item) for item in next_action_details if str(item)}
+    hints = {str(item) for item in promotion_hints if str(item)}
+    if "validated_rewrite_still_has_residue" in evidence:
+        return "validated_rewrite_residue_review"
+    if "report_only_profile_kept_closed" in evidence:
+        return "report_only_private_layout"
+    if "report_only_source_identity" in evidence:
+        return "report_only_source_identity"
+    if "trusted_source_required" in evidence or "trusted_source_gate_is_blocking" in details:
+        return "exact_source_identity_required"
+    if "source_stability_risk" in evidence or "source_stability_gate_is_blocking" in details:
+        return "source_stability_required"
+    if "type_width_or_alignment_conflict" in evidence or "type_evidence_gate_is_blocking" in details:
+        return "type_conflict_required"
+    if "pointer_indexed_array_or_table_shape" in evidence:
+        return "pointer_indexed_separate_model"
+    if "threshold_gap" in evidence:
+        return "threshold_evidence_gap"
+    if "trace_temp_initializer_before_rewrite" in hints or "trace_temp_initializer_before_promotion" in details:
+        return "temp_source_identity_required"
+    if review_class == "low_pressure_offset_residue":
+        return "low_pressure_deferred"
+    if review_class == "unclassified_offset_residue":
+        return "manual_review_required"
+    return "review_only"
+
+
+def _body_offset_residue_priority_factors(
+    subsystem: str,
+    review_class: str,
+    review_evidence: list[str],
+    promotion_hints: list[str],
+    next_action_details: list[str],
+    offset_deref_survivors: int,
+    generic_parameter_survivors: int,
+    field_access_pressure: int,
+) -> list[str]:
+    evidence = {str(item) for item in review_evidence if str(item)}
+    hints = {str(item) for item in promotion_hints if str(item)}
+    details = {str(item) for item in next_action_details if str(item)}
+    factors: list[str] = []
+    if subsystem in _BODY_OFFSET_CORE_SUBSYSTEMS:
+        factors.append("core_subsystem")
+    if offset_deref_survivors >= 24:
+        factors.append("high_offset_residue")
+    elif offset_deref_survivors >= 8:
+        factors.append("medium_offset_residue")
+    if field_access_pressure >= 12:
+        factors.append("high_field_access_pressure")
+    if "field_aliases_available_for_manual_review" in details:
+        factors.append("report_only_field_alias_available")
+    if (
+        "trusted_source_required" in evidence
+        or "exact_function_build_source_identity_required" in details
+        or "keep_review_only_without_trusted_source" in hints
+    ):
+        factors.append("exact_private_layout_required")
+    if "source_stability_risk" in evidence or "source_stability_gate_is_blocking" in details:
+        factors.append("source_stability_gate")
+    if "type_width_or_alignment_conflict" in evidence or "type_evidence_gate_is_blocking" in details:
+        factors.append("type_conflict_gate")
+    if "pointer_indexed_array_or_table_shape" in evidence or "pointer_indexed_metrics_present" in details:
+        factors.append("pointer_indexed_shape")
+    if "validated_rewrite_still_has_residue" in evidence:
+        factors.append("validated_rewrite_residue")
+    if generic_parameter_survivors > 0 and review_class in {
+        "parameter_offset_shape_review",
+        "context_offset_shape_review",
+        "temp_offset_shape_review",
+        "hot_cluster_missing_identity",
+        "pointer_indexed_residue",
+    }:
+        factors.append("parameter_type_followup")
+    if review_class == "dense_offset_shape_missing_identity" or "add_dense_shape_identity_or_keep_review_only" in details:
+        factors.append("dense_shape_without_identity")
+    if review_class == "low_pressure_offset_residue":
+        factors.append("low_pressure_deferred")
+    return list(dict.fromkeys(factors))
+
+
+def _body_offset_residue_priority_bonus(priority_factors: list[str]) -> int:
+    return sum(_BODY_OFFSET_PRIORITY_BONUSES.get(str(factor), 0) for factor in priority_factors)
+
+
+def _body_offset_residue_review_focus(
+    subsystem: str,
+    fail_closed_gate: str,
+    priority_factors: list[str],
+) -> str:
+    factor_text = "+".join(str(item) for item in priority_factors[:3] if str(item))
+    base = "%s/%s" % (str(subsystem or "other"), str(fail_closed_gate or "review_only"))
+    if factor_text:
+        return "%s/%s" % (base, factor_text)
+    return base
+
+
 def _body_offset_rewrite_blocker_reasons(rewrite_blockers: list[dict[str, Any]]) -> list[str]:
     return [
         str(reason)
@@ -5653,12 +5943,23 @@ def _body_offset_residue_review_queue_summary(
     review_classes = Counter(str(item.get("review_class", "") or "manual_review") for item in items)
     next_actions = Counter(str(item.get("next_action", "") or "manual_review") for item in items)
     next_action_details: Counter[str] = Counter()
+    priority_factors: Counter[str] = Counter()
+    fail_closed_gates = Counter(str(item.get("fail_closed_gate", "") or "review_only") for item in items)
+    review_focuses = Counter(str(item.get("review_focus", "") or "review_only") for item in items)
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
                 next_action_details[str(detail)] += 1
+        for factor in item.get("priority_factors", []) or []:
+            if str(factor):
+                priority_factors[str(factor)] += 1
     return {
         "queue": queue_name,
+        "description": _BODY_OFFSET_QUEUE_DESCRIPTIONS.get(queue_name, "Manual body offset residue review queue."),
+        "recommended_next_step": _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS.get(
+            queue_name,
+            "Read the cleaned body and preserve fail-closed gates until evidence is exact.",
+        ),
         "functions": len(items),
         "offset_deref_survivors": sum(
             _int_value(item.get("offset_deref_survivors"), 0)
@@ -5672,6 +5973,9 @@ def _body_offset_residue_review_queue_summary(
         "review_classes": _counter_to_dict(Counter(dict(review_classes.most_common(limit)))),
         "next_actions": _counter_to_dict(Counter(dict(next_actions.most_common(limit)))),
         "next_action_details": _counter_to_dict(Counter(dict(next_action_details.most_common(limit)))),
+        "priority_factors": _counter_to_dict(Counter(dict(priority_factors.most_common(limit)))),
+        "fail_closed_gates": _counter_to_dict(Counter(dict(fail_closed_gates.most_common(limit)))),
+        "review_focuses": _counter_to_dict(Counter(dict(review_focuses.most_common(limit)))),
         "items": [
             _body_offset_residue_review_queue_item(item)
             for item in items[:limit]
@@ -5686,6 +5990,13 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
         "subsystem": str(item.get("subsystem", "") or ""),
         "review_class": str(item.get("review_class", "") or ""),
         "next_action": str(item.get("next_action", "") or ""),
+        "review_focus": str(item.get("review_focus", "") or ""),
+        "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
+        "priority_factors": [
+            str(factor)
+            for factor in item.get("priority_factors", []) or []
+            if str(factor)
+        ],
         "next_action_details": [
             str(detail)
             for detail in item.get("next_action_details", []) or []
