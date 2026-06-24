@@ -26,6 +26,7 @@ from tools.pseudoforge_corpus_quality import (
     _nested_status_pointer_store_literals,
     _ntstatus_family_literals,
     _offset_deref_shape_profile,
+    _prototype_correction_review_queues,
     analyze_corpus,
     main,
     render_quality_markdown,
@@ -1794,6 +1795,11 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(2, prototype_stats["body_rewrite_source_provenance"]["corrected_parameter_map"])
             self.assertEqual("Sample", prototype_stats["top_functions"][0]["name"])
             self.assertEqual(1, prototype_stats["top_functions"][0]["applied_parameter_type_corrections"])
+            type_conflict_queue = prototype_stats["review_queues"]["type_conflict_type_corrections"]
+            self.assertEqual(1, type_conflict_queue["function_count"])
+            self.assertEqual(1, type_conflict_queue["blocked_parameter_type_corrections"])
+            self.assertEqual(1, type_conflict_queue["blockers"]["type_conflict"])
+            self.assertEqual("Sample", type_conflict_queue["items"][0]["name"])
             body_offset_stats = report["body_offset_residue_review_stats"]
             self.assertEqual(1, body_offset_stats["totals"]["functions_with_offset_residue"])
             self.assertEqual(1, body_offset_stats["totals"]["offset_deref_survivors"])
@@ -3657,6 +3663,51 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(0, prototype_stats["totals"]["negative_control_functions"])
             self.assertEqual(2, prototype_stats["blocker_counts"]["profile_report_only"])
             self.assertEqual(2, prototype_stats["function_identity_profiles"]["windows.io_manager.delete_device"])
+
+    def test_prototype_correction_review_queues_surface_low_confidence_followups(self) -> None:
+        queues = _prototype_correction_review_queues(
+            [
+                {
+                    "ea": "0x140001000",
+                    "name": "MiWsleFree",
+                    "function_identity_candidates": 1,
+                    "parameter_type_corrections": 4,
+                    "applied_parameter_type_corrections": 0,
+                    "blocked_parameter_type_corrections": 4,
+                    "generic_parameter_survivors": 0,
+                    "offset_deref_survivors": 67,
+                    "profiles": {"windows.memory_manager.wsle_free": 4},
+                    "canonical_types": {},
+                    "blockers": {"low_confidence": 4},
+                    "summary_path": "MiWsleFree.ida-batch-summary.json",
+                },
+                {
+                    "ea": "0x140002000",
+                    "name": "BuildMismatch",
+                    "function_identity_candidates": 1,
+                    "parameter_type_corrections": 1,
+                    "applied_parameter_type_corrections": 0,
+                    "blocked_parameter_type_corrections": 1,
+                    "generic_parameter_survivors": 1,
+                    "offset_deref_survivors": 0,
+                    "profiles": {"windows.memory_manager.sample": 1},
+                    "canonical_types": {},
+                    "blockers": {"build_mismatch": 1},
+                    "summary_path": "BuildMismatch.ida-batch-summary.json",
+                },
+            ],
+            top=10,
+        )
+
+        low_confidence_queue = queues["low_confidence_type_corrections"]
+        build_queue = queues["build_mismatch_type_corrections"]
+
+        self.assertEqual(1, low_confidence_queue["function_count"])
+        self.assertEqual(4, low_confidence_queue["blocked_parameter_type_corrections"])
+        self.assertEqual(4, low_confidence_queue["blockers"]["low_confidence"])
+        self.assertEqual("MiWsleFree", low_confidence_queue["items"][0]["name"])
+        self.assertIn("raise profile confidence", low_confidence_queue["recommended_next_step"])
+        self.assertEqual("BuildMismatch", build_queue["items"][0]["name"])
 
     def test_cli_filters_by_ea_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

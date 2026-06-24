@@ -1154,8 +1154,10 @@ ULONG_PTR __fastcall MiWsleFree(unsigned __int64 a1, unsigned __int64 a2, char a
         ]
 
         self.assertIn("ULONG_PTR __fastcall MiWsleFree(", rendered)
-        self.assertIn("char freeFlags", rendered)
-        self.assertIn("unsigned __int64 pteValue", rendered)
+        self.assertIn("ULONG_PTR pteAddress", rendered)
+        self.assertIn("ULONG_PTR virtualAddress", rendered)
+        self.assertIn("UCHAR freeFlags", rendered)
+        self.assertIn("ULONG_PTR pteValue", rendered)
         self.assertEqual("MMPFN", identity["structure_name"])
         self.assertEqual("pfnEntry", identity["trusted_role"])
         self.assertEqual("report-only", identity["effective_mode"])
@@ -1331,7 +1333,7 @@ __int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __in
         self.assertIn("NTSTATUS __fastcall MiPrefetchVirtualMemory(", rendered)
         self.assertIn("ULONG_PTR rangeCount", rendered)
         self.assertIn("PMEMORY_RANGE_ENTRY memoryRanges", rendered)
-        self.assertIn("__int64 partitionOrSentinel", rendered)
+        self.assertIn("ULONG_PTR partitionOrSentinel", rendered)
         self.assertIn("ULONG prefetchFlags", rendered)
         self.assertEqual(4, len(identities))
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))

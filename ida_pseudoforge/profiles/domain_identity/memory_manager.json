@@ -2452,7 +2452,7 @@
               "__int64"
             ],
             "semantic_role": "pteAddress",
-            "type_confidence": 0.74,
+            "type_confidence": 0.76,
             "apply_to_preview": true,
             "apply_to_idb": false
           },
@@ -2466,7 +2466,7 @@
               "__int64"
             ],
             "semantic_role": "virtualAddress",
-            "type_confidence": 0.74,
+            "type_confidence": 0.76,
             "apply_to_preview": true,
             "apply_to_idb": false
           },
@@ -2481,7 +2481,7 @@
               "int"
             ],
             "semantic_role": "freeFlags",
-            "type_confidence": 0.72,
+            "type_confidence": 0.76,
             "apply_to_preview": true,
             "apply_to_idb": false
           },
@@ -2495,7 +2495,7 @@
               "__int64"
             ],
             "semantic_role": "pteValue",
-            "type_confidence": 0.72,
+            "type_confidence": 0.76,
             "apply_to_preview": true,
             "apply_to_idb": false
           }
@@ -2509,7 +2509,7 @@
           "rename_confidence": 0.76,
           "structure": "MMPTE_ADDRESS",
           "mode": "report-only",
-          "confidence": 0.72,
+          "confidence": 0.76,
           "accepted_types": [
             "unsigned __int64",
             "ULONG_PTR",
@@ -2524,7 +2524,7 @@
           "rename_confidence": 0.76,
           "structure": "VIRTUAL_ADDRESS",
           "mode": "report-only",
-          "confidence": 0.72,
+          "confidence": 0.76,
           "accepted_types": [
             "unsigned __int64",
             "ULONG_PTR",
@@ -2539,7 +2539,7 @@
           "rename_confidence": 0.74,
           "structure": "MI_WSLE_FREE_FLAGS",
           "mode": "report-only",
-          "confidence": 0.72,
+          "confidence": 0.76,
           "accepted_types": [
             "char",
             "UCHAR",
@@ -2555,7 +2555,7 @@
           "rename_confidence": 0.74,
           "structure": "MMPTE_VALUE",
           "mode": "report-only",
-          "confidence": 0.72,
+          "confidence": 0.76,
           "accepted_types": [
             "unsigned __int64",
             "ULONG_PTR",
@@ -2645,7 +2645,7 @@
               "PVOID"
             ],
             "semantic_role": "partitionOrSystemSentinel",
-            "type_confidence": 0.72,
+            "type_confidence": 0.76,
             "apply_to_preview": true,
             "apply_to_idb": false
           },
@@ -2706,7 +2706,7 @@
           "rename_confidence": 0.74,
           "structure": "MMPARTITION_OR_SENTINEL",
           "mode": "report-only",
-          "confidence": 0.72,
+          "confidence": 0.76,
           "accepted_types": [
             "__int64",
             "ULONG_PTR",

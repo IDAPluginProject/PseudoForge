@@ -226,6 +226,40 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
         "Residual items whose current evidence does not fit a sharper fail-closed queue yet."
     ),
 }
+_PROTOTYPE_CORRECTION_QUEUE_DESCRIPTIONS = {
+    "low_confidence_type_corrections": (
+        "Exact prototype candidates blocked only by conservative profile type confidence."
+    ),
+    "build_mismatch_type_corrections": (
+        "Prototype candidates that matched function semantics but not the active build identity."
+    ),
+    "type_conflict_type_corrections": (
+        "Prototype candidates blocked by an unsafe old/new type relationship."
+    ),
+    "report_only_type_corrections": (
+        "Prototype candidates tied to report-only identity evidence; keep IDB mutation closed."
+    ),
+    "preview_disabled_type_corrections": (
+        "Prototype candidates whose profile explicitly disabled preview application."
+    ),
+}
+_PROTOTYPE_CORRECTION_QUEUE_NEXT_STEPS = {
+    "low_confidence_type_corrections": (
+        "Reread the profile source and cleaned signature; raise profile confidence only when exact function/build evidence supports the canonical type."
+    ),
+    "build_mismatch_type_corrections": (
+        "Confirm symbol/build compatibility before extending the profile target build list."
+    ),
+    "type_conflict_type_corrections": (
+        "Do not force the correction; refine accepted_types or split the profile by exact function shape."
+    ),
+    "report_only_type_corrections": (
+        "Keep body rewrite and IDB mutation closed; use the profile for preview diagnostics only."
+    ),
+    "preview_disabled_type_corrections": (
+        "Enable preview only when the profile has exact parameter semantics and safe canonical/display types."
+    ),
+}
 _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     "named_goal_targets": (
         "Read the cleaned body first, then apply only exact identity-backed type or body rewrite improvements."
@@ -1757,6 +1791,10 @@ def analyze_corpus(
                 Counter(dict(prototype_body_rewrite_sources.most_common(top)))
             ),
             "top_functions": top_prototype_correction_functions[:top],
+            "review_queues": _prototype_correction_review_queues(
+                top_prototype_correction_functions,
+                top,
+            ),
             "negative_controls": {
                 "function_count": int(prototype_totals["negative_control_functions"]),
                 "top_functions": prototype_negative_control_functions[:top],
@@ -1969,6 +2007,81 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "Source",
         )
     )
+    prototype_review_queues = _coerce_dict(prototype_correction_stats.get("review_queues", {}))
+    lines.extend(
+        [
+            "",
+            "### Prototype Correction Review Queues",
+            "",
+        ]
+    )
+    if not prototype_review_queues:
+        lines.append("No data.")
+    else:
+        lines.extend(
+            [
+                "| Queue | Functions | Blocked | Generic survivors | Offset derefs | Profiles | Blockers | Next step |",
+                "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            ]
+        )
+        for queue_name, queue in prototype_review_queues.items():
+            if not isinstance(queue, dict):
+                continue
+            profile_text = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(queue.get("profiles", {})).items()
+            )
+            blocker_text = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(queue.get("blockers", {})).items()
+            )
+            lines.append(
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s |"
+                % (
+                    queue_name,
+                    int(queue.get("function_count", 0) or 0),
+                    int(queue.get("blocked_parameter_type_corrections", 0) or 0),
+                    int(queue.get("generic_parameter_survivors", 0) or 0),
+                    int(queue.get("offset_deref_survivors", 0) or 0),
+                    _markdown_table_cell(profile_text),
+                    _markdown_table_cell(blocker_text),
+                    _markdown_table_cell(queue.get("recommended_next_step", "")),
+                )
+            )
+        lines.extend(
+            [
+                "",
+                "| Queue | Function | EA | Blocked | Generic survivors | Offset derefs | Profiles | Blockers |",
+                "| --- | --- | --- | ---: | ---: | ---: | --- | --- |",
+            ]
+        )
+        for queue_name, queue in prototype_review_queues.items():
+            if not isinstance(queue, dict):
+                continue
+            for item in queue.get("items", []) or []:
+                if not isinstance(item, dict):
+                    continue
+                profile_text = ", ".join(
+                    "%s=%s" % (key, value)
+                    for key, value in _coerce_dict(item.get("profiles", {})).items()
+                )
+                blocker_text = ", ".join(
+                    "%s=%s" % (key, value)
+                    for key, value in _coerce_dict(item.get("blockers", {})).items()
+                )
+                lines.append(
+                    "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s |"
+                    % (
+                        queue_name,
+                        str(item.get("name", "")),
+                        str(item.get("ea", "")),
+                        int(item.get("blocked_parameter_type_corrections", 0) or 0),
+                        int(item.get("generic_parameter_survivors", 0) or 0),
+                        int(item.get("offset_deref_survivors", 0) or 0),
+                        _markdown_table_cell(profile_text),
+                        _markdown_table_cell(blocker_text),
+                    )
+                )
     lines.extend(
         [
             "",
@@ -5149,6 +5262,115 @@ def _prototype_correction_function_summary(
         "canonical_types": _coerce_dict(metrics.get("canonical_types", {})),
         "blockers": _coerce_dict(metrics.get("correction_blockers", {})),
         "summary_path": str(summary_path),
+    }
+
+
+def _prototype_correction_review_queues(
+    functions: list[dict[str, Any]],
+    top: int,
+) -> dict[str, dict[str, Any]]:
+    queue_blockers = {
+        "low_confidence_type_corrections": {"low_confidence"},
+        "build_mismatch_type_corrections": {"build_mismatch"},
+        "type_conflict_type_corrections": {"type_conflict"},
+        "report_only_type_corrections": {
+            "report_only_profile",
+            "profile_report_only",
+        },
+        "preview_disabled_type_corrections": {"preview_disabled"},
+    }
+    raw_queues: dict[str, list[dict[str, Any]]] = {name: [] for name in queue_blockers}
+    for item in functions:
+        blockers = _coerce_dict(item.get("blockers", {}))
+        blocked_count = _int_value(item.get("blocked_parameter_type_corrections"), 0)
+        if blocked_count <= 0 or not blockers:
+            continue
+        blocker_names = {str(key) for key, value in blockers.items() if _int_value(value, 0) > 0}
+        for queue_name, expected_blockers in queue_blockers.items():
+            if blocker_names.intersection(expected_blockers):
+                raw_queues[queue_name].append(
+                    _prototype_correction_queue_item(
+                        item,
+                        queue_name,
+                    )
+                )
+
+    result: dict[str, dict[str, Any]] = {}
+    for queue_name, items in raw_queues.items():
+        if not items:
+            continue
+        items.sort(
+            key=lambda item: (
+                -int(item["blocked_parameter_type_corrections"]),
+                -int(item["generic_parameter_survivors"]),
+                -int(item["offset_deref_survivors"]),
+                str(item["name"]),
+            )
+        )
+        result[queue_name] = _prototype_correction_queue_summary(
+            queue_name,
+            items,
+            top,
+        )
+    return result
+
+
+def _prototype_correction_queue_item(
+    item: dict[str, Any],
+    queue_name: str,
+) -> dict[str, Any]:
+    return {
+        "ea": str(item.get("ea", "")),
+        "name": str(item.get("name", "")),
+        "function_identity_candidates": _int_value(item.get("function_identity_candidates"), 0),
+        "parameter_type_corrections": _int_value(item.get("parameter_type_corrections"), 0),
+        "applied_parameter_type_corrections": _int_value(item.get("applied_parameter_type_corrections"), 0),
+        "blocked_parameter_type_corrections": _int_value(item.get("blocked_parameter_type_corrections"), 0),
+        "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
+        "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
+        "profiles": _coerce_dict(item.get("profiles", {})),
+        "canonical_types": _coerce_dict(item.get("canonical_types", {})),
+        "blockers": _coerce_dict(item.get("blockers", {})),
+        "review_hint": _PROTOTYPE_CORRECTION_QUEUE_NEXT_STEPS.get(queue_name, ""),
+        "summary_path": str(item.get("summary_path", "")),
+    }
+
+
+def _prototype_correction_queue_summary(
+    queue_name: str,
+    items: list[dict[str, Any]],
+    top: int,
+) -> dict[str, Any]:
+    profiles = Counter()
+    canonical_types = Counter()
+    blockers = Counter()
+    for item in items:
+        for key, value in _coerce_dict(item.get("profiles", {})).items():
+            profiles[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("canonical_types", {})).items():
+            canonical_types[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("blockers", {})).items():
+            blockers[str(key)] += _int_value(value, 0)
+    return {
+        "description": _PROTOTYPE_CORRECTION_QUEUE_DESCRIPTIONS.get(queue_name, ""),
+        "recommended_next_step": _PROTOTYPE_CORRECTION_QUEUE_NEXT_STEPS.get(queue_name, ""),
+        "function_count": len(items),
+        "blocked_parameter_type_corrections": sum(
+            _int_value(item.get("blocked_parameter_type_corrections"), 0)
+            for item in items
+        ),
+        "generic_parameter_survivors": sum(
+            _int_value(item.get("generic_parameter_survivors"), 0)
+            for item in items
+        ),
+        "offset_deref_survivors": sum(
+            _int_value(item.get("offset_deref_survivors"), 0)
+            for item in items
+        ),
+        "profiles": _counter_to_dict(Counter(dict(profiles.most_common(8)))),
+        "canonical_types": _counter_to_dict(Counter(dict(canonical_types.most_common(8)))),
+        "blockers": _counter_to_dict(Counter(dict(blockers.most_common(8)))),
+        "items": items[:top],
     }
 
 
