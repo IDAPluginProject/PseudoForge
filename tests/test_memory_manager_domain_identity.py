@@ -1065,6 +1065,78 @@ __int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __in
             any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
         )
 
+    def test_delete_empty_page_table_commit_marks_vad_local_report_only(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+unsigned __int64 __fastcall MiDeleteEmptyPageTableCommit(__int64 *a1, unsigned __int64 a2)
+{
+  __int64 v4;
+  __int64 v5;
+  unsigned __int64 leafVa;
+  unsigned __int64 endVa;
+  unsigned __int64 result;
+
+  v4 = a1[23];
+  v5 = *(_QWORD *)(v4 + 80);
+  leafVa = MiGetLeafVa(a2);
+  if ( leafVa < a1[5] )
+  {
+    leafVa = a1[5];
+  }
+  endVa = MiGetLeafVa(a2) - 1;
+  if ( leafVa == (*(unsigned int *)(v5 + 24) | ((unsigned __int64)*(unsigned __int8 *)(v5 + 32) << 32)) << 12 )
+  {
+    MiGetPreviousVad((unsigned __int64 *)v5);
+  }
+  if ( endVa == (((*(unsigned int *)(v5 + 28) | ((unsigned __int64)*(unsigned __int8 *)(v5 + 33) << 32)) << 12) | 0xFFF) )
+  {
+    MiGetNextVad(v5);
+  }
+  result = *(_QWORD *)(v5 + 16)
+         + *(_QWORD *)(v5 + 48)
+         + *(_QWORD *)(v5 + 64)
+         + *(_QWORD *)(v5 + 80)
+         + *(_QWORD *)(v5 + 96)
+         + *(_QWORD *)(v5 + 112)
+         + *(_QWORD *)(v5 + 128);
+  MiReturnPageTablePageCommitment(leafVa, endVa, 0, 0, 0, v5, 0);
+  return result;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        profile_id = "windows.memory_manager.delete_empty_page_table_commit"
+        identities = self._profile_identities(plan, profile_id)
+        vad_identity = self._identity_for_base(plan, profile_id, "v5")
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "v5"
+        ]
+
+        self.assertIn("ULONG_PTR __fastcall MiDeleteEmptyPageTableCommit(", rendered)
+        self.assertIn("PMMSUPPORT_INSTANCE workingSet", rendered)
+        self.assertIn("ULONG_PTR virtualAddress", rendered)
+        self.assertEqual(3, len(identities))
+        self.assertEqual("MMVAD_SHORT", vad_identity["structure_name"])
+        self.assertEqual("vadNode", vad_identity["trusted_role"])
+        self.assertEqual("report-only", vad_identity["effective_mode"])
+        self.assertEqual(
+            {0x10, 0x18, 0x1C, 0x20, 0x21, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80},
+            self._field_offsets(vad_identity),
+        )
+        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_rewrite_ready"
+                and item.get("base") == "v5"
+                for item in plan.comments
+            )
+        )
+
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(
             """

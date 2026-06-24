@@ -2222,6 +2222,112 @@
       ]
     },
     {
+      "id": "windows.memory_manager.delete_empty_page_table_commit",
+      "source": "Reviewed MiDeleteEmptyPageTableCommit ntoskrnl 26200.8457 empty-page-table commit release path through VAD range trimming, MiReturnPageTablePageCommitment, and process commit refund. The VAD local is report-only because it is loaded from a private working-set subobject.",
+      "function_names": [
+        "MiDeleteEmptyPageTableCommit"
+      ],
+      "parameter_count": 2,
+      "required_calls": [
+        "MiGetPreviousVad",
+        "MiGetNextVad",
+        "MiReturnPageTablePageCommitment"
+      ],
+      "prototype": {
+        "return_type": "ULONG_PTR",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "workingSet",
+            "canonical_type": "PMMSUPPORT_INSTANCE",
+            "accepted_types": [
+              "__int64 *",
+              "_QWORD *",
+              "PVOID",
+              "PMMSUPPORT_INSTANCE"
+            ],
+            "semantic_role": "workingSetSupport",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "virtualAddress",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "ULONG_PTR",
+              "__int64",
+              "PVOID"
+            ],
+            "semantic_role": "virtualAddress",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "workingSetSupport",
+          "rename_to": "workingSet",
+          "rename_confidence": 0.8,
+          "structure": "MMSUPPORT_INSTANCE",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "__int64 *",
+            "_QWORD *",
+            "PVOID",
+            "PMMSUPPORT_INSTANCE"
+          ],
+          "source": "MiDeleteEmptyPageTableCommit reads working-set bounds and the active VAD subobject from this support context"
+        },
+        {
+          "parameter_index": 1,
+          "role": "virtualAddress",
+          "rename_to": "virtualAddress",
+          "rename_confidence": 0.8,
+          "structure": "VIRTUAL_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64",
+            "ULONG_PTR",
+            "__int64",
+            "PVOID"
+          ],
+          "source": "MiDeleteEmptyPageTableCommit derives leaf page-table range boundaries from this virtual address"
+        },
+        {
+          "local_names": [
+            "v5"
+          ],
+          "role": "vadNode",
+          "structure": "MMVAD_SHORT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "source": "MiDeleteEmptyPageTableCommit loads the active VAD-like node from the working-set subobject and passes it to MiGetPreviousVad/MiGetNextVad; private layout remains report-only",
+          "fields": [
+            {"offset": "0x10", "name": "field_10", "type": "ULONG_PTR", "size": 8, "confidence": 0.74, "note": "observed copied VAD range/control quadword"},
+            {"offset": "0x18", "name": "field_18", "type": "ULONG", "size": 4, "confidence": 0.74, "note": "observed starting VPN low field"},
+            {"offset": "0x1C", "name": "field_1C", "type": "ULONG", "size": 4, "confidence": 0.74, "note": "observed ending VPN low field"},
+            {"offset": "0x20", "name": "field_20", "type": "UCHAR", "size": 1, "confidence": 0.70, "note": "observed high VPN subfield; mixed-width access keeps rewrite blocked"},
+            {"offset": "0x21", "name": "field_21", "type": "UCHAR", "size": 1, "confidence": 0.70, "note": "observed ending VPN high subfield"},
+            {"offset": "0x30", "name": "field_30", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VAD flags/control copy"},
+            {"offset": "0x40", "name": "field_40", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VAD clone copy"},
+            {"offset": "0x50", "name": "field_50", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VAD clone copy"},
+            {"offset": "0x60", "name": "field_60", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VAD clone copy"},
+            {"offset": "0x70", "name": "field_70", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VAD clone copy"},
+            {"offset": "0x80", "name": "field_80", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VAD clone copy"}
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.validate_add_physical_memory_parameters",
       "source": "Reviewed MiValidateAddPhysicalMemoryParameters ntoskrnl 26200.8457 physical-memory range alignment, context population, and MiLogAddPhysicalMemory handoff; preview-only private prototype.",
       "function_names": [
