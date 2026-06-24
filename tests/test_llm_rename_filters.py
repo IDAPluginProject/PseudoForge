@@ -821,6 +821,81 @@ __int64 PublicAbiGapSample()
         self.assertEqual(2, diagnostics[0].argument_index)
         self.assertFalse(diagnostics[0].callee_contract_action)
 
+    def test_live_in_register_matching_existing_parameter_slot_is_not_parameter_gap(self) -> None:
+        text = """
+__int64 __fastcall HvReallocateCell(ULONG_PTR BugCheckParameter3, unsigned int a2, int a3)
+{
+  ULONG_PTR v12; // rdx
+
+  return HvpGetCellFlat(BugCheckParameter3, v12, 0);
+}
+"""
+        capture = FunctionCapture(
+            name="HvReallocateCell",
+            prototype="__int64 __fastcall HvReallocateCell(ULONG_PTR BugCheckParameter3, unsigned int a2, int a3)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v12", type="ULONG_PTR", is_arg=False),
+            ],
+        )
+        renames = [
+            RenameSuggestion(
+                kind="arg",
+                old="a2",
+                new="oldCell",
+                confidence=0.88,
+                source="domain-profile",
+                evidence="HvReallocateCell old cell index parameter",
+            ),
+        ]
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, renames)
+        warnings = unassigned_local_usage_warnings(capture, renames)
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("existing_parameter_register_alias", diagnostics[0].candidate_action)
+        self.assertEqual("", diagnostics[0].legacy_candidate_action)
+        self.assertEqual("HvpGetCellFlat", diagnostics[0].callee_name)
+        self.assertEqual(1, diagnostics[0].argument_index)
+        self.assertFalse(diagnostics[0].callee_contract_action)
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+        self.assertTrue(any("existing parameter register alias" in warning for warning in warnings))
+        self.assertTrue(any("a2->oldCell" in warning for warning in warnings))
+
+    def test_llm_parameter_rename_does_not_create_existing_parameter_alias(self) -> None:
+        text = """
+__int64 __fastcall WeakAliasSample(__int64 a1, unsigned int a2)
+{
+  ULONG_PTR v12; // rdx
+
+  return UnknownHelper(a1, v12);
+}
+"""
+        capture = FunctionCapture(
+            name="WeakAliasSample",
+            prototype="__int64 __fastcall WeakAliasSample(__int64 a1, unsigned int a2)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v12", type="ULONG_PTR", is_arg=False),
+            ],
+        )
+        renames = [
+            RenameSuggestion(
+                kind="arg",
+                old="a2",
+                new="oldCell",
+                confidence=0.92,
+                source="llm",
+                evidence="LLM guessed a semantic parameter name",
+            ),
+        ]
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, renames)
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("caller_parameter_gap_candidate", diagnostics[0].candidate_action)
+        self.assertEqual("parameter_gap_candidate", diagnostics[0].legacy_candidate_action)
+
     def test_ex_reference_callback_block_live_ins_are_helper_arity_residue(self) -> None:
         text = """
 __int64 __fastcall CallbackBlockResidueSample()

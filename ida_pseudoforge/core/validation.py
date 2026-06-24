@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, replace
 
 from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP
-from ida_pseudoforge.core.normalize import extract_identifiers
+from ida_pseudoforge.core.normalize import extract_identifiers, extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import FunctionCapture, RenameSuggestion, WarningDiagnostic
 from ida_pseudoforge.profiles.callee_contracts import callee_contract_for_call
 
@@ -199,6 +199,24 @@ ABI_ARGUMENT_REGISTER_HINTS = {
     "r9w",
     "r9b",
 } | {"xmm%d" % index for index in range(4)}
+ABI_INTEGER_ARGUMENT_REGISTER_INDEX = {
+    "rcx": 0,
+    "ecx": 0,
+    "cx": 0,
+    "cl": 0,
+    "rdx": 1,
+    "edx": 1,
+    "dx": 1,
+    "dl": 1,
+    "r8": 2,
+    "r8d": 2,
+    "r8w": 2,
+    "r8b": 2,
+    "r9": 3,
+    "r9d": 3,
+    "r9w": 3,
+    "r9b": 3,
+}
 RETURN_VALUE_REGISTER_HINTS = {"rax", "eax", "ax", "al", "xmm0"}
 SYSCALL_THUNK_REGISTER_HINTS = {
     "r%d%s" % (index, suffix)
@@ -263,6 +281,14 @@ class _StackPseudoLocalInfo:
     declaration: str
     stack_slot: str
     helper_evidence: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ExistingParameterRegisterAlias:
+    parameter_index: int
+    raw_name: str
+    rendered_name: str
+    rename_source: str = ""
 
 
 def is_valid_c_identifier(name: str) -> bool:
@@ -353,7 +379,7 @@ def _filtered_unassigned_local_usage_risks(
     capture: FunctionCapture,
     renames: list[RenameSuggestion],
 ) -> dict[str, _UnassignedLocalUsageRisk]:
-    risks = _unassigned_local_usage_risks(capture)
+    risks = _unassigned_local_usage_risks(capture, renames)
     if not risks:
         return {}
     suppressed_llm_names = {
@@ -533,8 +559,12 @@ def _is_size_count_semantic_name(name: str) -> bool:
     return bool(_split_identifier_words(name) & UNASSIGNED_LOCAL_SIZE_COUNT_WORDS)
 
 
-def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _UnassignedLocalUsageRisk]:
+def _unassigned_local_usage_risks(
+    capture: FunctionCapture,
+    renames: list[RenameSuggestion] | None = None,
+) -> dict[str, _UnassignedLocalUsageRisk]:
     text = capture.pseudocode or ""
+    accepted_parameter_renames = _accepted_parameter_renames_by_old_name(renames or [])
     risks = {}
     for var in capture.lvars:
         name = var.name or ""
@@ -557,6 +587,7 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
         callee_contract_action = ""
         callee_contract_confidence = 0.0
         callee_contract_evidence = ""
+        existing_parameter_alias: _ExistingParameterRegisterAlias | None = None
         if callee_contract:
             callee_contract_action = str(callee_contract.get("action", "") or "").strip()
             callee_contract_confidence = _float_value(callee_contract.get("confidence"), 0.0)
@@ -564,6 +595,16 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
             candidate_action = callee_contract_action or candidate_action
             if not legacy_candidate_action:
                 legacy_candidate_action = _legacy_candidate_action(candidate_action)
+        elif candidate_action == "caller_parameter_gap_candidate":
+            existing_parameter_alias = _existing_parameter_register_alias(
+                capture,
+                live_in_register,
+                usage_class,
+                accepted_parameter_renames,
+            )
+            if existing_parameter_alias:
+                candidate_action = "existing_parameter_register_alias"
+                legacy_candidate_action = ""
         risks[name] = _UnassignedLocalUsageRisk(
             name=name,
             usage=usage,
@@ -576,6 +617,7 @@ def _unassigned_local_usage_risks(capture: FunctionCapture) -> dict[str, _Unassi
                 callee_contract_action=callee_contract_action,
                 callee_contract_evidence=callee_contract_evidence,
                 stack_pseudo_local=stack_pseudo_local,
+                existing_parameter_alias=existing_parameter_alias,
             ),
             live_in_register=live_in_register,
             usage_class=usage_class,
@@ -606,6 +648,7 @@ def _unassigned_local_evidence(
     callee_contract_action: str = "",
     callee_contract_evidence: str = "",
     stack_pseudo_local: _StackPseudoLocalInfo | None = None,
+    existing_parameter_alias: _ExistingParameterRegisterAlias | None = None,
 ) -> str:
     if stack_pseudo_local:
         return (
@@ -635,6 +678,7 @@ def _unassigned_local_evidence(
                     usage_class,
                     callee_contract_action=callee_contract_action,
                     callee_contract_evidence=callee_contract_evidence,
+                    existing_parameter_alias=existing_parameter_alias,
                 ),
             )
         )
@@ -677,12 +721,23 @@ def _live_in_register_evidence_note(
     usage_class: str,
     callee_contract_action: str = "",
     callee_contract_evidence: str = "",
+    existing_parameter_alias: _ExistingParameterRegisterAlias | None = None,
 ) -> str:
     if callee_contract_action:
         note = _callee_contract_evidence_note(callee_contract_action)
         if callee_contract_evidence:
             note += " (%s)" % callee_contract_evidence
         return note
+    if existing_parameter_alias:
+        return (
+            "register matches existing parameter slot %d (%s->%s); treat this as an existing "
+            "parameter register alias, not an omitted caller parameter"
+            % (
+                existing_parameter_alias.parameter_index,
+                existing_parameter_alias.raw_name,
+                existing_parameter_alias.rendered_name,
+            )
+        )
     if usage_class == "return_expression":
         return "Hex-Rays may have left an unrecovered return/default-path register carrier"
     if usage_class == "mixed":
@@ -761,6 +816,8 @@ def _live_in_candidate_confidence(candidate_action: str) -> float:
         return 0.72
     if candidate_action == "callee_arity_residue_candidate":
         return 0.68
+    if candidate_action == "existing_parameter_register_alias":
+        return 0.76
     if candidate_action in {"thunk_input_candidate", "return_carrier_candidate"}:
         return 0.70
     if candidate_action == "state_preservation_candidate":
@@ -798,6 +855,79 @@ def _is_unassigned_local_risk_candidate(
     if _address_taken(text, name):
         return False
     return True
+
+
+def _accepted_parameter_renames_by_old_name(
+    renames: list[RenameSuggestion],
+) -> dict[str, RenameSuggestion]:
+    result: dict[str, RenameSuggestion] = {}
+    for item in renames:
+        if not item.apply:
+            continue
+        if (item.kind or "").lower() not in LLM_ARGUMENT_RENAME_KINDS:
+            continue
+        if not item.old or not item.new:
+            continue
+        if (item.source or "").lower() == "llm":
+            continue
+        if item.confidence < 0.75:
+            continue
+        result[item.old] = item
+    return result
+
+
+def _existing_parameter_register_alias(
+    capture: FunctionCapture,
+    live_in_register: str,
+    usage_class: str,
+    accepted_parameter_renames: dict[str, RenameSuggestion],
+) -> _ExistingParameterRegisterAlias | None:
+    if usage_class != "call_argument":
+        return None
+    parameter_index = ABI_INTEGER_ARGUMENT_REGISTER_INDEX.get((live_in_register or "").lower())
+    if parameter_index is None:
+        return None
+    parameters = extract_parameters_from_signature(capture.prototype or capture.pseudocode)
+    if parameter_index >= len(parameters):
+        return None
+    raw_name = str(parameters[parameter_index][0] or "").strip()
+    if not raw_name or not is_valid_c_identifier(raw_name):
+        return None
+    rename = accepted_parameter_renames.get(raw_name)
+    rendered_name = str(rename.new if rename else raw_name).strip()
+    if not _is_existing_parameter_alias_name(rendered_name, raw_name, rename):
+        return None
+    return _ExistingParameterRegisterAlias(
+        parameter_index=parameter_index,
+        raw_name=raw_name,
+        rendered_name=rendered_name,
+        rename_source=str(rename.source if rename else ""),
+    )
+
+
+def _is_existing_parameter_alias_name(
+    rendered_name: str,
+    raw_name: str,
+    rename: RenameSuggestion | None,
+) -> bool:
+    if not rendered_name or not is_valid_c_identifier(rendered_name):
+        return False
+    if _is_generic_parameter_alias_name(rendered_name):
+        return False
+    if _is_generic_parameter_alias_name(raw_name):
+        return rename is not None and not _is_generic_parameter_alias_name(rendered_name)
+    return True
+
+
+def _is_generic_parameter_alias_name(name: str) -> bool:
+    lowered = (name or "").strip().lower()
+    return bool(
+        re.fullmatch(r"a\d+", lowered)
+        or re.fullmatch(r"argument\d+", lowered)
+        or re.fullmatch(r"bugcheckparameter\d+", lowered)
+        or re.fullmatch(r"param(?:eter)?\d+", lowered)
+        or re.fullmatch(r"v\d+", lowered)
+    )
 
 
 def _declaration_line_for_name(text: str, name: str) -> str:
