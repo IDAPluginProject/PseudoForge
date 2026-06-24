@@ -5513,6 +5513,12 @@ def _body_offset_residue_function_summary(
         next_action_details,
         stable_base_sources,
     )
+    primary_review_reasons = _body_offset_primary_review_reasons(
+        fail_closed_gate,
+        review_evidence,
+        next_action_details,
+        promotion_hints,
+    )
     priority_factors = _body_offset_residue_priority_factors(
         subsystem,
         review_class,
@@ -5552,6 +5558,7 @@ def _body_offset_residue_function_summary(
         "fail_closed_family": fail_closed_family,
         "rewrite_safety_policy": rewrite_safety_policy,
         "evidence_maturity": evidence_maturity,
+        "primary_review_reasons": primary_review_reasons,
         "named_goal_target": bool(named_target_group),
         "named_goal_target_group": named_target_group,
         "priority_factors": priority_factors,
@@ -6263,6 +6270,71 @@ def _body_offset_evidence_maturity(
     return "review_only"
 
 
+def _body_offset_primary_review_reasons(
+    fail_closed_gate: str,
+    review_evidence: list[str],
+    next_action_details: list[str],
+    promotion_hints: list[str],
+) -> list[str]:
+    gate = str(fail_closed_gate or "")
+    evidence = {str(item) for item in review_evidence if str(item)}
+    details = {str(item) for item in next_action_details if str(item)}
+    hints = {str(item) for item in promotion_hints if str(item)}
+    reasons: list[str] = []
+
+    if gate == "validated_rewrite_residue_review":
+        reasons.append("validated_rewrite_residue_reread")
+    if gate == "source_build_mismatch":
+        reasons.append("build_identity_mismatch")
+    if gate in {"report_only_private_layout", "report_only_source_identity"}:
+        reasons.append("report_only_profile_kept_closed")
+    if gate == "report_only_private_layout":
+        reasons.append("exact_private_layout_source_required")
+    if gate in {"report_only_source_identity", "exact_source_identity_required"}:
+        reasons.append("exact_source_identity_required")
+    if gate == "source_stability_required":
+        reasons.append("source_stability_unproven")
+    if gate == "type_conflict_required":
+        reasons.append("type_width_or_alignment_conflict")
+    if gate == "pointer_indexed_separate_model":
+        reasons.append("indexed_layout_model_required")
+    if gate == "temp_source_identity_required":
+        reasons.append("temp_source_identity_required")
+    if gate == "threshold_evidence_gap":
+        reasons.append("threshold_evidence_gap")
+    if gate == "low_pressure_deferred":
+        reasons.append("low_pressure_deferred")
+    if gate == "manual_review_required":
+        reasons.append("manual_classification_required")
+
+    if "field_aliases_available_for_manual_review" in details:
+        reasons.append("field_alias_review_only")
+    if "parameter_field_pointer_alias_requires_source_profile" in details:
+        reasons.append("parameter_field_pointer_alias_requires_source_profile")
+    if "direct_parameter_source_alias_available" in details:
+        reasons.append("direct_parameter_alias_available")
+    if "named_call_result_source_alias_available" in details:
+        reasons.append("named_call_result_alias_available")
+    if "pointer_indexed_metrics_present" in details:
+        reasons.append("pointer_indexed_metrics_present")
+    if "type_evidence_gate_is_blocking" in details:
+        reasons.append("type_evidence_gate_is_blocking")
+    if "source_stability_gate_is_blocking" in details:
+        reasons.append("source_stability_gate_is_blocking")
+    if "trusted_source_gate_is_blocking" in details:
+        reasons.append("trusted_source_gate_is_blocking")
+    if "do_not_promote_report_only_profile" in hints:
+        reasons.append("do_not_promote_report_only_profile")
+    if "collect_exact_private_field_layout_evidence" in hints:
+        reasons.append("collect_exact_private_field_layout_evidence")
+    if "source_build_mismatch" in evidence:
+        reasons.append("build_identity_mismatch")
+
+    if not reasons:
+        reasons.append("manual_review_required")
+    return list(dict.fromkeys(reasons))
+
+
 def _body_offset_residue_review_focus(
     subsystem: str,
     fail_closed_gate: str,
@@ -6604,6 +6676,7 @@ def _body_offset_residue_review_queue_summary(
     )
     safety_policies = Counter(str(item.get("rewrite_safety_policy", "") or "review_only") for item in items)
     evidence_maturity = Counter(str(item.get("evidence_maturity", "") or "review_only") for item in items)
+    primary_review_reasons: Counter[str] = Counter()
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
     domain_profiles: Counter[str] = Counter()
@@ -6614,6 +6687,9 @@ def _body_offset_residue_review_queue_summary(
         for factor in item.get("priority_factors", []) or []:
             if str(factor):
                 priority_factors[str(factor)] += 1
+        for reason in item.get("primary_review_reasons", []) or []:
+            if str(reason):
+                primary_review_reasons[str(reason)] += 1
         for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
             stable_source_provenance[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("stable_source_kinds", {})).items():
@@ -6647,6 +6723,9 @@ def _body_offset_residue_review_queue_summary(
         "target_groups": _counter_to_dict(Counter(dict(target_groups.most_common(limit)))),
         "rewrite_safety_policies": _counter_to_dict(Counter(dict(safety_policies.most_common(limit)))),
         "evidence_maturity": _counter_to_dict(Counter(dict(evidence_maturity.most_common(limit)))),
+        "primary_review_reasons": _counter_to_dict(
+            Counter(dict(primary_review_reasons.most_common(limit)))
+        ),
         "stable_source_provenance": _counter_to_dict(
             Counter(dict(stable_source_provenance.most_common(limit)))
         ),
@@ -6677,6 +6756,11 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
             str(factor)
             for factor in item.get("priority_factors", []) or []
             if str(factor)
+        ],
+        "primary_review_reasons": [
+            str(reason)
+            for reason in item.get("primary_review_reasons", []) or []
+            if str(reason)
         ],
         "next_action_details": [
             str(detail)

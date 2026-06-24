@@ -1141,6 +1141,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("rewrite_safety_policies", stats)
             self.assertIn("evidence_maturity", stats)
             self.assertIn("review_focuses", stats)
+            self.assertIn(
+                "primary_review_reasons",
+                queues["report_only_exact_promotion_candidates"],
+            )
             self.assertEqual(
                 2,
                 queues["report_only_exact_promotion_candidates"]["functions"],
@@ -1198,6 +1202,18 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(2, stats["priority_factors"]["report_only_field_alias_available"])
             self.assertEqual(1, stats["priority_factors"]["stable_source_provenance_available"])
             self.assertEqual(1, stats["priority_factors"]["direct_parameter_source_alias"])
+            self.assertEqual(
+                1,
+                queues["report_only_exact_promotion_candidates"]["primary_review_reasons"][
+                    "exact_private_layout_source_required"
+                ],
+            )
+            self.assertEqual(
+                1,
+                queues["report_only_exact_promotion_candidates"]["primary_review_reasons"][
+                    "build_identity_mismatch"
+                ],
+            )
             self.assertTrue(
                 any(
                     key.startswith("registry/report_only_private_layout")
@@ -1238,6 +1254,22 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn(
                 "report_only_field_alias_available",
                 cmp_queue_item["priority_factors"],
+            )
+            self.assertIn(
+                "exact_private_layout_source_required",
+                cmp_queue_item["primary_review_reasons"],
+            )
+            self.assertIn(
+                "field_alias_review_only",
+                cmp_queue_item["primary_review_reasons"],
+            )
+            self.assertIn(
+                "direct_parameter_alias_available",
+                cmp_queue_item["primary_review_reasons"],
+            )
+            self.assertIn(
+                "do_not_promote_report_only_profile",
+                cmp_queue_item["primary_review_reasons"],
             )
             self.assertEqual(
                 {"parameter_direct_alias": 1},

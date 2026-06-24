@@ -934,6 +934,40 @@ __int64 __fastcall RecentKernelHelperResidueSample()
         self.assertIn("callee_arity_residue_candidate", actions_by_callee["MiRemoveLockedPageCharge"])
         self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
 
+    def test_token_security_internal_query_live_in_is_helper_arity_residue(self) -> None:
+        prototype = (
+            "__int64 __fastcall TokenSecurityQueryResidueSample("
+            "__int64 token, __int64 names, unsigned int count, void *buffer, "
+            "unsigned __int64 length, unsigned int *returnLength)"
+        )
+        text = """
+__int64 __fastcall TokenSecurityQueryResidueSample(__int64 token, __int64 names, unsigned int count, void *buffer, unsigned __int64 length, unsigned int *returnLength)
+{
+  char queryFlags; // dl
+
+  return SepInternalQuerySecurityAttributesTokenEx(token, queryFlags, names, count, 0, buffer, length, returnLength);
+}
+"""
+        capture = FunctionCapture(
+            name="TokenSecurityQueryResidueSample",
+            prototype=prototype,
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="queryFlags", type="char", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        warnings = unassigned_local_usage_warnings(capture, [])
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("callee_arity_residue_candidate", diagnostics[0].candidate_action)
+        self.assertEqual("SepInternalQuerySecurityAttributesTokenEx", diagnostics[0].callee_name)
+        self.assertEqual(1, diagnostics[0].argument_index)
+        self.assertEqual("callee_arity_residue_candidate", diagnostics[0].callee_contract_action)
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+        self.assertTrue(any("callee arity/helper residue" in warning for warning in warnings))
+
     def test_repeated_dif_thunk_slots_are_helper_thunk_candidates(self) -> None:
         text = """
 bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)
