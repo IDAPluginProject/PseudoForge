@@ -1123,6 +1123,12 @@
     },
     {
       "id": "windows.pnp_power.popfx_query_current_component_perf_state",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed PopFxQueryCurrentComponentPerfState ntoskrnl 26200.8457 component performance-state cache lookup, platform query, and changed-output update; preview-only private prototype.",
       "function_names": [
         "PopFxQueryCurrentComponentPerfState"

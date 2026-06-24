@@ -1279,6 +1279,12 @@
     },
     {
       "id": "windows.token_security.query_security_attributes_token",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed SeQuerySecurityAttributesToken ntoskrnl 26200.8457 token resource lock, attribute query handoff, output buffer validation, and return-length update; preview-only private prototype.",
       "function_names": [
         "SeQuerySecurityAttributesToken"

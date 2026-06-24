@@ -391,6 +391,12 @@
     },
     {
       "id": "windows.object_manager.free_object",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed ObpFreeObject ntoskrnl 26200.8457 object-header teardown role; preview-only signature evidence is source-scoped.",
       "function_names": [
         "ObpFreeObject"

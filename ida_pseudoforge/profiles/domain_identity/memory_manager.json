@@ -63,6 +63,12 @@
     },
     {
       "id": "windows.memory_manager.create_pfn_template",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiCreatePfnTemplate ntoskrnl 26200.8457 PFN template initialization path through MiSetPfnTbFlushStamp, MiSetPfnIdentity, MiSetPfnContainingFrame, and MiSetPageTablePfnBuddy; preview-only PMMPFN signature correction, no private MMPFN body rewrite.",
       "function_names": [
         "MiCreatePfnTemplate"
@@ -166,6 +172,12 @@
     },
     {
       "id": "windows.memory_manager.free_pages_from_mdl",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiFreePagesFromMdl ntoskrnl 26200.8457 MDL page-run release path through MmUnmapLockedPages, MiRetardMdl, MiFreeMdlPageRun, and MiZeroAndReleasePages; preview-only PMDL signature correction with report-only MDL field aliases.",
       "function_names": [
         "MiFreePagesFromMdl"
@@ -273,6 +285,12 @@
     },
     {
       "id": "windows.memory_manager.create_slab_entry",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiCreateSlabEntry ntoskrnl 26200.8457 slab entry creation and SlabEntry offset residue; preview-only role prototype, no private slab field rewrite.",
       "function_names": [
         "MiCreateSlabEntry"
@@ -489,6 +507,12 @@
     },
     {
       "id": "windows.memory_manager.change_slab_entry_identity",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiChangeSlabEntryIdentity ntoskrnl 26200.8457 slab identity relink path through MiClearHintSlabEntry and MiSetSlabTypeIdentifiers; preview-only context/entry signature correction with report-only slab field aliases.",
       "function_names": [
         "MiChangeSlabEntryIdentity"
@@ -1004,6 +1028,12 @@
     },
     {
       "id": "windows.memory_manager.lock_page_list_and_last_page",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiLockPageListAndLastPage ntoskrnl 26200.8457 page-list lock context and direct argument-alias layout residue; preview-only private prototype.",
       "function_names": [
         "MiLockPageListAndLastPage"
@@ -2263,6 +2293,12 @@
     },
     {
       "id": "windows.memory_manager.make_system_address_valid",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiMakeSystemAddressValid ntoskrnl 26200.8457 system PTE validation path through page-table locking, MmAccessFault dispatch, and working-set unlock. Preview-only parameter correction; process/selfmap lock offset residue remains source-stability blocked.",
       "function_names": [
         "MiMakeSystemAddressValid"
@@ -2387,6 +2423,12 @@
     },
     {
       "id": "windows.memory_manager.wsle_free",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiWsleFree ntoskrnl 26200.8457 working-set release path through PFN database entry updates, share-count transitions, page-list insertion, and page-file release. Function-scoped report-only identity; v9 is reused for related PFN entries and must not be body-rewritten without source-family dominance proof.",
       "function_names": [
         "MiWsleFree"
@@ -2544,6 +2586,12 @@
     },
     {
       "id": "windows.memory_manager.prefetch_virtual_memory",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiPrefetchVirtualMemory ntoskrnl 26200.8457 memory-range prefetch loop, partition selection, MmAccessFault dispatch, and coalesced in-page support list processing. Preview-only private prototype; internal list-entry bodies remain untyped.",
       "function_names": [
         "MiPrefetchVirtualMemory"
@@ -2686,6 +2734,12 @@
     },
     {
       "id": "windows.memory_manager.delete_empty_page_table_commit",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiDeleteEmptyPageTableCommit ntoskrnl 26200.8457 empty-page-table commit release path through VAD range trimming, MiReturnPageTablePageCommitment, and process commit refund. The VAD local is report-only because it is loaded from a private working-set subobject.",
       "function_names": [
         "MiDeleteEmptyPageTableCommit"
@@ -2792,6 +2846,12 @@
     },
     {
       "id": "windows.memory_manager.validate_add_physical_memory_parameters",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiValidateAddPhysicalMemoryParameters ntoskrnl 26200.8457 physical-memory range alignment, context population, and MiLogAddPhysicalMemory handoff; preview-only private prototype.",
       "function_names": [
         "MiValidateAddPhysicalMemoryParameters"
@@ -3005,6 +3065,12 @@
     },
     {
       "id": "windows.memory_manager.vmp_split_memory_range",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed VmpSplitMemoryRange ntoskrnl 26200.8457 VMP memory-range split path through VmpProcessContextLockShared/Exclusive, VmpAllocateMemoryRanges, VmpSecureMemoryForPin, and RtlRbInsertNodeEx; preview-only process context and split-address correction with report-only VMP range aliases.",
       "function_names": [
         "VmpSplitMemoryRange"
@@ -3132,6 +3198,12 @@
     },
     {
       "id": "windows.memory_manager.convert_large_active_page_to_chain",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiConvertLargeActivePageToChain ntoskrnl 26200.8457 large-page PFN demotion loop through MiGetPfnPageSizeIndex, MiCanPfnOriginalPteBeLost, and MiArePageContentsZero; preview-only PFN parameter correction with report-only MMPFN hot-field aliases.",
       "function_names": [
         "MiConvertLargeActivePageToChain"
@@ -3209,6 +3281,12 @@
     },
     {
       "id": "windows.memory_manager.vmp_fill_gpn_ranges",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed VmpFillGpnRanges ntoskrnl 26200.8457 VPN-to-GPN range conversion loop, coalesced range output, and output-count accounting; preview-only private prototype.",
       "function_names": [
         "VmpFillGpnRanges"
@@ -3402,6 +3480,12 @@
     },
     {
       "id": "windows.memory_manager.vmp_fill_slat",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed VmpFillSlat ntoskrnl 26200.8457 dense and sparse GPA page mapping paths through HvlMapGpaPages/HvlMapSparseGpaPages and mapped-page output update; preview-only private prototype.",
       "function_names": [
         "VmpFillSlat"
@@ -3585,6 +3669,12 @@
     },
     {
       "id": "windows.memory_manager.unlink_bad_pages",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed MiUnlinkBadPages ntoskrnl 26200.8457 PFN database walk; report-only field evidence for the computed MMPFN entry.",
       "function_names": [
         "MiUnlinkBadPages"

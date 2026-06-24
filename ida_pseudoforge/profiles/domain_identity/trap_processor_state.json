@@ -799,6 +799,12 @@
     },
     {
       "id": "windows.trap_processor_state.ki_retire_dpc_list",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed KiRetireDpcList ntoskrnl 26200.8457 DPC retirement and active timer-table update path; report-only field evidence for the selected active timer table.",
       "function_names": [
         "KiRetireDpcList"

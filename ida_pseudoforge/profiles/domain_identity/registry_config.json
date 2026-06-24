@@ -1422,6 +1422,12 @@
     },
     {
       "id": "windows.registry_config.cmp_set_security_descriptor_info",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed CmpSetSecurityDescriptorInfo ntoskrnl 26200.8457 security descriptor update flow through CmGetKCBCacheSecurity, RtlpSetSecurityObject, CmpTraceSecurityChanging, hive cell dirtying, and transaction-aware branches; signature preview only.",
       "function_names": [
         "CmpSetSecurityDescriptorInfo"
@@ -2195,6 +2201,12 @@
     },
     {
       "id": "windows.registry_config.cmp_trans_search_add_trans",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed CmpTransSearchAddTrans ntoskrnl 26200.8457 transaction search/allocation path through CmpSearchForTrans, CmpTransAllocateTrans, CmpBindHiveToTrans, and CmpTransInitializeTransaction; preview-only correction for the stable transaction, KCB, hive, create flag, and output transaction roles. The second search key parameter remains generic until caller wrappers prove its exact private type.",
       "function_names": [
         "CmpTransSearchAddTrans"
@@ -2408,6 +2420,12 @@
     },
     {
       "id": "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed CmpHiveCachePopulateHiveEntryThread ntoskrnl 26200.8457 hive-cache worker thread flow through CmpInitializeThreadInfo, CmpOpenHiveFiles, CmpCreateHive, CmpHiveCacheEntryCleanup, and PsTerminateSystemThread; preview-only correction for the Hex-Rays privilege-set overlay on the private thread context.",
       "function_names": [
         "CmpHiveCachePopulateHiveEntryThread"
@@ -2491,6 +2509,12 @@
     },
     {
       "id": "windows.registry_config.cmp_insert_security_cell_list",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed CmpInsertSecurityCellList ntoskrnl 26200.8457 HHIVE security-cell link insertion flow through HvpGetCellFlat/Paged, HvpMarkCellDirty, and CmpAddSecurityCellToCache; preview-only private prototype.",
       "function_names": [
         "CmpInsertSecurityCellList"
@@ -2637,6 +2661,12 @@
     },
     {
       "id": "windows.registry_config.cmp_free_key_control_block",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed CmpFreeKeyControlBlock ntoskrnl 26200.8457 key-control-block teardown path through CmPerfCounters, bugcheck guards, transient pool release, KCB lookaside free, and private KCB residue offsets; preview-only private prototype.",
       "function_names": [
         "CmpFreeKeyControlBlock"
@@ -2694,6 +2724,12 @@
     },
     {
       "id": "windows.registry_config.hv_reallocate_cell",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed HvReallocateCell ntoskrnl 26200.8457 HHIVE cell reallocation flow through HvpGetCellFlat/Paged, HvpDoAllocateCell, HvFreeCell, and HvpGetCellContextMove; preview-only private prototype.",
       "function_names": [
         "HvReallocateCell"

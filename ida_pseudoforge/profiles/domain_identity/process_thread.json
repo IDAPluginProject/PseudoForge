@@ -1170,6 +1170,12 @@
     },
     {
       "id": "windows.process_thread.psp_convert_silo_to_server_silo",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed PspConvertSiloToServerSilo ntoskrnl 26200.8457 server silo conversion path; report-only field evidence for the allocated server silo globals block.",
       "function_names": [
         "PspConvertSiloToServerSilo"

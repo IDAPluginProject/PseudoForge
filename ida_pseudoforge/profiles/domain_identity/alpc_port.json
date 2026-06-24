@@ -741,6 +741,12 @@
     },
     {
       "id": "windows.alpc_port.allocate_message_internal",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed AlpcpAllocateMessage ntoskrnl 26200.8457 ALPC message allocation through lookaside/buffer allocation branches and message header initialization; layout remains report-only due merge, subfield, and threshold blockers.",
       "function_names": [
         "AlpcpAllocateMessage"
@@ -1052,6 +1058,12 @@
     },
     {
       "id": "windows.alpc_port.nt_create_port_section",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed NtAlpcCreatePortSection handle reference, AlpcpCreateSection, and output section handle/offset copy-out.",
       "function_names": [
         "NtAlpcCreatePortSection"
@@ -1724,6 +1736,12 @@
     },
     {
       "id": "windows.alpc_port.nt_impersonate_client_of_port",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed NtAlpcImpersonateClientOfPort message lookup, sender context validation, token/SID checks, and impersonation setup.",
       "function_names": [
         "NtAlpcImpersonateClientOfPort"

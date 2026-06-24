@@ -10,6 +10,12 @@
   "profiles": [
     {
       "id": "windows.hal_dma_iommu.dma_map_scatter_transfer_v3",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed HalpDmaMapScatterTransferV3 scatter transfer mapping signature shape and DMA transfer roles; preview-only private prototype.",
       "function_names": [
         "HalpDmaMapScatterTransferV3"
@@ -411,6 +417,12 @@
     },
     {
       "id": "windows.hal_dma_iommu.iommu_domain_get_logical_address_range",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed HalpIommuDomainGetLogicalAddressRange domain dispatch and logical-address range outputs; preview-only private prototype.",
       "function_names": [
         "HalpIommuDomainGetLogicalAddressRange"
@@ -872,6 +884,12 @@
     },
     {
       "id": "windows.hal_dma_iommu.iommu_domain_map_logical_range",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed HalpIommuDomainMapLogicalRange ntoskrnl 26200.8457 domain HV/non-HV branch to HalpIommuMapLogicalRange and IommupHvMapDeviceLogicalRange; preview-only private prototype.",
       "function_names": [
         "HalpIommuDomainMapLogicalRange"
@@ -1059,6 +1077,12 @@
     },
     {
       "id": "windows.hal_dma_iommu.timer_measure_processors_worker",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed HalpTimerMeasureProcessorsWorker ntoskrnl 26200.8457 HAL timer rendezvous worker; report-only field evidence for the per-processor measurement context.",
       "function_names": [
         "HalpTimerMeasureProcessorsWorker"

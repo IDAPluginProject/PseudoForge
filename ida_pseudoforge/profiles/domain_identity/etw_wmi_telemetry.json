@@ -2621,6 +2621,12 @@
     },
     {
       "id": "windows.etw_wmi_telemetry.cov_samp_stack_hash_check",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
       "source": "Reviewed EtwpCovSampStackHashCheck ntoskrnl 26200.8457 coverage-sampling stack byte hash, shared push-lock lookup, and insert path; preview-only partial private prototype.",
       "function_names": [
         "EtwpCovSampStackHashCheck"
