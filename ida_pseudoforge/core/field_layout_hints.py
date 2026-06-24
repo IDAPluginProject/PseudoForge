@@ -3870,7 +3870,7 @@ def _field_rewrite_partial_opportunity_comment(
         identity = _report_only_domain_partial_rewrite_identity(layout, blocker)
     if _layout_base_kind(layout.base) != "named" and not identity:
         return None
-    partition = _partial_rewrite_offset_partition(layout)
+    partition = _partial_rewrite_offset_partition(layout, text=text)
     safe_offsets = {
         int(item["offset"])
         for item in partition["safe_fields"]
@@ -4366,7 +4366,7 @@ def _layout_rewrite_access_count_for_offsets(text: str, layout: _LayoutEvidence,
     return count
 
 
-def _partial_rewrite_offset_partition(layout: _LayoutEvidence) -> dict[str, Any]:
+def _partial_rewrite_offset_partition(layout: _LayoutEvidence, text: str = "") -> dict[str, Any]:
     safe_fields = []
     excluded_fields = []
     excluded_reasons: list[str] = []
@@ -4385,6 +4385,23 @@ def _partial_rewrite_offset_partition(layout: _LayoutEvidence) -> dict[str, Any]
                     excluded_reasons.append(reason)
         else:
             safe_fields.append(field)
+    if 0 not in layout.offsets:
+        direct_types = _direct_base_access_types(text, layout.base)
+        if direct_types:
+            reasons = _offset_local_type_blockers_for_types(direct_types, 0)
+            field = {
+                "offset": 0,
+                "name": "field_0",
+                "type": _preview_type_name(direct_types),
+            }
+            if reasons:
+                field["reasons"] = reasons
+                excluded_fields.append(field)
+                for reason in reasons:
+                    if reason not in excluded_reasons:
+                        excluded_reasons.append(reason)
+            else:
+                safe_fields.append(field)
     return {
         "safe_fields": safe_fields,
         "excluded_fields": excluded_fields,
@@ -4393,7 +4410,10 @@ def _partial_rewrite_offset_partition(layout: _LayoutEvidence) -> dict[str, Any]
 
 
 def _offset_local_type_blockers(layout: _LayoutEvidence, offset: int) -> list[str]:
-    type_names = layout.offsets.get(offset, set())
+    return _offset_local_type_blockers_for_types(layout.offsets.get(offset, set()), offset)
+
+
+def _offset_local_type_blockers_for_types(type_names: set[str], offset: int) -> list[str]:
     blockers: list[str] = []
     storage_classes = {_field_type_storage_class(type_name) for type_name in type_names}
     if len(storage_classes) > 1:
@@ -4413,6 +4433,22 @@ def _offset_local_type_blockers(layout: _LayoutEvidence, offset: int) -> list[st
             blockers.append(_UNALIGNED_TYPED_OFFSET_BLOCKER)
             break
     return list(dict.fromkeys(blockers))
+
+
+def _direct_base_access_types(text: str, base: str) -> set[str]:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", base or ""):
+        return set()
+    types = set()
+    for match in _DIRECT_BASE_DEREF_RE.finditer(text or ""):
+        if match.group("base") != base:
+            continue
+        type_name = _normalize_offset_access_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
+        if type_name:
+            types.add(type_name)
+    return types
 
 
 def _subfield_overlay_fields(

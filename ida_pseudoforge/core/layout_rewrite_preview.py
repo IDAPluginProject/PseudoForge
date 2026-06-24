@@ -414,8 +414,10 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
         allowed_offsets = current.get("allowed_offsets")
         if allowed_offsets is None:
             continue
-        allowed_offsets.update(_plan_allowed_offsets(plan))
-        current["address_offsets"].update(_plan_allowed_offsets(plan))
+        plan_allowed_offsets = _plan_allowed_offsets(plan)
+        allowed_offsets.update(plan_allowed_offsets)
+        current["address_offsets"].update(plan_allowed_offsets)
+        current["direct_offsets"].update(offset for offset in plan_allowed_offsets if offset == 0)
     result: dict[str, dict[str, Any]] = {}
     for base, rule in rules.items():
         if rule.get("has_full_plan"):
@@ -879,7 +881,7 @@ def _plan_allowed_offsets(plan: dict[str, Any]) -> set[int]:
             parsed = int(offset)
         except (TypeError, ValueError):
             continue
-        if parsed > 0:
+        if parsed >= 0:
             offsets.add(parsed)
     return offsets
 
@@ -1096,7 +1098,7 @@ def _parse_offset_list(value: str) -> list[int]:
         if text.startswith("+"):
             text = text[1:].strip()
         offset = _parse_offset(text)
-        if offset is None or offset <= 0:
+        if offset is None or offset < 0:
             continue
         if offset not in offsets:
             offsets.append(offset)

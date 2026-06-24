@@ -980,6 +980,44 @@ __int64 __fastcall DirectBaseUnadvertisedLayout(__int64 context)
         self.assertIn("*(_DWORD *)context", canonical_text)
         self.assertNotIn("context->field_0", canonical_text)
 
+    def test_validated_partial_layout_rewrite_handles_advertised_direct_base_field_zero(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_partial_opportunity: Offset field partial rewrite opportunity for context: 13 safe dereference(s) across 9 safe offset(s), 1 excluded dereference(s) across 1 excluded offset(s), safe fields field_0, field_8, field_10, field_18, field_28, field_30, field_38, field_40, field_48. Safe offsets +0x0, +0x8, +0x10, +0x18, +0x28, +0x30, +0x38, +0x40, +0x48; excluded offsets +0x20. Excluded reasons one or more offsets mix wide overlay access widths. Source provenance generic_parameter_trust from context. Review-only; canonical body rewrite remains disabled until partial rewrite validation is implemented. confidence=0.77
+*/
+__int64 __fastcall PartialDirectBaseFieldZeroLayout(__int64 context)
+{
+  return *(_DWORD *)context
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_OWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 40);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "PartialDirectBaseFieldZeroLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied_partial", bundle.metadata["canonical_rewrite_status"])
+        self.assertIn("context->field_0 /* _DWORD +0x0 */", canonical_text)
+        self.assertIn("*(_OWORD *)(context + 32)", canonical_text)
+        self.assertNotIn("*(_DWORD *)context", canonical_text)
+
     def test_validated_layout_rewrite_extends_to_direct_source_alias_offsets(self) -> None:
         cleaned_text = """
 /*

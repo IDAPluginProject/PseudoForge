@@ -458,6 +458,47 @@ __int64 __fastcall DomainReportOnlyNamedOverlayLayout(__int64 resource)
         self.assertIn("Review-only", partial[0]["text"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
+    def test_partial_opportunity_counts_direct_base_zero_as_safe_field(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall PartialDirectBaseZeroLayout(__int64 context)
+{
+  return *(_DWORD *)context
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_DWORD *)(context + 32)
+       + *(_QWORD *)(context + 32)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48)
+       + *(_QWORD *)(context + 56)
+       + *(_QWORD *)(context + 64)
+       + *(_QWORD *)(context + 72)
+       + *(_QWORD *)(context + 80)
+       + *(_QWORD *)(context + 8)
+       + *(_QWORD *)(context + 16)
+       + *(_QWORD *)(context + 24)
+       + *(_QWORD *)(context + 40)
+       + *(_QWORD *)(context + 48);
+}
+""",
+            max_comments=16,
+        )
+
+        partial = [
+            item
+            for item in comments
+            if item.get("kind") == "inferred_offset_rewrite_partial_opportunity"
+        ]
+
+        self.assertEqual(1, len(partial))
+        self.assertEqual(10, partial[0]["safe_offset_count"])
+        self.assertEqual(15, partial[0]["safe_access_count"])
+        self.assertIn(0, partial[0]["safe_offsets"])
+        self.assertIn("field_0", [item["name"] for item in partial[0]["safe_fields"]])
+        self.assertEqual("generic_parameter_trust", partial[0]["source_provenance"])
+        self.assertIn("+0x0", partial[0]["text"])
+
     def test_low_confidence_report_only_domain_with_overlay_does_not_report_partial_opportunity(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             self._configure_domain_profiles(
