@@ -1141,8 +1141,13 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("rewrite_safety_policies", stats)
             self.assertIn("evidence_maturity", stats)
             self.assertIn("review_focuses", stats)
+            self.assertIn("residue_review_notes", stats)
             self.assertIn(
                 "primary_review_reasons",
+                queues["report_only_exact_promotion_candidates"],
+            )
+            self.assertIn(
+                "residue_review_notes",
                 queues["report_only_exact_promotion_candidates"],
             )
             self.assertEqual(
@@ -1214,6 +1219,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     "build_identity_mismatch"
                 ],
             )
+            self.assertEqual(
+                1,
+                queues["report_only_exact_promotion_candidates"]["residue_review_notes"][
+                    "report_only_alias_not_canonical_rewrite"
+                ],
+            )
             self.assertTrue(
                 any(
                     key.startswith("registry/report_only_private_layout")
@@ -1251,6 +1262,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 cmp_queue_item["rewrite_safety_policy"],
             )
             self.assertEqual("report_only_alias_with_stable_source", cmp_queue_item["evidence_maturity"])
+            self.assertEqual("low", cmp_queue_item["residue_pressure_class"])
             self.assertIn(
                 "report_only_field_alias_available",
                 cmp_queue_item["priority_factors"],
@@ -1270,6 +1282,14 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn(
                 "do_not_promote_report_only_profile",
                 cmp_queue_item["primary_review_reasons"],
+            )
+            self.assertIn(
+                "report_only_alias_not_canonical_rewrite",
+                cmp_queue_item["residue_review_notes"],
+            )
+            self.assertIn(
+                "exact_private_layout_source_missing",
+                cmp_queue_item["residue_review_notes"],
             )
             self.assertEqual(
                 {"parameter_direct_alias": 1},

@@ -328,6 +328,9 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "stable_source_provenance_available": 7,
     "parameter_field_pointer_alias_review": 8,
     "direct_parameter_source_alias": 6,
+    "validated_secondary_residue": 6,
+    "generic_context_identity_gap": 6,
+    "high_pressure_unresolved_residue": 5,
     "high_pressure_report_only_alias": 7,
     "core_report_only_deferred_shape": 5,
     "manual_review_gap": 4,
@@ -812,6 +815,7 @@ def analyze_corpus(
     body_offset_residue_promotion_hints: Counter[str] = Counter()
     body_offset_residue_next_action_details: Counter[str] = Counter()
     body_offset_residue_priority_factors: Counter[str] = Counter()
+    body_offset_residue_review_notes: Counter[str] = Counter()
     body_offset_residue_fail_closed_gates: Counter[str] = Counter()
     body_offset_residue_fail_closed_families: Counter[str] = Counter()
     body_offset_residue_review_focuses: Counter[str] = Counter()
@@ -1163,6 +1167,7 @@ def analyze_corpus(
                         body_offset_residue_promotion_hints,
                         body_offset_residue_next_action_details,
                         body_offset_residue_priority_factors,
+                        body_offset_residue_review_notes,
                         body_offset_residue_fail_closed_gates,
                         body_offset_residue_fail_closed_families,
                         body_offset_residue_review_focuses,
@@ -1753,6 +1758,9 @@ def analyze_corpus(
             "priority_factors": _counter_to_dict(
                 Counter(dict(body_offset_residue_priority_factors.most_common(top)))
             ),
+            "residue_review_notes": _counter_to_dict(
+                Counter(dict(body_offset_residue_review_notes.most_common(top)))
+            ),
             "fail_closed_gates": _counter_to_dict(
                 Counter(dict(body_offset_residue_fail_closed_gates.most_common(top)))
             ),
@@ -2257,6 +2265,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Residue Review Notes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("residue_review_notes", {})),
+            "Review note",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Residue Fail-Closed Gates",
             "",
         ]
@@ -2363,8 +2384,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Factors | Classes | Details | Source provenance | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Factors | Classes | Details | Source provenance | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2402,6 +2423,18 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("evidence_maturity", {})).items()
         )
+        pressure = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("residue_pressure_classes", {})).items()
+        )
+        primary_reasons = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("primary_review_reasons", {})).items()
+        )
+        review_notes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("residue_review_notes", {})).items()
+        )
         factors = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("priority_factors", {})).items()
@@ -2415,7 +2448,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2428,6 +2461,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(families),
                 _markdown_table_cell(policies),
                 _markdown_table_cell(maturity),
+                _markdown_table_cell(pressure),
+                _markdown_table_cell(primary_reasons),
+                _markdown_table_cell(review_notes),
                 _markdown_table_cell(factors),
                 _markdown_table_cell(review_classes),
                 _markdown_table_cell(details),
@@ -2441,8 +2477,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Factors | Class | Next action | Details | Score | Offset derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -2457,10 +2493,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         promotion_hints = ", ".join(str(value) for value in item.get("promotion_hints", []) or [])
         next_action_details = ", ".join(str(value) for value in item.get("next_action_details", []) or [])
         priority_factors = ", ".join(str(value) for value in item.get("priority_factors", []) or [])
+        primary_reasons = ", ".join(str(value) for value in item.get("primary_review_reasons", []) or [])
+        review_notes = ", ".join(str(value) for value in item.get("residue_review_notes", []) or [])
         goal_group = str(item.get("named_goal_target_group", "") or "")
         goal_text = goal_group if bool(item.get("named_goal_target")) else ""
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -2471,6 +2509,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 str(item.get("fail_closed_family", "")),
                 str(item.get("rewrite_safety_policy", "")),
                 str(item.get("evidence_maturity", "")),
+                str(item.get("residue_pressure_class", "")),
+                _markdown_table_cell(primary_reasons),
+                _markdown_table_cell(review_notes),
                 _markdown_table_cell(priority_factors),
                 str(item.get("review_class", "")),
                 str(item.get("next_action", "")),
@@ -5519,12 +5560,36 @@ def _body_offset_residue_function_summary(
         next_action_details,
         promotion_hints,
     )
+    residue_pressure_class = _body_offset_residue_pressure_class(
+        offset_deref_survivors,
+        field_access_pressure,
+        _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
+        bool(named_target_group),
+    )
+    residue_review_notes = _body_offset_residue_review_notes(
+        fail_closed_gate,
+        review_class,
+        review_evidence,
+        next_action_details,
+        promotion_hints,
+        offset_deref_survivors,
+        field_access_pressure,
+        _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
+        len(stable_base_sources),
+        len(generic_base_evidence),
+        len(generic_base_trust_candidates),
+        len(temp_provenance.get("blocked", []) or []),
+        _int_value(pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"), 0),
+        _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
+        blocker_reasons,
+    )
     priority_factors = _body_offset_residue_priority_factors(
         subsystem,
         review_class,
         review_evidence,
         promotion_hints,
         next_action_details,
+        residue_review_notes,
         offset_deref_survivors,
         _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         field_access_pressure,
@@ -5559,6 +5624,8 @@ def _body_offset_residue_function_summary(
         "rewrite_safety_policy": rewrite_safety_policy,
         "evidence_maturity": evidence_maturity,
         "primary_review_reasons": primary_review_reasons,
+        "residue_pressure_class": residue_pressure_class,
+        "residue_review_notes": residue_review_notes,
         "named_goal_target": bool(named_target_group),
         "named_goal_target_group": named_target_group,
         "priority_factors": priority_factors,
@@ -5626,6 +5693,7 @@ def _update_body_offset_residue_metrics(
     promotion_hints: Counter[str],
     next_action_details: Counter[str],
     priority_factors: Counter[str],
+    review_notes: Counter[str],
     fail_closed_gates: Counter[str],
     fail_closed_families: Counter[str],
     review_focuses: Counter[str],
@@ -5669,6 +5737,9 @@ def _update_body_offset_residue_metrics(
     for factor in item.get("priority_factors", []) or []:
         if str(factor):
             priority_factors[str(factor)] += 1
+    for note in item.get("residue_review_notes", []) or []:
+        if str(note):
+            review_notes[str(note)] += 1
     fail_closed_gate = str(item.get("fail_closed_gate", "") or "")
     if fail_closed_gate:
         fail_closed_gates[fail_closed_gate] += 1
@@ -6096,6 +6167,7 @@ def _body_offset_residue_priority_factors(
     review_evidence: list[str],
     promotion_hints: list[str],
     next_action_details: list[str],
+    residue_review_notes: list[str],
     offset_deref_survivors: int,
     generic_parameter_survivors: int,
     field_access_pressure: int,
@@ -6104,6 +6176,7 @@ def _body_offset_residue_priority_factors(
     evidence = {str(item) for item in review_evidence if str(item)}
     hints = {str(item) for item in promotion_hints if str(item)}
     details = {str(item) for item in next_action_details if str(item)}
+    notes = {str(item) for item in residue_review_notes if str(item)}
     factors: list[str] = []
     if named_target_group:
         factors.append("named_goal_target")
@@ -6134,6 +6207,8 @@ def _body_offset_residue_priority_factors(
         factors.append("pointer_indexed_shape")
     if "validated_rewrite_still_has_residue" in evidence:
         factors.append("validated_rewrite_residue")
+    if "validated_rewrite_left_secondary_residue" in notes:
+        factors.append("validated_secondary_residue")
     if "stable_source_provenance_available_for_review" in details:
         factors.append("stable_source_provenance_available")
     if "parameter_field_pointer_alias_requires_source_profile" in details:
@@ -6146,8 +6221,11 @@ def _body_offset_residue_priority_factors(
         "temp_offset_shape_review",
         "hot_cluster_missing_identity",
         "pointer_indexed_residue",
+        "generic_base_identity_review",
     }:
         factors.append("parameter_type_followup")
+    if "generic_base_identity_gap" in notes:
+        factors.append("generic_context_identity_gap")
     if review_class == "dense_offset_shape_missing_identity" or "add_dense_shape_identity_or_keep_review_only" in details:
         factors.append("dense_shape_without_identity")
     if review_class == "low_pressure_offset_residue":
@@ -6165,6 +6243,8 @@ def _body_offset_residue_priority_factors(
         factors.append("core_report_only_deferred_shape")
     if "manual_review_required" in details:
         factors.append("manual_review_gap")
+    if "high_pressure_unresolved_residue" in notes:
+        factors.append("high_pressure_unresolved_residue")
     return list(dict.fromkeys(factors))
 
 
@@ -6333,6 +6413,99 @@ def _body_offset_primary_review_reasons(
     if not reasons:
         reasons.append("manual_review_required")
     return list(dict.fromkeys(reasons))
+
+
+def _body_offset_residue_pressure_class(
+    offset_deref_survivors: int,
+    field_access_pressure: int,
+    generic_parameter_survivors: int,
+    named_goal_target: bool,
+) -> str:
+    if offset_deref_survivors >= 24 or field_access_pressure >= 24:
+        return "high"
+    if named_goal_target and offset_deref_survivors >= 4:
+        return "high_goal_target"
+    if offset_deref_survivors >= 8 or field_access_pressure >= 12 or generic_parameter_survivors >= 4:
+        return "medium"
+    return "low"
+
+
+def _body_offset_residue_review_notes(
+    fail_closed_gate: str,
+    review_class: str,
+    review_evidence: list[str],
+    next_action_details: list[str],
+    promotion_hints: list[str],
+    offset_deref_survivors: int,
+    field_access_pressure: int,
+    generic_parameter_survivors: int,
+    stable_base_source_count: int,
+    generic_base_evidence_count: int,
+    generic_base_trust_candidate_count: int,
+    temp_provenance_blocked_count: int,
+    pointer_indexed_offset_deref_patterns: int,
+    body_rewrite_ready: int,
+    blocker_reasons: Counter[str],
+) -> list[str]:
+    gate = str(fail_closed_gate or "")
+    review = str(review_class or "")
+    evidence = {str(item) for item in review_evidence if str(item)}
+    details = {str(item) for item in next_action_details if str(item)}
+    hints = {str(item) for item in promotion_hints if str(item)}
+    reasons = {str(reason) for reason, count in blocker_reasons.items() if _int_value(count, 0) > 0}
+    notes: list[str] = []
+
+    if offset_deref_survivors >= 24 or field_access_pressure >= 24:
+        notes.append("high_pressure_unresolved_residue")
+    elif offset_deref_survivors >= 8 or field_access_pressure >= 12:
+        notes.append("medium_pressure_unresolved_residue")
+    else:
+        notes.append("low_pressure_unresolved_residue")
+
+    if body_rewrite_ready > 0 or gate == "validated_rewrite_residue_review":
+        notes.append("validated_rewrite_left_secondary_residue")
+    if gate in {"report_only_private_layout", "report_only_source_identity"}:
+        notes.append("report_only_alias_not_canonical_rewrite")
+    if "exact_private_layout_source_required" in _body_offset_primary_review_reasons(
+        fail_closed_gate,
+        review_evidence,
+        next_action_details,
+        promotion_hints,
+    ):
+        notes.append("exact_private_layout_source_missing")
+    if "trusted_source_required" in evidence or "trusted_source_gate_is_blocking" in details:
+        notes.append("trusted_source_identity_missing")
+    if "source_stability_risk" in evidence or "source_stability_gate_is_blocking" in details:
+        notes.append("source_stability_not_proven")
+    if "type_width_or_alignment_conflict" in evidence or "type_evidence_gate_is_blocking" in details:
+        notes.append("type_width_or_alignment_unresolved")
+    if "threshold_gap" in evidence or "collect_access_and_offset_threshold_evidence" in details:
+        notes.append("threshold_evidence_gap")
+    if pointer_indexed_offset_deref_patterns > 0 or "pointer_indexed_metrics_present" in details:
+        notes.append("indexed_layout_model_needed")
+    if stable_base_source_count > 0:
+        notes.append("stable_source_provenance_available")
+    if generic_base_evidence_count > 0 or generic_base_trust_candidate_count > 0:
+        notes.append("generic_base_identity_gap")
+    if generic_parameter_survivors > 0 and review in {
+        "parameter_offset_shape_review",
+        "context_offset_shape_review",
+        "temp_offset_shape_review",
+        "hot_cluster_missing_identity",
+        "pointer_indexed_residue",
+        "generic_base_identity_review",
+    }:
+        notes.append("parameter_type_followup_candidate")
+    if temp_provenance_blocked_count > 0:
+        notes.append("temp_initializer_identity_blocked")
+    if "do_not_promote_report_only_profile" in hints:
+        notes.append("do_not_promote_report_only_profile")
+    if any("base is a decompiler temporary" in reason for reason in reasons):
+        notes.append("decompiler_temp_base_blocks_rewrite")
+    if any("base name is generic" in reason for reason in reasons):
+        notes.append("generic_base_name_blocks_rewrite")
+
+    return list(dict.fromkeys(notes))
 
 
 def _body_offset_residue_review_focus(
@@ -6676,7 +6849,9 @@ def _body_offset_residue_review_queue_summary(
     )
     safety_policies = Counter(str(item.get("rewrite_safety_policy", "") or "review_only") for item in items)
     evidence_maturity = Counter(str(item.get("evidence_maturity", "") or "review_only") for item in items)
+    pressure_classes = Counter(str(item.get("residue_pressure_class", "") or "unknown") for item in items)
     primary_review_reasons: Counter[str] = Counter()
+    residue_review_notes: Counter[str] = Counter()
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
     domain_profiles: Counter[str] = Counter()
@@ -6690,6 +6865,9 @@ def _body_offset_residue_review_queue_summary(
         for reason in item.get("primary_review_reasons", []) or []:
             if str(reason):
                 primary_review_reasons[str(reason)] += 1
+        for note in item.get("residue_review_notes", []) or []:
+            if str(note):
+                residue_review_notes[str(note)] += 1
         for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
             stable_source_provenance[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("stable_source_kinds", {})).items():
@@ -6723,8 +6901,12 @@ def _body_offset_residue_review_queue_summary(
         "target_groups": _counter_to_dict(Counter(dict(target_groups.most_common(limit)))),
         "rewrite_safety_policies": _counter_to_dict(Counter(dict(safety_policies.most_common(limit)))),
         "evidence_maturity": _counter_to_dict(Counter(dict(evidence_maturity.most_common(limit)))),
+        "residue_pressure_classes": _counter_to_dict(Counter(dict(pressure_classes.most_common(limit)))),
         "primary_review_reasons": _counter_to_dict(
             Counter(dict(primary_review_reasons.most_common(limit)))
+        ),
+        "residue_review_notes": _counter_to_dict(
+            Counter(dict(residue_review_notes.most_common(limit)))
         ),
         "stable_source_provenance": _counter_to_dict(
             Counter(dict(stable_source_provenance.most_common(limit)))
@@ -6750,6 +6932,7 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
         "fail_closed_family": str(item.get("fail_closed_family", "") or ""),
         "rewrite_safety_policy": str(item.get("rewrite_safety_policy", "") or ""),
         "evidence_maturity": str(item.get("evidence_maturity", "") or ""),
+        "residue_pressure_class": str(item.get("residue_pressure_class", "") or ""),
         "named_goal_target": bool(item.get("named_goal_target")),
         "named_goal_target_group": str(item.get("named_goal_target_group", "") or ""),
         "priority_factors": [
@@ -6761,6 +6944,11 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
             str(reason)
             for reason in item.get("primary_review_reasons", []) or []
             if str(reason)
+        ],
+        "residue_review_notes": [
+            str(note)
+            for note in item.get("residue_review_notes", []) or []
+            if str(note)
         ],
         "next_action_details": [
             str(detail)
