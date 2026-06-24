@@ -206,6 +206,18 @@ class _IndexedLayoutEvidence:
     alias_bases: set[str] = field(default_factory=set)
 
 
+@dataclass(slots=True)
+class _ParameterIndexedElementEvidence:
+    base: str
+    parent: str
+    parent_alias: str = ""
+    parent_type: str = ""
+    index: str = ""
+    stride: int = 0
+    offset_access_counts: Counter[int] = field(default_factory=Counter)
+    offset_types: dict[int, set[str]] = field(default_factory=dict)
+
+
 def field_layout_comments(
     text: str,
     max_comments: int = 4,
@@ -427,6 +439,22 @@ def field_layout_comments(
     )
     for item in indexed_evidence[:max(0, int(max_comments or 0))]:
         comments.append(_indexed_layout_comment_from_evidence(item))
+    parameter_indexed_elements = _collect_parameter_indexed_element_evidence(
+        text or "",
+        layouts,
+        profile_context=profile_context,
+        corrected_parameter_map=corrected_parameter_map,
+    )
+    parameter_indexed_elements.sort(
+        key=lambda item: (
+            -sum(item.offset_access_counts.values()),
+            -len(item.offset_access_counts),
+            item.parent.lower(),
+            item.base.lower(),
+        )
+    )
+    for item in parameter_indexed_elements[:max(0, int(max_comments or 0))]:
+        comments.append(_parameter_indexed_element_comment_from_evidence(text or "", item))
     return comments
 
 
@@ -505,6 +533,236 @@ def _collect_indexed_layout_evidence(text: str) -> dict[str, _IndexedLayoutEvide
         if raw_base != base:
             evidence.alias_bases.add(raw_base)
     return evidence_by_base
+
+
+def _collect_parameter_indexed_element_evidence(
+    text: str,
+    layouts: dict[str, _LayoutEvidence],
+    profile_context: dict[str, Any] | None = None,
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None = None,
+) -> list[_ParameterIndexedElementEvidence]:
+    aliases = _direct_identifier_aliases(text)
+    evidence: list[_ParameterIndexedElementEvidence] = []
+    for base, assignments in _base_assignments_by_lhs(text).items():
+        if _base_is_function_parameter(text, base):
+            continue
+        if any(item.group("op") != "=" for item in assignments):
+            continue
+        direct_sources = [
+            _normalize_assignment_rhs(item.group("rhs"))
+            for item in assignments
+        ]
+        parsed_sources = [
+            _parse_parameter_scaled_indexed_source(source, aliases)
+            for source in direct_sources
+        ]
+        parsed_sources = [item for item in parsed_sources if item]
+        if not parsed_sources or len(parsed_sources) != len(direct_sources):
+            continue
+        source_keys = {
+            (
+                str(item["parent"]),
+                str(item.get("parent_alias", "") or ""),
+                str(item["index"]),
+                int(item["stride"]),
+            )
+            for item in parsed_sources
+        }
+        if len(source_keys) != 1:
+            continue
+        parent, parent_alias, index, stride = next(iter(source_keys))
+        if not _base_is_function_parameter(text, parent):
+            continue
+        item = _ParameterIndexedElementEvidence(
+            base=base,
+            parent=parent,
+            parent_alias=parent_alias,
+            parent_type=(
+                _corrected_parameter_type_for_name(corrected_parameter_map, parent)
+                or _domain_identity_pointer_type_for_base(text, parent, profile_context)
+            ),
+            index=index,
+            stride=stride,
+        )
+        layout = layouts.get(base)
+        if layout:
+            for offset, count in layout.offset_access_counts.items():
+                item.offset_access_counts[int(offset)] += int(count)
+            for offset, types in layout.offsets.items():
+                item.offset_types.setdefault(int(offset), set()).update(types)
+        for match in _DIRECT_BASE_DEREF_RE.finditer(text or ""):
+            if match.group("base") != base:
+                continue
+            type_name = _normalize_offset_access_type(
+                match.group("type"),
+                match.group("pointer_stars"),
+            )
+            if not type_name:
+                continue
+            item.offset_access_counts[0] += 1
+            item.offset_types.setdefault(0, set()).add(type_name)
+        if sum(item.offset_access_counts.values()) < 2:
+            continue
+        evidence.append(item)
+    return evidence
+
+
+def _base_assignments_by_lhs(text: str) -> dict[str, list[re.Match[str]]]:
+    assignments: dict[str, list[re.Match[str]]] = {}
+    for match in _DIRECT_ASSIGNMENT_RE.finditer(text or ""):
+        assignments.setdefault(match.group("lhs"), []).append(match)
+    return assignments
+
+
+def _parse_parameter_scaled_indexed_source(
+    source: str,
+    aliases: dict[str, str],
+) -> dict[str, Any]:
+    expression = _normalize_assignment_rhs(source)
+    patterns = (
+        r"(?P<parent>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+        r"(?P<stride>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\*\s*"
+        r"(?P<index>[A-Za-z_][A-Za-z0-9_]*)",
+        r"(?P<stride>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\*\s*"
+        r"(?P<index>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+        r"(?P<parent>[A-Za-z_][A-Za-z0-9_]*)",
+    )
+    for pattern in patterns:
+        match = re.fullmatch(pattern, expression)
+        if not match:
+            continue
+        stride = _parse_offset(match.group("stride"))
+        if stride is None or stride <= 0:
+            continue
+        raw_parent = str(match.group("parent"))
+        parent = _canonical_identifier_alias(raw_parent, aliases)
+        if not parent:
+            continue
+        result: dict[str, Any] = {
+            "parent": parent,
+            "index": str(match.group("index")),
+            "stride": int(stride),
+        }
+        if parent != raw_parent:
+            result["parent_alias"] = raw_parent
+        return result
+    return {}
+
+
+def _canonical_identifier_alias(value: str, aliases: dict[str, str]) -> str:
+    current = str(value or "")
+    seen = set()
+    for _ in range(4):
+        if not current or current in seen:
+            return ""
+        seen.add(current)
+        source = aliases.get(current, "")
+        if not source:
+            return current
+        current = source
+    return current
+
+
+def _parameter_indexed_element_comment_from_evidence(
+    text: str,
+    evidence: _ParameterIndexedElementEvidence,
+) -> dict[str, Any]:
+    offsets = sorted(evidence.offset_access_counts)
+    offset_text = ", ".join(
+        "+0x%X" % offset
+        for offset in offsets[:8]
+    )
+    if len(offsets) > 8:
+        offset_text += ", ..."
+    access_count = sum(evidence.offset_access_counts.values())
+    type_names = sorted({
+        type_name
+        for types in evidence.offset_types.values()
+        for type_name in types
+        if type_name
+    })
+    type_text = ", ".join(type_names[:4])
+    if len(type_names) > 4:
+        type_text += ", ..."
+    parent_type = evidence.parent_type or _function_parameter_type(text, evidence.parent)
+    parent_type_text = ""
+    if parent_type:
+        parent_type_text = " Parent parameter type %s." % parent_type
+    alias_text = ""
+    if evidence.parent_alias:
+        alias_text = " via alias %s" % evidence.parent_alias
+    confidence = min(
+        0.78,
+        0.62 + len(offsets) * 0.02 + min(access_count, 12) * 0.006,
+    )
+    return {
+        "kind": "inferred_offset_parameter_indexed_element",
+        "text": (
+            "Parameter-indexed element evidence for %s: aliases %s%s + %d * %s; "
+            "%d typed dereference(s) across element offset(s) %s; observed types %s.%s "
+            "Review-only; do not canonical-rewrite array element fields without exact function/build/source layout identity."
+            % (
+                evidence.base,
+                evidence.parent,
+                alias_text,
+                evidence.stride,
+                evidence.index,
+                access_count,
+                offset_text or "none",
+                type_text or "unknown",
+                parent_type_text,
+            )
+        ),
+        "confidence": round(confidence, 2),
+        "base": evidence.base,
+        "parent": evidence.parent,
+        "parent_alias": evidence.parent_alias,
+        "index": evidence.index,
+        "stride": evidence.stride,
+        "offsets": offsets,
+        "access_count": access_count,
+        "parent_type": parent_type,
+    }
+
+
+def _corrected_parameter_type_for_name(
+    corrected_parameter_map: list[CorrectedParameterMapEntry] | None,
+    name: str,
+) -> str:
+    target = str(name or "")
+    if not target:
+        return ""
+    for entry in corrected_parameter_map or []:
+        names = {
+            str(entry.old_name or ""),
+            str(entry.new_name or ""),
+            *[str(item) for item in entry.base_names or []],
+        }
+        if target not in names:
+            continue
+        return str(entry.display_type or entry.canonical_type or "").strip()
+    return ""
+
+
+def _domain_identity_pointer_type_for_base(
+    text: str,
+    base: str,
+    profile_context: dict[str, Any] | None = None,
+) -> str:
+    match = domain_identity_match_for_base(
+        text or "",
+        str(base or ""),
+        [],
+        profile_context=profile_context,
+    )
+    if not match or not match.structure:
+        return ""
+    structure = str(match.structure or "").strip()
+    if not structure:
+        return ""
+    if structure.startswith("P") and len(structure) > 1 and structure[1].isupper():
+        return structure
+    return "P%s" % structure
 
 
 def _indexed_layout_canonical_base(
@@ -5027,6 +5285,29 @@ def _function_parameter_names(text: str) -> set[str]:
             continue
         names.add(name)
     return names
+
+
+def _function_parameter_type(text: str, name: str) -> str:
+    signature = str(text or "")
+    brace_index = signature.find("{")
+    if brace_index >= 0:
+        signature = signature[:brace_index]
+    open_index = signature.rfind("(")
+    close_index = signature.rfind(")")
+    if open_index < 0 or close_index <= open_index:
+        return ""
+    parameter_text = signature[open_index + 1 : close_index]
+    target = str(name or "")
+    if not target:
+        return ""
+    for parameter in _split_top_level_parameters(parameter_text):
+        match = re.search(r"\b%s\b\s*$" % re.escape(target), parameter)
+        if not match:
+            continue
+        type_text = parameter[: match.start()].strip()
+        type_text = re.sub(r"\s+", " ", type_text)
+        return type_text
+    return ""
 
 
 def _split_top_level_parameters(text: str) -> list[str]:

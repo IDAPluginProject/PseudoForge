@@ -94,6 +94,48 @@ __int64 __fastcall SparseLayout(__int64 a1)
 
         self.assertEqual([], comments)
 
+    def test_parameter_indexed_element_blocks_reassigned_base(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall ReassignedIndexedElement(PMEMORY_RANGE_ENTRY memoryRanges, ULONG_PTR index)
+{
+  __int64 entry;
+
+  entry = memoryRanges + 16 * index;
+  entry = 0;
+  return *(_QWORD *)entry + *(_QWORD *)(entry + 8);
+}
+"""
+        )
+
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_parameter_indexed_element"
+                for item in comments
+            )
+        )
+
+    def test_parameter_indexed_element_blocks_mutated_base(self) -> None:
+        comments = field_layout_comments(
+            """
+__int64 __fastcall MutatedIndexedElement(PMEMORY_RANGE_ENTRY memoryRanges, ULONG_PTR index)
+{
+  __int64 entry;
+
+  entry = memoryRanges + 16 * index;
+  entry += 8;
+  return *(_QWORD *)entry + *(_QWORD *)(entry + 8);
+}
+"""
+        )
+
+        self.assertFalse(
+            any(
+                item.get("kind") == "inferred_offset_parameter_indexed_element"
+                for item in comments
+            )
+        )
+
     def test_domain_identity_no_profile_keeps_argument_identity_blocked(self) -> None:
         comments = field_layout_comments(
             """

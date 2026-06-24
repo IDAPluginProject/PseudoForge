@@ -1307,7 +1307,12 @@ __int64 __fastcall MiMakeSystemAddressValid(ULONG_PTR a1, int a2, unsigned __int
 __int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __int64 a3, int a4)
 {
   __int64 status;
+  __int64 v7;
+  __int64 v17;
+  unsigned __int64 v79;
 
+  v7 = a2;
+  v79 = 0;
   if ( a3 == 1 )
   {
     status = 0;
@@ -1320,6 +1325,9 @@ __int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __in
   {
     MiPrefetchPreallocatePages(a1, a2, a3, a4, 0, 0, 0);
   }
+  v17 = v7 + 16 * v79;
+  status += *(_QWORD *)v17;
+  status += *(_QWORD *)(v17 + 8);
   status += MmAccessFault(0, *(_QWORD *)a2, 0, a4);
   MiPfCoalesceAndIssueIOs(a2, a3, 0);
   return status;
@@ -1341,6 +1349,19 @@ __int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __in
         self.assertIn("ULONG prefetchFlags", rendered)
         self.assertEqual(4, len(identities))
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        indexed_elements = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_parameter_indexed_element"
+        ]
+        self.assertTrue(indexed_elements)
+        self.assertEqual("v17", indexed_elements[0]["base"])
+        self.assertEqual("memoryRanges", indexed_elements[0]["parent"])
+        self.assertEqual("PMEMORY_RANGE_ENTRY", indexed_elements[0]["parent_type"])
+        self.assertEqual(16, indexed_elements[0]["stride"])
+        self.assertEqual([0, 8], indexed_elements[0]["offsets"])
+        self.assertIn("Parameter-indexed element evidence for v17", rendered)
+        self.assertIn("do not canonical-rewrite array element fields", rendered)
         self.assertFalse(
             any(item.get("kind") == "inferred_offset_rewrite_ready" for item in plan.comments)
         )

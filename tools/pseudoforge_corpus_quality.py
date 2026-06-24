@@ -335,6 +335,8 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "validated_secondary_residue": 6,
     "generic_context_identity_gap": 6,
     "high_pressure_unresolved_residue": 5,
+    "direct_base_zero_residue": 5,
+    "named_target_direct_base_residue": 6,
     "high_pressure_report_only_alias": 7,
     "core_report_only_deferred_shape": 5,
     "manual_review_gap": 4,
@@ -394,6 +396,23 @@ FIELD_INDEXED_CALLBACK_TABLE_DETAIL_RE = re.compile(
     r"(?P<callback_slots>.*?)\.\s+"
     r"(?:Alias bases\s+(?P<alias_bases>.*?)\.\s+)?"
     r"Review-only;\s+indexed table access is not used for canonical field rewrite\.\s+"
+    r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+FIELD_PARAMETER_INDEXED_ELEMENT_RE = re.compile(
+    r"-\s+inferred_offset_parameter_indexed_element:"
+)
+FIELD_PARAMETER_INDEXED_ELEMENT_DETAIL_RE = re.compile(
+    r"-\s+inferred_offset_parameter_indexed_element:\s+"
+    r"Parameter-indexed element evidence for\s+"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+aliases\s+"
+    r"(?P<parent>[A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:\s+via alias\s+(?P<parent_alias>[A-Za-z_][A-Za-z0-9_]*))?\s+\+\s+"
+    r"(?P<stride>\d+)\s+\*\s+(?P<index>[A-Za-z_][A-Za-z0-9_]*)\s*;\s+"
+    r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across element offset\(s\)\s+"
+    r"(?P<offsets>.*?);\s+observed types\s+"
+    r"(?P<types>.*?)\.\s+"
+    r"(?:Parent parameter type\s+(?P<parent_type>.*?)\.\s+)?"
+    r"Review-only;\s+do not canonical-rewrite array element fields without exact function/build/source layout identity\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 FIELD_SUBFIELD_OVERLAY_RE = re.compile(r"-\s+inferred_offset_subfield_overlays:")
@@ -755,6 +774,11 @@ def analyze_corpus(
     indexed_callback_table_base_kinds: Counter[str] = Counter()
     indexed_callback_table_alias_bases: Counter[str] = Counter()
     indexed_callback_table_totals = Counter()
+    parameter_indexed_element_bases: Counter[str] = Counter()
+    parameter_indexed_element_parents: Counter[str] = Counter()
+    parameter_indexed_element_parent_types: Counter[str] = Counter()
+    parameter_indexed_element_strides: Counter[str] = Counter()
+    parameter_indexed_element_totals = Counter()
     stable_base_source_bases: Counter[str] = Counter()
     stable_base_source_sources: Counter[str] = Counter()
     stable_base_source_kinds: Counter[str] = Counter()
@@ -860,6 +884,7 @@ def analyze_corpus(
     top_bitfield_alias_functions = []
     top_hot_field_cluster_functions = []
     top_indexed_callback_table_functions = []
+    top_parameter_indexed_element_functions = []
     top_stable_base_source_functions = []
     top_base_stability_functions = []
     top_generic_base_evidence_functions = []
@@ -969,6 +994,7 @@ def analyze_corpus(
                     bitfield_aliases,
                     hot_field_clusters,
                     indexed_callback_tables,
+                    parameter_indexed_elements,
                     stable_base_sources,
                     base_stability,
                     generic_base_evidence,
@@ -1051,6 +1077,14 @@ def analyze_corpus(
                     indexed_callback_table_bases,
                     indexed_callback_table_base_kinds,
                     indexed_callback_table_alias_bases,
+                )
+                _update_layout_parameter_indexed_element_metrics(
+                    parameter_indexed_elements,
+                    parameter_indexed_element_totals,
+                    parameter_indexed_element_bases,
+                    parameter_indexed_element_parents,
+                    parameter_indexed_element_parent_types,
+                    parameter_indexed_element_strides,
                 )
                 _update_layout_stable_base_source_metrics(
                     stable_base_sources,
@@ -1209,6 +1243,15 @@ def analyze_corpus(
                             ea,
                             summary_path,
                             indexed_callback_tables,
+                        )
+                    )
+                if parameter_indexed_elements:
+                    top_parameter_indexed_element_functions.append(
+                        _parameter_indexed_element_function_summary(
+                            name,
+                            ea,
+                            summary_path,
+                            parameter_indexed_elements,
                         )
                     )
                 if stable_base_sources:
@@ -1489,6 +1532,7 @@ def analyze_corpus(
         key=lambda item: (
             -int(item["priority_score"]),
             -int(item["offset_deref_survivors"]),
+            -int(item.get("direct_base_deref_survivors", 0)),
             -int(item["field_access_pressure"]),
             str(item["name"]),
         )
@@ -1625,6 +1669,14 @@ def analyze_corpus(
             "base_kinds": _counter_to_dict(Counter(dict(indexed_callback_table_base_kinds.most_common(top)))),
             "alias_bases": _counter_to_dict(Counter(dict(indexed_callback_table_alias_bases.most_common(top)))),
             "top_functions": top_indexed_callback_table_functions[:top],
+        },
+        "layout_parameter_indexed_element_stats": {
+            "totals": _counter_to_dict(parameter_indexed_element_totals),
+            "top_bases": _counter_to_dict(Counter(dict(parameter_indexed_element_bases.most_common(top)))),
+            "parents": _counter_to_dict(Counter(dict(parameter_indexed_element_parents.most_common(top)))),
+            "parent_types": _counter_to_dict(Counter(dict(parameter_indexed_element_parent_types.most_common(top)))),
+            "strides": _counter_to_dict(Counter(dict(parameter_indexed_element_strides.most_common(top)))),
+            "top_functions": top_parameter_indexed_element_functions[:top],
         },
         "layout_stable_base_source_stats": {
             "totals": _counter_to_dict(stable_base_source_totals),
@@ -1869,6 +1921,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     bitfield_alias_stats = _coerce_dict(report.get("layout_bitfield_alias_stats", {}))
     hot_field_cluster_stats = _coerce_dict(report.get("layout_hot_field_cluster_stats", {}))
     indexed_callback_table_stats = _coerce_dict(report.get("layout_indexed_callback_table_stats", {}))
+    parameter_indexed_element_stats = _coerce_dict(report.get("layout_parameter_indexed_element_stats", {}))
     stable_base_source_stats = _coerce_dict(report.get("layout_stable_base_source_stats", {}))
     base_stability_stats = _coerce_dict(report.get("layout_base_stability_stats", {}))
     generic_base_evidence_stats = _coerce_dict(report.get("layout_generic_base_evidence_stats", {}))
@@ -1895,6 +1948,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     bitfield_alias_totals = _coerce_dict(bitfield_alias_stats.get("totals", {}))
     hot_field_cluster_totals = _coerce_dict(hot_field_cluster_stats.get("totals", {}))
     indexed_callback_table_totals = _coerce_dict(indexed_callback_table_stats.get("totals", {}))
+    parameter_indexed_element_totals = _coerce_dict(parameter_indexed_element_stats.get("totals", {}))
     stable_base_source_totals = _coerce_dict(stable_base_source_stats.get("totals", {}))
     base_stability_totals = _coerce_dict(base_stability_stats.get("totals", {}))
     generic_base_evidence_totals = _coerce_dict(generic_base_evidence_stats.get("totals", {}))
@@ -2169,6 +2223,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             % body_offset_residue_totals.get("functions_with_offset_residue", 0),
             "- Offset deref survivors: `%s`"
             % body_offset_residue_totals.get("offset_deref_survivors", 0),
+            "- Direct-base deref survivors in residue functions: `%s` across `%s` functions"
+            % (
+                body_offset_residue_totals.get("direct_base_deref_survivors", 0),
+                body_offset_residue_totals.get("functions_with_direct_base_deref_residue", 0),
+            ),
             "- Generic parameter survivors in residue functions: `%s`"
             % body_offset_residue_totals.get("generic_parameter_survivors", 0),
             "- Rewrite-ready residue functions: `%s`"
@@ -2390,8 +2449,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Factors | Classes | Details | Source provenance | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Factors | Classes | Details | Source provenance | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2454,12 +2513,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
                 int(queue.get("functions", 0) or 0),
                 int(queue.get("offset_deref_survivors", 0) or 0),
+                int(queue.get("direct_base_deref_survivors", 0) or 0),
                 int(queue.get("generic_parameter_survivors", 0) or 0),
                 _markdown_table_cell(target_groups),
                 _markdown_table_cell(subsystems),
@@ -2483,8 +2543,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -2504,7 +2564,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         goal_group = str(item.get("named_goal_target_group", "") or "")
         goal_text = goal_group if bool(item.get("named_goal_target")) else ""
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -2524,6 +2584,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(next_action_details),
                 int(item.get("priority_score", 0) or 0),
                 int(item.get("offset_deref_survivors", 0) or 0),
+                int(item.get("direct_base_deref_survivors", 0) or 0),
                 int(item.get("field_access_pressure", 0) or 0),
                 int(item.get("body_rewrite_ready", 0) or 0),
                 int(item.get("body_rewrite_blockers", 0) or 0),
@@ -3626,6 +3687,78 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("max_access_count", 0) or 0),
                 _markdown_table_cell(base_kinds),
                 _markdown_table_cell(alias_bases),
+                bases,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Parameter Indexed Element Evidence",
+            "",
+            "- Parameter-indexed element comments: `%s` across `%s` functions"
+            % (
+                parameter_indexed_element_totals.get("evidence_comments", 0),
+                parameter_indexed_element_totals.get("functions_with_evidence_comments", 0),
+            ),
+            "- Parameter-indexed element access observations: `%s`"
+            % parameter_indexed_element_totals.get("access_observations", 0),
+            "- Parameter-indexed element offset observations: `%s`"
+            % parameter_indexed_element_totals.get("element_offset_observations", 0),
+            "",
+            "### Parameter Indexed Parents",
+            "",
+        ]
+    )
+    lines.extend(_markdown_counter_table(_coerce_dict(parameter_indexed_element_stats.get("parents", {})), "Parent"))
+    lines.extend(
+        [
+            "",
+            "### Parameter Indexed Parent Types",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(parameter_indexed_element_stats.get("parent_types", {})),
+            "Parent type",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Parameter Indexed Element Functions",
+            "",
+            "| Function | EA | Evidence | Max offsets | Max accesses | Parents | Parent types | Strides | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+        ]
+    )
+    for item in parameter_indexed_element_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join("`%s`" % base for base in item.get("bases", []) or [])
+        parents = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("parents", {})).items()
+        )
+        parent_types = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("parent_types", {})).items()
+        )
+        strides = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("strides", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("evidence_count", 0) or 0),
+                int(item.get("max_offset_count", 0) or 0),
+                int(item.get("max_access_count", 0) or 0),
+                _markdown_table_cell(parents),
+                _markdown_table_cell(parent_types),
+                _markdown_table_cell(strides),
                 bases,
             )
         )
@@ -5475,6 +5608,10 @@ def _body_offset_residue_function_summary(
     offset_deref_survivors = _int_value(prototype_metrics.get("offset_deref_survivors"), 0)
     if offset_deref_survivors <= 0:
         return {}
+    direct_base_deref_survivors = _int_value(
+        prototype_metrics.get("direct_base_deref_survivors"),
+        0,
+    )
     blocker_reasons = Counter(
         str(reason)
         for blocker in rewrite_blockers
@@ -5578,6 +5715,7 @@ def _body_offset_residue_function_summary(
     )
     residue_pressure_class = _body_offset_residue_pressure_class(
         offset_deref_survivors,
+        direct_base_deref_survivors,
         field_access_pressure,
         _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         bool(named_target_group),
@@ -5589,6 +5727,7 @@ def _body_offset_residue_function_summary(
         next_action_details,
         promotion_hints,
         offset_deref_survivors,
+        direct_base_deref_survivors,
         field_access_pressure,
         _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         len(stable_base_sources),
@@ -5607,12 +5746,14 @@ def _body_offset_residue_function_summary(
         next_action_details,
         residue_review_notes,
         offset_deref_survivors,
+        direct_base_deref_survivors,
         _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         field_access_pressure,
         named_target_group,
     )
     review_focus = _body_offset_residue_review_focus(subsystem, fail_closed_gate, priority_factors)
     priority_score = offset_deref_survivors
+    priority_score += direct_base_deref_survivors
     priority_score += field_access_pressure // 2
     priority_score += 30 if subsystem in {"registry", "memory", "object", "security"} else 0
     priority_score += 20 if rewrite_blockers else 0
@@ -5646,6 +5787,7 @@ def _body_offset_residue_function_summary(
         "named_goal_target_group": named_target_group,
         "priority_factors": priority_factors,
         "offset_deref_survivors": offset_deref_survivors,
+        "direct_base_deref_survivors": direct_base_deref_survivors,
         "generic_parameter_survivors": _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         "body_rewrite_ready": _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
         "body_rewrite_blockers": _int_value(prototype_metrics.get("body_rewrite_blockers"), 0),
@@ -5721,6 +5863,10 @@ def _update_body_offset_residue_metrics(
 ) -> None:
     totals["functions_with_offset_residue"] += 1
     totals["offset_deref_survivors"] += _int_value(item.get("offset_deref_survivors"), 0)
+    direct_base_deref_survivors = _int_value(item.get("direct_base_deref_survivors"), 0)
+    totals["direct_base_deref_survivors"] += direct_base_deref_survivors
+    if direct_base_deref_survivors > 0:
+        totals["functions_with_direct_base_deref_residue"] += 1
     totals["generic_parameter_survivors"] += _int_value(item.get("generic_parameter_survivors"), 0)
     if _int_value(item.get("body_rewrite_ready"), 0) > 0:
         totals["functions_with_rewrite_ready"] += 1
@@ -5786,6 +5932,8 @@ def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
     required_keys = [
         "functions_with_offset_residue",
         "offset_deref_survivors",
+        "direct_base_deref_survivors",
+        "functions_with_direct_base_deref_residue",
         "generic_parameter_survivors",
         "functions_with_rewrite_ready",
         "functions_with_rewrite_blockers",
@@ -6185,6 +6333,7 @@ def _body_offset_residue_priority_factors(
     next_action_details: list[str],
     residue_review_notes: list[str],
     offset_deref_survivors: int,
+    direct_base_deref_survivors: int,
     generic_parameter_survivors: int,
     field_access_pressure: int,
     named_target_group: str = "",
@@ -6203,6 +6352,10 @@ def _body_offset_residue_priority_factors(
         factors.append("high_offset_residue")
     elif offset_deref_survivors >= 8:
         factors.append("medium_offset_residue")
+    if direct_base_deref_survivors > 0:
+        factors.append("direct_base_zero_residue")
+        if named_target_group:
+            factors.append("named_target_direct_base_residue")
     if field_access_pressure >= 12:
         factors.append("high_field_access_pressure")
     if "source_build_mismatch" in evidence or "resolve_profile_build_or_source_identity_before_rewrite" in details:
@@ -6433,15 +6586,21 @@ def _body_offset_primary_review_reasons(
 
 def _body_offset_residue_pressure_class(
     offset_deref_survivors: int,
+    direct_base_deref_survivors: int,
     field_access_pressure: int,
     generic_parameter_survivors: int,
     named_goal_target: bool,
 ) -> str:
-    if offset_deref_survivors >= 24 or field_access_pressure >= 24:
+    if offset_deref_survivors >= 24 or direct_base_deref_survivors >= 8 or field_access_pressure >= 24:
         return "high"
-    if named_goal_target and offset_deref_survivors >= 4:
+    if named_goal_target and (offset_deref_survivors >= 4 or direct_base_deref_survivors > 0):
         return "high_goal_target"
-    if offset_deref_survivors >= 8 or field_access_pressure >= 12 or generic_parameter_survivors >= 4:
+    if (
+        offset_deref_survivors >= 8
+        or direct_base_deref_survivors >= 2
+        or field_access_pressure >= 12
+        or generic_parameter_survivors >= 4
+    ):
         return "medium"
     return "low"
 
@@ -6453,6 +6612,7 @@ def _body_offset_residue_review_notes(
     next_action_details: list[str],
     promotion_hints: list[str],
     offset_deref_survivors: int,
+    direct_base_deref_survivors: int,
     field_access_pressure: int,
     generic_parameter_survivors: int,
     stable_base_source_count: int,
@@ -6471,12 +6631,14 @@ def _body_offset_residue_review_notes(
     reasons = {str(reason) for reason, count in blocker_reasons.items() if _int_value(count, 0) > 0}
     notes: list[str] = []
 
-    if offset_deref_survivors >= 24 or field_access_pressure >= 24:
+    if offset_deref_survivors >= 24 or direct_base_deref_survivors >= 8 or field_access_pressure >= 24:
         notes.append("high_pressure_unresolved_residue")
-    elif offset_deref_survivors >= 8 or field_access_pressure >= 12:
+    elif offset_deref_survivors >= 8 or direct_base_deref_survivors >= 2 or field_access_pressure >= 12:
         notes.append("medium_pressure_unresolved_residue")
     else:
         notes.append("low_pressure_unresolved_residue")
+    if direct_base_deref_survivors > 0:
+        notes.append("direct_base_zero_deref_residue")
 
     if body_rewrite_ready > 0 or gate == "validated_rewrite_residue_review":
         notes.append("validated_rewrite_left_secondary_residue")
@@ -6902,6 +7064,10 @@ def _body_offset_residue_review_queue_summary(
             _int_value(item.get("offset_deref_survivors"), 0)
             for item in items
         ),
+        "direct_base_deref_survivors": sum(
+            _int_value(item.get("direct_base_deref_survivors"), 0)
+            for item in items
+        ),
         "generic_parameter_survivors": sum(
             _int_value(item.get("generic_parameter_survivors"), 0)
             for item in items
@@ -6973,6 +7139,7 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
         ],
         "priority_score": _int_value(item.get("priority_score"), 0),
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
+        "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "field_access_pressure": _int_value(item.get("field_access_pressure"), 0),
         "review_evidence": [
@@ -7536,7 +7703,7 @@ def _update_text_metrics(
 ) -> tuple[Any, ...]:
     text = _read_text(path)
     if not text:
-        return [], [], [], [], [], [], [], [], [], [], {}, [], [], [], [], [], [], [], []
+        return [], [], [], [], [], [], [], [], [], [], [], {}, [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
     _update_residue_metrics(body_text_totals, body_text)
@@ -7548,6 +7715,7 @@ def _update_text_metrics(
     bitfield_aliases = _extract_layout_bitfield_aliases(text)
     hot_field_clusters = _extract_layout_hot_field_clusters(text)
     indexed_callback_tables = _extract_layout_indexed_callback_tables(text)
+    parameter_indexed_elements = _extract_layout_parameter_indexed_elements(text)
     stable_base_sources = _extract_layout_stable_base_sources(text)
     base_stability = _extract_layout_base_stability(text)
     generic_base_evidence = _extract_layout_generic_base_evidence(text)
@@ -7610,6 +7778,13 @@ def _update_text_metrics(
         FIELD_INDEXED_CALLBACK_TABLE_RE,
         "inferred_offset_indexed_callback_table_evidence",
         "functions_with_inferred_offset_indexed_callback_table_evidence",
+    )
+    _count_pattern(
+        text_totals,
+        text,
+        FIELD_PARAMETER_INDEXED_ELEMENT_RE,
+        "inferred_offset_parameter_indexed_element_evidence",
+        "functions_with_inferred_offset_parameter_indexed_element_evidence",
     )
     _count_pattern(
         text_totals,
@@ -7779,6 +7954,7 @@ def _update_text_metrics(
         bitfield_aliases,
         hot_field_clusters,
         indexed_callback_tables,
+        parameter_indexed_elements,
         stable_base_sources,
         base_stability,
         generic_base_evidence,
@@ -9250,6 +9426,52 @@ def _extract_layout_indexed_callback_tables(text: str) -> list[dict[str, Any]]:
     return candidates
 
 
+def _extract_layout_parameter_indexed_elements(text: str) -> list[dict[str, Any]]:
+    candidates = []
+    for match in FIELD_PARAMETER_INDEXED_ELEMENT_DETAIL_RE.finditer(text or ""):
+        offsets = _parse_hex_offsets(match.group("offsets"))
+        candidates.append(
+            {
+                "base": match.group("base"),
+                "parent": match.group("parent"),
+                "parent_alias": match.groupdict().get("parent_alias") or "",
+                "index": match.group("index"),
+                "stride": _int_value(match.group("stride"), 0),
+                "access_count": _int_value(match.group("access_count"), 0),
+                "offsets": offsets,
+                "offset_count": len(offsets),
+                "types": _parse_comma_tokens(match.group("types")),
+                "parent_type": str(match.groupdict().get("parent_type") or ""),
+                "confidence": _float_value(match.group("confidence"), 0.0),
+            }
+        )
+    return candidates
+
+
+def _parse_hex_offsets(value: str) -> list[int]:
+    offsets = []
+    for match in re.finditer(r"[+-]0x[0-9A-Fa-f]+|[+-]?\d+", str(value or "")):
+        token = match.group(0)
+        sign = -1 if token.startswith("-") else 1
+        normalized = token[1:] if token[:1] in {"+", "-"} else token
+        try:
+            if normalized.lower().startswith("0x"):
+                offsets.append(sign * int(normalized, 16))
+            else:
+                offsets.append(sign * int(normalized, 10))
+        except ValueError:
+            continue
+    return offsets
+
+
+def _parse_comma_tokens(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in str(value or "").split(",")
+        if item.strip() and item.strip().lower() not in {"none", "unknown"}
+    ]
+
+
 def _parse_indexed_callback_slots(value: str, prefix: str) -> list[int]:
     slots = []
     pattern = re.compile(r"\b%s_(?P<slot>\d+)\b" % re.escape(prefix))
@@ -10017,6 +10239,31 @@ def _update_layout_indexed_callback_table_metrics(
         base_kinds[str(candidate.get("base_kind", "") or "unknown")] += 1
         for alias_base in candidate.get("alias_bases", []) or []:
             alias_bases[str(alias_base)] += 1
+
+
+def _update_layout_parameter_indexed_element_metrics(
+    candidates: list[dict[str, Any]],
+    totals: Counter[str],
+    bases: Counter[str],
+    parents: Counter[str],
+    parent_types: Counter[str],
+    strides: Counter[str],
+) -> None:
+    if not candidates:
+        return
+    totals["functions_with_evidence_comments"] += 1
+    for candidate in candidates:
+        totals["evidence_comments"] += 1
+        totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
+        totals["element_offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        bases[str(candidate.get("base", "") or "unknown")] += 1
+        parents[str(candidate.get("parent", "") or "unknown")] += 1
+        parent_type = str(candidate.get("parent_type", "") or "")
+        if parent_type:
+            parent_types[parent_type] += 1
+        stride = _int_value(candidate.get("stride"), 0)
+        if stride > 0:
+            strides[str(stride)] += 1
 
 
 def _update_layout_stable_base_source_metrics(
@@ -11162,6 +11409,41 @@ def _indexed_callback_table_function_summary(
         "base_kinds": _counter_to_dict(Counter(dict(base_kinds.most_common(5)))),
         "alias_bases": _counter_to_dict(Counter(dict(alias_bases.most_common(5)))),
         "max_slot_count": max((_int_value(item.get("slot_count"), 0) for item in candidates), default=0),
+        "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
+        "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
+        "summary_path": str(summary_path),
+    }
+
+
+def _parameter_indexed_element_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    parents = Counter(
+        str(item.get("parent", "") or "unknown")
+        for item in candidates
+    )
+    parent_types = Counter(
+        str(item.get("parent_type", "") or "unknown")
+        for item in candidates
+        if str(item.get("parent_type", "") or "")
+    )
+    strides = Counter(
+        str(_int_value(item.get("stride"), 0))
+        for item in candidates
+        if _int_value(item.get("stride"), 0) > 0
+    )
+    return {
+        "ea": ea,
+        "name": name,
+        "evidence_count": len(candidates),
+        "bases": [str(item.get("base", "") or "unknown") for item in candidates[:8]],
+        "parents": _counter_to_dict(Counter(dict(parents.most_common(5)))),
+        "parent_types": _counter_to_dict(Counter(dict(parent_types.most_common(5)))),
+        "strides": _counter_to_dict(Counter(dict(strides.most_common(5)))),
+        "max_offset_count": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),
         "summary_path": str(summary_path),

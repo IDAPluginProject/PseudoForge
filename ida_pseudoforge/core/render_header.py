@@ -23,6 +23,7 @@ CRITICAL_KERNEL_INSIGHT_KINDS = {
     "dense_accumulator_block",
     "dense_stack_local_region",
     "inferred_offset_bitfield_aliases",
+    "inferred_offset_parameter_indexed_element",
     "inferred_offset_rewrite_partial_opportunity",
     "inferred_offset_rewrite_preview",
     "inferred_offset_rewrite_ready",
