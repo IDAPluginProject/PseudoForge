@@ -19,6 +19,7 @@ from tools.pseudoforge_corpus_quality import (
     _layout_rewrite_blocker_review_profiles,
     _nested_status_pointer_store_literals,
     _ntstatus_family_literals,
+    _offset_deref_shape_profile,
     analyze_corpus,
     main,
     render_quality_markdown,
@@ -842,12 +843,14 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             blockers,
             [],
             {},
+            {},
         )
         hints = _body_offset_residue_promotion_hints(
             "source_identity_blocked_residue",
             "add_exact_source_identity_or_keep_review_only",
             blockers,
             [],
+            {},
             {},
         )
 
@@ -857,6 +860,87 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
         self.assertIn("promote_source_profile_before_alias_rewrite", hints)
         self.assertIn("require_exact_function_build_source_identity", hints)
         self.assertNotIn("do_not_promote_report_only_profile", hints)
+
+    def test_body_offset_shape_profile_splits_parameter_residue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140002100_ParameterResidue"
+            function_dir.mkdir(parents=True)
+            cleaned_path = function_dir / "ParameterResidue.cleaned.cpp"
+            summary_path = function_dir / "ParameterResidue.ida-batch-summary.json"
+            cleaned_path.write_text(
+                "\n".join(
+                    [
+                        "__int64 __fastcall ParameterResidue(PVOID argument0)",
+                        "{",
+                        "  int result;",
+                        "  result = *(_DWORD *)(argument0 + 0x10);",
+                        "  result += *(_DWORD *)(argument0 + 0x18);",
+                        "  result += *(_DWORD *)(argument0 + 0x20);",
+                        "  result += *(_DWORD *)(argument0 + 0x28);",
+                        "  return result;",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "ParameterResidue",
+                        "function_ea": "0x140002100",
+                        "artifacts": {
+                            "cleaned_pseudocode": "ParameterResidue.cleaned.cpp",
+                            "summary": "ParameterResidue.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            profile = _offset_deref_shape_profile(cleaned_path)
+            report = analyze_corpus(root)
+            stats = report["body_offset_residue_review_stats"]
+            item = stats["top_functions"][0]
+            decompiler_arg_path = root / "DecompilerArg.cleaned.cpp"
+            decompiler_arg_path.write_text(
+                "\n".join(
+                    [
+                        "__int64 __fastcall DecompilerArg(__int64 a1)",
+                        "{",
+                        "  return *(_DWORD *)(a1 + 0x10)",
+                        "    + *(_DWORD *)(a1 + 0x18)",
+                        "    + *(_DWORD *)(a1 + 0x20)",
+                        "    + *(_DWORD *)(a1 + 0x28);",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            decompiler_arg_profile = _offset_deref_shape_profile(decompiler_arg_path)
+
+            self.assertEqual("parameter_offset_shape_review", profile["shape_class"])
+            self.assertEqual("renamed_argument", profile["max_base_class"])
+            self.assertEqual(4, profile["max_base_access_count"])
+            self.assertEqual(4, profile["max_base_offset_count"])
+            self.assertEqual("parameter_offset_shape_review", decompiler_arg_profile["shape_class"])
+            self.assertEqual("decompiler_argument", decompiler_arg_profile["max_base_class"])
+            self.assertEqual(1, stats["review_classes"]["parameter_offset_shape_review"])
+            self.assertEqual(1, stats["next_actions"]["add_parameter_profile_or_keep_review_only"])
+            self.assertEqual(1, stats["review_evidence"]["parameter_offset_shape_review"])
+            self.assertEqual(
+                1,
+                stats["promotion_hints"]["validate_parameter_semantics_before_type_correction"],
+            )
+            self.assertEqual(1, stats["offset_shape_classes"]["parameter_offset_shape_review"])
+            self.assertEqual(1, stats["offset_base_classes"]["renamed_argument"])
+            self.assertEqual("ParameterResidue", item["name"])
+            self.assertEqual("parameter_offset_shape_review", item["review_class"])
+            self.assertIn("argument0", item["top_bases"])
 
     def test_base_stability_profiles_split_initializer_and_reassignment_risk(self) -> None:
         self.assertEqual(
@@ -2693,6 +2777,14 @@ __int64 __fastcall ExpressionSource(__int64 context)
             )
             self.assertIn(
                 "Prototype Correction Negative Controls",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Residue Offset Shape Classes",
+                (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Residue Offset Base Classes",
                 (output_dir / "corpus-quality.md").read_text(encoding="utf-8"),
             )
             self.assertIn(

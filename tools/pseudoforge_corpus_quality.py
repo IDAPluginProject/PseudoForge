@@ -43,6 +43,11 @@ GENERIC_PARAMETER_NAME_RE = re.compile(r"\b(?:[av]\d+|argument\d+)\b")
 OFFSET_DEREF_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\([^;\n]*\+\s*(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
+OFFSET_DEREF_ITEM_RE = re.compile(
+    r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
 POINTER_INDEXED_OFFSET_DEREF_RE = re.compile(
     r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
     r"(?P<pointer_stars>\*+)\s*\)\s*"
@@ -146,6 +151,14 @@ _LAYOUT_REWRITE_BLOCKER_QUEUE_ORDER = (
 )
 _LAYOUT_REWRITE_BLOCKER_MARKDOWN_ITEM_LIMIT = 5
 _BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT = 20
+_BODY_OFFSET_SHAPE_REVIEW_CLASS_ORDER = (
+    "dense_offset_shape_missing_identity",
+    "parameter_offset_shape_review",
+    "context_offset_shape_review",
+    "temp_offset_shape_review",
+    "low_pressure_offset_residue",
+    "unclassified_offset_residue",
+)
 _BASE_STABILITY_REVIEW_PROFILE_ORDER = (
     "initializer_dominance_review",
     "initializer_and_reassignment_risk",
@@ -617,6 +630,8 @@ def analyze_corpus(
     body_offset_residue_blocker_reasons: Counter[str] = Counter()
     body_offset_residue_review_evidence: Counter[str] = Counter()
     body_offset_residue_promotion_hints: Counter[str] = Counter()
+    body_offset_residue_shape_classes: Counter[str] = Counter()
+    body_offset_residue_base_classes: Counter[str] = Counter()
     decimal_status_residue_values: Counter[str] = Counter()
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
@@ -784,6 +799,7 @@ def analyze_corpus(
                     cleaned_path,
                     rewrite_preview_metadata,
                 )
+                offset_shape_profile = _offset_deref_shape_profile(cleaned_path)
                 _update_pointer_indexed_offset_metrics(
                     pointer_indexed_metrics,
                     pointer_indexed_offset_totals,
@@ -945,6 +961,7 @@ def analyze_corpus(
                     rewrite_blockers,
                     domain_identities,
                     pointer_indexed_metrics,
+                    offset_shape_profile,
                 )
                 if body_offset_residue_item:
                     _update_body_offset_residue_metrics(
@@ -956,6 +973,8 @@ def analyze_corpus(
                         body_offset_residue_blocker_reasons,
                         body_offset_residue_review_evidence,
                         body_offset_residue_promotion_hints,
+                        body_offset_residue_shape_classes,
+                        body_offset_residue_base_classes,
                     )
                     top_body_offset_residue_functions.append(body_offset_residue_item)
                 if layout_hints:
@@ -1532,6 +1551,8 @@ def analyze_corpus(
             "blocker_reasons": _counter_to_dict(Counter(dict(body_offset_residue_blocker_reasons.most_common(top)))),
             "review_evidence": _counter_to_dict(Counter(dict(body_offset_residue_review_evidence.most_common(top)))),
             "promotion_hints": _counter_to_dict(Counter(dict(body_offset_residue_promotion_hints.most_common(top)))),
+            "offset_shape_classes": _counter_to_dict(Counter(dict(body_offset_residue_shape_classes.most_common(top)))),
+            "offset_base_classes": _counter_to_dict(Counter(dict(body_offset_residue_base_classes.most_common(top)))),
             "top_functions": top_body_offset_residue_functions[:top],
         },
         "prototype_correction_stats": {
@@ -1900,6 +1921,32 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         _markdown_counter_table(
             _coerce_dict(body_offset_residue_stats.get("promotion_hints", {})),
             "Hint",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Offset Shape Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("offset_shape_classes", {})),
+            "Shape",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Offset Base Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("offset_base_classes", {})),
+            "Base class",
         )
     )
     lines.extend(
@@ -4758,6 +4805,7 @@ def _body_offset_residue_function_summary(
     rewrite_blockers: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
+    offset_shape_profile: dict[str, Any],
 ) -> dict[str, Any]:
     offset_deref_survivors = _int_value(prototype_metrics.get("offset_deref_survivors"), 0)
     if offset_deref_survivors <= 0:
@@ -4787,6 +4835,7 @@ def _body_offset_residue_function_summary(
         rewrite_blockers,
         domain_identities,
         pointer_indexed_metrics,
+        offset_shape_profile,
     )
     next_action = _body_offset_residue_next_action(
         review_class,
@@ -4800,6 +4849,7 @@ def _body_offset_residue_function_summary(
         rewrite_blockers,
         domain_identities,
         pointer_indexed_metrics,
+        offset_shape_profile,
     )
     review_evidence = _body_offset_residue_review_evidence(
         review_class,
@@ -4808,6 +4858,7 @@ def _body_offset_residue_function_summary(
         rewrite_blockers,
         domain_identities,
         pointer_indexed_metrics,
+        offset_shape_profile,
     )
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
@@ -4815,6 +4866,7 @@ def _body_offset_residue_function_summary(
         rewrite_blockers,
         domain_identities,
         pointer_indexed_metrics,
+        offset_shape_profile,
     )
     priority_score = offset_deref_survivors
     priority_score += field_access_pressure // 2
@@ -4863,10 +4915,12 @@ def _body_offset_residue_function_summary(
             indexed_callback_tables,
             rewrite_blockers,
             domain_identities,
+            offset_shape_profile,
         ),
         "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(5)))),
         "review_evidence": review_evidence,
         "promotion_hints": promotion_hints,
+        "offset_shape_profile": offset_shape_profile,
         "profile_counts": _coerce_dict(prototype_metrics.get("function_identity_profiles", {})),
         "summary_path": str(summary_path),
     }
@@ -4881,6 +4935,8 @@ def _update_body_offset_residue_metrics(
     blocker_reasons: Counter[str],
     review_evidence: Counter[str],
     promotion_hints: Counter[str],
+    shape_classes: Counter[str],
+    base_classes: Counter[str],
 ) -> None:
     totals["functions_with_offset_residue"] += 1
     totals["offset_deref_survivors"] += _int_value(item.get("offset_deref_survivors"), 0)
@@ -4908,6 +4964,12 @@ def _update_body_offset_residue_metrics(
     for hint in item.get("promotion_hints", []) or []:
         if str(hint):
             promotion_hints[str(hint)] += 1
+    shape_profile = _coerce_dict(item.get("offset_shape_profile", {}))
+    shape_class = str(shape_profile.get("shape_class", "") or "")
+    if shape_class:
+        shape_classes[shape_class] += 1
+    for base_class, count in _coerce_dict(shape_profile.get("base_classes", {})).items():
+        base_classes[str(base_class)] += _int_value(count, 0)
 
 
 def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
@@ -4989,6 +5051,7 @@ def _body_offset_residue_review_class(
     rewrite_blockers: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
+    offset_shape_profile: dict[str, Any],
 ) -> str:
     if _int_value(prototype_metrics.get("body_rewrite_ready"), 0) > 0:
         return "rewrite_ready_residue"
@@ -5025,6 +5088,9 @@ def _body_offset_residue_review_class(
         return "stable_source_identity_review"
     if _int_value(pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"), 0) > 0:
         return "pointer_indexed_residue"
+    shape_class = str(offset_shape_profile.get("shape_class", "") or "")
+    if shape_class in _BODY_OFFSET_SHAPE_REVIEW_CLASS_ORDER:
+        return shape_class
     return "unclassified_offset_residue"
 
 
@@ -5040,10 +5106,11 @@ def _body_offset_residue_next_action(
     rewrite_blockers: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
+    offset_shape_profile: dict[str, Any],
 ) -> str:
     del prototype_metrics, layout_hints, stable_base_sources, generic_base_evidence
     del generic_base_trust_candidates, rewrite_ready, rewrite_blockers, domain_identities
-    del pointer_indexed_metrics
+    del pointer_indexed_metrics, offset_shape_profile
     if review_class == "rewrite_ready_residue":
         return "verify_validated_rewrite_or_partial_residue"
     if review_class == "report_only_blocked_residue":
@@ -5066,6 +5133,16 @@ def _body_offset_residue_next_action(
         return "consider_validated_profile_promotion"
     if review_class == "pointer_indexed_residue":
         return "model_pointer_indexed_layout_or_callback_table"
+    if review_class == "dense_offset_shape_missing_identity":
+        return "add_function_scoped_identity_or_keep_review_only"
+    if review_class == "parameter_offset_shape_review":
+        return "add_parameter_profile_or_keep_review_only"
+    if review_class == "context_offset_shape_review":
+        return "add_context_profile_or_keep_review_only"
+    if review_class == "temp_offset_shape_review":
+        return "prove_temp_source_identity_before_promotion"
+    if review_class == "low_pressure_offset_residue":
+        return "leave_as_low_pressure_residue"
     return "manual_review"
 
 
@@ -5076,6 +5153,7 @@ def _body_offset_residue_review_evidence(
     rewrite_blockers: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
+    offset_shape_profile: dict[str, Any],
 ) -> list[str]:
     reasons = _body_offset_rewrite_blocker_reasons(rewrite_blockers)
     evidence: list[str] = []
@@ -5097,6 +5175,9 @@ def _body_offset_residue_review_evidence(
         evidence.append("pointer_indexed_array_or_table_shape")
     if hot_field_clusters and not domain_identities:
         evidence.append("hot_field_cluster_missing_identity")
+    shape_class = str(offset_shape_profile.get("shape_class", "") or "")
+    if shape_class and shape_class != "unclassified_offset_residue":
+        evidence.append(shape_class)
     if domain_identities and review_class == "unclassified_offset_residue":
         evidence.append("domain_identity_not_enough_for_body_rewrite")
     if not evidence:
@@ -5110,6 +5191,7 @@ def _body_offset_residue_promotion_hints(
     rewrite_blockers: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
+    offset_shape_profile: dict[str, Any],
 ) -> list[str]:
     reasons = _body_offset_rewrite_blocker_reasons(rewrite_blockers)
     hints: list[str] = []
@@ -5136,6 +5218,17 @@ def _body_offset_residue_promotion_hints(
         hints.append("add_function_scoped_identity_or_keep_manual")
     if review_class == "unclassified_offset_residue":
         hints.append("classify_subsystem_and_source_before_promotion")
+    shape_class = str(offset_shape_profile.get("shape_class", "") or "")
+    if shape_class == "dense_offset_shape_missing_identity":
+        hints.append("add_exact_identity_for_dense_shape_or_keep_review_only")
+    if shape_class == "parameter_offset_shape_review":
+        hints.append("validate_parameter_semantics_before_type_correction")
+    if shape_class == "context_offset_shape_review":
+        hints.append("add_exact_function_context_profile")
+    if shape_class == "temp_offset_shape_review":
+        hints.append("trace_temp_initializer_before_rewrite")
+    if shape_class == "low_pressure_offset_residue":
+        hints.append("defer_until_more_access_pressure")
     if not hints:
         hints.append("manual_review")
     return list(dict.fromkeys(hints))
@@ -5165,18 +5258,152 @@ def _domain_identities_have_field_aliases(domain_identities: list[dict[str, Any]
     return False
 
 
+def _offset_deref_shape_profile(cleaned_path: Path | None) -> dict[str, Any]:
+    if cleaned_path is None or not cleaned_path.exists():
+        return {}
+    text = _read_text(cleaned_path)
+    body = _strip_pseudoforge_header(text) if text else ""
+    items = _offset_deref_items(body)
+    if not items:
+        return {}
+    base_accesses: Counter[str] = Counter(str(item["base"]) for item in items)
+    base_offsets: dict[str, set[int]] = {}
+    for item in items:
+        base_offsets.setdefault(str(item["base"]), set()).add(int(item["offset"]))
+    base_classes = Counter(_offset_deref_base_class(base) for base in base_accesses)
+    max_base = ""
+    max_access = 0
+    max_offsets = 0
+    for base, access_count in base_accesses.items():
+        offset_count = len(base_offsets.get(base, set()))
+        if (access_count, offset_count, base) > (max_access, max_offsets, max_base):
+            max_base = base
+            max_access = access_count
+            max_offsets = offset_count
+    dense_bases = [
+        base
+        for base, access_count in base_accesses.items()
+        if access_count >= 12 and len(base_offsets.get(base, set())) >= 8
+    ]
+    low_pressure = max_access < 4 or max_offsets < 2
+    shape_class = _offset_deref_shape_class(
+        max_base,
+        max_access,
+        max_offsets,
+        dense_bases,
+        low_pressure,
+    )
+    return {
+        "shape_class": shape_class,
+        "base_classes": _counter_to_dict(base_classes),
+        "top_bases": _counter_to_dict(Counter(dict(base_accesses.most_common(8)))),
+        "max_base": max_base,
+        "max_base_class": _offset_deref_base_class(max_base),
+        "max_base_access_count": max_access,
+        "max_base_offset_count": max_offsets,
+        "dense_base_count": len(dense_bases),
+        "dense_bases": dense_bases[:8],
+        "low_pressure": low_pressure,
+        "top_base_offsets": _offset_deref_top_base_offsets(base_offsets, base_accesses),
+    }
+
+
+def _offset_deref_items(text: str) -> list[dict[str, Any]]:
+    items = []
+    for match in OFFSET_DEREF_ITEM_RE.finditer(text or ""):
+        offset = _parse_pointer_indexed_integer(match.group("offset"))
+        if offset is None or offset <= 0:
+            continue
+        base = str(match.group("base") or "")
+        if not base:
+            continue
+        items.append(
+            {
+                "base": base,
+                "offset": offset,
+                "type": _normalized_offset_deref_type(match.group("type")),
+            }
+        )
+    return items
+
+
+def _normalized_offset_deref_type(type_name: str) -> str:
+    value = re.sub(r"\s+", " ", str(type_name or "").replace("struct ", " ")).strip()
+    return value or "unknown"
+
+
+def _offset_deref_base_class(base: str) -> str:
+    value = str(base or "")
+    if re.fullmatch(r"a\d+", value):
+        return "decompiler_argument"
+    if re.fullmatch(r"v\d+", value):
+        return "decompiler_temp"
+    if re.fullmatch(r"argument\d+", value):
+        return "renamed_argument"
+    lowered = value.lower()
+    if lowered in {"context", "ctx"} or lowered.endswith("context"):
+        return "context_like"
+    if lowered in {"object", "referencedobject", "objectheader", "token"}:
+        return "object_or_token_like"
+    if lowered in {"hive", "keycontrolblock", "transactionlogentry"}:
+        return "registry_like"
+    if lowered in {"currentprocess", "currentthread"}:
+        return "thread_process_like"
+    if value:
+        return "named_base"
+    return "unknown"
+
+
+def _offset_deref_shape_class(
+    max_base: str,
+    max_access: int,
+    max_offsets: int,
+    dense_bases: list[str],
+    low_pressure: bool,
+) -> str:
+    if dense_bases:
+        return "dense_offset_shape_missing_identity"
+    if low_pressure:
+        return "low_pressure_offset_residue"
+    base_class = _offset_deref_base_class(max_base)
+    if base_class in {"decompiler_argument", "renamed_argument"}:
+        return "parameter_offset_shape_review"
+    if base_class == "context_like":
+        return "context_offset_shape_review"
+    if base_class == "decompiler_temp":
+        return "temp_offset_shape_review"
+    if max_access >= 6 and max_offsets >= 3:
+        return "context_offset_shape_review"
+    return "unclassified_offset_residue"
+
+
+def _offset_deref_top_base_offsets(
+    base_offsets: dict[str, set[int]],
+    base_accesses: Counter[str],
+) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    for base, _count in base_accesses.most_common(5):
+        offsets = sorted(base_offsets.get(base, set()))
+        result[base] = ["0x%X" % offset for offset in offsets[:12]]
+    return result
+
+
 def _body_offset_top_bases(
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
     indexed_callback_tables: list[dict[str, Any]],
     rewrite_blockers: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
+    offset_shape_profile: dict[str, Any],
 ) -> list[str]:
     bases = Counter()
     for item in [*layout_hints, *hot_field_clusters, *indexed_callback_tables, *rewrite_blockers, *domain_identities]:
         base = str(item.get("base", "") or "")
         if base:
             bases[base] += 1
+    for base, count in _coerce_dict(offset_shape_profile.get("top_bases", {})).items():
+        if str(base):
+            bases[str(base)] += _int_value(count, 0)
     return [base for base, _count in bases.most_common(8)]
 
 
