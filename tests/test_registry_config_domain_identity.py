@@ -525,6 +525,43 @@ __int64 __fastcall CmpFindValueByName(ULONG_PTR a1)
         samples = [
             (
                 """
+__int64 __fastcall CmpHiveCachePopulateHiveEntryThread(PPRIVILEGE_SET a1)
+{
+  __int64 v4;
+  __int64 v26;
+  ULONG attributes;
+  int status;
+
+  CmpInitializeThreadInfo(0);
+  attributes = a1->Privilege[0].Attributes;
+  v4 = *(_QWORD *)&a1->PrivilegeCount;
+  _InterlockedIncrement((volatile signed __int32 *)(v4 + 376));
+  if ( *(_DWORD *)(v4 + 168) != 1 )
+  {
+    status = STATUS_TOO_LATE;
+  }
+  else
+  {
+    status = CmpOpenHiveFiles(0, attributes, *(_DWORD *)(v4 + 332), 0, 0, v4 + 176, 0, 0, 0);
+    status = CmpCreateHive((unsigned int)&v26, 0, attributes, 0, 0, v4 + 176, 0, 0, 0, 0, 0, 0, 0);
+    *(_QWORD *)(v4 + 368) = v26;
+    *(_DWORD *)(v4 + 168) = 2;
+    *(_BYTE *)(v4 + 380) = 1;
+    CmpHiveCacheEntryCleanup(v4, 4);
+  }
+  _InterlockedDecrement((volatile signed __int32 *)(v4 + 376));
+  CmSiFreeMemory(a1);
+  PsTerminateSystemThread(status);
+  return 0;
+}
+""",
+                "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread",
+                [
+                    "PCM_HIVE_CACHE_THREAD_CONTEXT hiveCacheThreadContext",
+                ],
+            ),
+            (
+                """
 __int64 __fastcall CmpInsertSecurityCellList(ULONG_PTR a1, ULONG_PTR a2, int a3, char a4)
 {
   if ( (*(_BYTE *)(a1 + 140) & 1) != 0 )
@@ -643,6 +680,7 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
             ),
         ]
         expected_signatures = {
+            "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread": "__int64 __fastcall CmpHiveCachePopulateHiveEntryThread(",
             "windows.registry_config.cmp_insert_security_cell_list": "NTSTATUS __fastcall CmpInsertSecurityCellList(",
             "windows.registry_config.cmp_free_key_control_block": "void __fastcall CmpFreeKeyControlBlock(",
             "windows.registry_config.cm_save_key_to_buffer": "NTSTATUS __fastcall CmSaveKeyToBuffer(",
@@ -666,6 +704,54 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
                 self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:
                     self.assertIn(fragment, rendered)
+                if profile_id == "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread":
+                    thread_context = self._single_identity(
+                        plan,
+                        profile_id,
+                        role="hiveCacheThreadContext",
+                    )
+                    hive_cache_entry = self._single_identity(
+                        plan,
+                        profile_id,
+                        role="hiveCacheEntry",
+                    )
+
+                    self.assertEqual("CM_HIVE_CACHE_THREAD_CONTEXT", thread_context["structure_name"])
+                    self.assertEqual("CM_HIVE_CACHE_ENTRY", hive_cache_entry["structure_name"])
+                    self.assertTrue({0xA8, 0x14C, 0x170, 0x17C}.issubset(self._field_offsets(hive_cache_entry)))
+
+    def test_hive_cache_thread_build_mismatch_blocks_type_preview(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CmpHiveCachePopulateHiveEntryThread(PPRIVILEGE_SET a1)
+{
+  __int64 v4;
+  __int64 v26;
+  int status;
+
+  CmpInitializeThreadInfo(0);
+  v4 = *(_QWORD *)&a1->PrivilegeCount;
+  _InterlockedIncrement((volatile signed __int32 *)(v4 + 376));
+  status = CmpOpenHiveFiles(0, 0, 0, 0, 0, v4 + 176, 0, 0, 0);
+  status = CmpCreateHive((unsigned int)&v26, 0, 0, 0, 0, v4 + 176, 0, 0, 0, 0, 0, 0, 0);
+  *(_QWORD *)(v4 + 368) = v26;
+  CmpHiveCacheEntryCleanup(v4, 4);
+  PsTerminateSystemThread(status);
+  return 0;
+}
+""",
+            source_path=MISMATCH_SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        corrections = [
+            item
+            for item in plan.type_corrections
+            if item.profile_id == "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread"
+        ]
+
+        self.assertEqual(1, len(corrections))
+        self.assertIn("build_mismatch", corrections[0].blockers)
+        self.assertFalse(corrections[0].apply_to_preview)
 
     def test_registry_hive_cell_build_mismatch_blocks_type_preview(self) -> None:
         capture = capture_from_pseudocode(
@@ -832,3 +918,10 @@ __int64 __fastcall CmQueryValueKey(__int64 keyObject, unsigned __int16 *valueNam
         ]
         self.assertEqual(1, len(identities))
         return identities[0]
+
+    def _field_offsets(self, identity: dict[str, object]) -> set[int]:
+        result: set[int] = set()
+        for field in identity.get("fields", []):
+            if isinstance(field, dict):
+                result.add(int(str(field["offset"]), 0))
+        return result

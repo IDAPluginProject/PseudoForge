@@ -2407,6 +2407,89 @@
       ]
     },
     {
+      "id": "windows.registry_config.cmp_hive_cache_populate_hive_entry_thread",
+      "source": "Reviewed CmpHiveCachePopulateHiveEntryThread ntoskrnl 26200.8457 hive-cache worker thread flow through CmpInitializeThreadInfo, CmpOpenHiveFiles, CmpCreateHive, CmpHiveCacheEntryCleanup, and PsTerminateSystemThread; preview-only correction for the Hex-Rays privilege-set overlay on the private thread context.",
+      "function_names": [
+        "CmpHiveCachePopulateHiveEntryThread"
+      ],
+      "parameter_count": 1,
+      "required_calls": [
+        "CmpInitializeThreadInfo",
+        "CmpOpenHiveFiles",
+        "CmpCreateHive",
+        "CmpHiveCacheEntryCleanup",
+        "PsTerminateSystemThread"
+      ],
+      "prototype": {
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "hiveCacheThreadContext",
+            "canonical_type": "PCM_HIVE_CACHE_THREAD_CONTEXT",
+            "accepted_types": [
+              "PPRIVILEGE_SET",
+              "PRIVILEGE_SET *",
+              "struct _PRIVILEGE_SET *",
+              "__int64",
+              "ULONG_PTR",
+              "PVOID",
+              "PCM_HIVE_CACHE_THREAD_CONTEXT"
+            ],
+            "semantic_role": "hiveCacheThreadContext",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "hiveCacheThreadContext",
+          "rename_to": "hiveCacheThreadContext",
+          "rename_confidence": 0.86,
+          "structure": "CM_HIVE_CACHE_THREAD_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "PPRIVILEGE_SET",
+            "PRIVILEGE_SET *",
+            "struct _PRIVILEGE_SET *",
+            "__int64",
+            "ULONG_PTR",
+            "PVOID",
+            "PCM_HIVE_CACHE_THREAD_CONTEXT"
+          ],
+          "source": "CmpHiveCachePopulateHiveEntryThread consumes a private hive-cache worker context; Hex-Rays may overlay it as PPRIVILEGE_SET because the context begins with privilege-set-shaped fields"
+        },
+        {
+          "local_names": [
+            "v4"
+          ],
+          "role": "hiveCacheEntry",
+          "rename_to": "hiveCacheEntry",
+          "rename_confidence": 0.84,
+          "structure": "CM_HIVE_CACHE_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "source": "CmpHiveCachePopulateHiveEntryThread loads the hive-cache entry from the worker context and updates state, file context, copied hive name, created hive pointer, worker reference count, and completion flag",
+          "fields": [
+            {"offset": "0xA8", "name": "State", "type": "ULONG", "size": 4, "confidence": 0.76, "note": "observed worker state transitions 1 -> 2 -> 3; report-only"},
+            {"offset": "0xB0", "name": "HiveFileContext", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed CmpOpenHiveFiles/CmpCreateHive file context base; report-only"},
+            {"offset": "0x138", "name": "HiveNameLength", "type": "USHORT", "size": 2, "confidence": 0.74, "note": "observed copied hive-name length; report-only"},
+            {"offset": "0x13A", "name": "HiveNameMaximumLength", "type": "USHORT", "size": 2, "confidence": 0.74, "note": "observed copied hive-name maximum length; report-only"},
+            {"offset": "0x140", "name": "HiveNameBuffer", "type": "PVOID", "size": 8, "confidence": 0.74, "note": "observed allocated copied hive-name buffer; report-only"},
+            {"offset": "0x148", "name": "HiveAttributes", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed hive attribute copy from the worker context; report-only"},
+            {"offset": "0x14C", "name": "HiveFlags", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed hive flag copy from the worker context; report-only"},
+            {"offset": "0x170", "name": "Hive", "type": "PHHIVE", "size": 8, "confidence": 0.76, "note": "observed CmpCreateHive output stored on success; report-only"},
+            {"offset": "0x178", "name": "WorkerReferenceCount", "type": "LONG", "size": 4, "confidence": 0.74, "note": "observed interlocked worker reference count; report-only"},
+            {"offset": "0x17C", "name": "HiveCreated", "type": "BOOLEAN", "size": 1, "confidence": 0.72, "note": "observed hive-created completion byte; report-only"}
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.registry_config.cmp_insert_security_cell_list",
       "source": "Reviewed CmpInsertSecurityCellList ntoskrnl 26200.8457 HHIVE security-cell link insertion flow through HvpGetCellFlat/Paged, HvpMarkCellDirty, and CmpAddSecurityCellToCache; preview-only private prototype.",
       "function_names": [
