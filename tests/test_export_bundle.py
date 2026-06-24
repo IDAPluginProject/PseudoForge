@@ -902,6 +902,99 @@ __int64 __fastcall PointerIndexedLayout(__int64 context)
         self.assertIn("context->field_48 /* _QWORD +0x48 */", canonical_text)
         self.assertNotIn("*((_QWORD *)context + 2)", canonical_text)
 
+    def test_validated_layout_rewrite_extends_to_direct_source_alias_offsets(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v6: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance parameter_direct_alias from context. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v6: 12 dereference(s) can map to 8 field alias(es) field_7C, field_88, field_8C, field_B0, field_240, field_248, field_25C, field_264. Source provenance parameter_direct_alias from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+unsigned __int64 __fastcall SourceAliasLayout(ULONG_PTR context)
+{
+  ULONG_PTR v6;
+
+  v6 = context;
+  return *(_QWORD *)(context + 176)
+       + *(_QWORD *)(context + 576)
+       + *(_QWORD *)(context + 176)
+       + *(_DWORD *)(context + 604)
+       + *(_DWORD *)(v6 + 124)
+       + *(_DWORD *)(v6 + 136)
+       + *(unsigned __int16 *)(v6 + 140)
+       + *(_QWORD *)(v6 + 176)
+       + *(_QWORD *)(v6 + 576)
+       + *(_QWORD *)(v6 + 584)
+       + *(_DWORD *)(v6 + 604)
+       + *(_DWORD *)(v6 + 612);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "SourceAliasLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual(["context", "v6"], bundle.metadata["rewritten_bases"])
+        self.assertEqual(12, bundle.metadata["rewritten_accesses"])
+        self.assertEqual(8, bundle.metadata["rewrite_results"]["v6"]["rewritten_fields"])
+        self.assertEqual(12, bundle.metadata["rewrite_results"]["v6"]["rewritten_accesses"])
+        self.assertEqual(
+            {"v6": ["context"]},
+            bundle.metadata["source_aliases_by_result_base"],
+        )
+        self.assertIn("context->field_B0 /* _QWORD +0xB0 */", canonical_text)
+        self.assertIn("context->field_240 /* _QWORD +0x240 */", canonical_text)
+        self.assertIn("context->field_25C /* _DWORD +0x25C */", canonical_text)
+        self.assertIn("v6->field_7C /* _DWORD +0x7C */", canonical_text)
+        self.assertNotIn("*(_QWORD *)(context + 176)", canonical_text)
+        self.assertNotIn("*(_DWORD *)(context + 604)", canonical_text)
+
+    def test_validated_layout_rewrite_keeps_field_pointer_source_alias_raw(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v16: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance parameter_field_pointer_alias from objectHeader. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v16: 12 dereference(s) can map to 8 field alias(es) field_10, field_18, field_20, field_28, field_30, field_38, field_40, field_48. Source provenance parameter_field_pointer_alias from objectHeader. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall FieldPointerAliasLayout(__int64 objectHeader)
+{
+  __int64 v16;
+
+  v16 = *(_QWORD *)(objectHeader + 48);
+  return *(_QWORD *)(objectHeader + 16)
+       + *(_QWORD *)(v16 + 16)
+       + *(_QWORD *)(v16 + 24)
+       + *(_QWORD *)(v16 + 32)
+       + *(_QWORD *)(v16 + 40)
+       + *(_QWORD *)(v16 + 48)
+       + *(_QWORD *)(v16 + 56)
+       + *(_QWORD *)(v16 + 64)
+       + *(_QWORD *)(v16 + 72)
+       + *(_QWORD *)(v16 + 16)
+       + *(_QWORD *)(v16 + 24)
+       + *(_QWORD *)(v16 + 32)
+       + *(_QWORD *)(v16 + 40);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "FieldPointerAliasLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual(["v16"], bundle.metadata["rewritten_bases"])
+        self.assertEqual({}, bundle.metadata["source_aliases_by_result_base"])
+        self.assertIn("v16->field_10 /* _QWORD +0x10 */", canonical_text)
+        self.assertIn("*(_QWORD *)(objectHeader + 16)", canonical_text)
+
     def test_validated_layout_rewrite_normalizes_post_render_advertised_counts(self) -> None:
         cleaned_text = """
 /*

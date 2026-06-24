@@ -80,6 +80,15 @@ _REWRITE_READY_RE = re.compile(
 
 _REWRITE_ACCESS_THRESHOLD = 12
 _REWRITE_FIELD_THRESHOLD = 8
+_DIRECT_SOURCE_ALIAS_REWRITE_PROVENANCES = {
+    "direct_argument_alias",
+    "direct_call_result_alias",
+    "named_call_result_alias",
+    "named_parameter_direct_alias",
+    "parameter_direct_alias",
+    "temporary_call_result_alias",
+    "temporary_parameter_direct_alias",
+}
 
 
 @dataclass(slots=True)
@@ -149,6 +158,7 @@ def build_layout_rewrite_preview_bundle(
         "rewritten_fields": rewrite_stats["rewritten_fields"],
         "rewritten_bases": rewrite_stats["rewritten_bases"],
         "rewrite_results": rewrite_stats["rewrite_results"],
+        "source_aliases_by_result_base": rewrite_stats["source_aliases_by_result_base"],
         "advertisement_normalizations": normalization_items,
         "validation": validation,
     }
@@ -207,24 +217,42 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
     rewritten_accesses = 0
     rewritten_fields: set[str] = set()
     rewritten_bases: set[str] = set()
+    source_aliases_by_result_base: dict[str, set[str]] = {}
+    for rule_base, rule in rewrite_rules.items():
+        result_base = str(rule.get("result_base", "") or rule_base)
+        if rule.get("source_alias_for"):
+            source_aliases_by_result_base.setdefault(result_base, set()).add(rule_base)
+    rewrite_result_bases = {
+        str(rule.get("result_base", "") or base)
+        for base, rule in rewrite_rules.items()
+    }
     rewrite_results: dict[str, dict[str, Any]] = {
         base: {
             "rewritten_accesses": 0,
             "rewritten_fields": set(),
             "offset_accesses": {},
         }
-        for base in sorted(bases)
+        for base in sorted(rewrite_result_bases)
     }
 
-    def record_rewrite(base: str, offset: int) -> str:
+    def record_rewrite(base: str, rule: dict[str, Any], offset: int) -> str:
         nonlocal rewritten_accesses
         field_name = "field_%X" % offset
+        result_base = str(rule.get("result_base", "") or base)
         rewritten_accesses += 1
         rewritten_fields.add("%s.%s" % (base, field_name))
         rewritten_bases.add(base)
-        rewrite_results[base]["rewritten_accesses"] += 1
-        rewrite_results[base]["rewritten_fields"].add(field_name)
-        offset_accesses = rewrite_results[base]["offset_accesses"]
+        result = rewrite_results.setdefault(
+            result_base,
+            {
+                "rewritten_accesses": 0,
+                "rewritten_fields": set(),
+                "offset_accesses": {},
+            },
+        )
+        result["rewritten_accesses"] += 1
+        result["rewritten_fields"].add(field_name)
+        offset_accesses = result["offset_accesses"]
         offset_key = "0x%X" % offset
         offset_accesses[offset_key] = int(offset_accesses.get(offset_key, 0) or 0) + 1
         return field_name
@@ -245,7 +273,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
             match.group("pointer_stars"),
         )
         deref_prefix = _outer_value_deref_prefix(match.group("outer_stars"))
-        field_name = record_rewrite(base, offset)
+        field_name = record_rewrite(base, rule, offset)
         return "%s%s->%s /* %s +0x%X */" % (
             deref_prefix,
             base,
@@ -274,7 +302,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         if allowed_offsets is not None and offset not in allowed_offsets:
             return match.group(0)
         deref_prefix = _outer_value_deref_prefix(match.group("outer_stars"))
-        field_name = record_rewrite(base, offset)
+        field_name = record_rewrite(base, rule, offset)
         return "%s%s->%s /* %s +0x%X */" % (
             deref_prefix,
             base,
@@ -298,7 +326,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
         if address_offsets is not None and offset not in address_offsets:
             return match.group(0)
         cast_type = _cast_pointer_type(match.group("type"), match.group("pointer_stars"))
-        field_name = record_rewrite(base, offset)
+        field_name = record_rewrite(base, rule, offset)
         return "(%s)&%s->%s /* address +0x%X */" % (
             cast_type,
             base,
@@ -321,6 +349,10 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
                 "offset_accesses": dict(sorted(result["offset_accesses"].items())),
             }
             for base, result in sorted(rewrite_results.items())
+        },
+        "source_aliases_by_result_base": {
+            base: sorted(aliases)
+            for base, aliases in sorted(source_aliases_by_result_base.items())
         },
     }
 
@@ -353,6 +385,7 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
             result[base] = {
                 "allowed_offsets": None,
                 "address_offsets": set(rule.get("address_offsets") or set()),
+                "result_base": base,
             }
             continue
         allowed_offsets = set(rule.get("allowed_offsets") or set())
@@ -360,8 +393,38 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
             result[base] = {
                 "allowed_offsets": allowed_offsets,
                 "address_offsets": set(rule.get("address_offsets") or set()),
+                "result_base": base,
             }
+    for plan in plans:
+        base = str(plan.get("base", "") or "")
+        source = str(plan.get("source", "") or "")
+        if not _source_alias_rewrite_allowed(plan):
+            continue
+        if not source or source == base or source in result:
+            continue
+        advertised_offsets = _plan_advertised_offsets(plan)
+        if not advertised_offsets:
+            continue
+        result[source] = {
+            "allowed_offsets": advertised_offsets,
+            "address_offsets": advertised_offsets,
+            "result_base": base,
+            "source_alias_for": base,
+        }
     return result
+
+
+def _source_alias_rewrite_allowed(plan: dict[str, Any]) -> bool:
+    if _plan_kind(plan) != "full":
+        return False
+    source = str(plan.get("source", "") or "")
+    base = str(plan.get("base", "") or "")
+    if not source or not base or source == base:
+        return False
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", source):
+        return False
+    source_provenance = str(plan.get("source_provenance", "") or "")
+    return source_provenance in _DIRECT_SOURCE_ALIAS_REWRITE_PROVENANCES
 
 
 def _normalize_layout_rewrite_advertisements(
@@ -600,7 +663,7 @@ def _validate_layout_rewrite_preview(
                 "%s advertised %d field alias(es) but rewrote %d"
                 % (base, expected_fields, actual_fields)
             )
-        if _raw_offset_deref_for_plan_exists(preview_text, plan):
+        if _raw_offset_deref_for_plan_exists(preview_text, plan, rewrite_stats):
             checks["preview_has_no_raw_offset_derefs_for_rewritten_bases"] = False
             checks["preview_has_no_raw_offset_derefs_for_rewrite_scope"] = False
             errors.append("%s still has raw offset dereference(s) in preview rewrite scope" % base)
@@ -650,23 +713,28 @@ def _plan_actual_allowed_offsets(plan: dict[str, Any], result: dict[str, Any]) -
     return sorted(set(actual_offsets))
 
 
-def _raw_offset_deref_for_plan_exists(text: str, plan: dict[str, Any]) -> bool:
+def _raw_offset_deref_for_plan_exists(
+    text: str,
+    plan: dict[str, Any],
+    rewrite_stats: dict[str, Any] | None = None,
+) -> bool:
     base = str(plan.get("base", "") or "")
-    if not base:
+    bases = _plan_rewrite_scope_bases(plan, rewrite_stats)
+    if not bases:
         return False
-    allowed_offsets = None
-    if _plan_kind(plan) != "full":
-        allowed_offsets = _plan_allowed_offsets(plan)
     for match in _OFFSET_DEREF_RE.finditer(text or ""):
-        if match.group("base") != base:
+        match_base = match.group("base")
+        if match_base not in bases:
             continue
         offset = _parse_offset(match.group("offset"))
+        allowed_offsets = _plan_allowed_offsets_for_scope_base(plan, base, match_base)
         if allowed_offsets is not None and offset not in allowed_offsets:
             continue
         if offset is not None:
             return True
     for match in _OFFSET_INDEXED_DEREF_RE.finditer(text or ""):
-        if match.group("base") != base:
+        match_base = match.group("base")
+        if match_base not in bases:
             continue
         index = _parse_offset(match.group("index"))
         if index is None:
@@ -679,20 +747,67 @@ def _raw_offset_deref_for_plan_exists(text: str, plan: dict[str, Any]) -> bool:
         if element_size <= 0:
             continue
         offset = index * element_size
+        allowed_offsets = _plan_allowed_offsets_for_scope_base(plan, base, match_base)
         if allowed_offsets is not None and offset not in allowed_offsets:
             continue
         return True
-    address_offsets = _plan_address_offsets(plan)
     for match in _OFFSET_ADDRESS_CAST_RE.finditer(text or ""):
-        if match.group("base") != base:
+        match_base = match.group("base")
+        if match_base not in bases:
             continue
         offset = _parse_offset(match.group("offset"))
         if offset is None:
             continue
+        address_offsets = _plan_address_offsets_for_scope_base(plan, base, match_base)
         if address_offsets is not None and offset not in address_offsets:
             continue
         return True
     return False
+
+
+def _plan_allowed_offsets_for_scope_base(
+    plan: dict[str, Any],
+    plan_base: str,
+    scope_base: str,
+) -> set[int] | None:
+    if _plan_kind(plan) != "full":
+        return _plan_allowed_offsets(plan)
+    if scope_base == plan_base:
+        return None
+    return _plan_advertised_offsets(plan)
+
+
+def _plan_address_offsets_for_scope_base(
+    plan: dict[str, Any],
+    plan_base: str,
+    scope_base: str,
+) -> set[int] | None:
+    if _plan_kind(plan) != "full":
+        return _plan_allowed_offsets(plan)
+    if scope_base == plan_base:
+        return _plan_address_offsets(plan)
+    return _plan_advertised_offsets(plan)
+
+
+def _plan_rewrite_scope_bases(
+    plan: dict[str, Any],
+    rewrite_stats: dict[str, Any] | None = None,
+) -> set[str]:
+    base = str(plan.get("base", "") or "")
+    if not base:
+        return set()
+    bases = {base}
+    source = str(plan.get("source", "") or "")
+    if not _source_alias_rewrite_allowed(plan) or not source:
+        return bases
+    if rewrite_stats is None:
+        bases.add(source)
+        return bases
+    source_aliases_by_result_base = rewrite_stats.get("source_aliases_by_result_base", {}) or {}
+    aliases = set(source_aliases_by_result_base.get(base, []) or [])
+    if source in aliases:
+        bases.add(source)
+    return bases
 
 
 def _has_partial_layout_rewrite_plan(plans: list[dict[str, Any]]) -> bool:
