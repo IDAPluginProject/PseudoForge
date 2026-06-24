@@ -2194,6 +2194,219 @@
       ]
     },
     {
+      "id": "windows.registry_config.cmp_trans_search_add_trans",
+      "source": "Reviewed CmpTransSearchAddTrans ntoskrnl 26200.8457 transaction search/allocation path through CmpSearchForTrans, CmpTransAllocateTrans, CmpBindHiveToTrans, and CmpTransInitializeTransaction; preview-only correction for the stable transaction, KCB, hive, create flag, and output transaction roles. The second search key parameter remains generic until caller wrappers prove its exact private type.",
+      "function_names": [
+        "CmpTransSearchAddTrans"
+      ],
+      "parameter_count": 6,
+      "required_calls": [
+        "CmpSearchForTrans",
+        "CmpTransAllocateTrans",
+        "CmpBindHiveToTrans",
+        "CmpTransInitializeTransaction"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "transactionContext",
+            "canonical_type": "PCM_TRANS",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PCM_TRANS"
+            ],
+            "semantic_role": "transactionContext",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 2,
+            "canonical_name": "keyControlBlock",
+            "canonical_type": "PCM_KEY_CONTROL_BLOCK",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "ULONG_PTR",
+              "PCM_KEY_CONTROL_BLOCK"
+            ],
+            "semantic_role": "keyControlBlock",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 3,
+            "canonical_name": "hive",
+            "canonical_type": "PHHIVE",
+            "accepted_types": [
+              "struct _EX_RUNDOWN_REF *",
+              "PEX_RUNDOWN_REF",
+              "PHHIVE",
+              "PVOID",
+              "__int64"
+            ],
+            "semantic_role": "hive",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "createIfMissing",
+            "canonical_type": "BOOLEAN",
+            "accepted_types": [
+              "int",
+              "BOOLEAN",
+              "unsigned __int8",
+              "char"
+            ],
+            "semantic_role": "createIfMissing",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 5,
+            "canonical_name": "transactionOutput",
+            "canonical_type": "PCM_TRANS *",
+            "accepted_types": [
+              "_QWORD *",
+              "__int64 *",
+              "PVOID *",
+              "PCM_TRANS *"
+            ],
+            "semantic_role": "transactionOutput",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "transactionContext",
+          "rename_to": "transactionContext",
+          "rename_confidence": 0.84,
+          "structure": "CM_TRANS",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PCM_TRANS"
+          ],
+          "source": "CmpTransSearchAddTrans references/dereferences this optional transaction and passes it through CmpSearchForTrans/CmpTransAllocateTrans"
+        },
+        {
+          "parameter_index": 2,
+          "role": "keyControlBlock",
+          "rename_to": "keyControlBlock",
+          "rename_confidence": 0.86,
+          "structure": "CM_KEY_CONTROL_BLOCK",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "ULONG_PTR",
+            "PCM_KEY_CONTROL_BLOCK"
+          ],
+          "source": "CmpTransSearchAddTrans searches and links transactions through the KCB transaction list and hive pointer",
+          "fields": [
+            {
+              "offset": "0x10",
+              "name": "TransactionListHead",
+              "type": "LIST_ENTRY",
+              "size": 16,
+              "confidence": 0.76,
+              "note": "observed transaction list head insertion; report-only"
+            },
+            {
+              "offset": "0x18",
+              "name": "TransactionListBlink",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed transaction list blink validation/update; report-only"
+            },
+            {
+              "offset": "0x50",
+              "name": "Hive",
+              "type": "PHHIVE",
+              "size": 8,
+              "confidence": 0.76,
+              "note": "observed hive pointer used for rundown protection; report-only"
+            }
+          ]
+        },
+        {
+          "parameter_index": 3,
+          "role": "hive",
+          "rename_to": "hive",
+          "rename_confidence": 0.84,
+          "structure": "HHIVE",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "struct _EX_RUNDOWN_REF *",
+            "PEX_RUNDOWN_REF",
+            "PHHIVE",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "CmpTransSearchAddTrans binds the hive to the transaction and releases the hive rundown protection path",
+          "fields": [
+            {
+              "offset": "0x668",
+              "name": "RundownProtect",
+              "type": "EX_RUNDOWN_REF",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed rundown protection reference at hive+0x668; report-only"
+            }
+          ]
+        },
+        {
+          "parameter_index": 4,
+          "role": "createIfMissing",
+          "rename_to": "createIfMissing",
+          "rename_confidence": 0.8,
+          "structure": "BOOLEAN",
+          "mode": "report-only",
+          "confidence": 0.76,
+          "accepted_types": [
+            "int",
+            "BOOLEAN",
+            "unsigned __int8",
+            "char"
+          ],
+          "source": "CmpTransSearchAddTrans uses this flag to decide whether to allocate/wait for a transaction"
+        },
+        {
+          "parameter_index": 5,
+          "role": "transactionOutput",
+          "rename_to": "transactionOutput",
+          "rename_confidence": 0.86,
+          "structure": "CM_TRANS_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "_QWORD *",
+            "__int64 *",
+            "PVOID *",
+            "PCM_TRANS *"
+          ],
+          "source": "CmpTransSearchAddTrans writes the found or newly initialized transaction to this output pointer"
+        }
+      ]
+    },
+    {
       "id": "windows.registry_config.cmp_insert_security_cell_list",
       "source": "Reviewed CmpInsertSecurityCellList ntoskrnl 26200.8457 HHIVE security-cell link insertion flow through HvpGetCellFlat/Paged, HvpMarkCellDirty, and CmpAddSecurityCellToCache; preview-only private prototype.",
       "function_names": [

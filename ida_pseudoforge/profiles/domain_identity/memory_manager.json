@@ -488,6 +488,135 @@
       ]
     },
     {
+      "id": "windows.memory_manager.change_slab_entry_identity",
+      "source": "Reviewed MiChangeSlabEntryIdentity ntoskrnl 26200.8457 slab identity relink path through MiClearHintSlabEntry and MiSetSlabTypeIdentifiers; preview-only context/entry signature correction with report-only slab field aliases.",
+      "function_names": [
+        "MiChangeSlabEntryIdentity"
+      ],
+      "parameter_count": 2,
+      "required_calls": [
+        "MiClearHintSlabEntry",
+        "MiSetSlabTypeIdentifiers"
+      ],
+      "prototype": {
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "slabContext",
+            "canonical_type": "PMI_SLAB_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_SLAB_CONTEXT"
+            ],
+            "semantic_role": "slabContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "slabEntry",
+            "canonical_type": "PMI_SLAB_ENTRY",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMI_SLAB_ENTRY"
+            ],
+            "semantic_role": "slabEntry",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "slabContext",
+          "rename_to": "slabContext",
+          "rename_confidence": 0.86,
+          "structure": "MI_SLAB_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_SLAB_CONTEXT"
+          ],
+          "source": "MiChangeSlabEntryIdentity passes the first parameter to MiClearHintSlabEntry and reads slab type/page-size context for MiSetSlabTypeIdentifiers",
+          "fields": [
+            {
+              "offset": "0x58",
+              "name": "IdentityListBase",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.72,
+              "note": "observed slab identity list array base; report-only"
+            },
+            {
+              "offset": "0x80",
+              "name": "SlabTypeIdentifier",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.74,
+              "note": "observed slab type identifier input; report-only"
+            },
+            {
+              "offset": "0x88",
+              "name": "PageSizeSelector",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.74,
+              "note": "observed page-size selector bits; report-only"
+            }
+          ]
+        },
+        {
+          "parameter_index": 1,
+          "role": "slabEntry",
+          "rename_to": "slabEntry",
+          "rename_confidence": 0.88,
+          "structure": "MI_SLAB_ENTRY",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMI_SLAB_ENTRY"
+          ],
+          "source": "MiChangeSlabEntryIdentity relinks the slab entry list node, clears stale hints, and rewrites slab identity flags",
+          "fields": [
+            {
+              "offset": "0x18",
+              "name": "IdentityLinks",
+              "type": "LIST_ENTRY",
+              "size": 16,
+              "confidence": 0.76,
+              "note": "observed list unlink/relink node; report-only"
+            },
+            {
+              "offset": "0x28",
+              "name": "BackingAddress",
+              "type": "ULONG_PTR",
+              "size": 8,
+              "confidence": 0.74,
+              "note": "observed backing address passed into MiSetSlabTypeIdentifiers; report-only"
+            },
+            {
+              "offset": "0x5C",
+              "name": "IdentityFlags",
+              "type": "ULONG",
+              "size": 4,
+              "confidence": 0.76,
+              "note": "observed slab identity flag update; report-only"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.store_work_item_process",
       "source": "Reviewed ST_STORE<SM_TRAITS>::StWorkItemProcess ntoskrnl 10.0.26200.8457 store work item dispatch and stable store offset residue; generic field aliases intentionally avoid undocumented private field names.",
       "rewrite_policy": {

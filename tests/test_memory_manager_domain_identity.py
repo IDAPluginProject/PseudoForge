@@ -481,6 +481,38 @@ __int64 __fastcall MiCreateSlabEntry(__int64 a1, __int64 a2, int a3, unsigned __
             ),
             (
                 """
+char __fastcall MiChangeSlabEntryIdentity(__int64 a1, __int64 a2)
+{
+  __int64 listHead;
+  __int64 listBlink;
+  int flags;
+
+  listHead = *(_QWORD *)(a2 + 24);
+  listBlink = *(_QWORD *)(a2 + 32);
+  if ( *(_QWORD *)(listHead + 8) != a2 + 24 )
+  {
+    __fastfail(3u);
+  }
+  *(_QWORD *)listBlink = listHead;
+  MiClearHintSlabEntry(a1, a2);
+  flags = *(_DWORD *)(a2 + 92);
+  *(_DWORD *)(a2 + 92) = flags | 4;
+  return MiSetSlabTypeIdentifiers(
+           *(_QWORD *)(a2 + 40),
+           LODWORD(MiPageSizes[(*(_DWORD *)(a1 + 136) >> 4) & 3]),
+           *(_DWORD *)(a1 + 128),
+           flags,
+           flags & 1);
+}
+""",
+                "windows.memory_manager.change_slab_entry_identity",
+                [
+                    "PMI_SLAB_CONTEXT slabContext",
+                    "PMI_SLAB_ENTRY slabEntry",
+                ],
+            ),
+            (
+                """
 __int64 __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(__int64 a1, unsigned __int64 a2, unsigned __int64 a3)
 {
   return *(_QWORD *)(a1 + 24) + a2 + a3;
@@ -609,6 +641,7 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
             "windows.memory_manager.create_pfn_template": "ULONG_PTR __fastcall MiCreatePfnTemplate(",
             "windows.memory_manager.free_pages_from_mdl": "char __fastcall MiFreePagesFromMdl(",
             "windows.memory_manager.create_slab_entry": "NTSTATUS __fastcall MiCreateSlabEntry(",
+            "windows.memory_manager.change_slab_entry_identity": "char __fastcall MiChangeSlabEntryIdentity(",
             "windows.memory_manager.store_work_item_process": "NTSTATUS __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(",
             "windows.memory_manager.create_shared_zero_pages": "NTSTATUS __fastcall MiCreateSharedZeroPages(",
             "windows.memory_manager.pf_allocate_mdls": "NTSTATUS __fastcall MiPfAllocateMdls(",
@@ -679,6 +712,12 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                     slab_entry = self._single_identity(plan, profile_id, "slabEntry")
                     self.assertTrue({0x80, 0x88, 0xB0}.issubset(self._field_offsets(slab_context)))
                     self.assertTrue({0xB8, 0x4554}.issubset(self._field_offsets(slab_entry)))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                if profile_id == "windows.memory_manager.change_slab_entry_identity":
+                    slab_context = self._single_identity(plan, profile_id, "slabContext")
+                    slab_entry = self._single_identity(plan, profile_id, "slabEntry")
+                    self.assertTrue({0x80, 0x88}.issubset(self._field_offsets(slab_context)))
+                    self.assertTrue({0x18, 0x28, 0x5C}.issubset(self._field_offsets(slab_entry)))
                     self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                 if profile_id == "windows.memory_manager.lock_page_list_and_last_page":
                     page_lock = self._single_identity(plan, profile_id, "pageListLockContext")

@@ -581,6 +581,41 @@ __int64 __fastcall CmSaveKeyToBuffer(int a1, __int64 a2, __int64 a3)
             ),
             (
                 """
+__int64 __fastcall CmpTransSearchAddTrans(
+        __int64 a1,
+        __int64 a2,
+        __int64 a3,
+        struct _EX_RUNDOWN_REF *a4,
+        int a5,
+        _QWORD *a6)
+{
+  __int64 trans;
+
+  trans = CmpSearchForTrans(a3, a1, a2);
+  if ( !trans )
+  {
+    trans = CmpTransAllocateTrans(a1, a2, a3, a4);
+  }
+  CmpBindHiveToTrans(a4, trans);
+  if ( *(_QWORD *)(a3 + 80) )
+  {
+    ExAcquireRundownProtection_0((PEX_RUNDOWN_REF)(*(_QWORD *)(a3 + 80) + 1640LL));
+  }
+  *a6 = trans;
+  return CmpTransInitializeTransaction((_QWORD *)trans) + a5;
+}
+""",
+                "windows.registry_config.cmp_trans_search_add_trans",
+                [
+                    "PCM_TRANS transactionContext",
+                    "PCM_KEY_CONTROL_BLOCK keyControlBlock",
+                    "PHHIVE hive",
+                    "BOOLEAN createIfMissing",
+                    "PCM_TRANS * transactionOutput",
+                ],
+            ),
+            (
+                """
 __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char a4, int *a5, __int64 *a6, __int64 a7)
 {
   __int64 context;
@@ -611,6 +646,7 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
             "windows.registry_config.cmp_insert_security_cell_list": "NTSTATUS __fastcall CmpInsertSecurityCellList(",
             "windows.registry_config.cmp_free_key_control_block": "void __fastcall CmpFreeKeyControlBlock(",
             "windows.registry_config.cm_save_key_to_buffer": "NTSTATUS __fastcall CmSaveKeyToBuffer(",
+            "windows.registry_config.cmp_trans_search_add_trans": "NTSTATUS __fastcall CmpTransSearchAddTrans(",
             "windows.registry_config.hv_reallocate_cell": "NTSTATUS __fastcall HvReallocateCell(",
         }
 
