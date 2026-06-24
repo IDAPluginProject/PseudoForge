@@ -593,6 +593,74 @@ __int64 __fastcall MiValidateAddPhysicalMemoryParameters(ULONG *a1, __int64 *a2,
             ),
             (
                 """
+__int64 __fastcall VmpSplitMemoryRange(PEX_SPIN_LOCK a1, unsigned __int64 a2, __int64 a3)
+{
+  __int64 lockState;
+  __int64 v12;
+  unsigned __int64 MemoryRanges;
+  __int64 secureHandle;
+
+  lockState = VmpProcessContextLockShared(a1);
+  if ( *((_QWORD *)a1 + 13) != a3 )
+  {
+    VmpProcessContextUnlockShared(a1, lockState);
+    return STATUS_CONTEXT_MISMATCH;
+  }
+  v12 = *((_QWORD *)a1 + 3);
+  MemoryRanges = VmpAllocateMemoryRanges(VmpVaRangeNumberOfGpaRanges(v12));
+  secureHandle = VmpSecureMemoryForPin(a1, a2 + 1, *(_QWORD *)(v12 + 32) - a2, 0LL);
+  lockState = VmpProcessContextLockExclusive(a1);
+  *(_QWORD *)(MemoryRanges + 24) = a2 + 1;
+  *(_QWORD *)(MemoryRanges + 32) = *(_QWORD *)(v12 + 32);
+  *(_QWORD *)(MemoryRanges + 40) = *(_QWORD *)(v12 + 40);
+  *(_QWORD *)(MemoryRanges + 56) = secureHandle;
+  *(_DWORD *)(MemoryRanges + 72) = *(_DWORD *)(v12 + 72) & 3;
+  *(_QWORD *)(v12 + 32) = a2;
+  ++*((_QWORD *)a1 + 9);
+  RtlRbInsertNodeEx((__int64 *)a1 + 3, 0LL, 0, MemoryRanges);
+  VmpProcessContextUnlockExclusive(a1, lockState);
+  return 0;
+}
+""",
+                "windows.memory_manager.vmp_split_memory_range",
+                [
+                    "PVMP_PROCESS_CONTEXT processContext",
+                    "ULONG_PTR splitAddress",
+                ],
+            ),
+            (
+                """
+__int64 __fastcall MiConvertLargeActivePageToChain(__int64 a1)
+{
+  __int64 v3;
+  unsigned int state;
+
+  v3 = a1 + 48 * MiPageSizes[(unsigned int)MiGetPfnPageSizeIndex(a1)];
+  v3 -= 48;
+  state = *(_DWORD *)(v3 + 32);
+  *(_DWORD *)(v3 + 32) = state & 0xFFF8FFFF;
+  if ( (unsigned int)MiCanPfnOriginalPteBeLost(v3) )
+  {
+    *(_QWORD *)(v3 + 16) &= ~4uLL;
+  }
+  *(_QWORD *)(v3 + 24) &= 0xC000000000000000uLL;
+  *(_BYTE *)(v3 + 34) &= 0xF8u;
+  *(_DWORD *)(v3 + 36) &= 0xE7FFFFFF;
+  *(_QWORD *)(v3 + 40) &= ~0x30000000000uLL;
+  if ( (*(_QWORD *)(v3 + 16) & 0x3E0LL) == 0 )
+  {
+    MiArePageContentsZero((v3 + 0x220000000000LL) / 48);
+  }
+  return a1;
+}
+""",
+                "windows.memory_manager.convert_large_active_page_to_chain",
+                [
+                    "PMMPFN largePagePfn",
+                ],
+            ),
+            (
+                """
 __int64 __fastcall VmpFillGpnRanges(int a1, __int64 a2, __int64 a3, __int64 *a4, __int64 a5, __int64 a6)
 {
   __int128 range;
@@ -647,6 +715,8 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
             "windows.memory_manager.pf_allocate_mdls": "NTSTATUS __fastcall MiPfAllocateMdls(",
             "windows.memory_manager.lock_page_list_and_last_page": "void __fastcall MiLockPageListAndLastPage(",
             "windows.memory_manager.validate_add_physical_memory_parameters": "NTSTATUS __fastcall MiValidateAddPhysicalMemoryParameters(",
+            "windows.memory_manager.vmp_split_memory_range": "NTSTATUS __fastcall VmpSplitMemoryRange(",
+            "windows.memory_manager.convert_large_active_page_to_chain": "__int64 __fastcall MiConvertLargeActivePageToChain(",
             "windows.memory_manager.vmp_fill_gpn_ranges": "PVOID __fastcall VmpFillGpnRanges(",
             "windows.memory_manager.vmp_fill_slat": "NTSTATUS __fastcall VmpFillSlat(",
         }
@@ -726,6 +796,22 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                 if profile_id == "windows.memory_manager.vmp_fill_slat":
                     vmp_context = self._single_identity(plan, profile_id, "vmpContext")
                     self.assertEqual({0x68, 0x88}, self._field_offsets(vmp_context))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                if profile_id == "windows.memory_manager.vmp_split_memory_range":
+                    process_context = self._single_identity(plan, profile_id, "processContext")
+                    new_range = self._single_identity(plan, profile_id, "newMemoryRange")
+                    existing_range = self._single_identity(plan, profile_id, "existingMemoryRange")
+                    self.assertTrue({0x18, 0x48, 0x68}.issubset(self._field_offsets(process_context)))
+                    self.assertTrue({0x18, 0x20, 0x28, 0x38, 0x48}.issubset(self._field_offsets(new_range)))
+                    self.assertTrue({0x20, 0x28, 0x48}.issubset(self._field_offsets(existing_range)))
+                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+                if profile_id == "windows.memory_manager.convert_large_active_page_to_chain":
+                    large_page = self._single_identity(plan, profile_id, "largePagePfn")
+                    chain_entry = self._single_identity(plan, profile_id, "chainPfnEntry")
+                    expected_offsets = {0x10, 0x18, 0x20, 0x22, 0x24, 0x28}
+                    self.assertEqual("MMPFN", large_page["structure_name"])
+                    self.assertEqual([], large_page["fields"])
+                    self.assertTrue(expected_offsets.issubset(self._field_offsets(chain_entry)))
                     self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
                 self.assertIn(expected_signatures[profile_id], rendered)
                 for fragment in expected_fragments:

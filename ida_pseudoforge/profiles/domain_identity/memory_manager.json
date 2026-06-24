@@ -2880,6 +2880,210 @@
       ]
     },
     {
+      "id": "windows.memory_manager.vmp_split_memory_range",
+      "source": "Reviewed VmpSplitMemoryRange ntoskrnl 26200.8457 VMP memory-range split path through VmpProcessContextLockShared/Exclusive, VmpAllocateMemoryRanges, VmpSecureMemoryForPin, and RtlRbInsertNodeEx; preview-only process context and split-address correction with report-only VMP range aliases.",
+      "function_names": [
+        "VmpSplitMemoryRange"
+      ],
+      "parameter_count": 3,
+      "required_calls": [
+        "VmpProcessContextLockShared",
+        "VmpProcessContextLockExclusive",
+        "VmpAllocateMemoryRanges",
+        "RtlRbInsertNodeEx"
+      ],
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "processContext",
+            "canonical_type": "PVMP_PROCESS_CONTEXT",
+            "accepted_types": [
+              "PEX_SPIN_LOCK",
+              "__int64",
+              "PVOID",
+              "PVMP_PROCESS_CONTEXT"
+            ],
+            "semantic_role": "processContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "splitAddress",
+            "canonical_type": "ULONG_PTR",
+            "accepted_types": [
+              "unsigned __int64",
+              "__int64",
+              "ULONG_PTR",
+              "ULONG64"
+            ],
+            "semantic_role": "splitAddress",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "processContext",
+          "rename_to": "processContext",
+          "rename_confidence": 0.84,
+          "structure": "VMP_PROCESS_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "PEX_SPIN_LOCK",
+            "__int64",
+            "PVOID",
+            "PVMP_PROCESS_CONTEXT"
+          ],
+          "source": "VmpSplitMemoryRange locks the first parameter with VmpProcessContextLockShared/Exclusive and uses it as the owner for VMP range trees",
+          "fields": [
+            {"offset": "0x18", "name": "VaRangeTreeRoot", "type": "RTL_RB_TREE", "size": 16, "confidence": 0.72, "note": "observed RtlRbInsertNodeEx root for split memory ranges; report-only"},
+            {"offset": "0x48", "name": "RangeGeneration", "type": "ULONG64", "size": 8, "confidence": 0.70, "note": "observed generation-like counter increment after split insertion; report-only"},
+            {"offset": "0x68", "name": "ExpectedOwner", "type": "ULONG_PTR", "size": 8, "confidence": 0.70, "note": "observed owner/context comparison against the third argument; report-only"}
+          ]
+        },
+        {
+          "parameter_index": 1,
+          "role": "splitAddress",
+          "rename_to": "splitAddress",
+          "rename_confidence": 0.82,
+          "structure": "VMP_SPLIT_ADDRESS",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned __int64",
+            "__int64",
+            "ULONG_PTR",
+            "ULONG64"
+          ],
+          "source": "VmpSplitMemoryRange compares the second parameter against VMP range start/end bounds and creates the upper split at splitAddress + 1"
+        },
+        {
+          "local_names": [
+            "MemoryRanges"
+          ],
+          "role": "newMemoryRange",
+          "rename_to": "newMemoryRange",
+          "rename_confidence": 0.84,
+          "structure": "VMP_MEMORY_RANGE",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "source": "VmpSplitMemoryRange allocates this range with VmpAllocateMemoryRanges and inserts it into the process-context RB tree",
+          "fields": [
+            {"offset": "0x18", "name": "StartAddress", "type": "ULONG_PTR", "size": 8, "confidence": 0.76, "note": "observed new range start set to splitAddress + 1; report-only"},
+            {"offset": "0x20", "name": "EndAddress", "type": "ULONG_PTR", "size": 8, "confidence": 0.76, "note": "observed new range end copied from the original range; report-only"},
+            {"offset": "0x28", "name": "PinnedRangeLinks", "type": "LIST_ENTRY", "size": 16, "confidence": 0.72, "note": "observed pinned GPA range link migration; report-only"},
+            {"offset": "0x38", "name": "SecureMemoryHandle", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed VmpSecureMemoryForPin result stored for the upper split; report-only"},
+            {"offset": "0x48", "name": "RangeFlags", "type": "ULONG", "size": 4, "confidence": 0.74, "note": "observed flag transfer/masking between split ranges; report-only"}
+          ]
+        },
+        {
+          "local_names": [
+            "v12",
+            "v19",
+            "v29"
+          ],
+          "role": "existingMemoryRange",
+          "structure": "VMP_MEMORY_RANGE",
+          "mode": "report-only",
+          "confidence": 0.80,
+          "source": "VmpSplitMemoryRange walks existing VMP memory-range RB tree nodes and trims the lower range before inserting the new range",
+          "fields": [
+            {"offset": "0x18", "name": "StartAddress", "type": "ULONG_PTR", "size": 8, "confidence": 0.74, "note": "observed range lower bound comparison; report-only"},
+            {"offset": "0x20", "name": "EndAddress", "type": "ULONG_PTR", "size": 8, "confidence": 0.74, "note": "observed range upper bound comparison and lower split truncation; report-only"},
+            {"offset": "0x28", "name": "PinnedRangeLinks", "type": "LIST_ENTRY", "size": 16, "confidence": 0.72, "note": "observed pinned GPA range link migration; report-only"},
+            {"offset": "0x38", "name": "SecureMemoryHandle", "type": "ULONG_PTR", "size": 8, "confidence": 0.72, "note": "observed pinned-memory state copied or checked; report-only"},
+            {"offset": "0x48", "name": "RangeFlags", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed flag transfer/masking between split ranges; report-only"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "windows.memory_manager.convert_large_active_page_to_chain",
+      "source": "Reviewed MiConvertLargeActivePageToChain ntoskrnl 26200.8457 large-page PFN demotion loop through MiGetPfnPageSizeIndex, MiCanPfnOriginalPteBeLost, and MiArePageContentsZero; preview-only PFN parameter correction with report-only MMPFN hot-field aliases.",
+      "function_names": [
+        "MiConvertLargeActivePageToChain"
+      ],
+      "parameter_count": 1,
+      "required_calls": [
+        "MiGetPfnPageSizeIndex",
+        "MiCanPfnOriginalPteBeLost",
+        "MiArePageContentsZero"
+      ],
+      "prototype": {
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "largePagePfn",
+            "canonical_type": "PMMPFN",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "PMMPFN",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "largePagePfn",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "largePagePfn",
+          "rename_to": "largePagePfn",
+          "rename_confidence": 0.86,
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "PMMPFN",
+            "ULONG_PTR"
+          ],
+          "source": "MiConvertLargeActivePageToChain starts from the large active page PFN and derives same-sized PFN database entries by 48-byte stride",
+          "fields": [
+            {"offset": "0x10", "name": "OriginalPte", "type": "ULONG64", "size": 8, "confidence": 0.74, "note": "observed original PTE flag copy/clear across demoted PFNs; report-only"},
+            {"offset": "0x18", "name": "PteFrameAndLock", "type": "ULONG64", "size": 8, "confidence": 0.74, "note": "observed interlocked PFN lock bit and frame state update; report-only"},
+            {"offset": "0x20", "name": "ReferenceAndShareCounts", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed count/state word update during chain conversion; report-only"},
+            {"offset": "0x22", "name": "PageLocationBits", "type": "UCHAR", "size": 1, "confidence": 0.70, "note": "observed subfield copy from source PFN; report-only"},
+            {"offset": "0x24", "name": "PageState", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed page-state flag clear; report-only"},
+            {"offset": "0x28", "name": "ListOrFlags", "type": "ULONG64", "size": 8, "confidence": 0.72, "note": "observed large-page and chain flag clear; report-only"}
+          ]
+        },
+        {
+          "local_names": [
+            "v3"
+          ],
+          "role": "chainPfnEntry",
+          "structure": "MMPFN",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "source": "MiConvertLargeActivePageToChain iterates each demoted PFN entry by subtracting the 48-byte MMPFN stride",
+          "fields": [
+            {"offset": "0x10", "name": "OriginalPte", "type": "ULONG64", "size": 8, "confidence": 0.74, "note": "observed original PTE flag copy/clear across demoted PFNs; report-only"},
+            {"offset": "0x18", "name": "PteFrameAndLock", "type": "ULONG64", "size": 8, "confidence": 0.74, "note": "observed interlocked PFN lock bit and frame state update; report-only"},
+            {"offset": "0x20", "name": "ReferenceAndShareCounts", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed count/state word update during chain conversion; report-only"},
+            {"offset": "0x22", "name": "PageLocationBits", "type": "UCHAR", "size": 1, "confidence": 0.70, "note": "observed subfield copy from source PFN; report-only"},
+            {"offset": "0x24", "name": "PageState", "type": "ULONG", "size": 4, "confidence": 0.72, "note": "observed page-state flag clear; report-only"},
+            {"offset": "0x28", "name": "ListOrFlags", "type": "ULONG64", "size": 8, "confidence": 0.72, "note": "observed large-page and chain flag clear; report-only"}
+          ]
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.vmp_fill_gpn_ranges",
       "source": "Reviewed VmpFillGpnRanges ntoskrnl 26200.8457 VPN-to-GPN range conversion loop, coalesced range output, and output-count accounting; preview-only private prototype.",
       "function_names": [
