@@ -16,6 +16,7 @@ from tools.pseudoforge_corpus_quality import (
     _body_offset_residue_review_evidence,
     _decimal_status_like_literals,
     _decimal_status_target_review_queues,
+    _extract_layout_rewrite_blockers,
     _layout_promotion_next_action_details,
     _layout_promotion_next_action,
     _layout_rewrite_blocker_review_profiles,
@@ -1288,6 +1289,33 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 low_pressure_item,
             )
         )
+
+    def test_rewrite_blocker_parser_preserves_source_identity_detail(self) -> None:
+        blockers = _extract_layout_rewrite_blockers(
+            "/*\n"
+            "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v6: "
+            "source domain identity profile is report-only. Source identity completionApc "
+            "(parameter_back_container_alias) is report-only profile "
+            "windows.io_manager.iop_complete_request_apc for completionApc/KAPC; exact "
+            "function/build/source identity is required before canonical rewrite. "
+            "Review-only aliases remain available. confidence=0.73\n"
+            "*/\n"
+        )
+
+        self.assertEqual(1, len(blockers))
+        self.assertEqual("v6", blockers[0]["base"])
+        self.assertEqual(["source domain identity profile is report-only"], blockers[0]["reasons"])
+        self.assertEqual("completionApc", blockers[0]["source_identity_source"])
+        self.assertEqual(
+            "parameter_back_container_alias",
+            blockers[0]["source_identity_source_provenance"],
+        )
+        self.assertEqual(
+            "windows.io_manager.iop_complete_request_apc",
+            blockers[0]["source_identity_profile_id"],
+        )
+        self.assertEqual("completionApc", blockers[0]["source_identity_role"])
+        self.assertEqual("KAPC", blockers[0]["source_identity_structure"])
 
     def test_base_stability_profiles_split_initializer_and_reassignment_risk(self) -> None:
         self.assertEqual(

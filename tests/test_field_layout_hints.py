@@ -1395,6 +1395,23 @@ void __fastcall IopCompleteRequest(__int64 completionApc, __int64 a2, _QWORD *a3
         self.assertTrue(
             any("source domain identity profile is report-only" in item["blockers"] for item in blockers)
         )
+        self.assertEqual(1, len(blockers))
+        self.assertIn(
+            "Source identity completionApc (parameter_back_container_alias) is report-only profile "
+            "windows.io_manager.iop_complete_request_apc",
+            blockers[0]["text"],
+        )
+        self.assertEqual("completionApc", blockers[0]["source_identity_source"])
+        self.assertEqual("parameter", blockers[0]["source_identity_source_kind"])
+        self.assertEqual("parameter_back_container_alias", blockers[0]["source_identity_source_provenance"])
+        self.assertEqual(
+            "windows.io_manager.iop_complete_request_apc",
+            blockers[0]["source_identity_profile_id"],
+        )
+        self.assertEqual("completionApc", blockers[0]["source_identity_role"])
+        self.assertEqual("KAPC", blockers[0]["source_identity_structure"])
+        self.assertEqual("report-only", blockers[0]["source_identity_effective_mode"])
+        self.assertEqual(["profile_report_only"], blockers[0]["source_identity_profile_blockers"])
         self.assertEqual([], ready)
 
     def test_temp_base_with_parameter_indirect_source_reports_source_hint(self) -> None:

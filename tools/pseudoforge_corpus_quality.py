@@ -526,7 +526,14 @@ DOMAIN_FIELD_OFFSET_RE = re.compile(r"\+0x[0-9A-Fa-f]+")
 FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
-    r"(?P<reasons>.*?)\.\s+Review-only aliases remain available\.\s+"
+    r"(?P<reasons>.*?)\.\s+"
+    r"(?:Source identity\s+(?P<source>.*?)\s+"
+    r"\((?P<source_provenance>[a-z_]+)\)\s+is report-only profile\s+"
+    r"(?P<source_profile_id>[A-Za-z0-9_.-]+)\s+for\s+"
+    r"(?P<source_role>[A-Za-z_][A-Za-z0-9_]*)/"
+    r"(?P<source_structure>[A-Za-z_][A-Za-z0-9_]*)"
+    r"; exact function/build/source identity is required before canonical rewrite\.\s+)?"
+    r"Review-only aliases remain available\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
 )
 DOMAIN_STRUCTURE_IDENTITY_DETAIL_RE = re.compile(
@@ -8839,13 +8846,25 @@ def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
             for item in match.group("reasons").split(";")
             if item.strip()
         ]
-        blockers.append(
-            {
-                "base": match.group("base"),
-                "reasons": reasons,
-                "confidence": _float_value(match.group("confidence"), 0.0),
-            }
-        )
+        item = {
+            "base": match.group("base"),
+            "reasons": reasons,
+            "confidence": _float_value(match.group("confidence"), 0.0),
+        }
+        source = str(match.groupdict().get("source") or "").strip()
+        if source:
+            item["source_identity_source"] = source
+            item["source_identity_source_provenance"] = str(
+                match.groupdict().get("source_provenance") or ""
+            )
+            item["source_identity_profile_id"] = str(
+                match.groupdict().get("source_profile_id") or ""
+            )
+            item["source_identity_role"] = str(match.groupdict().get("source_role") or "")
+            item["source_identity_structure"] = str(
+                match.groupdict().get("source_structure") or ""
+            )
+        blockers.append(item)
     return blockers
 
 
@@ -9574,6 +9593,19 @@ def _update_layout_rewrite_blocker_metrics(
         base = str(blocker.get("base", "") or "unknown")
         evidence = layout_evidence.get(base, {})
         identity = identity_evidence.get(base, {"identity_evidence": "none"})
+        if (
+            str(identity.get("identity_evidence", "") or "none") == "none"
+            and str(blocker.get("source_identity_source", "") or "")
+        ):
+            identity = {
+                "identity_evidence": "report_only_source_identity",
+                "source": str(blocker.get("source_identity_source", "") or ""),
+                "source_kind": "source_identity",
+                "source_provenance": str(blocker.get("source_identity_source_provenance", "") or ""),
+                "source_rhs_kind": "report_only_profile",
+                "blocker_profile": "report_only_source_identity",
+                "confidence": _float_value(blocker.get("confidence"), 0.0),
+            }
         domain_identity = domain_identity_by_base.get(base, {})
         bases[base] += 1
         reason_items = [str(item) for item in blocker.get("reasons", []) or []]
@@ -9618,6 +9650,17 @@ def _update_layout_rewrite_blocker_metrics(
                     "domain_mode": str(domain_identity.get("mode", "") or ""),
                     "domain_field_count": _int_value(domain_identity.get("field_count"), 0),
                     "domain_fields": list(domain_identity.get("fields", []) or []),
+                    "source_identity_source": str(blocker.get("source_identity_source", "") or ""),
+                    "source_identity_source_provenance": str(
+                        blocker.get("source_identity_source_provenance", "") or ""
+                    ),
+                    "source_identity_profile_id": str(
+                        blocker.get("source_identity_profile_id", "") or ""
+                    ),
+                    "source_identity_role": str(blocker.get("source_identity_role", "") or ""),
+                    "source_identity_structure": str(
+                        blocker.get("source_identity_structure", "") or ""
+                    ),
                     "promotion_review_class": promotion_review_class,
                     "promotion_risk_factors": promotion_risk_factors,
                     "promotion_next_action": promotion_next_action,
@@ -9992,6 +10035,9 @@ def _layout_rewrite_blocker_review_profiles(reasons: list[str]) -> list[str]:
             profiles.add("base_identity_candidates")
             profiles.add("generic_base_identity_candidates")
         if "trusted rewrite source is required" in lowered:
+            profiles.add("base_identity_candidates")
+            profiles.add("source_identity_gap_candidates")
+        if "source domain identity profile is report-only" in lowered:
             profiles.add("base_identity_candidates")
             profiles.add("source_identity_gap_candidates")
         if "multiple initializers" in lowered:

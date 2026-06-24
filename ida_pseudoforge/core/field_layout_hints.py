@@ -2049,11 +2049,29 @@ def _field_rewrite_blocker_comment(
         _field_rewrite_blocker_confidence_cap_for_base_kind(base_kind),
         0.64 + min(len(blockers), 4) * 0.03 + min(layout.access_count, 12) * 0.005,
     )
+    source_identity_detail = _report_only_source_identity_blocker_detail(
+        text,
+        layout,
+        profile_context=profile_context,
+    )
+    source_identity_text = ""
+    if source_identity_detail:
+        source_identity_text = (
+            " Source identity %s (%s) is report-only profile %s for %s/%s;"
+            " exact function/build/source identity is required before canonical rewrite."
+            % (
+                source_identity_detail["source"],
+                source_identity_detail["source_provenance"],
+                source_identity_detail["profile_id"],
+                source_identity_detail["role"],
+                source_identity_detail["structure"],
+            )
+        )
     comment = {
         "kind": "inferred_offset_rewrite_blockers",
         "text": (
-            "Offset field rewrite blocked for %s: %s. Review-only aliases remain available."
-            % (layout.base, "; ".join(blockers[:6]))
+            "Offset field rewrite blocked for %s: %s.%s Review-only aliases remain available."
+            % (layout.base, "; ".join(blockers[:6]), source_identity_text)
         ),
         "confidence": round(confidence, 2),
         "base": layout.base,
@@ -2073,6 +2091,16 @@ def _field_rewrite_blocker_comment(
         comment["domain_role"] = domain_identity.role
         comment["domain_structure"] = domain_identity.structure
         comment["domain_profile_blockers"] = _domain_identity_structured_blockers(domain_identity)
+    if source_identity_detail:
+        comment["source_identity_blocker"] = source_identity_detail
+        comment["source_identity_source"] = source_identity_detail["source"]
+        comment["source_identity_source_kind"] = source_identity_detail["source_kind"]
+        comment["source_identity_source_provenance"] = source_identity_detail["source_provenance"]
+        comment["source_identity_profile_id"] = source_identity_detail["profile_id"]
+        comment["source_identity_role"] = source_identity_detail["role"]
+        comment["source_identity_structure"] = source_identity_detail["structure"]
+        comment["source_identity_effective_mode"] = source_identity_detail["effective_mode"]
+        comment["source_identity_profile_blockers"] = source_identity_detail["profile_blockers"]
     return comment
 
 
@@ -6580,11 +6608,26 @@ def _report_only_source_identity_blocker(
     identity: dict[str, Any],
     profile_context: dict[str, Any] | None = None,
 ) -> str:
+    match = _report_only_source_identity_match(
+        text,
+        identity,
+        profile_context=profile_context,
+    )
+    if match:
+        return _REPORT_ONLY_SOURCE_IDENTITY_BLOCKER
+    return ""
+
+
+def _report_only_source_identity_match(
+    text: str,
+    identity: dict[str, Any],
+    profile_context: dict[str, Any] | None = None,
+) -> DomainIdentityMatch | None:
     source = str((identity or {}).get("source", "") or "").strip()
     if not source:
-        return ""
+        return None
     if (identity or {}).get("source_provenance") not in _TRUSTED_STABLE_BASE_SOURCE_PROVENANCES:
-        return ""
+        return None
     match = domain_identity_match_for_base(
         text or "",
         source,
@@ -6592,8 +6635,34 @@ def _report_only_source_identity_blocker(
         profile_context=profile_context,
     )
     if match and match.effective_mode == MODE_REPORT_ONLY:
-        return _REPORT_ONLY_SOURCE_IDENTITY_BLOCKER
-    return ""
+        return match
+    return None
+
+
+def _report_only_source_identity_blocker_detail(
+    text: str,
+    layout: _LayoutEvidence,
+    profile_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    identity = _stable_base_source_identity(text, layout.base)
+    match = _report_only_source_identity_match(
+        text,
+        identity,
+        profile_context=profile_context,
+    )
+    if not match:
+        return {}
+    return {
+        "source": str(identity.get("source", "") or ""),
+        "source_kind": str(identity.get("source_kind", "") or ""),
+        "source_provenance": str(identity.get("source_provenance", "") or ""),
+        "source_rhs_kind": str(identity.get("source_rhs_kind", "") or ""),
+        "profile_id": match.profile_id,
+        "role": match.role,
+        "structure": match.structure,
+        "effective_mode": match.effective_mode,
+        "profile_blockers": _domain_identity_structured_blockers(match),
+    }
 
 
 def _report_only_function_identity_rewrite_source_blocker(
