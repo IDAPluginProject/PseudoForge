@@ -10,10 +10,13 @@ from pathlib import Path
 from tools.pseudoforge_corpus_quality import (
     DECIMAL_STATUS_RE,
     _base_stability_review_profile,
+    _body_offset_fail_closed_family,
+    _body_offset_named_goal_target_group,
     _body_offset_residue_item_matches_queue,
     _body_offset_residue_promotion_hints,
     _body_offset_residue_next_action_details,
     _body_offset_residue_review_evidence,
+    _body_offset_rewrite_safety_policy,
     _decimal_status_like_literals,
     _decimal_status_target_review_queues,
     _extract_layout_rewrite_blockers,
@@ -1132,6 +1135,9 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("next_action_details", stats)
             self.assertIn("priority_factors", stats)
             self.assertIn("fail_closed_gates", stats)
+            self.assertIn("fail_closed_families", stats)
+            self.assertIn("rewrite_safety_policies", stats)
+            self.assertIn("evidence_maturity", stats)
             self.assertIn("review_focuses", stats)
             self.assertEqual(
                 2,
@@ -1176,6 +1182,15 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(1, stats["fail_closed_gates"]["report_only_private_layout"])
             self.assertEqual(1, stats["fail_closed_gates"]["source_build_mismatch"])
             self.assertEqual(1, stats["fail_closed_gates"]["type_conflict_required"])
+            self.assertEqual(1, stats["fail_closed_families"]["report_only_identity"])
+            self.assertEqual(1, stats["fail_closed_families"]["source_identity"])
+            self.assertEqual(1, stats["fail_closed_families"]["type_conflict"])
+            self.assertEqual(1, stats["rewrite_safety_policies"]["do_not_rewrite_report_only_profile"])
+            self.assertEqual(1, stats["rewrite_safety_policies"]["resolve_build_identity_before_rewrite"])
+            self.assertEqual(1, stats["rewrite_safety_policies"]["resolve_type_conflicts_before_rewrite"])
+            self.assertEqual(1, stats["evidence_maturity"]["report_only_alias_with_stable_source"])
+            self.assertEqual(1, stats["evidence_maturity"]["build_identity_mismatch"])
+            self.assertEqual(1, stats["evidence_maturity"]["type_conflict_unresolved"])
             self.assertEqual(3, stats["priority_factors"]["core_subsystem"])
             self.assertEqual(1, stats["priority_factors"]["source_build_mismatch"])
             self.assertEqual(2, stats["priority_factors"]["report_only_field_alias_available"])
@@ -1212,6 +1227,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "report_only_private_layout",
                 cmp_queue_item["fail_closed_gate"],
             )
+            self.assertEqual("report_only_identity", cmp_queue_item["fail_closed_family"])
+            self.assertEqual(
+                "do_not_rewrite_report_only_profile",
+                cmp_queue_item["rewrite_safety_policy"],
+            )
+            self.assertEqual("report_only_alias_with_stable_source", cmp_queue_item["evidence_maturity"])
             self.assertIn(
                 "report_only_field_alias_available",
                 cmp_queue_item["priority_factors"],
@@ -1246,6 +1267,110 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn(
                 "exact_function_build_source_identity_required",
                 queues["source_identity_required"]["items"][0]["next_action_details"],
+            )
+
+    def test_body_offset_named_goal_targets_stay_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def write_function(ea: str, name: str, text: str) -> None:
+                function_dir = root / "functions" / ("%s_%s" % (ea.replace("0x", ""), name))
+                function_dir.mkdir(parents=True)
+                cleaned_name = "%s.cleaned.cpp" % name
+                summary_name = "%s.ida-batch-summary.json" % name
+                (function_dir / cleaned_name).write_text(text, encoding="utf-8")
+                (function_dir / summary_name).write_text(
+                    json.dumps(
+                        {
+                            "mode": "ida_batch_export",
+                            "function": name,
+                            "function_ea": ea,
+                            "artifacts": {
+                                "cleaned_pseudocode": cleaned_name,
+                                "summary": summary_name,
+                            },
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_function(
+                "0x140040000",
+                "CmpFreeKeyControlBlock",
+                "\n".join(
+                    [
+                        "/*",
+                        "    Kernel insights:",
+                        "      - domain_structure_identity: Domain identity for keyControlBlock: role keyControlBlock, structure CM_KEY_CONTROL_BLOCK, mode report-only, profile windows.registry_config.cmp_free_key_control_block parameter 0. Fields field_8=+0x8 ULONG.",
+                        "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for keyControlBlock: domain identity profile is report-only; rewrite offset threshold requires at least 8 offsets. Review-only aliases remain available. confidence=0.73",
+                        "*/",
+                        "__int64 __fastcall CmpFreeKeyControlBlock(PVOID keyControlBlock)",
+                        "{",
+                        "  return *(_DWORD *)(keyControlBlock + 0x8);",
+                        "}",
+                        "",
+                    ]
+                ),
+            )
+            write_function(
+                "0x140050000",
+                "MiPrefetchVirtualMemory",
+                "\n".join(
+                    [
+                        "__int64 __fastcall MiPrefetchVirtualMemory(__int64 context)",
+                        "{",
+                        "  return *(_DWORD *)(context + 0x10);",
+                        "}",
+                        "",
+                    ]
+                ),
+            )
+
+            report = analyze_corpus(root)
+            stats = report["body_offset_residue_review_stats"]
+            queues = stats["review_queues"]
+            named_items = queues["named_goal_targets"]["items"]
+
+            self.assertEqual("registry", _body_offset_named_goal_target_group("CmpFreeKeyControlBlock"))
+            self.assertEqual("memory", _body_offset_named_goal_target_group("MiPrefetchVirtualMemory"))
+            self.assertEqual("object_callback_token", _body_offset_named_goal_target_group("ObpFreeObject"))
+            self.assertEqual(2, stats["totals"]["functions_with_named_goal_targets"])
+            self.assertEqual(1, stats["named_target_groups"]["registry"])
+            self.assertEqual(1, stats["named_target_groups"]["memory"])
+            self.assertEqual(2, queues["named_goal_targets"]["functions"])
+            self.assertEqual(
+                {"registry": 1, "memory": 1},
+                queues["named_goal_targets"]["target_groups"],
+            )
+            self.assertTrue(all(item["named_goal_target"] for item in named_items))
+            self.assertTrue(
+                any(
+                    item["name"] == "CmpFreeKeyControlBlock"
+                    and item["named_goal_target_group"] == "registry"
+                    and item["fail_closed_family"] == "report_only_identity"
+                    and item["rewrite_safety_policy"] == "do_not_rewrite_report_only_profile"
+                    for item in named_items
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["name"] == "MiPrefetchVirtualMemory"
+                    and item["named_goal_target_group"] == "memory"
+                    and "named_goal_target" in item["priority_factors"]
+                    for item in named_items
+                )
+            )
+            self.assertEqual("report_only_identity", _body_offset_fail_closed_family("report_only_private_layout"))
+            self.assertEqual("indexed_layout", _body_offset_fail_closed_family("pointer_indexed_separate_model"))
+            self.assertEqual(
+                "require_exact_function_build_source_identity",
+                _body_offset_rewrite_safety_policy(
+                    "exact_source_identity_required",
+                    "source_identity_blocked_residue",
+                    ["trusted_source_required"],
+                    ["exact_function_build_source_identity_required"],
+                ),
             )
 
     def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:
