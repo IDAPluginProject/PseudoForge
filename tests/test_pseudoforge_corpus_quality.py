@@ -1131,6 +1131,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             )
 
             report = analyze_corpus(root)
+            markdown = render_quality_markdown(report)
             stats = report["body_offset_residue_review_stats"]
             queues = stats["review_queues"]
 
@@ -1247,6 +1248,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "parameter_direct_alias",
                 queues["source_provenance_review"]["stable_source_provenance"],
             )
+            self.assertEqual(
+                {"transactionLogEntry": 1},
+                queues["source_provenance_review"]["top_stable_sources"],
+            )
             cmp_queue_item = next(
                 item
                 for item in queues["report_only_exact_promotion_candidates"]["items"]
@@ -1323,6 +1328,11 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "report-only identity remains closed",
                 cmp_queue_item["queue_reason"],
             )
+            source_queue_item = queues["source_provenance_review"]["items"][0]
+            self.assertIn(
+                "direct parameter source alias exists",
+                source_queue_item["queue_reason"],
+            )
             self.assertIn(
                 "registry/report_only_private_layout",
                 cmp_queue_item["review_summary"],
@@ -1331,6 +1341,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "policy=do_not_rewrite_report_only_profile",
                 cmp_queue_item["review_summary"],
             )
+            self.assertIn(
+                "stable-source=source=transactionLogEntry via=parameter_direct_alias kind=parameter",
+                cmp_queue_item["review_summary"],
+            )
+            self.assertIn("Stable sources", markdown)
+            self.assertIn("transactionLogEntry=1", markdown)
             self.assertTrue(
                 any(
                     item["name"] == "MiBuildMismatchResidue"

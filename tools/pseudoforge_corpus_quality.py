@@ -2450,8 +2450,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Factors | Classes | Details | Source provenance | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2509,12 +2509,20 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("stable_source_provenance", {})).items()
         )
+        source_kinds = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("stable_source_kinds", {})).items()
+        )
+        stable_sources = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("top_stable_sources", {})).items()
+        )
         domain_profiles = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2535,6 +2543,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(review_classes),
                 _markdown_table_cell(details),
                 _markdown_table_cell(source_provenance),
+                _markdown_table_cell(source_kinds),
+                _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
                 _markdown_table_cell(str(queue.get("recommended_next_step", "") or "")),
             )
@@ -6930,6 +6940,32 @@ def _body_offset_parameter_indexed_offsets(items: list[dict[str, Any]]) -> list[
     return offsets[:8]
 
 
+def _body_offset_stable_source_summary_parts(item: dict[str, Any], limit: int = 2) -> list[str]:
+    sources = [
+        str(source)
+        for source in _coerce_dict(item.get("top_stable_sources", {})).keys()
+        if str(source)
+    ][:limit]
+    provenance = [
+        str(kind)
+        for kind in _coerce_dict(item.get("stable_source_provenance", {})).keys()
+        if str(kind)
+    ][:limit]
+    source_kinds = [
+        str(kind)
+        for kind in _coerce_dict(item.get("stable_source_kinds", {})).keys()
+        if str(kind)
+    ][:limit]
+    parts: list[str] = []
+    if sources:
+        parts.append("source=%s" % ",".join(sources))
+    if provenance:
+        parts.append("via=%s" % ",".join(provenance))
+    if source_kinds:
+        parts.append("kind=%s" % ",".join(source_kinds))
+    return parts
+
+
 def _body_offset_top_bases(
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
@@ -7098,6 +7134,7 @@ def _body_offset_residue_review_queue_summary(
     residue_review_notes: Counter[str] = Counter()
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
+    top_stable_sources: Counter[str] = Counter()
     domain_profiles: Counter[str] = Counter()
     parameter_indexed_parents: Counter[str] = Counter()
     parameter_indexed_parent_types: Counter[str] = Counter()
@@ -7119,6 +7156,8 @@ def _body_offset_residue_review_queue_summary(
             stable_source_provenance[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("stable_source_kinds", {})).items():
             stable_source_kinds[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("top_stable_sources", {})).items():
+            top_stable_sources[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
             domain_profiles[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_indexed_parents", {})).items():
@@ -7173,6 +7212,7 @@ def _body_offset_residue_review_queue_summary(
             Counter(dict(stable_source_provenance.most_common(limit)))
         ),
         "stable_source_kinds": _counter_to_dict(Counter(dict(stable_source_kinds.most_common(limit)))),
+        "top_stable_sources": _counter_to_dict(Counter(dict(top_stable_sources.most_common(limit)))),
         "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
         "parameter_indexed_parents": _counter_to_dict(
             Counter(dict(parameter_indexed_parents.most_common(limit)))
@@ -7284,6 +7324,13 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
     if queue == "source_identity_required":
         return "canonical rewrite requires exact function/build/source identity"
     if queue == "source_provenance_review":
+        provenance = _coerce_dict(item.get("stable_source_provenance", {}))
+        if _int_value(provenance.get("parameter_direct_alias"), 0) > 0:
+            return "direct parameter source alias exists; verify exact profile/build before rewrite"
+        if _int_value(provenance.get("parameter_field_pointer_alias"), 0) > 0:
+            return "parameter-field pointer source alias exists; require exact source profile before rewrite"
+        if _int_value(provenance.get("named_call_result_alias"), 0) > 0:
+            return "named call-result source alias exists; verify returned layout identity before rewrite"
         return "stable source provenance exists; verify it before widening rewrite"
     if queue == "validated_rewrite_residue":
         return "validated rewrite already ran; reread remaining secondary residue"
@@ -7346,6 +7393,9 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:3]
     if top_bases:
         parts.append("bases=%s" % ",".join(top_bases))
+    stable_source_parts = _body_offset_stable_source_summary_parts(item)
+    if stable_source_parts:
+        parts.append("stable-source=%s" % " ".join(stable_source_parts))
     parameter_indexed_count = _int_value(item.get("parameter_indexed_element_count"), 0)
     if parameter_indexed_count > 0:
         indexed_parts = []
