@@ -1001,10 +1001,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 1,
                 stats["promotion_hints"]["validate_parameter_semantics_before_type_correction"],
             )
+            self.assertEqual(1, stats["promotion_lanes"]["add_parameter_profile_or_type_evidence"])
             self.assertEqual(1, stats["offset_shape_classes"]["parameter_offset_shape_review"])
             self.assertEqual(1, stats["offset_base_classes"]["renamed_argument"])
             self.assertEqual("ParameterResidue", item["name"])
             self.assertEqual("parameter_offset_shape_review", item["review_class"])
+            self.assertEqual("add_parameter_profile_or_type_evidence", item["promotion_lane"])
             self.assertIn("argument0", item["top_bases"])
 
     def test_body_offset_review_queues_group_actionable_residue(self) -> None:
@@ -1143,6 +1145,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("evidence_maturity", stats)
             self.assertIn("review_focuses", stats)
             self.assertIn("residue_review_notes", stats)
+            self.assertIn("promotion_lanes", stats)
             self.assertIn(
                 "primary_review_reasons",
                 queues["report_only_exact_promotion_candidates"],
@@ -1190,6 +1193,22 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(
                 1,
                 stats["next_action_details"]["direct_parameter_source_alias_available"],
+            )
+            self.assertEqual(
+                1,
+                stats["promotion_lanes"]["collect_exact_source_for_direct_parameter_alias"],
+            )
+            self.assertEqual(
+                1,
+                stats["promotion_lanes"]["resolve_type_overlay_or_alignment"],
+            )
+            self.assertEqual(
+                1,
+                stats["promotion_lanes"]["collect_function_build_source_identity"],
+            )
+            self.assertEqual(
+                1,
+                stats["promotion_lanes"]["add_parameter_profile_or_type_evidence"],
             )
             self.assertEqual(1, stats["fail_closed_gates"]["report_only_private_layout"])
             self.assertEqual(1, stats["fail_closed_gates"]["source_build_mismatch"])
@@ -1366,6 +1385,8 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("transactionLogEntry=1", markdown)
             self.assertIn("Blocker families", markdown)
             self.assertIn("type_wide_overlay=1", markdown)
+            self.assertIn("Promotion lanes", markdown)
+            self.assertIn("collect_exact_source_for_direct_parameter_alias", markdown)
             self.assertTrue(
                 any(
                     item["name"] == "MiBuildMismatchResidue"
@@ -1376,6 +1397,24 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn(
                 "exact_function_build_source_identity_required",
                 queues["source_identity_required"]["items"][0]["next_action_details"],
+            )
+            self.assertEqual(
+                1,
+                queues["source_provenance_review"]["promotion_lanes"][
+                    "collect_exact_source_for_direct_parameter_alias"
+                ],
+            )
+            self.assertEqual(
+                "collect_exact_source_for_direct_parameter_alias",
+                cmp_queue_item["promotion_lane"],
+            )
+            self.assertIn(
+                "lane=collect_exact_source_for_direct_parameter_alias",
+                cmp_queue_item["review_summary"],
+            )
+            self.assertEqual(
+                "resolve_type_overlay_or_alignment",
+                type_queue_item["promotion_lane"],
             )
 
     def test_body_offset_named_goal_targets_stay_visible(self) -> None:
@@ -1963,6 +2002,10 @@ __int64 __fastcall ExpressionSource(__int64 context)
                 1,
                 body_offset_stats["promotion_hints"]["verify_validated_rewrite_output"],
             )
+            self.assertEqual(
+                1,
+                body_offset_stats["promotion_lanes"]["reread_validated_secondary_residue"],
+            )
             self.assertIn(
                 "validated_rewrite_still_has_residue",
                 body_offset_stats["top_functions"][0]["review_evidence"],
@@ -1970,6 +2013,10 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertIn(
                 "verify_validated_rewrite_output",
                 body_offset_stats["top_functions"][0]["promotion_hints"],
+            )
+            self.assertEqual(
+                "reread_validated_secondary_residue",
+                body_offset_stats["top_functions"][0]["promotion_lane"],
             )
             self.assertEqual(2, report["layout_hint_stats"]["totals"]["hints"])
             self.assertEqual(1, report["layout_hint_stats"]["totals"]["functions_with_hints"])

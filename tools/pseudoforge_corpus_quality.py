@@ -841,6 +841,7 @@ def analyze_corpus(
     body_offset_residue_blocker_reasons: Counter[str] = Counter()
     body_offset_residue_review_evidence: Counter[str] = Counter()
     body_offset_residue_promotion_hints: Counter[str] = Counter()
+    body_offset_residue_promotion_lanes: Counter[str] = Counter()
     body_offset_residue_next_action_details: Counter[str] = Counter()
     body_offset_residue_priority_factors: Counter[str] = Counter()
     body_offset_residue_review_notes: Counter[str] = Counter()
@@ -1204,6 +1205,7 @@ def analyze_corpus(
                         body_offset_residue_blocker_reasons,
                         body_offset_residue_review_evidence,
                         body_offset_residue_promotion_hints,
+                        body_offset_residue_promotion_lanes,
                         body_offset_residue_next_action_details,
                         body_offset_residue_priority_factors,
                         body_offset_residue_review_notes,
@@ -1809,6 +1811,7 @@ def analyze_corpus(
             "blocker_reasons": _counter_to_dict(Counter(dict(body_offset_residue_blocker_reasons.most_common(top)))),
             "review_evidence": _counter_to_dict(Counter(dict(body_offset_residue_review_evidence.most_common(top)))),
             "promotion_hints": _counter_to_dict(Counter(dict(body_offset_residue_promotion_hints.most_common(top)))),
+            "promotion_lanes": _counter_to_dict(Counter(dict(body_offset_residue_promotion_lanes.most_common(top)))),
             "next_action_details": _counter_to_dict(
                 Counter(dict(body_offset_residue_next_action_details.most_common(top)))
             ),
@@ -2305,6 +2308,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Residue Promotion Lanes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("promotion_lanes", {})),
+            "Lane",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Residue Next Action Details",
             "",
         ]
@@ -2450,8 +2466,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Blocker families | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2505,6 +2521,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("blocker_families", {})).items()
         )
+        promotion_lanes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("promotion_lanes", {})).items()
+        )
         factors = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("priority_factors", {})).items()
@@ -2526,7 +2546,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2544,6 +2564,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(primary_reasons),
                 _markdown_table_cell(review_notes),
                 _markdown_table_cell(blocker_families),
+                _markdown_table_cell(promotion_lanes),
                 _markdown_table_cell(factors),
                 _markdown_table_cell(review_classes),
                 _markdown_table_cell(details),
@@ -2559,8 +2580,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | Summary | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -2579,11 +2600,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         review_notes = ", ".join(str(value) for value in item.get("residue_review_notes", []) or [])
         goal_group = str(item.get("named_goal_target_group", "") or "")
         goal_text = goal_group if bool(item.get("named_goal_target")) else ""
+        promotion_lane = str(item.get("promotion_lane", "") or "")
         lines.append(
-            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 _markdown_table_cell(str(item.get("review_summary", "") or "")),
+                promotion_lane,
                 str(item.get("ea", "")),
                 goal_text,
                 str(item.get("subsystem", "")),
@@ -5884,6 +5907,7 @@ def _body_offset_residue_function_summary(
         "domain_profiles": _profile_counter(domain_identities),
         "summary_path": str(summary_path),
     }
+    result["promotion_lane"] = _body_offset_residue_promotion_lane(result)
     result["review_summary"] = _body_offset_residue_review_summary(result)
     return result
 
@@ -5897,6 +5921,7 @@ def _update_body_offset_residue_metrics(
     blocker_reasons: Counter[str],
     review_evidence: Counter[str],
     promotion_hints: Counter[str],
+    promotion_lanes: Counter[str],
     next_action_details: Counter[str],
     priority_factors: Counter[str],
     review_notes: Counter[str],
@@ -5943,6 +5968,9 @@ def _update_body_offset_residue_metrics(
     for hint in item.get("promotion_hints", []) or []:
         if str(hint):
             promotion_hints[str(hint)] += 1
+    promotion_lane = str(item.get("promotion_lane", "") or "")
+    if promotion_lane:
+        promotion_lanes[promotion_lane] += 1
     for detail in item.get("next_action_details", []) or []:
         if str(detail):
             next_action_details[str(detail)] += 1
@@ -7034,6 +7062,89 @@ def _body_offset_blocker_family_summary_parts(item: dict[str, Any], limit: int =
     ][:limit]
 
 
+def _body_offset_residue_promotion_lane(item: dict[str, Any]) -> str:
+    gate = str(item.get("fail_closed_gate", "") or "")
+    review_class = str(item.get("review_class", "") or "")
+    next_action = str(item.get("next_action", "") or "")
+    details = {
+        str(detail)
+        for detail in item.get("next_action_details", []) or []
+        if str(detail)
+    }
+    hints = {
+        str(hint)
+        for hint in item.get("promotion_hints", []) or []
+        if str(hint)
+    }
+    families = _coerce_dict(item.get("blocker_families", {}))
+    provenance = _coerce_dict(item.get("stable_source_provenance", {}))
+
+    if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
+        return "model_parameter_indexed_layout"
+    if _int_value(provenance.get("named_call_result_alias"), 0) > 0:
+        return "verify_call_result_layout_identity"
+    if gate == "validated_rewrite_residue_review":
+        return "reread_validated_secondary_residue"
+    if _int_value(provenance.get("parameter_field_pointer_alias"), 0) > 0:
+        return "collect_exact_source_for_parameter_field_pointer_alias"
+    if (
+        _int_value(provenance.get("parameter_direct_alias"), 0) > 0
+        or _int_value(provenance.get("direct_argument_alias"), 0) > 0
+    ):
+        return "collect_exact_source_for_direct_parameter_alias"
+    if gate == "source_build_mismatch":
+        return "collect_function_build_source_identity"
+    if gate == "exact_source_identity_required":
+        return "collect_function_build_source_identity"
+    if (
+        gate == "pointer_indexed_separate_model"
+        or "model_pointer_indexed_entry_or_callback_table" in hints
+        or "pointer_indexed_metrics_present" in details
+    ):
+        return "model_indexed_layout"
+    if (
+        gate == "report_only_source_identity"
+        or _int_value(families.get("report_only_source_identity"), 0) > 0
+        or "promote_source_identity_before_alias_rewrite" in details
+    ):
+        return "collect_exact_source_identity_for_report_only_alias"
+    if gate == "report_only_private_layout" or _int_value(families.get("report_only_profile"), 0) > 0:
+        return "collect_exact_private_layout_source"
+    if (
+        gate == "source_stability_required"
+        or _int_value(families.get("source_reassigned"), 0) > 0
+        or _int_value(families.get("source_address_taken"), 0) > 0
+        or _int_value(families.get("source_compound_assignment"), 0) > 0
+        or _int_value(families.get("source_multiple_initializers"), 0) > 0
+    ):
+        return "prove_source_stability"
+    if (
+        gate == "type_conflict_required"
+        or _int_value(families.get("type_wide_overlay"), 0) > 0
+        or _int_value(families.get("type_narrow_subfield"), 0) > 0
+        or _int_value(families.get("type_irregular_width"), 0) > 0
+        or _int_value(families.get("type_unaligned"), 0) > 0
+        or _int_value(families.get("type_volatile_like"), 0) > 0
+        or _int_value(families.get("type_mmio_register"), 0) > 0
+    ):
+        return "resolve_type_overlay_or_alignment"
+    if gate == "temp_source_identity_required" or "trace_temp_initializer_before_promotion" in details:
+        return "trace_temp_initializer_identity"
+    if (
+        review_class == "parameter_offset_shape_review"
+        or next_action == "add_parameter_profile_or_keep_review_only"
+    ):
+        return "add_parameter_profile_or_type_evidence"
+    if (
+        review_class == "context_offset_shape_review"
+        or next_action == "add_context_profile_or_keep_review_only"
+    ):
+        return "add_exact_context_profile"
+    if gate == "low_pressure_deferred" or "defer_low_pressure_residue" in details:
+        return "defer_low_pressure"
+    return "manual_review"
+
+
 def _body_offset_top_bases(
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
@@ -7202,6 +7313,7 @@ def _body_offset_residue_review_queue_summary(
     residue_review_notes: Counter[str] = Counter()
     blocker_reasons: Counter[str] = Counter()
     blocker_families: Counter[str] = Counter()
+    promotion_lanes: Counter[str] = Counter()
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
     top_stable_sources: Counter[str] = Counter()
@@ -7226,6 +7338,9 @@ def _body_offset_residue_review_queue_summary(
             blocker_reasons[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("blocker_families", {})).items():
             blocker_families[str(key)] += _int_value(value, 0)
+        promotion_lane = str(item.get("promotion_lane", "") or "")
+        if promotion_lane:
+            promotion_lanes[promotion_lane] += 1
         for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
             stable_source_provenance[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("stable_source_kinds", {})).items():
@@ -7284,6 +7399,7 @@ def _body_offset_residue_review_queue_summary(
         ),
         "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(limit)))),
         "blocker_families": _counter_to_dict(Counter(dict(blocker_families.most_common(limit)))),
+        "promotion_lanes": _counter_to_dict(Counter(dict(promotion_lanes.most_common(limit)))),
         "stable_source_provenance": _counter_to_dict(
             Counter(dict(stable_source_provenance.most_common(limit)))
         ),
@@ -7318,6 +7434,7 @@ def _body_offset_residue_review_queue_item(
         "next_action": str(item.get("next_action", "") or ""),
         "queue_reason": _body_offset_residue_queue_reason(queue_name, item),
         "review_summary": _body_offset_residue_review_summary(item),
+        "promotion_lane": str(item.get("promotion_lane", "") or ""),
         "review_focus": str(item.get("review_focus", "") or ""),
         "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
         "fail_closed_family": str(item.get("fail_closed_family", "") or ""),
@@ -7472,6 +7589,9 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     policy = str(item.get("rewrite_safety_policy", "") or "")
     if policy:
         parts.append("policy=%s" % policy)
+    lane = str(item.get("promotion_lane", "") or "")
+    if lane:
+        parts.append("lane=%s" % lane)
     primary_reasons = [
         str(reason)
         for reason in item.get("primary_review_reasons", []) or []
