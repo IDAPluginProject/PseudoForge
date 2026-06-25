@@ -3148,6 +3148,11 @@ __int64 __fastcall IndexedElement(PMEMORY_RANGE_ENTRY memoryRanges, ULONG_PTR in
             body_offset_stats = report["body_offset_residue_review_stats"]
             self.assertEqual(1, body_offset_stats["totals"]["functions_with_parameter_indexed_elements"])
             body_item = body_offset_stats["top_functions"][0]
+            self.assertTrue(body_item["cleaned_path"].endswith("IndexedElement.cleaned.cpp"))
+            self.assertEqual("parameter_indexed_separate_model", body_item["fail_closed_gate"])
+            self.assertEqual("indexed_layout", body_item["fail_closed_family"])
+            self.assertEqual("model_indexed_layout_separately", body_item["rewrite_safety_policy"])
+            self.assertEqual("indexed_shape_model_needed", body_item["evidence_maturity"])
             self.assertEqual(1, body_item["parameter_indexed_element_count"])
             self.assertEqual({"memoryRanges": 1}, body_item["parameter_indexed_parents"])
             self.assertEqual({"PMEMORY_RANGE_ENTRY": 1}, body_item["parameter_indexed_parent_types"])
@@ -3156,20 +3161,23 @@ __int64 __fastcall IndexedElement(PMEMORY_RANGE_ENTRY memoryRanges, ULONG_PTR in
             self.assertIn("parameter_indexed_element_shape", body_item["review_evidence"])
             self.assertIn("parameter_indexed_parent_stride_available", body_item["next_action_details"])
             self.assertIn("parameter_indexed_element_shape", body_item["priority_factors"])
+            self.assertIn("parameter_indexed_layout_model_required", body_item["primary_review_reasons"])
             self.assertIn("indexed-element=parent=memoryRanges", body_item["review_summary"])
-            low_pressure_queue = body_offset_stats["review_queues"]["low_pressure_deferred"]
-            self.assertEqual(1, low_pressure_queue["functions"])
-            self.assertEqual(1, low_pressure_queue["parameter_indexed_elements"])
-            self.assertEqual({"memoryRanges": 1}, low_pressure_queue["parameter_indexed_parents"])
-            self.assertEqual({"PMEMORY_RANGE_ENTRY": 1}, low_pressure_queue["parameter_indexed_parent_types"])
-            self.assertEqual({"16": 1}, low_pressure_queue["parameter_indexed_strides"])
-            queue_item = low_pressure_queue["items"][0]
+            indexed_queue = body_offset_stats["review_queues"]["pointer_indexed_layout_candidates"]
+            self.assertEqual(1, indexed_queue["functions"])
+            self.assertEqual(1, indexed_queue["parameter_indexed_elements"])
+            self.assertEqual({"memoryRanges": 1}, indexed_queue["parameter_indexed_parents"])
+            self.assertEqual({"PMEMORY_RANGE_ENTRY": 1}, indexed_queue["parameter_indexed_parent_types"])
+            self.assertEqual({"16": 1}, indexed_queue["parameter_indexed_strides"])
+            queue_item = indexed_queue["items"][0]
+            self.assertTrue(queue_item["cleaned_path"].endswith("IndexedElement.cleaned.cpp"))
             self.assertEqual(1, queue_item["parameter_indexed_element_count"])
             self.assertEqual({"memoryRanges": 1}, queue_item["parameter_indexed_parents"])
             self.assertEqual({"PMEMORY_RANGE_ENTRY": 1}, queue_item["parameter_indexed_parent_types"])
             self.assertEqual({"16": 1}, queue_item["parameter_indexed_strides"])
             self.assertEqual(["+0x0", "+0x8"], queue_item["parameter_indexed_offsets"])
-            self.assertIn("low-pressure residue", queue_item["queue_reason"])
+            self.assertIn("parameter-indexed element shape", queue_item["queue_reason"])
+            self.assertEqual(0, body_offset_stats["review_queues"]["low_pressure_deferred"]["functions"])
 
     def test_api_semantic_review_queue_groups_actionable_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -209,7 +209,7 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
         "Candidates blocked by mixed width, overlay, or alignment evidence that must be resolved before rewrite."
     ),
     "pointer_indexed_layout_candidates": (
-        "Pointer-indexed table or callback-like shapes; model separately from canonical field rewrite."
+        "Pointer-indexed table, callback-like, or parameter-indexed element shapes; model separately from canonical field rewrite."
     ),
     "dense_shape_identity_candidates": (
         "Dense offset shapes with enough pressure but without a trusted structure/source identity."
@@ -290,7 +290,7 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
         "Resolve subfield width, overlay, and alignment conflicts or keep aliases report-only."
     ),
     "pointer_indexed_layout_candidates": (
-        "Treat table slots and callback arrays as indexed layouts instead of field rewrites."
+        "Treat table slots, callback arrays, and parameter-indexed elements as indexed layouts instead of field rewrites."
     ),
     "dense_shape_identity_candidates": (
         "Add a function-scoped identity only when the dense base has exact source and build provenance."
@@ -326,6 +326,7 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "source_stability_gate": 8,
     "type_conflict_gate": 8,
     "pointer_indexed_shape": 6,
+    "parameter_indexed_element_shape": 6,
     "validated_rewrite_residue": 7,
     "parameter_type_followup": 5,
     "dense_shape_without_identity": 6,
@@ -1179,6 +1180,7 @@ def analyze_corpus(
                     name,
                     ea,
                     summary_path,
+                    cleaned_path,
                     prototype_metrics,
                     layout_hints,
                     hot_field_clusters,
@@ -5685,6 +5687,7 @@ def _body_offset_residue_function_summary(
     name: str,
     ea: str,
     summary_path: Path,
+    cleaned_path: Path,
     prototype_metrics: dict[str, Any],
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
@@ -5959,6 +5962,7 @@ def _body_offset_residue_function_summary(
         "profile_counts": _coerce_dict(prototype_metrics.get("function_identity_profiles", {})),
         "domain_profiles": _profile_counter(domain_identities),
         "summary_path": str(summary_path),
+        "cleaned_path": str(cleaned_path),
     }
     result["promotion_lane"] = _body_offset_residue_promotion_lane(result)
     result["review_summary"] = _body_offset_residue_review_summary(result)
@@ -6444,6 +6448,8 @@ def _body_offset_residue_fail_closed_gate(
         return "source_stability_required"
     if "type_width_or_alignment_conflict" in evidence or "type_evidence_gate_is_blocking" in details:
         return "type_conflict_required"
+    if "parameter_indexed_element_shape" in evidence or "parameter_indexed_parent_stride_available" in details:
+        return "parameter_indexed_separate_model"
     if "pointer_indexed_array_or_table_shape" in evidence:
         return "pointer_indexed_separate_model"
     if "threshold_gap" in evidence:
@@ -6569,7 +6575,7 @@ def _body_offset_fail_closed_family(fail_closed_gate: str) -> str:
         return "source_stability"
     if gate == "type_conflict_required":
         return "type_conflict"
-    if gate == "pointer_indexed_separate_model":
+    if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
         return "indexed_layout"
     if gate == "validated_rewrite_residue_review":
         return "validated_rewrite_residue"
@@ -6604,7 +6610,7 @@ def _body_offset_rewrite_safety_policy(
         return "prove_source_stability_before_rewrite"
     if gate == "type_conflict_required":
         return "resolve_type_conflicts_before_rewrite"
-    if gate == "pointer_indexed_separate_model":
+    if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
         return "model_indexed_layout_separately"
     if gate == "temp_source_identity_required":
         return "trace_temp_source_before_rewrite"
@@ -6640,7 +6646,7 @@ def _body_offset_evidence_maturity(
         return "source_stability_unproven"
     if gate == "type_conflict_required":
         return "type_conflict_unresolved"
-    if gate == "pointer_indexed_separate_model":
+    if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
         return "indexed_shape_model_needed"
     if gate == "temp_source_identity_required":
         return "temp_source_unproven"
@@ -6681,6 +6687,8 @@ def _body_offset_primary_review_reasons(
         reasons.append("type_width_or_alignment_conflict")
     if gate == "pointer_indexed_separate_model":
         reasons.append("indexed_layout_model_required")
+    if gate == "parameter_indexed_separate_model":
+        reasons.append("parameter_indexed_layout_model_required")
     if gate == "temp_source_identity_required":
         reasons.append("temp_source_identity_required")
     if gate == "threshold_evidence_gap":
@@ -7312,6 +7320,7 @@ def _body_offset_named_goal_target_status(
                 "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
                 "recommended_next": _body_offset_named_goal_target_recommended_next(item),
                 "summary_path": str(item.get("summary_path", "") or ""),
+                "cleaned_path": str(item.get("cleaned_path", "") or ""),
             }
         )
     present_targets.sort(
@@ -7414,6 +7423,9 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
             next_action == "model_pointer_indexed_layout_or_callback_table"
             or "pointer_indexed_array_or_table_shape" in evidence
             or "pointer_indexed_metrics_present" in details
+            or fail_closed_gate == "parameter_indexed_separate_model"
+            or "parameter_indexed_element_shape" in evidence
+            or "parameter_indexed_parent_stride_available" in details
         )
     if queue_name == "dense_shape_identity_candidates":
         return (
@@ -7438,7 +7450,11 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
     if queue_name == "low_pressure_deferred":
         return (
             fail_closed_gate == "low_pressure_deferred"
-            or review_class == "low_pressure_offset_residue"
+            or (
+                review_class == "low_pressure_offset_residue"
+                and "parameter_indexed_element_shape" not in evidence
+                and "pointer_indexed_array_or_table_shape" not in evidence
+            )
         )
     if queue_name == "manual_review_required":
         return (
@@ -7658,6 +7674,7 @@ def _body_offset_residue_review_queue_item(
         ],
         "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
         "summary_path": str(item.get("summary_path", "") or ""),
+        "cleaned_path": str(item.get("cleaned_path", "") or ""),
     }
 
 
