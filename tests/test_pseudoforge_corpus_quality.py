@@ -1762,6 +1762,13 @@ __int64 __fastcall ExpressionSource(__int64 context)
                     "rewritten_accesses": 12,
                     "rewritten_fields": 8,
                     "rewritten_bases": ["fullBase"],
+                    "rewrite_results": {
+                        "fullBase": {
+                            "rewritten_accesses": 12,
+                            "rewritten_fields": 8,
+                            "offset_accesses": {"0x8": 12},
+                        }
+                    },
                     "validation": {"status": "passed", "checks": {}, "errors": []},
                 },
             )
@@ -1789,6 +1796,13 @@ __int64 __fastcall ExpressionSource(__int64 context)
                     "rewritten_accesses": 23,
                     "rewritten_fields": 10,
                     "rewritten_bases": ["partialBase"],
+                    "rewrite_results": {
+                        "partialBase": {
+                            "rewritten_accesses": 23,
+                            "rewritten_fields": 10,
+                            "offset_accesses": {"0x0": 2, "0x20": 21},
+                        }
+                    },
                     "validation": {"status": "passed", "checks": {}, "errors": []},
                 },
             )
@@ -1801,11 +1815,18 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(2, stats["totals"]["canonical_rewrite_applied"])
             self.assertEqual(1, stats["totals"]["canonical_rewrite_applied_full"])
             self.assertEqual(1, stats["totals"]["canonical_rewrite_applied_partial"])
+            self.assertEqual(2, stats["totals"]["direct_zero_rewritten_accesses"])
+            self.assertEqual(1, stats["totals"]["functions_with_direct_zero_rewrites"])
+            self.assertEqual(2, stats["totals"]["canonical_direct_zero_rewritten_accesses"])
+            self.assertEqual(1, stats["totals"]["functions_with_canonical_direct_zero_rewrites"])
             self.assertEqual(1, stats["totals"]["full_preview_plans"])
             self.assertEqual(1, stats["totals"]["partial_preview_plans"])
             self.assertEqual(1, stats["canonical_rewrite_statuses"]["applied"])
             self.assertEqual(1, stats["canonical_rewrite_statuses"]["applied_partial"])
             self.assertEqual({"full": 1, "partial": 1}, stats["preview_plan_kinds"])
+            self.assertEqual("Partial", stats["top_functions"][0]["name"])
+            self.assertEqual(2, stats["top_functions"][0]["direct_zero_rewritten_accesses"])
+            self.assertEqual(2, stats["top_functions"][0]["canonical_direct_zero_rewritten_accesses"])
 
     def test_analyze_corpus_counts_warning_rename_rule_and_text_residue_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

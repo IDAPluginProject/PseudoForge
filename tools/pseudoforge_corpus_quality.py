@@ -3981,8 +3981,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Rewrite Preview Artifact Functions",
             "",
-            "| Function | EA | Status | Canonical rewrite | Rewritten accesses | Rewritten fields | Bases | Errors |",
-            "| --- | --- | --- | --- | ---: | ---: | --- | --- |",
+            "| Function | EA | Status | Canonical rewrite | Rewritten accesses | Rewritten fields | Direct-zero rewrites | Canonical direct-zero | Bases | Errors |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
         ]
     )
     for item in rewrite_preview_artifact_stats.get("top_functions", []) or []:
@@ -3991,7 +3991,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         bases = ", ".join("`%s`" % base for base in item.get("rewritten_bases", []) or [])
         errors = "; ".join(str(error) for error in item.get("validation_errors", []) or [])
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -3999,6 +3999,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 str(item.get("canonical_rewrite_status", "")),
                 int(item.get("rewritten_accesses", 0) or 0),
                 int(item.get("rewritten_fields", 0) or 0),
+                int(item.get("direct_zero_rewritten_accesses", 0) or 0),
+                int(item.get("canonical_direct_zero_rewritten_accesses", 0) or 0),
                 _markdown_table_cell(bases),
                 _markdown_table_cell(errors),
             )
@@ -10633,6 +10635,10 @@ def _update_layout_rewrite_preview_artifact_metrics(
     totals["functions_with_preview_artifacts"] += 1
     totals["rewritten_accesses"] += _int_value(metadata.get("rewritten_accesses"), 0)
     totals["rewritten_fields"] += _int_value(metadata.get("rewritten_fields"), 0)
+    direct_zero_rewritten_accesses = _rewrite_preview_artifact_direct_zero_rewrite_accesses(metadata)
+    totals["direct_zero_rewritten_accesses"] += direct_zero_rewritten_accesses
+    if direct_zero_rewritten_accesses > 0:
+        totals["functions_with_direct_zero_rewrites"] += 1
     validation = _coerce_dict(metadata.get("validation", {}))
     status = str(validation.get("status", "") or "unknown")
     statuses[status] += 1
@@ -10666,6 +10672,9 @@ def _update_layout_rewrite_preview_artifact_metrics(
         totals["canonical_rewrite_requested"] += 1
     if bool(metadata.get("canonical_cleaned_output_modified", False)):
         totals["canonical_rewrite_applied"] += 1
+        totals["canonical_direct_zero_rewritten_accesses"] += direct_zero_rewritten_accesses
+        if direct_zero_rewritten_accesses > 0:
+            totals["functions_with_canonical_direct_zero_rewrites"] += 1
         if canonical_status == "applied":
             totals["canonical_rewrite_applied_full"] += 1
         elif canonical_status == "applied_partial":
@@ -10685,6 +10694,30 @@ def _update_layout_rewrite_preview_artifact_metrics(
         if bool(passed):
             continue
         failed_checks[str(check)] += 1
+
+
+def _rewrite_preview_artifact_direct_zero_rewrite_accesses(metadata: dict[str, Any]) -> int:
+    total = 0
+    rewrite_results = _coerce_dict(metadata.get("rewrite_results", {}))
+    for result in rewrite_results.values():
+        if not isinstance(result, dict):
+            continue
+        offset_accesses = _coerce_dict(result.get("offset_accesses", {}))
+        for offset_key, count in offset_accesses.items():
+            if _rewrite_preview_artifact_offset_key(offset_key) != 0:
+                continue
+            total += _int_value(count, 0)
+    return total
+
+
+def _rewrite_preview_artifact_offset_key(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+    except ValueError:
+        return None
 
 
 def _update_layout_rewrite_near_ready_metrics(
@@ -11740,6 +11773,8 @@ def _rewrite_preview_artifact_function_summary(
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     validation = _coerce_dict(metadata.get("validation", {}))
+    direct_zero_rewritten_accesses = _rewrite_preview_artifact_direct_zero_rewrite_accesses(metadata)
+    canonical_modified = bool(metadata.get("canonical_cleaned_output_modified", False))
     return {
         "ea": ea,
         "name": name,
@@ -11750,7 +11785,7 @@ def _rewrite_preview_artifact_function_summary(
             if str(error)
         ],
         "canonical_rewrite_status": str(metadata.get("canonical_rewrite_status", "") or "unknown"),
-        "canonical_cleaned_output_modified": bool(metadata.get("canonical_cleaned_output_modified", False)),
+        "canonical_cleaned_output_modified": canonical_modified,
         "preview_plan_kinds": dict(
             Counter(
                 str(plan.get("plan_kind", "") or "full")
@@ -11765,6 +11800,10 @@ def _rewrite_preview_artifact_function_summary(
         ],
         "rewritten_accesses": _int_value(metadata.get("rewritten_accesses"), 0),
         "rewritten_fields": _int_value(metadata.get("rewritten_fields"), 0),
+        "direct_zero_rewritten_accesses": direct_zero_rewritten_accesses,
+        "canonical_direct_zero_rewritten_accesses": (
+            direct_zero_rewritten_accesses if canonical_modified else 0
+        ),
         "rewritten_bases": [
             str(base)
             for base in metadata.get("rewritten_bases", []) or []
