@@ -625,6 +625,10 @@ FIELD_REWRITE_BLOCKER_DETAIL_RE = re.compile(
     r"-\s+inferred_offset_rewrite_blockers:\s+Offset field rewrite blocked for\s+"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*:\s+"
     r"(?P<reasons>.*?)\.\s+"
+    r"(?:Domain identity\s+(?P<domain_blocker_profile_id>[A-Za-z0-9_.-]+)\s+"
+    r"\((?P<domain_blocker_role>[A-Za-z_][A-Za-z0-9_]*)/"
+    r"(?P<domain_blocker_structure>[A-Za-z_][A-Za-z0-9_]*)\)\s+"
+    r"is report-only;\s+exact function/build/private-layout source identity is required before canonical rewrite\.\s+)?"
     r"(?:Source identity\s+(?P<source>.*?)\s+"
     r"\((?P<source_provenance>[a-z_]+)\)\s+is report-only profile\s+"
     r"(?P<source_profile_id>[A-Za-z0-9_.-]+)\s+for\s+"
@@ -10579,6 +10583,17 @@ def _extract_layout_rewrite_blockers(text: str) -> list[dict[str, Any]]:
             item["source_identity_role"] = str(match.groupdict().get("source_role") or "")
             item["source_identity_structure"] = str(
                 match.groupdict().get("source_structure") or ""
+            )
+        domain_blocker_profile_id = str(
+            match.groupdict().get("domain_blocker_profile_id") or ""
+        )
+        if domain_blocker_profile_id:
+            item["domain_identity_blocker_profile_id"] = domain_blocker_profile_id
+            item["domain_identity_blocker_role"] = str(
+                match.groupdict().get("domain_blocker_role") or ""
+            )
+            item["domain_identity_blocker_structure"] = str(
+                match.groupdict().get("domain_blocker_structure") or ""
             )
         blockers.append(item)
     return blockers

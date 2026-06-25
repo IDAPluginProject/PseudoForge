@@ -2318,6 +2318,15 @@ def _field_rewrite_blocker_comment(
         layout,
         profile_context=profile_context,
     )
+    non_identity_blockers = _non_identity_layout_rewrite_blockers(text, layout)
+    domain_identity = _domain_identity_for_layout(
+        text,
+        layout,
+        non_identity_blockers,
+        profile_context=profile_context,
+        corrected_parameter_map=corrected_parameter_map,
+    )
+    domain_identity_text = _report_only_domain_identity_blocker_text(domain_identity)
     source_identity_text = ""
     if source_identity_detail:
         source_identity_text = (
@@ -2334,27 +2343,22 @@ def _field_rewrite_blocker_comment(
     comment = {
         "kind": "inferred_offset_rewrite_blockers",
         "text": (
-            "Offset field rewrite blocked for %s: %s.%s Review-only aliases remain available."
-            % (layout.base, "; ".join(blockers[:6]), source_identity_text)
+            "Offset field rewrite blocked for %s: %s.%s%s Review-only aliases remain available."
+            % (layout.base, "; ".join(blockers[:6]), domain_identity_text, source_identity_text)
         ),
         "confidence": round(confidence, 2),
         "base": layout.base,
         "base_kind": base_kind,
         "blockers": blockers,
     }
-    domain_identity = _domain_identity_for_layout(
-        text,
-        layout,
-        _non_identity_layout_rewrite_blockers(text, layout),
-        profile_context=profile_context,
-        corrected_parameter_map=corrected_parameter_map,
-    )
     if domain_identity:
         comment["domain_effective_mode"] = domain_identity.effective_mode
         comment["domain_profile_id"] = domain_identity.profile_id
         comment["domain_role"] = domain_identity.role
         comment["domain_structure"] = domain_identity.structure
         comment["domain_profile_blockers"] = _domain_identity_structured_blockers(domain_identity)
+        if domain_identity.effective_mode == MODE_REPORT_ONLY:
+            comment["domain_identity_exact_source_required"] = True
     if source_identity_detail:
         comment["source_identity_blocker"] = source_identity_detail
         comment["source_identity_source"] = source_identity_detail["source"]
@@ -2366,6 +2370,22 @@ def _field_rewrite_blocker_comment(
         comment["source_identity_effective_mode"] = source_identity_detail["effective_mode"]
         comment["source_identity_profile_blockers"] = source_identity_detail["profile_blockers"]
     return comment
+
+
+def _report_only_domain_identity_blocker_text(domain_identity: DomainIdentityMatch | None) -> str:
+    if domain_identity is None or domain_identity.ambiguous:
+        return ""
+    if domain_identity.effective_mode != MODE_REPORT_ONLY:
+        return ""
+    return (
+        " Domain identity %s (%s/%s) is report-only;"
+        " exact function/build/private-layout source identity is required before canonical rewrite."
+        % (
+            domain_identity.profile_id,
+            domain_identity.role,
+            domain_identity.structure,
+        )
+    )
 
 
 def _field_base_stability_comment_from_layout(

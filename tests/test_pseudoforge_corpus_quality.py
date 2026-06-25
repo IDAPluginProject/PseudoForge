@@ -1606,7 +1606,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
         blockers = _extract_layout_rewrite_blockers(
             "/*\n"
             "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for v6: "
-            "source domain identity profile is report-only. Source identity completionApc "
+            "domain identity profile is report-only; source domain identity profile is report-only. "
+            "Domain identity windows.object_manager.free_object (objectHeader/OBJECT_HEADER_LIKE) "
+            "is report-only; exact function/build/private-layout source identity is required "
+            "before canonical rewrite. Source identity completionApc "
             "(parameter_back_container_alias) is report-only profile "
             "windows.io_manager.iop_complete_request_apc for completionApc/KAPC; exact "
             "function/build/source identity is required before canonical rewrite. "
@@ -1616,7 +1619,22 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
 
         self.assertEqual(1, len(blockers))
         self.assertEqual("v6", blockers[0]["base"])
-        self.assertEqual(["source domain identity profile is report-only"], blockers[0]["reasons"])
+        self.assertEqual(
+            [
+                "domain identity profile is report-only",
+                "source domain identity profile is report-only",
+            ],
+            blockers[0]["reasons"],
+        )
+        self.assertEqual(
+            "windows.object_manager.free_object",
+            blockers[0]["domain_identity_blocker_profile_id"],
+        )
+        self.assertEqual("objectHeader", blockers[0]["domain_identity_blocker_role"])
+        self.assertEqual(
+            "OBJECT_HEADER_LIKE",
+            blockers[0]["domain_identity_blocker_structure"],
+        )
         self.assertEqual("completionApc", blockers[0]["source_identity_source"])
         self.assertEqual(
             "parameter_back_container_alias",

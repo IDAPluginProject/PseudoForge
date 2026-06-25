@@ -193,6 +193,18 @@ __int64 __fastcall DomainNoProfileLayout(__int64 argument0)
         self.assertIn("flags=+0x10 ULONG", aliases[0]["text"])
         self.assertEqual(1, len(blockers))
         self.assertIn("domain identity profile is report-only", blockers[0]["blockers"])
+        self.assertIn(
+            "Domain identity test.report_only (domainContext/TEST_DOMAIN_CONTEXT) is report-only",
+            blockers[0]["text"],
+        )
+        self.assertIn(
+            "exact function/build/private-layout source identity is required before canonical rewrite",
+            blockers[0]["text"],
+        )
+        self.assertEqual("test.report_only", blockers[0]["domain_profile_id"])
+        self.assertEqual("domainContext", blockers[0]["domain_role"])
+        self.assertEqual("TEST_DOMAIN_CONTEXT", blockers[0]["domain_structure"])
+        self.assertTrue(blockers[0]["domain_identity_exact_source_required"])
         self.assertFalse(any(item.get("kind") == "inferred_offset_rewrite_ready" for item in comments))
 
     def test_domain_identity_can_suppress_role_only_layout_inference(self) -> None:
