@@ -1209,6 +1209,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(1, stats["priority_factors"]["stable_source_provenance_available"])
             self.assertEqual(1, stats["priority_factors"]["direct_parameter_source_alias"])
             self.assertEqual(
+                {"type_wide_overlay": 1, "type_unaligned": 1},
+                queues["type_conflict_required"]["blocker_families"],
+            )
+            self.assertEqual(
                 1,
                 queues["report_only_exact_promotion_candidates"]["primary_review_reasons"][
                     "exact_private_layout_source_required"
@@ -1333,6 +1337,19 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "direct parameter source alias exists",
                 source_queue_item["queue_reason"],
             )
+            type_queue_item = queues["type_conflict_required"]["items"][0]
+            self.assertEqual(
+                {"type_wide_overlay": 1, "type_unaligned": 1},
+                type_queue_item["blocker_families"],
+            )
+            self.assertIn(
+                "wide overlay access conflict",
+                type_queue_item["queue_reason"],
+            )
+            self.assertIn(
+                "blockers=type_wide_overlay=1,type_unaligned=1",
+                type_queue_item["review_summary"],
+            )
             self.assertIn(
                 "registry/report_only_private_layout",
                 cmp_queue_item["review_summary"],
@@ -1347,6 +1364,8 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             )
             self.assertIn("Stable sources", markdown)
             self.assertIn("transactionLogEntry=1", markdown)
+            self.assertIn("Blocker families", markdown)
+            self.assertIn("type_wide_overlay=1", markdown)
             self.assertTrue(
                 any(
                     item["name"] == "MiBuildMismatchResidue"

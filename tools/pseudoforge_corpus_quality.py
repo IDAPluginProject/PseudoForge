@@ -2450,8 +2450,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Blocker families | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2501,6 +2501,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("residue_review_notes", {})).items()
         )
+        blocker_families = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("blocker_families", {})).items()
+        )
         factors = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("priority_factors", {})).items()
@@ -2522,7 +2526,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2539,6 +2543,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(pressure),
                 _markdown_table_cell(primary_reasons),
                 _markdown_table_cell(review_notes),
+                _markdown_table_cell(blocker_families),
                 _markdown_table_cell(factors),
                 _markdown_table_cell(review_classes),
                 _markdown_table_cell(details),
@@ -5870,6 +5875,7 @@ def _body_offset_residue_function_summary(
             offset_shape_profile,
         ),
         "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(5)))),
+        "blocker_families": _body_offset_blocker_family_counter(blocker_reasons),
         "review_evidence": review_evidence,
         "promotion_hints": promotion_hints,
         "next_action_details": next_action_details,
@@ -6966,6 +6972,68 @@ def _body_offset_stable_source_summary_parts(item: dict[str, Any], limit: int = 
     return parts
 
 
+def _body_offset_blocker_family_counter(reasons: Counter[str]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for reason, count in reasons.items():
+        lowered = str(reason or "").lower()
+        weight = _int_value(count, 0)
+        if weight <= 0:
+            continue
+        for family in _body_offset_blocker_reason_families(lowered):
+            counter[family] += weight
+    return _counter_to_dict(counter)
+
+
+def _body_offset_blocker_reason_families(lowered_reason: str) -> list[str]:
+    reason = str(lowered_reason or "")
+    families: list[str] = []
+    if "source domain identity profile is report-only" in reason:
+        families.append("report_only_source_identity")
+    elif "domain identity profile is report-only" in reason:
+        families.append("report_only_profile")
+    if "trusted rewrite source is required" in reason:
+        families.append("trusted_source_required")
+    if "base is reassigned" in reason or "reassigned after layout access" in reason:
+        families.append("source_reassigned")
+    if "base uses compound assignment" in reason:
+        families.append("source_compound_assignment")
+    if "base address is taken" in reason:
+        families.append("source_address_taken")
+    if "multiple initializers" in reason:
+        families.append("source_multiple_initializers")
+    if "base is a decompiler temporary" in reason:
+        families.append("temp_base")
+    if "base name is generic" in reason:
+        families.append("generic_base")
+    if "mix wide" in reason:
+        families.append("type_wide_overlay")
+    if "mix narrow" in reason:
+        families.append("type_narrow_subfield")
+    if "irregular field" in reason:
+        families.append("type_irregular_width")
+    if "not naturally aligned" in reason:
+        families.append("type_unaligned")
+    if "volatile-looking" in reason:
+        families.append("type_volatile_like")
+    if "mmio/register" in reason:
+        families.append("type_mmio_register")
+    if "rewrite offset threshold" in reason:
+        families.append("threshold_offset")
+    if "rewrite access threshold" in reason:
+        families.append("threshold_access")
+    if not families and reason:
+        families.append("other_blocker")
+    return families
+
+
+def _body_offset_blocker_family_summary_parts(item: dict[str, Any], limit: int = 3) -> list[str]:
+    return [
+        "%s=%s" % (str(key), _int_value(value, 0))
+        for key, value in _coerce_dict(item.get("blocker_families", {})).items()
+        if str(key) and _int_value(value, 0) > 0
+    ][:limit]
+
+
 def _body_offset_top_bases(
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
@@ -7132,6 +7200,8 @@ def _body_offset_residue_review_queue_summary(
     pressure_classes = Counter(str(item.get("residue_pressure_class", "") or "unknown") for item in items)
     primary_review_reasons: Counter[str] = Counter()
     residue_review_notes: Counter[str] = Counter()
+    blocker_reasons: Counter[str] = Counter()
+    blocker_families: Counter[str] = Counter()
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
     top_stable_sources: Counter[str] = Counter()
@@ -7152,6 +7222,10 @@ def _body_offset_residue_review_queue_summary(
         for note in item.get("residue_review_notes", []) or []:
             if str(note):
                 residue_review_notes[str(note)] += 1
+        for key, value in _coerce_dict(item.get("blocker_reasons", {})).items():
+            blocker_reasons[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("blocker_families", {})).items():
+            blocker_families[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
             stable_source_provenance[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("stable_source_kinds", {})).items():
@@ -7208,6 +7282,8 @@ def _body_offset_residue_review_queue_summary(
         "residue_review_notes": _counter_to_dict(
             Counter(dict(residue_review_notes.most_common(limit)))
         ),
+        "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(limit)))),
+        "blocker_families": _counter_to_dict(Counter(dict(blocker_families.most_common(limit)))),
         "stable_source_provenance": _counter_to_dict(
             Counter(dict(stable_source_provenance.most_common(limit)))
         ),
@@ -7291,6 +7367,7 @@ def _body_offset_residue_review_queue_item(
             if str(base)
         ],
         "blocker_reasons": _coerce_dict(item.get("blocker_reasons", {})),
+        "blocker_families": _coerce_dict(item.get("blocker_families", {})),
         "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
         "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
         "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
@@ -7335,8 +7412,24 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
     if queue == "validated_rewrite_residue":
         return "validated rewrite already ran; reread remaining secondary residue"
     if queue == "source_stability_required":
+        families = _coerce_dict(item.get("blocker_families", {}))
+        if _int_value(families.get("source_reassigned"), 0) > 0:
+            return "base is reassigned after layout access; prove stable source before rewrite"
+        if _int_value(families.get("source_address_taken"), 0) > 0:
+            return "base address is taken; prove no alias instability before rewrite"
+        if _int_value(families.get("source_compound_assignment"), 0) > 0:
+            return "compound base assignment blocks stable source proof"
         return "source stability is unproven; keep rewrite fail-closed"
     if queue == "type_conflict_required":
+        families = _coerce_dict(item.get("blocker_families", {}))
+        if _int_value(families.get("type_wide_overlay"), 0) > 0:
+            return "wide overlay access conflict must be resolved before rewrite"
+        if _int_value(families.get("type_narrow_subfield"), 0) > 0:
+            return "narrow subfield overlay conflict must be resolved before rewrite"
+        if _int_value(families.get("type_unaligned"), 0) > 0:
+            return "unaligned typed offset conflict must be resolved before rewrite"
+        if _int_value(families.get("type_irregular_width"), 0) > 0:
+            return "irregular field width conflict must be resolved before rewrite"
         return "type width or alignment conflict must be resolved before rewrite"
     if queue == "pointer_indexed_layout_candidates":
         if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
@@ -7393,6 +7486,9 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:3]
     if top_bases:
         parts.append("bases=%s" % ",".join(top_bases))
+    blocker_family_parts = _body_offset_blocker_family_summary_parts(item)
+    if blocker_family_parts:
+        parts.append("blockers=%s" % ",".join(blocker_family_parts))
     stable_source_parts = _body_offset_stable_source_summary_parts(item)
     if stable_source_parts:
         parts.append("stable-source=%s" % " ".join(stable_source_parts))
