@@ -2543,8 +2543,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | Summary | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -2564,9 +2564,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         goal_group = str(item.get("named_goal_target_group", "") or "")
         goal_text = goal_group if bool(item.get("named_goal_target")) else ""
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
+                _markdown_table_cell(str(item.get("review_summary", "") or "")),
                 str(item.get("ea", "")),
                 goal_text,
                 str(item.get("subsystem", "")),
@@ -5768,7 +5769,7 @@ def _body_offset_residue_function_summary(
     if named_target_group:
         priority_score += 18
     priority_score += _body_offset_residue_priority_bonus(priority_factors)
-    return {
+    result = {
         "ea": ea,
         "name": name,
         "subsystem": subsystem,
@@ -5838,6 +5839,8 @@ def _body_offset_residue_function_summary(
         "domain_profiles": _profile_counter(domain_identities),
         "summary_path": str(summary_path),
     }
+    result["review_summary"] = _body_offset_residue_review_summary(result)
+    return result
 
 
 def _update_body_offset_residue_metrics(
@@ -7096,19 +7099,24 @@ def _body_offset_residue_review_queue_summary(
         "stable_source_kinds": _counter_to_dict(Counter(dict(stable_source_kinds.most_common(limit)))),
         "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
         "items": [
-            _body_offset_residue_review_queue_item(item)
+            _body_offset_residue_review_queue_item(item, queue_name=queue_name)
             for item in items[:limit]
         ],
     }
 
 
-def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+def _body_offset_residue_review_queue_item(
+    item: dict[str, Any],
+    queue_name: str = "",
+) -> dict[str, Any]:
     return {
         "name": str(item.get("name", "") or ""),
         "ea": str(item.get("ea", "") or ""),
         "subsystem": str(item.get("subsystem", "") or ""),
         "review_class": str(item.get("review_class", "") or ""),
         "next_action": str(item.get("next_action", "") or ""),
+        "queue_reason": _body_offset_residue_queue_reason(queue_name, item),
+        "review_summary": _body_offset_residue_review_summary(item),
         "review_focus": str(item.get("review_focus", "") or ""),
         "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
         "fail_closed_family": str(item.get("fail_closed_family", "") or ""),
@@ -7164,6 +7172,85 @@ def _body_offset_residue_review_queue_item(item: dict[str, Any]) -> dict[str, An
         "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
         "summary_path": str(item.get("summary_path", "") or ""),
     }
+
+
+def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> str:
+    queue = str(queue_name or "")
+    group = str(item.get("named_goal_target_group", "") or "")
+    gate = str(item.get("fail_closed_gate", "") or "review_only")
+    policy = str(item.get("rewrite_safety_policy", "") or "review_only")
+    if queue == "named_goal_targets":
+        if group:
+            return "named %s goal target stays visible under gate %s" % (group, gate)
+        return "named goal target stays visible under gate %s" % gate
+    if queue == "report_only_exact_promotion_candidates":
+        return "report-only identity remains closed; promote only with exact private layout source"
+    if queue == "report_only_field_alias_review":
+        return "report-only field aliases can guide review but must not enable canonical rewrite"
+    if queue == "source_identity_required":
+        return "canonical rewrite requires exact function/build/source identity"
+    if queue == "source_provenance_review":
+        return "stable source provenance exists; verify it before widening rewrite"
+    if queue == "validated_rewrite_residue":
+        return "validated rewrite already ran; reread remaining secondary residue"
+    if queue == "source_stability_required":
+        return "source stability is unproven; keep rewrite fail-closed"
+    if queue == "type_conflict_required":
+        return "type width or alignment conflict must be resolved before rewrite"
+    if queue == "pointer_indexed_layout_candidates":
+        return "pointer-indexed shape needs a separate indexed layout model"
+    if queue == "dense_shape_identity_candidates":
+        return "dense offset shape needs exact identity before rewrite"
+    if queue == "parameter_profile_candidates":
+        return "parameter-shaped residue needs semantic profile or type correction evidence"
+    if queue == "context_profile_candidates":
+        return "generic context residue needs exact context profile"
+    if queue == "temp_source_identity_candidates":
+        return "temporary base residue needs initializer/source identity proof"
+    if queue == "low_pressure_deferred":
+        return "low-pressure residue is deferred behind stronger queues"
+    if queue == "manual_review_required":
+        return "manual review is required before promotion"
+    if policy:
+        return "review under policy %s" % policy
+    return "manual body offset residue review"
+
+
+def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
+    subsystem = str(item.get("subsystem", "") or "other")
+    gate = str(item.get("fail_closed_gate", "") or "review_only")
+    pressure = str(item.get("residue_pressure_class", "") or "unknown")
+    parts = ["%s/%s pressure=%s" % (subsystem, gate, pressure)]
+    counts = []
+    offset_derefs = _int_value(item.get("offset_deref_survivors"), 0)
+    direct_base_derefs = _int_value(item.get("direct_base_deref_survivors"), 0)
+    generic_parameters = _int_value(item.get("generic_parameter_survivors"), 0)
+    if offset_derefs:
+        counts.append("%d offset deref(s)" % offset_derefs)
+    if direct_base_derefs:
+        counts.append("%d direct-base zero deref(s)" % direct_base_derefs)
+    if generic_parameters:
+        counts.append("%d generic parameter survivor(s)" % generic_parameters)
+    if counts:
+        parts.append(", ".join(counts))
+    policy = str(item.get("rewrite_safety_policy", "") or "")
+    if policy:
+        parts.append("policy=%s" % policy)
+    primary_reasons = [
+        str(reason)
+        for reason in item.get("primary_review_reasons", []) or []
+        if str(reason)
+    ][:3]
+    if primary_reasons:
+        parts.append("reasons=%s" % ",".join(primary_reasons))
+    top_bases = [
+        str(base)
+        for base in item.get("top_bases", []) or []
+        if str(base)
+    ][:3]
+    if top_bases:
+        parts.append("bases=%s" % ",".join(top_bases))
+    return "; ".join(parts)
 
 
 def _dict_list(value: Any) -> list[dict[str, Any]]:

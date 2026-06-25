@@ -1311,6 +1311,26 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "review_focus",
                 queues["report_only_exact_promotion_candidates"]["items"][0],
             )
+            self.assertIn(
+                "review_summary",
+                queues["report_only_exact_promotion_candidates"]["items"][0],
+            )
+            self.assertIn(
+                "queue_reason",
+                queues["report_only_exact_promotion_candidates"]["items"][0],
+            )
+            self.assertIn(
+                "report-only identity remains closed",
+                cmp_queue_item["queue_reason"],
+            )
+            self.assertIn(
+                "registry/report_only_private_layout",
+                cmp_queue_item["review_summary"],
+            )
+            self.assertIn(
+                "policy=do_not_rewrite_report_only_profile",
+                cmp_queue_item["review_summary"],
+            )
             self.assertTrue(
                 any(
                     item["name"] == "MiBuildMismatchResidue"
@@ -1418,6 +1438,8 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     and "named_goal_target" in item["priority_factors"]
                     and "named_target_direct_base_residue" in item["priority_factors"]
                     and "direct_base_zero_deref_residue" in item["residue_review_notes"]
+                    and "named memory goal target" in item["queue_reason"]
+                    and "direct-base zero deref" in item["review_summary"]
                     for item in named_items
                 )
             )
