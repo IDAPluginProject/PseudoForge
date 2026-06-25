@@ -1478,6 +1478,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             report = analyze_corpus(root)
             stats = report["body_offset_residue_review_stats"]
             queues = stats["review_queues"]
+            target_status = stats["named_goal_target_status"]
             named_items = queues["named_goal_targets"]["items"]
 
             self.assertEqual("registry", _body_offset_named_goal_target_group("CmpFreeKeyControlBlock"))
@@ -1493,6 +1494,32 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(
                 {"registry": 1, "memory": 1},
                 queues["named_goal_targets"]["target_groups"],
+            )
+            self.assertEqual(2, target_status["present_count"])
+            self.assertEqual(10, target_status["missing_count"])
+            self.assertEqual({"registry": 1, "memory": 1}, target_status["groups"])
+            self.assertEqual(1, target_status["fail_closed_gates"]["report_only_private_layout"])
+            self.assertEqual(1, target_status["fail_closed_gates"]["low_pressure_deferred"])
+            self.assertEqual(1, target_status["promotion_lanes"]["collect_exact_private_layout_source"])
+            self.assertEqual(1, target_status["promotion_lanes"]["defer_low_pressure"])
+            self.assertTrue(
+                any(
+                    item["name"] == "CmpFreeKeyControlBlock"
+                    and item["target_group"] == "registry"
+                    and item["fail_closed_gate"] == "report_only_private_layout"
+                    and item["promotion_lane"] == "collect_exact_private_layout_source"
+                    and item["recommended_next"].startswith("Keep report-only closed")
+                    for item in target_status["present_targets"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["name"] == "MiPrefetchVirtualMemory"
+                    and item["target_group"] == "memory"
+                    and item["direct_base_deref_survivors"] == 1
+                    and item["residue_pressure_class"] == "high_goal_target"
+                    for item in target_status["present_targets"]
+                )
             )
             self.assertTrue(all(item["named_goal_target"] for item in named_items))
             self.assertTrue(
@@ -1528,6 +1555,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     ["exact_function_build_source_identity_required"],
                 ),
             )
+            markdown = render_quality_markdown(report)
+            self.assertIn("Named Goal Target Status", markdown)
+            self.assertIn("CmpFreeKeyControlBlock", markdown)
+            self.assertIn("Keep report-only closed", markdown)
 
     def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:
         report_only_item = {

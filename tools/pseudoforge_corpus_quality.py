@@ -1845,6 +1845,10 @@ def analyze_corpus(
                 top_body_offset_residue_functions,
                 top,
             ),
+            "named_goal_target_status": _body_offset_named_goal_target_status(
+                top_body_offset_residue_functions,
+                top,
+            ),
             "top_functions": top_body_offset_residue_functions[:top],
         },
         "prototype_correction_stats": {
@@ -2575,6 +2579,55 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(str(queue.get("recommended_next_step", "") or "")),
             )
         )
+    target_status = _coerce_dict(body_offset_residue_stats.get("named_goal_target_status", {}))
+    lines.extend(
+        [
+            "",
+            "### Named Goal Target Status",
+            "",
+            "- Present targets: `%s`" % target_status.get("present_count", 0),
+            "- Missing targets: `%s`" % target_status.get("missing_count", 0),
+            "",
+            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Bases | Blockers | Stable sources | Recommended next |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+        ]
+    )
+    for item in target_status.get("present_targets", []) or []:
+        if not isinstance(item, dict):
+            continue
+        bases = ", ".join(str(base) for base in item.get("top_bases", []) or [])
+        blockers = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("blocker_families", {})).items()
+        )
+        stable_sources = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "") or ""),
+                str(item.get("target_group", "") or ""),
+                str(item.get("fail_closed_gate", "") or ""),
+                str(item.get("promotion_lane", "") or ""),
+                str(item.get("residue_pressure_class", "") or ""),
+                _int_value(item.get("priority_score"), 0),
+                _int_value(item.get("offset_deref_survivors"), 0),
+                _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(bases),
+                _markdown_table_cell(blockers),
+                _markdown_table_cell(stable_sources),
+                _markdown_table_cell(str(item.get("recommended_next", "") or "")),
+            )
+        )
+    if target_status.get("missing_targets"):
+        missing = ", ".join(
+            str(item.get("name", "") or "")
+            for item in target_status.get("missing_targets", []) or []
+            if isinstance(item, dict)
+        )
+        lines.extend(["", "Missing named targets: %s" % _markdown_table_cell(missing)])
     lines.extend(
         [
             "",
@@ -7198,6 +7251,112 @@ def _body_offset_residue_review_queues(
         )
         for queue_name in queue_names
     }
+
+
+def _body_offset_named_goal_target_status(
+    items: list[dict[str, Any]],
+    limit: int,
+) -> dict[str, Any]:
+    items_by_name = {str(item.get("name", "") or ""): item for item in items}
+    present_targets: list[dict[str, Any]] = []
+    missing_targets: list[dict[str, Any]] = []
+    groups: Counter[str] = Counter()
+    fail_closed_gates: Counter[str] = Counter()
+    promotion_lanes: Counter[str] = Counter()
+    pressure_classes: Counter[str] = Counter()
+    for name, group in _BODY_OFFSET_NAMED_GOAL_TARGETS.items():
+        item = items_by_name.get(name)
+        if item is None:
+            missing_targets.append(
+                {
+                    "name": name,
+                    "target_group": group,
+                    "present": False,
+                    "recommended_next": "Rerun or widen the corpus slice before judging this named target.",
+                }
+            )
+            continue
+        gate = str(item.get("fail_closed_gate", "") or "")
+        lane = str(item.get("promotion_lane", "") or "")
+        pressure = str(item.get("residue_pressure_class", "") or "")
+        groups[group] += 1
+        if gate:
+            fail_closed_gates[gate] += 1
+        if lane:
+            promotion_lanes[lane] += 1
+        if pressure:
+            pressure_classes[pressure] += 1
+        present_targets.append(
+            {
+                "name": name,
+                "ea": str(item.get("ea", "") or ""),
+                "target_group": group,
+                "present": True,
+                "subsystem": str(item.get("subsystem", "") or ""),
+                "priority_score": _int_value(item.get("priority_score"), 0),
+                "fail_closed_gate": gate,
+                "fail_closed_family": str(item.get("fail_closed_family", "") or ""),
+                "promotion_lane": lane,
+                "next_action": str(item.get("next_action", "") or ""),
+                "residue_pressure_class": pressure,
+                "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
+                "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
+                "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
+                "top_bases": [
+                    str(base)
+                    for base in item.get("top_bases", []) or []
+                    if str(base)
+                ][:8],
+                "blocker_families": _coerce_dict(item.get("blocker_families", {})),
+                "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
+                "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+                "recommended_next": _body_offset_named_goal_target_recommended_next(item),
+                "summary_path": str(item.get("summary_path", "") or ""),
+            }
+        )
+    present_targets.sort(
+        key=lambda item: (
+            -_int_value(item.get("priority_score"), 0),
+            str(item.get("target_group", "")),
+            str(item.get("name", "")),
+        )
+    )
+    return {
+        "present_count": len(present_targets),
+        "missing_count": len(missing_targets),
+        "groups": _counter_to_dict(groups),
+        "fail_closed_gates": _counter_to_dict(fail_closed_gates),
+        "promotion_lanes": _counter_to_dict(promotion_lanes),
+        "pressure_classes": _counter_to_dict(pressure_classes),
+        "present_targets": present_targets[:limit],
+        "missing_targets": missing_targets,
+    }
+
+
+def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str:
+    lane = str(item.get("promotion_lane", "") or "")
+    gate = str(item.get("fail_closed_gate", "") or "")
+    if gate == "report_only_private_layout":
+        if lane == "collect_exact_source_for_direct_parameter_alias":
+            return "Keep report-only closed; collect exact function/build/source evidence for the direct parameter alias before any canonical body rewrite."
+        if lane == "collect_exact_source_for_parameter_field_pointer_alias":
+            return "Keep report-only closed; prove the parameter-field pointer source layout before promoting aliases."
+        return "Keep report-only closed; collect exact private layout source evidence or leave aliases review-only."
+    if lane == "model_parameter_indexed_layout":
+        return "Model the parameter-indexed element shape separately; do not lower rewrite thresholds or rewrite array fields without exact layout identity."
+    if lane == "model_indexed_layout":
+        return "Model indexed table or array access separately from canonical structure rewrite."
+    if lane == "verify_call_result_layout_identity":
+        return "Verify the call-result layout identity and returned object source before widening rewrite."
+    if lane == "reread_validated_secondary_residue":
+        return "Reread the validated canonical output and only chase same-object secondary residue."
+    if lane == "prove_source_stability":
+        return "Prove initializer dominance and no post-access reassignment before any rewrite."
+    if lane == "resolve_type_overlay_or_alignment":
+        return "Resolve mixed-width, overlay, or alignment conflicts before any rewrite."
+    if lane == "collect_function_build_source_identity":
+        return "Collect exact function/build/source identity before enabling correction or rewrite."
+    return "Review manually and keep fail-closed gates until exact evidence exists."
 
 
 def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any]) -> bool:
