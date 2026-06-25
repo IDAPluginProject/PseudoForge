@@ -1189,6 +1189,7 @@ def analyze_corpus(
                     temp_provenance,
                     rewrite_ready,
                     rewrite_blockers,
+                    parameter_indexed_elements,
                     domain_identities,
                     pointer_indexed_metrics,
                     offset_shape_profile,
@@ -5604,6 +5605,7 @@ def _body_offset_residue_function_summary(
     temp_provenance: dict[str, list[dict[str, Any]]],
     rewrite_ready: list[dict[str, Any]],
     rewrite_blockers: list[dict[str, Any]],
+    parameter_indexed_elements: list[dict[str, Any]],
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
     offset_shape_profile: dict[str, Any],
@@ -5622,7 +5624,11 @@ def _body_offset_residue_function_summary(
         if str(reason)
     )
     subsystem = _body_offset_residue_subsystem(name, prototype_metrics, domain_identities)
-    source_evidence_count = len(stable_base_sources) + len(generic_base_trust_candidates)
+    source_evidence_count = (
+        len(stable_base_sources)
+        + len(generic_base_trust_candidates)
+        + len(parameter_indexed_elements)
+    )
     field_access_pressure = max(
         [
             _int_value(item.get("access_count"), 0)
@@ -5668,6 +5674,9 @@ def _body_offset_residue_function_summary(
     if _body_offset_has_build_mismatch(prototype_metrics, domain_identities):
         review_evidence.append("source_build_mismatch")
         review_evidence = list(dict.fromkeys(review_evidence))
+    if parameter_indexed_elements:
+        review_evidence.append("parameter_indexed_element_shape")
+        review_evidence = list(dict.fromkeys(review_evidence))
     named_target_group = _body_offset_named_goal_target_group(name)
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
@@ -5690,6 +5699,9 @@ def _body_offset_residue_function_summary(
     )
     if named_target_group:
         next_action_details.append("goal_target_%s" % named_target_group)
+        next_action_details = list(dict.fromkeys(next_action_details))
+    if parameter_indexed_elements:
+        next_action_details.append("parameter_indexed_parent_stride_available")
         next_action_details = list(dict.fromkeys(next_action_details))
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -5797,6 +5809,21 @@ def _body_offset_residue_function_summary(
         "layout_hint_count": len(layout_hints),
         "hot_field_cluster_count": len(hot_field_clusters),
         "indexed_callback_table_count": len(indexed_callback_tables),
+        "parameter_indexed_element_count": len(parameter_indexed_elements),
+        "parameter_indexed_parents": _body_offset_parameter_indexed_counter(
+            parameter_indexed_elements,
+            "parent",
+        ),
+        "parameter_indexed_parent_types": _body_offset_parameter_indexed_counter(
+            parameter_indexed_elements,
+            "parent_type",
+        ),
+        "parameter_indexed_strides": _body_offset_parameter_indexed_stride_counter(
+            parameter_indexed_elements,
+        ),
+        "parameter_indexed_offsets": _body_offset_parameter_indexed_offsets(
+            parameter_indexed_elements,
+        ),
         "stable_base_source_count": len(stable_base_sources),
         "stable_source_provenance": _body_offset_source_counter(
             stable_base_sources,
@@ -5885,6 +5912,8 @@ def _update_body_offset_residue_metrics(
         totals["functions_with_stable_base_sources"] += 1
     if _int_value(item.get("indexed_callback_table_count"), 0) > 0:
         totals["functions_with_indexed_callback_tables"] += 1
+    if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
+        totals["functions_with_parameter_indexed_elements"] += 1
     if bool(item.get("named_goal_target")):
         totals["functions_with_named_goal_targets"] += 1
     subsystems[str(item.get("subsystem", "") or "other")] += 1
@@ -5946,6 +5975,7 @@ def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
         "functions_with_hot_field_clusters",
         "functions_with_stable_base_sources",
         "functions_with_indexed_callback_tables",
+        "functions_with_parameter_indexed_elements",
         "functions_with_named_goal_targets",
     ]
     result = _counter_to_dict(counter)
@@ -6379,6 +6409,8 @@ def _body_offset_residue_priority_factors(
         factors.append("type_conflict_gate")
     if "pointer_indexed_array_or_table_shape" in evidence or "pointer_indexed_metrics_present" in details:
         factors.append("pointer_indexed_shape")
+    if "parameter_indexed_element_shape" in evidence or "parameter_indexed_parent_stride_available" in details:
+        factors.append("parameter_indexed_element_shape")
     if "validated_rewrite_still_has_residue" in evidence:
         factors.append("validated_rewrite_residue")
     if "validated_rewrite_left_secondary_residue" in notes:
@@ -6869,6 +6901,35 @@ def _body_offset_source_counter(
     return _counter_to_dict(counter)
 
 
+def _body_offset_parameter_indexed_counter(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        value = str(item.get(key, "") or "").strip()
+        if value:
+            counter[value] += 1
+    return _counter_to_dict(counter)
+
+
+def _body_offset_parameter_indexed_stride_counter(items: list[dict[str, Any]]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        stride = _int_value(item.get("stride"), 0)
+        if stride > 0:
+            counter[str(stride)] += 1
+    return _counter_to_dict(counter)
+
+
+def _body_offset_parameter_indexed_offsets(items: list[dict[str, Any]]) -> list[str]:
+    offsets: list[str] = []
+    for item in items:
+        for offset in item.get("offsets", []) or []:
+            parsed = _int_value(offset, 0)
+            text = "+0x%X" % parsed if parsed >= 0 else "-0x%X" % abs(parsed)
+            if text not in offsets:
+                offsets.append(text)
+    return offsets[:8]
+
+
 def _body_offset_top_bases(
     layout_hints: list[dict[str, Any]],
     hot_field_clusters: list[dict[str, Any]],
@@ -7038,6 +7099,9 @@ def _body_offset_residue_review_queue_summary(
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
     domain_profiles: Counter[str] = Counter()
+    parameter_indexed_parents: Counter[str] = Counter()
+    parameter_indexed_parent_types: Counter[str] = Counter()
+    parameter_indexed_strides: Counter[str] = Counter()
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
@@ -7057,6 +7121,12 @@ def _body_offset_residue_review_queue_summary(
             stable_source_kinds[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
             domain_profiles[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("parameter_indexed_parents", {})).items():
+            parameter_indexed_parents[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("parameter_indexed_parent_types", {})).items():
+            parameter_indexed_parent_types[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("parameter_indexed_strides", {})).items():
+            parameter_indexed_strides[str(key)] += _int_value(value, 0)
     return {
         "queue": queue_name,
         "description": _BODY_OFFSET_QUEUE_DESCRIPTIONS.get(queue_name, "Manual body offset residue review queue."),
@@ -7075,6 +7145,10 @@ def _body_offset_residue_review_queue_summary(
         ),
         "generic_parameter_survivors": sum(
             _int_value(item.get("generic_parameter_survivors"), 0)
+            for item in items
+        ),
+        "parameter_indexed_elements": sum(
+            _int_value(item.get("parameter_indexed_element_count"), 0)
             for item in items
         ),
         "subsystems": _counter_to_dict(Counter(dict(subsystems.most_common(limit)))),
@@ -7100,6 +7174,15 @@ def _body_offset_residue_review_queue_summary(
         ),
         "stable_source_kinds": _counter_to_dict(Counter(dict(stable_source_kinds.most_common(limit)))),
         "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
+        "parameter_indexed_parents": _counter_to_dict(
+            Counter(dict(parameter_indexed_parents.most_common(limit)))
+        ),
+        "parameter_indexed_parent_types": _counter_to_dict(
+            Counter(dict(parameter_indexed_parent_types.most_common(limit)))
+        ),
+        "parameter_indexed_strides": _counter_to_dict(
+            Counter(dict(parameter_indexed_strides.most_common(limit)))
+        ),
         "items": [
             _body_offset_residue_review_queue_item(item, queue_name=queue_name)
             for item in items[:limit]
@@ -7171,6 +7254,15 @@ def _body_offset_residue_review_queue_item(
         "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
         "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
         "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+        "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
+        "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
+        "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),
+        "parameter_indexed_strides": _coerce_dict(item.get("parameter_indexed_strides", {})),
+        "parameter_indexed_offsets": [
+            str(offset)
+            for offset in item.get("parameter_indexed_offsets", []) or []
+            if str(offset)
+        ],
         "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
         "summary_path": str(item.get("summary_path", "") or ""),
     }
@@ -7200,6 +7292,8 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
     if queue == "type_conflict_required":
         return "type width or alignment conflict must be resolved before rewrite"
     if queue == "pointer_indexed_layout_candidates":
+        if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
+            return "parameter-indexed element shape has parent/stride/offset evidence; model indexed layout before rewrite"
         return "pointer-indexed shape needs a separate indexed layout model"
     if queue == "dense_shape_identity_candidates":
         return "dense offset shape needs exact identity before rewrite"
@@ -7252,6 +7346,41 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:3]
     if top_bases:
         parts.append("bases=%s" % ",".join(top_bases))
+    parameter_indexed_count = _int_value(item.get("parameter_indexed_element_count"), 0)
+    if parameter_indexed_count > 0:
+        indexed_parts = []
+        indexed_parents = [
+            str(parent)
+            for parent in _coerce_dict(item.get("parameter_indexed_parents", {})).keys()
+            if str(parent)
+        ][:2]
+        indexed_parent_types = [
+            str(parent_type)
+            for parent_type in _coerce_dict(item.get("parameter_indexed_parent_types", {})).keys()
+            if str(parent_type)
+        ][:2]
+        indexed_strides = [
+            str(stride)
+            for stride in _coerce_dict(item.get("parameter_indexed_strides", {})).keys()
+            if str(stride)
+        ][:2]
+        indexed_offsets = [
+            str(offset)
+            for offset in item.get("parameter_indexed_offsets", []) or []
+            if str(offset)
+        ][:4]
+        if indexed_parents:
+            indexed_parts.append("parent=%s" % ",".join(indexed_parents))
+        if indexed_parent_types:
+            indexed_parts.append("type=%s" % ",".join(indexed_parent_types))
+        if indexed_strides:
+            indexed_parts.append("stride=%s" % ",".join(indexed_strides))
+        if indexed_offsets:
+            indexed_parts.append("offsets=%s" % ",".join(indexed_offsets))
+        if indexed_parts:
+            parts.append("indexed-element=%s" % " ".join(indexed_parts))
+        else:
+            parts.append("indexed-element=%d evidence" % parameter_indexed_count)
     return "; ".join(parts)
 
 
