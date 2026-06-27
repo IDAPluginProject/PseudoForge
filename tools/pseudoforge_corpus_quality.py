@@ -220,6 +220,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "nested_field_pointer_residue_candidates": (
         "Parent rewrite exposed nested field-pointer residue; model the nested object separately before widening rewrite."
     ),
+    "direct_call_result_layout_candidates": (
+        "Direct call-result +0 dereferences where the callee return layout/type identity must be proven first."
+    ),
     "direct_base_zero_deref_candidates": (
         "Direct base +0 dereferences that need field-zero/source identity review before any rewrite."
     ),
@@ -306,6 +309,9 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     ),
     "nested_field_pointer_residue_candidates": (
         "Reread the parent field source, identify the nested object layout, and keep parent-body rewrite closed unless exact nested identity is proven."
+    ),
+    "direct_call_result_layout_candidates": (
+        "Verify the callee return type, call arguments, exact source object, and build identity before any field-zero or body rewrite."
     ),
     "direct_base_zero_deref_candidates": (
         "Treat +0 dereferences as field-zero review candidates only; require exact source identity before rendering them as structure fields."
@@ -2719,11 +2725,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("direct_base_deref_base_classes", {})).items()
         )
+        direct_call_anchors = _body_offset_direct_call_result_anchor_summary(queue)
         direct_base_summary = direct_base_bases
         if direct_base_types:
             direct_base_summary = "%s; types %s" % (direct_base_summary, direct_base_types) if direct_base_summary else "types %s" % direct_base_types
         if direct_base_classes:
             direct_base_summary = "%s; classes %s" % (direct_base_summary, direct_base_classes) if direct_base_summary else "classes %s" % direct_base_classes
+        if direct_call_anchors:
+            direct_base_summary = "%s; calls %s" % (direct_base_summary, direct_call_anchors) if direct_base_summary else "calls %s" % direct_call_anchors
         lines.append(
             "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
@@ -2860,8 +2869,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Gates | Cause tags | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Actionability | Residue | Call-result anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -2901,13 +2910,15 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(batch.get("generic_parameter_survivors"), 0),
                 _int_value(batch.get("nested_field_pointer_residue"), 0),
             )
+            call_result_anchors = _body_offset_direct_call_result_anchor_summary(batch)
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
                     _markdown_table_cell(actionability),
                     _markdown_table_cell(residue),
+                    _markdown_table_cell(call_result_anchors),
                     _markdown_table_cell(gates),
                     _markdown_table_cell(cause_tags),
                     _markdown_table_cell(", ".join(requirements)),
@@ -2918,8 +2929,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Call-result anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -2943,8 +2954,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             ]
             if str(item.get(key, "") or "")
         )
+        call_result_anchors = _body_offset_direct_call_result_anchor_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
@@ -2955,6 +2967,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("actionability_score"), 0),
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(call_result_anchors),
                 _markdown_table_cell(cause_tags),
                 _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
@@ -7931,6 +7944,7 @@ def _body_offset_residue_review_queues(
         "source_provenance_review",
         "validated_rewrite_residue",
         "nested_field_pointer_residue_candidates",
+        "direct_call_result_layout_candidates",
         "direct_base_zero_deref_candidates",
         "source_stability_required",
         "type_conflict_required",
@@ -8204,6 +8218,19 @@ def _body_offset_direct_call_result_anchor_summary(
         if str(callee)
     ][:limit]
     return ", ".join(roots)
+
+
+def _body_offset_direct_call_result_count(item: dict[str, Any]) -> int:
+    class_count = _int_value(
+        _coerce_dict(item.get("direct_base_deref_base_classes", {})).get("direct_call_result"),
+        0,
+    )
+    if class_count > 0:
+        return class_count
+    return sum(
+        _int_value(value, 0)
+        for value in _coerce_dict(item.get("direct_call_result_callees", {})).values()
+    )
 
 
 def _body_offset_residue_next_goal_candidates(
@@ -8528,6 +8555,9 @@ def _body_offset_residue_next_goal_review_batches(
         stable_source_provenance: Counter[str] = Counter()
         domain_profiles: Counter[str] = Counter()
         residue_cause_tags: Counter[str] = Counter()
+        call_result_callees: Counter[str] = Counter()
+        call_result_arg_roots: Counter[str] = Counter()
+        call_result_samples: list[str] = []
         for item in group_items:
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
@@ -8536,6 +8566,14 @@ def _body_offset_residue_next_goal_review_batches(
             for tag in item.get("residue_cause_tags", []) or []:
                 if str(tag):
                     residue_cause_tags[str(tag)] += 1
+            for callee, count in _coerce_dict(item.get("direct_call_result_callees", {})).items():
+                call_result_callees[str(callee)] += _int_value(count, 0)
+            for root, count in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
+                call_result_arg_roots[str(root)] += _int_value(count, 0)
+            for sample in item.get("direct_call_result_samples", []) or []:
+                sample_text = str(sample)
+                if sample_text and sample_text not in call_result_samples:
+                    call_result_samples.append(sample_text)
         batches.append(
             {
                 "batch": "%s:%s" % (subsystem, kind),
@@ -8609,6 +8647,13 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(stable_source_provenance.most_common(limit)))
                 ),
                 "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
+                "direct_call_result_callees": _counter_to_dict(
+                    Counter(dict(call_result_callees.most_common(limit)))
+                ),
+                "direct_call_result_arg_roots": _counter_to_dict(
+                    Counter(dict(call_result_arg_roots.most_common(limit)))
+                ),
+                "direct_call_result_samples": call_result_samples[:limit],
                 "residue_cause_tags": _counter_to_dict(
                     Counter(dict(residue_cause_tags.most_common(limit)))
                 ),
@@ -8629,6 +8674,11 @@ def _body_offset_residue_next_goal_review_batches(
                         "type_conflict_requirement": str(
                             item.get("type_conflict_requirement", "") or ""
                         ),
+                        "direct_call_result_samples": [
+                            str(sample)
+                            for sample in item.get("direct_call_result_samples", []) or []
+                            if str(sample)
+                        ],
                         "residue_cause_tags": [
                             str(tag)
                             for tag in item.get("residue_cause_tags", []) or []
@@ -8747,6 +8797,8 @@ def _body_offset_residue_next_goal_candidate_kind(item: dict[str, Any]) -> str:
     lane = str(item.get("promotion_lane", "") or "")
     details = {str(value) for value in item.get("next_action_details", []) or [] if str(value)}
     factors = {str(value) for value in item.get("priority_factors", []) or [] if str(value)}
+    if _body_offset_direct_call_result_count(item) > 0:
+        return "direct_call_result_layout_identity"
     if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
         return "exact_function_build_source_identity"
     if gate == "report_only_private_layout":
@@ -8787,6 +8839,7 @@ def _body_offset_residue_next_goal_actionability_class(item: dict[str, Any], kin
         "parameter_field_pointer_source_identity",
         "exact_function_build_source_identity",
         "parameter_profile_or_type_correction",
+        "direct_call_result_layout_identity",
     }:
         return "exact_evidence_attempt"
     if kind in {
@@ -8820,6 +8873,7 @@ def _body_offset_residue_next_goal_actionability_score(item: dict[str, Any], kin
         "parameter_field_pointer_source_identity",
     } else 0
     score += 40 if kind == "exact_function_build_source_identity" else 0
+    score += 55 if kind == "direct_call_result_layout_identity" else 0
     score += 14 if kind in {"type_conflict_resolution", "source_stability_proof"} else 0
     score += 10 if kind == "indexed_layout_model" else 0
     score += 18 if kind == "nested_field_pointer_layout_model" else 0
@@ -8843,6 +8897,14 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
         )
     if kind == "exact_function_build_source_identity":
         return "Resolve function/profile/build/source identity before any body rewrite or stronger type correction."
+    if kind == "direct_call_result_layout_identity":
+        anchors = _body_offset_direct_call_result_anchor_summary(item)
+        if anchors:
+            return (
+                "Verify returned layout/type identity for %s, including call arguments and build/source provenance, before any field-zero rewrite."
+                % anchors
+            )
+        return "Verify returned layout/type identity for the direct call-result before any field-zero rewrite."
     if kind == "exact_private_layout_source":
         return "Keep aliases report-only while collecting exact private field layout source evidence."
     if kind == "source_stability_proof":
@@ -8883,6 +8945,8 @@ def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) 
         return "Nested field-pointer residue needs its own exact layout identity; parent rewrite evidence is not enough."
     if kind == "direct_base_zero_deref_review":
         return "Direct +0 dereference is not enough to render field_0; exact source identity is still required."
+    if kind == "direct_call_result_layout_identity":
+        return "Direct call-result +0 residue remains fail-closed until callee return type, source object, and build identity are exact."
     if kind == "parameter_profile_or_type_correction":
         return "Use canonical_type/display_type for output; accepted_types are input guards only."
     if policy:
@@ -8900,6 +8964,11 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         return "direct parameter alias source must match exact function/build/profile identity"
     if kind == "parameter_field_pointer_source_identity":
         return "parameter-field pointer source must match exact containing-object layout identity"
+    if kind == "direct_call_result_layout_identity":
+        anchors = _body_offset_direct_call_result_anchor_summary(item)
+        if anchors:
+            return "callee return layout identity required for %s" % anchors
+        return "callee return layout identity required for direct call-result residue"
     if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
         return "exact function, build, profile, and source object identity required"
     if gate == "report_only_private_layout":
@@ -8986,6 +9055,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
         )
     if queue_name == "nested_field_pointer_residue_candidates":
         return _int_value(item.get("nested_field_pointer_residue_count"), 0) > 0
+    if queue_name == "direct_call_result_layout_candidates":
+        return _body_offset_direct_call_result_count(item) > 0
     if queue_name == "direct_base_zero_deref_candidates":
         return _int_value(item.get("direct_base_deref_survivors"), 0) > 0
     if queue_name == "source_stability_required":
@@ -9417,6 +9488,14 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
                 % ", ".join(parent_fields)
             )
         return "nested field-pointer residue needs a separate object layout model before rewrite"
+    if queue == "direct_call_result_layout_candidates":
+        anchors = _body_offset_direct_call_result_anchor_summary(item)
+        if anchors:
+            return (
+                "direct call-result %s needs returned layout/type identity before field-zero rewrite"
+                % anchors
+            )
+        return "direct call-result needs returned layout/type identity before field-zero rewrite"
     if queue == "direct_base_zero_deref_candidates":
         bases = [
             str(key)

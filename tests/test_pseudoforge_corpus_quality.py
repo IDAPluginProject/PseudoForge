@@ -3269,6 +3269,34 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
             )
             self.assertEqual(["KeGetCurrentPrcb()"], direct_queue["items"][0]["direct_call_result_samples"])
             self.assertIn("direct +0 dereference on context", direct_queue["items"][0]["queue_reason"])
+            call_result_queue = body_offset_stats["review_queues"]["direct_call_result_layout_candidates"]
+            self.assertEqual(1, call_result_queue["functions"])
+            self.assertEqual(
+                {"KeGetCurrentPrcb": 1},
+                call_result_queue["direct_call_result_callees"],
+            )
+            self.assertEqual(["KeGetCurrentPrcb()"], call_result_queue["direct_call_result_samples"])
+            self.assertIn(
+                "returned layout/type identity",
+                call_result_queue["items"][0]["queue_reason"],
+            )
+            next_candidates = body_offset_stats["next_goal_candidates"]
+            self.assertEqual(
+                {"direct_call_result_layout_identity": 1},
+                next_candidates["candidate_kinds"],
+            )
+            self.assertEqual(
+                "direct_call_result_layout_identity",
+                next_candidates["items"][0]["candidate_kind"],
+            )
+            self.assertEqual(
+                ["KeGetCurrentPrcb()"],
+                next_candidates["items"][0]["direct_call_result_samples"],
+            )
+            self.assertIn(
+                "callee return layout identity required for KeGetCurrentPrcb()",
+                next_candidates["items"][0]["source_identity_requirement"],
+            )
             root_batches = body_offset_stats["direct_base_root_review_batches"]
             self.assertEqual(
                 "body_offset_direct_base_root_review_batches_v1",
@@ -3307,6 +3335,8 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
             self.assertIn("context=1", markdown)
             self.assertIn("Residue Direct-Base Classes", markdown)
             self.assertIn("Direct-Base Root Review Batches", markdown)
+            self.assertIn("direct_call_result_layout_candidates", markdown)
+            self.assertIn("direct_call_result_layout_identity", markdown)
             self.assertIn("direct_call_result=1", markdown)
             self.assertIn("KeGetCurrentPrcb()", markdown)
 
