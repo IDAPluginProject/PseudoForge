@@ -1121,7 +1121,7 @@ def _domain_identity_comment_from_match(
         "kind": "domain_structure_identity",
         "text": (
             "Domain identity for %s: role %s, structure %s, mode %s, %s. Fields %s.%s "
-            "Canonical rewrite still requires existing validation-gated layout export."
+            "Canonical rewrite still requires existing validation-gated layout export.%s"
             % (
                 layout.base,
                 domain_identity.role,
@@ -1130,6 +1130,7 @@ def _domain_identity_comment_from_match(
                 detail,
                 field_text,
                 forced_text,
+                _domain_identity_rewrite_gate_text(domain_identity),
             )
         ),
         "confidence": domain_identity.confidence,
@@ -1169,6 +1170,12 @@ def _domain_identity_structured_blockers(domain_identity: DomainIdentityMatch) -
     return list(dict.fromkeys(blockers))
 
 
+def _domain_identity_rewrite_gate_text(domain_identity: DomainIdentityMatch) -> str:
+    if domain_identity.ambiguous or domain_identity.effective_mode == MODE_REPORT_ONLY:
+        return " Exact function/build/private-layout source identity is required before canonical rewrite."
+    return ""
+
+
 def _domain_identity_role_comment_from_match(domain_identity: DomainIdentityMatch) -> dict[str, Any]:
     if domain_identity.ambiguous:
         detail = "ambiguous profiles %s" % ", ".join(domain_identity.ambiguous_profile_ids[:6])
@@ -1183,7 +1190,7 @@ def _domain_identity_role_comment_from_match(domain_identity: DomainIdentityMatc
         "kind": "domain_structure_identity",
         "text": (
             "Domain identity for %s: role %s, structure %s, mode %s, %s. Fields none observed.%s "
-            "Role-only evidence; no field rewrite was applied."
+            "Role-only evidence; no field rewrite was applied.%s"
             % (
                 domain_identity.base,
                 domain_identity.role,
@@ -1191,6 +1198,7 @@ def _domain_identity_role_comment_from_match(domain_identity: DomainIdentityMatc
                 mode_text,
                 detail,
                 forced_text,
+                _domain_identity_rewrite_gate_text(domain_identity),
             )
         ),
         "confidence": domain_identity.confidence,

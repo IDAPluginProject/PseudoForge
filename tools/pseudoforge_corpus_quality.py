@@ -4002,6 +4002,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             % parameter_indexed_element_totals.get("access_observations", 0),
             "- Parameter-indexed element offset observations: `%s`"
             % parameter_indexed_element_totals.get("element_offset_observations", 0),
+            "- Parameter-indexed alias rewrite risks: `%s`"
+            % parameter_indexed_element_totals.get("alias_rewrite_risks", 0),
             "",
             "### Parameter Indexed Parents",
             "",
@@ -4026,8 +4028,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Parameter Indexed Element Functions",
             "",
-            "| Function | EA | Evidence | Max offsets | Max accesses | Parents | Parent types | Strides | Bases |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | EA | Evidence | Max offsets | Max accesses | Parents | Parent types | Strides | Alias rewrite risks | Bases |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
         ]
     )
     for item in parameter_indexed_element_stats.get("top_functions", []) or []:
@@ -4046,8 +4048,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("strides", {})).items()
         )
+        alias_rewrite_risks = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("alias_rewrite_risks", {})).items()
+        )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -4057,6 +4063,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(parents),
                 _markdown_table_cell(parent_types),
                 _markdown_table_cell(strides),
+                _markdown_table_cell(alias_rewrite_risks),
                 bases,
             )
         )
@@ -5999,6 +6006,8 @@ def _body_offset_residue_function_summary(
         next_action_details = list(dict.fromkeys(next_action_details))
     if parameter_indexed_elements:
         next_action_details.append("parameter_indexed_parent_stride_available")
+        if _body_offset_parameter_indexed_counter(parameter_indexed_elements, "alias_rewrite_risk"):
+            next_action_details.append("avoid_naive_parameter_alias_rewrite")
         next_action_details = list(dict.fromkeys(next_action_details))
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -6117,6 +6126,10 @@ def _body_offset_residue_function_summary(
         ),
         "parameter_indexed_strides": _body_offset_parameter_indexed_stride_counter(
             parameter_indexed_elements,
+        ),
+        "parameter_indexed_alias_rewrite_risks": _body_offset_parameter_indexed_counter(
+            parameter_indexed_elements,
+            "alias_rewrite_risk",
         ),
         "parameter_indexed_offsets": _body_offset_parameter_indexed_offsets(
             parameter_indexed_elements,
@@ -7525,6 +7538,13 @@ def _body_offset_named_goal_target_status(
                 "blocker_families": _coerce_dict(item.get("blocker_families", {})),
                 "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
                 "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+                "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
+                "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
+                "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),
+                "parameter_indexed_strides": _coerce_dict(item.get("parameter_indexed_strides", {})),
+                "parameter_indexed_alias_rewrite_risks": _coerce_dict(
+                    item.get("parameter_indexed_alias_rewrite_risks", {})
+                ),
                 "recommended_next": _body_offset_named_goal_target_recommended_next(item),
                 "summary_path": str(item.get("summary_path", "") or ""),
                 "cleaned_path": str(item.get("cleaned_path", "") or ""),
@@ -7559,6 +7579,8 @@ def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str
             return "Keep report-only closed; prove the parameter-field pointer source layout before promoting aliases."
         return "Keep report-only closed; collect exact private layout source evidence or leave aliases review-only."
     if lane == "model_parameter_indexed_layout":
+        if _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})):
+            return "Model the parameter-indexed element shape separately; typed pointer byte-stride evidence makes naive parameter alias rewrite unsafe."
         return "Model the parameter-indexed element shape separately; do not lower rewrite thresholds or rewrite array fields without exact layout identity."
     if lane == "model_indexed_layout":
         return "Model indexed table or array access separately from canonical structure rewrite."
@@ -8154,6 +8176,7 @@ def _body_offset_residue_review_queue_summary(
     parameter_indexed_parents: Counter[str] = Counter()
     parameter_indexed_parent_types: Counter[str] = Counter()
     parameter_indexed_strides: Counter[str] = Counter()
+    parameter_indexed_alias_rewrite_risks: Counter[str] = Counter()
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
@@ -8188,6 +8211,8 @@ def _body_offset_residue_review_queue_summary(
             parameter_indexed_parent_types[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_indexed_strides", {})).items():
             parameter_indexed_strides[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})).items():
+            parameter_indexed_alias_rewrite_risks[str(key)] += _int_value(value, 0)
     return {
         "queue": queue_name,
         "description": _BODY_OFFSET_QUEUE_DESCRIPTIONS.get(queue_name, "Manual body offset residue review queue."),
@@ -8247,6 +8272,9 @@ def _body_offset_residue_review_queue_summary(
         ),
         "parameter_indexed_strides": _counter_to_dict(
             Counter(dict(parameter_indexed_strides.most_common(limit)))
+        ),
+        "parameter_indexed_alias_rewrite_risks": _counter_to_dict(
+            Counter(dict(parameter_indexed_alias_rewrite_risks.most_common(limit)))
         ),
         "items": [
             _body_offset_residue_review_queue_item(item, queue_name=queue_name)
@@ -8325,6 +8353,9 @@ def _body_offset_residue_review_queue_item(
         "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
         "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),
         "parameter_indexed_strides": _coerce_dict(item.get("parameter_indexed_strides", {})),
+        "parameter_indexed_alias_rewrite_risks": _coerce_dict(
+            item.get("parameter_indexed_alias_rewrite_risks", {})
+        ),
         "parameter_indexed_offsets": [
             str(offset)
             for offset in item.get("parameter_indexed_offsets", []) or []
@@ -8384,6 +8415,11 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
         return "type width or alignment conflict must be resolved before rewrite"
     if queue == "pointer_indexed_layout_candidates":
         if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
+            if _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})):
+                return (
+                    "parameter-indexed element uses a typed parent pointer with byte-stride evidence; "
+                    "model indexed layout and avoid naive parameter alias rewrite"
+                )
             return "parameter-indexed element shape has parent/stride/offset evidence; model indexed layout before rewrite"
         return "pointer-indexed shape needs a separate indexed layout model"
     if queue == "dense_shape_identity_candidates":
@@ -8477,6 +8513,13 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
             indexed_parts.append("stride=%s" % ",".join(indexed_strides))
         if indexed_offsets:
             indexed_parts.append("offsets=%s" % ",".join(indexed_offsets))
+        indexed_risks = [
+            str(risk)
+            for risk in _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})).keys()
+            if str(risk)
+        ][:2]
+        if indexed_risks:
+            indexed_parts.append("alias-risk=%s" % ",".join(indexed_risks))
         if indexed_parts:
             parts.append("indexed-element=%s" % " ".join(indexed_parts))
         else:
@@ -10748,6 +10791,8 @@ def _extract_layout_parameter_indexed_elements(text: str) -> list[dict[str, Any]
     candidates = []
     for match in FIELD_PARAMETER_INDEXED_ELEMENT_DETAIL_RE.finditer(text or ""):
         offsets = _parse_hex_offsets(match.group("offsets"))
+        parent_type = str(match.groupdict().get("parent_type") or "")
+        alias_risk = _parameter_indexed_alias_risk(parent_type, _int_value(match.group("stride"), 0))
         candidates.append(
             {
                 "base": match.group("base"),
@@ -10759,11 +10804,50 @@ def _extract_layout_parameter_indexed_elements(text: str) -> list[dict[str, Any]
                 "offsets": offsets,
                 "offset_count": len(offsets),
                 "types": _parse_comma_tokens(match.group("types")),
-                "parent_type": str(match.groupdict().get("parent_type") or ""),
+                "parent_type": parent_type,
+                "alias_rewrite_risk": alias_risk,
                 "confidence": _float_value(match.group("confidence"), 0.0),
             }
         )
     return candidates
+
+
+def _parameter_indexed_alias_risk(parent_type: str, stride: int) -> str:
+    normalized = re.sub(r"\s+", "", str(parent_type or ""))
+    if stride <= 0 or not normalized:
+        return ""
+    if "*" in normalized:
+        return "typed_parent_pointer_byte_stride"
+    if _parameter_indexed_parent_type_is_value_like(normalized):
+        return ""
+    if re.fullmatch(r"P[A-Z0-9_]+", normalized):
+        return "typed_parent_pointer_byte_stride"
+    return ""
+
+
+def _parameter_indexed_parent_type_is_value_like(normalized_type: str) -> bool:
+    if normalized_type in {
+        "PFN_NUMBER",
+        "PHYSICAL_ADDRESS",
+        "POOL_TYPE",
+        "PORT_MESSAGE",
+        "POWER_ACTION",
+        "POWER_STATE",
+        "PROCESSOR_NUMBER",
+    }:
+        return True
+    return normalized_type.startswith(
+        (
+            "PAGE_",
+            "PCI_",
+            "PFN_",
+            "PHYSICAL_",
+            "POOL_",
+            "PORT_",
+            "POWER_",
+            "PROCESSOR_",
+        )
+    )
 
 
 def _parse_hex_offsets(value: str) -> list[int]:
@@ -11585,6 +11669,8 @@ def _update_layout_parameter_indexed_element_metrics(
         totals["evidence_comments"] += 1
         totals["access_observations"] += _int_value(candidate.get("access_count"), 0)
         totals["element_offset_observations"] += _int_value(candidate.get("offset_count"), 0)
+        if str(candidate.get("alias_rewrite_risk", "") or ""):
+            totals["alias_rewrite_risks"] += 1
         bases[str(candidate.get("base", "") or "unknown")] += 1
         parents[str(candidate.get("parent", "") or "unknown")] += 1
         parent_type = str(candidate.get("parent_type", "") or "")
@@ -12795,6 +12881,11 @@ def _parameter_indexed_element_function_summary(
         for item in candidates
         if _int_value(item.get("stride"), 0) > 0
     )
+    alias_rewrite_risks = Counter(
+        str(item.get("alias_rewrite_risk", "") or "")
+        for item in candidates
+        if str(item.get("alias_rewrite_risk", "") or "")
+    )
     return {
         "ea": ea,
         "name": name,
@@ -12803,6 +12894,7 @@ def _parameter_indexed_element_function_summary(
         "parents": _counter_to_dict(Counter(dict(parents.most_common(5)))),
         "parent_types": _counter_to_dict(Counter(dict(parent_types.most_common(5)))),
         "strides": _counter_to_dict(Counter(dict(strides.most_common(5)))),
+        "alias_rewrite_risks": _counter_to_dict(Counter(dict(alias_rewrite_risks.most_common(5)))),
         "max_offset_count": max((_int_value(item.get("offset_count"), 0) for item in candidates), default=0),
         "max_access_count": max((_int_value(item.get("access_count"), 0) for item in candidates), default=0),
         "max_confidence": max((_float_value(item.get("confidence"), 0.0) for item in candidates), default=0.0),

@@ -1349,6 +1349,13 @@ __int64 __fastcall MiPrefetchVirtualMemory(unsigned __int64 a1, __int64 a2, __in
         self.assertIn("ULONG prefetchFlags", rendered)
         self.assertEqual(4, len(identities))
         self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
+        self.assertTrue(
+            all(
+                "Exact function/build/private-layout source identity is required before canonical rewrite."
+                in item["text"]
+                for item in identities
+            )
+        )
         indexed_elements = [
             item
             for item in plan.comments

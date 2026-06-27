@@ -419,6 +419,10 @@ NTSTATUS __fastcall ObpCreateHandle(unsigned int argument0, PVOID referencedObje
         self.assertEqual("accessState", identity["trusted_role"])
         self.assertEqual("report-only", identity["effective_mode"])
         self.assertIn("profile_report_only", identity["blockers"])
+        self.assertIn(
+            "Exact function/build/private-layout source identity is required before canonical rewrite.",
+            identity["text"],
+        )
         self.assertEqual([], identity["fields"])
         self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
         self.assertFalse(
