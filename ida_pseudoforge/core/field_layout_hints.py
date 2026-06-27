@@ -1606,6 +1606,7 @@ def _field_stable_base_source_comment_from_layout(text: str, layout: _LayoutEvid
             identity["source_provenance"],
             layout.access_count,
             len(layout.offsets),
+            identity,
         ),
         "confidence": round(confidence, 2),
         "base": layout.base,
@@ -5270,12 +5271,51 @@ def _field_stable_base_source_text(
     source_provenance: str,
     access_count: int,
     offset_count: int,
+    identity: dict[str, Any] | None = None,
 ) -> str:
+    source_detail = _field_source_detail_text(source, identity or {})
     return (
-        "Stable base source for %s: %s (%s source, %s), %d typed dereference(s) across %d offset(s). "
+        "Stable base source for %s: %s (%s source, %s), %d typed dereference(s) across %d offset(s).%s "
         "Review-only source identity evidence for temp/generic base promotion."
-        % (base, source, source_kind, source_provenance, access_count, offset_count)
+        % (base, source, source_kind, source_provenance, access_count, offset_count, source_detail)
     )
+
+
+def _field_source_anchor_text(source: str, source_offset: str) -> str:
+    offset = str(source_offset or "")
+    if not offset:
+        return source
+    if offset.startswith("-"):
+        return "%s%s" % (source, offset)
+    return "%s+%s" % (source, offset)
+
+
+def _field_source_detail_text(source: str, identity: dict[str, Any]) -> str:
+    detail_parts: list[str] = []
+    source_offset = str(identity.get("source_offset", "") or "")
+    source_type = str(identity.get("source_type", "") or "")
+    source_rhs_kind = str(identity.get("source_rhs_kind", "") or "")
+    source_container_offset = str(identity.get("source_container_offset", "") or "")
+    source_index = str(identity.get("source_index", "") or "")
+    source_call = str(identity.get("source_call", "") or "")
+    source_alias = str(identity.get("source_alias", "") or "")
+    if source_offset:
+        detail_parts.append("anchor %s" % _field_source_anchor_text(source, source_offset))
+    if source_container_offset:
+        detail_parts.append("container_offset %s" % source_container_offset)
+    if source_index:
+        detail_parts.append("index %s" % source_index)
+    if source_type:
+        detail_parts.append("type %s" % source_type)
+    if source_call:
+        detail_parts.append("call %s" % source_call)
+    if source_alias:
+        detail_parts.append("alias %s" % source_alias)
+    if source_rhs_kind and source_rhs_kind not in {"none", "unknown"}:
+        detail_parts.append("rhs %s" % source_rhs_kind)
+    if not detail_parts:
+        return ""
+    return " Source detail %s." % ", ".join(detail_parts)
 
 
 def _field_stable_expression_source_text(

@@ -543,6 +543,7 @@ FIELD_STABLE_BASE_SOURCE_DETAIL_RE = re.compile(
     r"\((?P<source_kind>[a-z_]+)\s+source(?:,\s+(?P<source_provenance>[a-z_]+))?\),\s+"
     r"(?P<access_count>\d+)\s+typed dereference\(s\)\s+across\s+"
     r"(?P<offset_count>\d+)\s+offset\(s\)\.\s+"
+    r"(?:Source detail\s+(?P<source_detail>.*?)\.\s+)?"
     r"(?:Review-only; temp/generic base keeps rewrite blocked until source identity is trusted|"
     r"Review-only source identity evidence for temp/generic base promotion)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
@@ -952,6 +953,7 @@ def analyze_corpus(
     body_offset_residue_safety_policies: Counter[str] = Counter()
     body_offset_residue_evidence_maturity: Counter[str] = Counter()
     body_offset_residue_cause_tags: Counter[str] = Counter()
+    body_offset_residue_stable_source_details: Counter[str] = Counter()
     decimal_status_residue_values: Counter[str] = Counter()
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
@@ -1355,6 +1357,7 @@ def analyze_corpus(
                         body_offset_residue_safety_policies,
                         body_offset_residue_evidence_maturity,
                         body_offset_residue_cause_tags,
+                        body_offset_residue_stable_source_details,
                     )
                     top_body_offset_residue_functions.append(body_offset_residue_item)
                 if layout_hints:
@@ -1996,6 +1999,9 @@ def analyze_corpus(
             ),
             "residue_cause_tags": _counter_to_dict(
                 Counter(dict(body_offset_residue_cause_tags.most_common(top)))
+            ),
+            "top_stable_source_details": _counter_to_dict(
+                Counter(dict(body_offset_residue_stable_source_details.most_common(top)))
             ),
             "review_queues": _body_offset_residue_review_queues(
                 top_body_offset_residue_functions,
@@ -2688,6 +2694,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Residue Stable Source Details",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("top_stable_source_details", {})),
+            "Source detail",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Residue Review Focuses",
             "",
         ]
@@ -2821,6 +2840,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("top_stable_sources", {})).items()
         )
+        stable_source_details = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("top_stable_source_details", {})).items()
+        )
+        if stable_source_details:
+            stable_sources = (
+                "%s; detail %s" % (stable_sources, stable_source_details)
+                if stable_sources
+                else "detail %s" % stable_source_details
+            )
         parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(queue)
         if parameter_field_pointer_anchors:
             stable_sources = (
@@ -3119,6 +3148,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
         )
+        stable_source_details = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_stable_source_details", {})).items()
+        )
+        if stable_source_details:
+            stable_sources = (
+                "%s; detail %s" % (stable_sources, stable_source_details)
+                if stable_sources
+                else "detail %s" % stable_source_details
+            )
         callee_arity_anchors = ", ".join(
             str(sample)
             for sample in item.get("callee_arity_residue_samples", []) or []
@@ -3215,6 +3254,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
         )
+        stable_source_details = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_stable_source_details", {})).items()
+        )
+        if stable_source_details:
+            stable_sources = (
+                "%s; detail %s" % (stable_sources, stable_source_details)
+                if stable_sources
+                else "detail %s" % stable_source_details
+            )
         cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
         direct_base_roots = _body_offset_direct_base_root_summary(item)
         offset_samples = _body_offset_offset_deref_sample_summary(item)
@@ -7185,6 +7234,9 @@ def _body_offset_residue_function_summary(
             stable_base_sources,
             "source",
         ),
+        "top_stable_source_details": _body_offset_source_detail_counter(
+            stable_base_sources,
+        ),
         "generic_base_evidence_count": len(generic_base_evidence),
         "generic_base_trust_candidate_count": len(generic_base_trust_candidates),
         "temp_provenance_blocked_count": len(temp_provenance.get("blocked", []) or []),
@@ -7263,6 +7315,7 @@ def _update_body_offset_residue_metrics(
     safety_policies: Counter[str],
     evidence_maturity: Counter[str],
     cause_tags: Counter[str],
+    stable_source_details: Counter[str],
 ) -> None:
     totals["functions_with_offset_residue"] += 1
     totals["offset_deref_survivors"] += _int_value(item.get("offset_deref_survivors"), 0)
@@ -7338,6 +7391,8 @@ def _update_body_offset_residue_metrics(
     for tag in item.get("residue_cause_tags", []) or []:
         if str(tag):
             cause_tags[str(tag)] += 1
+    for detail, count in _coerce_dict(item.get("top_stable_source_details", {})).items():
+        stable_source_details[str(detail)] += _int_value(count, 0)
     shape_profile = _coerce_dict(item.get("offset_shape_profile", {}))
     shape_class = str(shape_profile.get("shape_class", "") or "")
     if shape_class:
@@ -8779,6 +8834,31 @@ def _body_offset_source_counter(
     return _counter_to_dict(counter)
 
 
+def _body_offset_source_detail_counter(items: list[dict[str, Any]]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for item in items:
+        base = str(item.get("base", "") or "").strip()
+        source = str(item.get("source", "") or "").strip()
+        anchor = str(item.get("source_anchor", "") or "").strip()
+        source_type = str(item.get("source_type", "") or "").strip()
+        rhs_kind = str(item.get("source_rhs_kind", "") or "").strip()
+        if not base or not anchor:
+            continue
+        parts = [base, "<-", anchor]
+        if source and not anchor.startswith(source):
+            parts.extend([" via ", source])
+        detail = "".join(parts)
+        suffixes = []
+        if source_type:
+            suffixes.append(source_type)
+        if rhs_kind and rhs_kind not in {"none", "unknown"}:
+            suffixes.append(rhs_kind)
+        if suffixes:
+            detail = "%s:%s" % (detail, ":".join(suffixes))
+        counter[detail] += 1
+    return _counter_to_dict(counter)
+
+
 def _body_offset_parameter_indexed_counter(items: list[dict[str, Any]], key: str) -> dict[str, int]:
     counter: Counter[str] = Counter()
     for item in items:
@@ -9182,6 +9262,7 @@ def _body_offset_named_goal_target_status(
                 ],
                 "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
                 "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+                "top_stable_source_details": _coerce_dict(item.get("top_stable_source_details", {})),
                 "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
                 "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
                 "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),
@@ -10179,6 +10260,9 @@ def _body_offset_residue_next_goal_review_batches(
                             for tag in item.get("residue_cause_tags", []) or []
                             if str(tag)
                         ],
+                        "top_stable_source_details": _coerce_dict(
+                            item.get("top_stable_source_details", {})
+                        ),
                         "nested_field_pointer_residue_count": _int_value(
                             item.get("nested_field_pointer_residue_count"),
                             0,
@@ -10359,6 +10443,7 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
         "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
         "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+        "top_stable_source_details": _coerce_dict(item.get("top_stable_source_details", {})),
         "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
         "nested_field_pointer_parent_fields": _coerce_dict(
             item.get("nested_field_pointer_parent_fields", {})
@@ -10596,12 +10681,17 @@ def _body_offset_residue_next_goal_source_identity_requirement(
 ) -> str:
     gate = str(item.get("fail_closed_gate", "") or "")
     provenance = _coerce_dict(item.get("stable_source_provenance", {}))
+    source_details = _body_offset_stable_source_detail_summary(item)
     if kind == "direct_parameter_source_identity":
+        if source_details:
+            return "direct parameter alias source %s must match exact function/build/profile identity" % source_details
         return "direct parameter alias source must match exact function/build/profile identity"
     if kind == "parameter_field_pointer_source_identity":
         anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
         if anchors:
             return "parameter-field pointer source anchors %s must match exact containing-object layout identity" % anchors
+        if source_details:
+            return "parameter-field pointer source %s must match exact containing-object layout identity" % source_details
         return "parameter-field pointer source must match exact containing-object layout identity"
     if kind == "direct_call_result_layout_identity":
         anchors = _body_offset_direct_call_result_anchor_summary(item)
@@ -10632,6 +10722,8 @@ def _body_offset_residue_next_goal_source_identity_requirement(
     if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
         return "exact function, build, profile, and source object identity required"
     if gate == "report_only_private_layout":
+        if source_details:
+            return "exact private layout source required for %s before canonical rewrite" % source_details
         return "exact private layout source required before canonical rewrite"
     if kind == "indexed_layout_model":
         anchors = _body_offset_parameter_indexed_anchor_summary(item)
@@ -10643,8 +10735,19 @@ def _body_offset_residue_next_goal_source_identity_requirement(
     if kind == "direct_base_zero_deref_review":
         return "exact field-zero source identity required before direct-base rewrite"
     if provenance:
+        if source_details:
+            return "stable source provenance %s available; verify exact profile identity before promotion" % source_details
         return "stable source provenance available; verify exact profile identity before promotion"
     return ""
+
+
+def _body_offset_stable_source_detail_summary(item: dict[str, Any], limit: int = 3) -> str:
+    details = [
+        str(detail)
+        for detail in _coerce_dict(item.get("top_stable_source_details", {})).keys()
+        if str(detail)
+    ][:limit]
+    return ", ".join(details)
 
 
 def _body_offset_parameter_indexed_anchor_summary(
@@ -10879,6 +10982,7 @@ def _body_offset_residue_review_queue_summary(
     stable_source_provenance: Counter[str] = Counter()
     stable_source_kinds: Counter[str] = Counter()
     top_stable_sources: Counter[str] = Counter()
+    top_stable_source_details: Counter[str] = Counter()
     domain_profiles: Counter[str] = Counter()
     parameter_indexed_parents: Counter[str] = Counter()
     parameter_indexed_parent_types: Counter[str] = Counter()
@@ -10943,6 +11047,8 @@ def _body_offset_residue_review_queue_summary(
             stable_source_kinds[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("top_stable_sources", {})).items():
             top_stable_sources[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("top_stable_source_details", {})).items():
+            top_stable_source_details[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
             domain_profiles[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_indexed_parents", {})).items():
@@ -11201,6 +11307,9 @@ def _body_offset_residue_review_queue_summary(
         ),
         "stable_source_kinds": _counter_to_dict(Counter(dict(stable_source_kinds.most_common(limit)))),
         "top_stable_sources": _counter_to_dict(Counter(dict(top_stable_sources.most_common(limit)))),
+        "top_stable_source_details": _counter_to_dict(
+            Counter(dict(top_stable_source_details.most_common(limit)))
+        ),
         "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
         "parameter_indexed_parents": _counter_to_dict(
             Counter(dict(parameter_indexed_parents.most_common(limit)))
@@ -11376,6 +11485,7 @@ def _body_offset_residue_review_queue_item(
         "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
         "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
         "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+        "top_stable_source_details": _coerce_dict(item.get("top_stable_source_details", {})),
         "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
         "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
         "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),
@@ -14144,21 +14254,56 @@ def _extract_layout_stable_base_sources(text: str) -> list[dict[str, Any]]:
             match.group("source_kind"),
         )
         source_provenance = match.groupdict().get("source_provenance") or provenance["source_provenance"]
-        candidates.append(
-            {
-                "base": match.group("base"),
-                "source": match.group("source"),
-                "source_kind": match.group("source_kind"),
-                "source_provenance": source_provenance,
-                "source_rhs_kind": provenance["source_rhs_kind"],
-                "base_alias_assignments": provenance["base_alias_assignments"],
-                "source_assignments": provenance["source_assignments"],
-                "access_count": _int_value(match.group("access_count"), 0),
-                "offset_count": _int_value(match.group("offset_count"), 0),
-                "confidence": _float_value(match.group("confidence"), 0.0),
-            }
-        )
+        detail = _parse_stable_source_detail(match.groupdict().get("source_detail") or "")
+        candidate = {
+            "base": match.group("base"),
+            "source": match.group("source"),
+            "source_kind": match.group("source_kind"),
+            "source_provenance": source_provenance,
+            "source_rhs_kind": provenance["source_rhs_kind"],
+            "base_alias_assignments": provenance["base_alias_assignments"],
+            "source_assignments": provenance["source_assignments"],
+            "access_count": _int_value(match.group("access_count"), 0),
+            "offset_count": _int_value(match.group("offset_count"), 0),
+            "confidence": _float_value(match.group("confidence"), 0.0),
+        }
+        candidate.update(detail)
+        if str(detail.get("source_rhs_kind", "") or ""):
+            candidate["source_rhs_kind"] = str(detail["source_rhs_kind"])
+        candidates.append(candidate)
     return candidates
+
+
+def _parse_stable_source_detail(value: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw_part in str(value or "").split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        if part.startswith("anchor "):
+            result["source_anchor"] = part[len("anchor "):].strip()
+            continue
+        if part.startswith("container_offset "):
+            result["source_container_offset"] = part[len("container_offset "):].strip()
+            continue
+        if part.startswith("index "):
+            result["source_index"] = part[len("index "):].strip()
+            continue
+        if part.startswith("type "):
+            result["source_type"] = part[len("type "):].strip()
+            continue
+        if part.startswith("call "):
+            result["source_call"] = part[len("call "):].strip()
+            continue
+        if part.startswith("alias "):
+            result["source_alias"] = part[len("alias "):].strip()
+            continue
+        if part.startswith("rhs "):
+            result["source_rhs_kind"] = part[len("rhs "):].strip()
+            continue
+    if value:
+        result["source_detail"] = str(value)
+    return result
 
 
 def _extract_layout_base_stability(text: str) -> list[dict[str, Any]]:
@@ -15415,6 +15560,9 @@ def _update_layout_rewrite_blocker_metrics(
                     "identity_blocker_profile": str(identity.get("blocker_profile", "") or ""),
                     "identity_source_provenance": str(identity.get("source_provenance", "") or ""),
                     "identity_source_rhs_kind": str(identity.get("source_rhs_kind", "") or ""),
+                    "identity_source_anchor": str(identity.get("source_anchor", "") or ""),
+                    "identity_source_type": str(identity.get("source_type", "") or ""),
+                    "identity_source_detail": str(identity.get("source_detail", "") or ""),
                     "identity_confidence": _float_value(identity.get("confidence"), 0.0),
                     "domain_profile_id": str(domain_identity.get("profile_id", "") or ""),
                     "domain_role": str(domain_identity.get("role", "") or ""),
@@ -15489,6 +15637,9 @@ def _layout_identity_evidence_by_base(
                 "blocker_profile": "",
                 "source_provenance": str(item.get("source_provenance", "") or "unknown"),
                 "source_rhs_kind": str(item.get("source_rhs_kind", "") or "unknown"),
+                "source_anchor": str(item.get("source_anchor", "") or ""),
+                "source_type": str(item.get("source_type", "") or ""),
+                "source_detail": str(item.get("source_detail", "") or ""),
                 "confidence": _float_value(item.get("confidence"), 0.0),
                 "offset_count": _int_value(item.get("offset_count"), 0),
                 "access_count": _int_value(item.get("access_count"), 0),
