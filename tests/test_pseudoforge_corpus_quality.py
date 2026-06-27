@@ -3274,10 +3274,15 @@ __int64 __fastcall MiPrefetchVirtualMemory(PMEMORY_RANGE_ENTRY memoryRanges, ULO
             self.assertIn("parameter_indexed_element_shape", body_item["review_evidence"])
             self.assertIn("parameter_indexed_parent_stride_available", body_item["next_action_details"])
             self.assertIn("avoid_naive_parameter_alias_rewrite", body_item["next_action_details"])
+            self.assertIn("parameter_indexed_layout", body_item["residue_cause_tags"])
+            self.assertIn("typed_pointer_stride_alias_risk", body_item["residue_cause_tags"])
             self.assertIn("parameter_indexed_element_shape", body_item["priority_factors"])
             self.assertIn("parameter_indexed_layout_model_required", body_item["primary_review_reasons"])
             self.assertIn("indexed-element=parent=memoryRanges", body_item["review_summary"])
             self.assertIn("alias-risk=typed_parent_pointer_byte_stride", body_item["review_summary"])
+            self.assertIn("causes=parameter_indexed_layout", body_item["review_summary"])
+            self.assertEqual(1, body_offset_stats["residue_cause_tags"]["parameter_indexed_layout"])
+            self.assertEqual(1, body_offset_stats["residue_cause_tags"]["typed_pointer_stride_alias_risk"])
             indexed_queue = body_offset_stats["review_queues"]["pointer_indexed_layout_candidates"]
             self.assertEqual(1, indexed_queue["functions"])
             self.assertEqual(1, indexed_queue["parameter_indexed_elements"])
@@ -3288,6 +3293,8 @@ __int64 __fastcall MiPrefetchVirtualMemory(PMEMORY_RANGE_ENTRY memoryRanges, ULO
                 {"typed_parent_pointer_byte_stride": 1},
                 indexed_queue["parameter_indexed_alias_rewrite_risks"],
             )
+            self.assertEqual(1, indexed_queue["residue_cause_tags"]["parameter_indexed_layout"])
+            self.assertEqual(1, indexed_queue["residue_cause_tags"]["typed_pointer_stride_alias_risk"])
             queue_item = indexed_queue["items"][0]
             self.assertTrue(queue_item["cleaned_path"].endswith("MiPrefetchVirtualMemory.cleaned.cpp"))
             self.assertEqual(1, queue_item["parameter_indexed_element_count"])
@@ -3298,6 +3305,8 @@ __int64 __fastcall MiPrefetchVirtualMemory(PMEMORY_RANGE_ENTRY memoryRanges, ULO
                 {"typed_parent_pointer_byte_stride": 1},
                 queue_item["parameter_indexed_alias_rewrite_risks"],
             )
+            self.assertIn("parameter_indexed_layout", queue_item["residue_cause_tags"])
+            self.assertIn("typed_pointer_stride_alias_risk", queue_item["residue_cause_tags"])
             self.assertEqual(["+0x0", "+0x8"], queue_item["parameter_indexed_offsets"])
             self.assertIn("avoid naive parameter alias rewrite", queue_item["queue_reason"])
             named_target = body_offset_stats["named_goal_target_status"]["present_targets"][0]
@@ -3308,10 +3317,17 @@ __int64 __fastcall MiPrefetchVirtualMemory(PMEMORY_RANGE_ENTRY memoryRanges, ULO
                 {"typed_parent_pointer_byte_stride": 1},
                 named_target["parameter_indexed_alias_rewrite_risks"],
             )
+            self.assertIn("parameter_indexed_layout", named_target["residue_cause_tags"])
+            self.assertIn("typed_pointer_stride_alias_risk", named_target["residue_cause_tags"])
             self.assertIn("naive parameter alias rewrite unsafe", named_target["recommended_next"])
+            next_goal_candidates = body_offset_stats["next_goal_candidates"]
+            self.assertEqual(1, next_goal_candidates["residue_cause_tags"]["parameter_indexed_layout"])
+            self.assertIn("parameter_indexed_layout", next_goal_candidates["items"][0]["residue_cause_tags"])
             markdown = render_quality_markdown(report)
+            self.assertIn("### Residue Cause Tags", markdown)
             self.assertIn("Parameter-indexed alias rewrite risks: `1`", markdown)
             self.assertIn("typed_parent_pointer_byte_stride=1", markdown)
+            self.assertIn("typed_pointer_stride_alias_risk=1", markdown)
             self.assertEqual(0, body_offset_stats["review_queues"]["low_pressure_deferred"]["functions"])
 
     def test_parameter_indexed_alias_risk_ignores_value_like_p_types(self) -> None:

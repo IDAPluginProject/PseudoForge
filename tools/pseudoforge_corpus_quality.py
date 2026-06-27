@@ -858,6 +858,7 @@ def analyze_corpus(
     body_offset_residue_named_target_groups: Counter[str] = Counter()
     body_offset_residue_safety_policies: Counter[str] = Counter()
     body_offset_residue_evidence_maturity: Counter[str] = Counter()
+    body_offset_residue_cause_tags: Counter[str] = Counter()
     decimal_status_residue_values: Counter[str] = Counter()
     decimal_status_residue_profiles: Counter[str] = Counter()
     decimal_status_residue_context_kinds: Counter[str] = Counter()
@@ -1241,6 +1242,7 @@ def analyze_corpus(
                         body_offset_residue_named_target_groups,
                         body_offset_residue_safety_policies,
                         body_offset_residue_evidence_maturity,
+                        body_offset_residue_cause_tags,
                     )
                     top_body_offset_residue_functions.append(body_offset_residue_item)
                 if layout_hints:
@@ -1876,6 +1878,9 @@ def analyze_corpus(
             "evidence_maturity": _counter_to_dict(
                 Counter(dict(body_offset_residue_evidence_maturity.most_common(top)))
             ),
+            "residue_cause_tags": _counter_to_dict(
+                Counter(dict(body_offset_residue_cause_tags.most_common(top)))
+            ),
             "review_queues": _body_offset_residue_review_queues(
                 top_body_offset_residue_functions,
                 top,
@@ -2510,6 +2515,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Residue Cause Tags",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("residue_cause_tags", {})),
+            "Cause tag",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Residue Review Focuses",
             "",
         ]
@@ -2551,8 +2569,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2602,6 +2620,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("residue_review_notes", {})).items()
         )
+        cause_tags = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("residue_cause_tags", {})).items()
+        )
         blocker_families = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("blocker_families", {})).items()
@@ -2631,7 +2653,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2648,6 +2670,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(pressure),
                 _markdown_table_cell(primary_reasons),
                 _markdown_table_cell(review_notes),
+                _markdown_table_cell(cause_tags),
                 _markdown_table_cell(blocker_families),
                 _markdown_table_cell(promotion_lanes),
                 _markdown_table_cell(factors),
@@ -2689,8 +2712,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Gates | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Actionability | Residue | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -2701,6 +2724,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             gates = ", ".join(
                 "%s=%s" % (key, value)
                 for key, value in _coerce_dict(batch.get("fail_closed_gates", {})).items()
+            )
+            cause_tags = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("residue_cause_tags", {})).items()
             )
             requirements: list[str] = []
             for field in [
@@ -2726,13 +2753,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(batch.get("generic_parameter_survivors"), 0),
             )
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
                     _markdown_table_cell(actionability),
                     _markdown_table_cell(residue),
                     _markdown_table_cell(gates),
+                    _markdown_table_cell(cause_tags),
                     _markdown_table_cell(", ".join(requirements)),
                     _markdown_table_cell(top_functions),
                     _markdown_table_cell(str(batch.get("recommended_next_step", "") or "")),
@@ -2741,8 +2769,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -2756,6 +2784,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("domain_profiles", {})).items()
         )
+        cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
         requirements = "; ".join(
             str(item.get(key, "") or "")
             for key in [
@@ -2766,7 +2795,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             if str(item.get(key, "") or "")
         )
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
@@ -2777,6 +2806,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("actionability_score"), 0),
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(cause_tags),
                 _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
                 _markdown_table_cell(str(item.get("next_step", "") or "")),
@@ -2793,8 +2823,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "- Present targets: `%s`" % target_status.get("present_count", 0),
             "- Missing targets: `%s`" % target_status.get("missing_count", 0),
             "",
-            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Bases | Blockers | Stable sources | Recommended next |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Cause tags | Bases | Blockers | Stable sources | Recommended next |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
         ]
     )
     for item in target_status.get("present_targets", []) or []:
@@ -2809,8 +2839,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
         )
+        cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("target_group", "") or ""),
@@ -2820,6 +2851,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("priority_score"), 0),
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(cause_tags),
                 _markdown_table_cell(bases),
                 _markdown_table_cell(blockers),
                 _markdown_table_cell(stable_sources),
@@ -2838,8 +2870,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Cause tags | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -2856,11 +2888,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         priority_factors = ", ".join(str(value) for value in item.get("priority_factors", []) or [])
         primary_reasons = ", ".join(str(value) for value in item.get("primary_review_reasons", []) or [])
         review_notes = ", ".join(str(value) for value in item.get("residue_review_notes", []) or [])
+        cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
         goal_group = str(item.get("named_goal_target_group", "") or "")
         goal_text = goal_group if bool(item.get("named_goal_target")) else ""
         promotion_lane = str(item.get("promotion_lane", "") or "")
         lines.append(
-            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 _markdown_table_cell(str(item.get("review_summary", "") or "")),
@@ -2876,6 +2909,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 str(item.get("residue_pressure_class", "")),
                 _markdown_table_cell(primary_reasons),
                 _markdown_table_cell(review_notes),
+                _markdown_table_cell(cause_tags),
                 _markdown_table_cell(priority_factors),
                 str(item.get("review_class", "")),
                 str(item.get("next_action", "")),
@@ -6180,6 +6214,7 @@ def _body_offset_residue_function_summary(
         "summary_path": str(summary_path),
         "cleaned_path": str(cleaned_path),
     }
+    result["residue_cause_tags"] = _body_offset_residue_cause_tags(result)
     result["promotion_lane"] = _body_offset_residue_promotion_lane(result)
     result["review_summary"] = _body_offset_residue_review_summary(result)
     return result
@@ -6206,6 +6241,7 @@ def _update_body_offset_residue_metrics(
     named_target_groups: Counter[str],
     safety_policies: Counter[str],
     evidence_maturity: Counter[str],
+    cause_tags: Counter[str],
 ) -> None:
     totals["functions_with_offset_residue"] += 1
     totals["offset_deref_survivors"] += _int_value(item.get("offset_deref_survivors"), 0)
@@ -6271,6 +6307,9 @@ def _update_body_offset_residue_metrics(
     maturity = str(item.get("evidence_maturity", "") or "")
     if maturity:
         evidence_maturity[maturity] += 1
+    for tag in item.get("residue_cause_tags", []) or []:
+        if str(tag):
+            cause_tags[str(tag)] += 1
     shape_profile = _coerce_dict(item.get("offset_shape_profile", {}))
     shape_class = str(shape_profile.get("shape_class", "") or "")
     if shape_class:
@@ -7048,6 +7087,87 @@ def _body_offset_residue_review_notes(
     return list(dict.fromkeys(notes))
 
 
+def _body_offset_residue_cause_tags(item: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    gate = str(item.get("fail_closed_gate", "") or "")
+    review_class = str(item.get("review_class", "") or "")
+    evidence = {
+        str(value)
+        for value in item.get("review_evidence", []) or []
+        if str(value)
+    }
+    details = {
+        str(value)
+        for value in item.get("next_action_details", []) or []
+        if str(value)
+    }
+    primary_reasons = {
+        str(value)
+        for value in item.get("primary_review_reasons", []) or []
+        if str(value)
+    }
+    notes = {
+        str(value)
+        for value in item.get("residue_review_notes", []) or []
+        if str(value)
+    }
+    blocker_families = _coerce_dict(item.get("blocker_families", {}))
+    source_provenance = _coerce_dict(item.get("stable_source_provenance", {}))
+
+    if gate == "report_only_private_layout" or "report_only_profile_kept_closed" in evidence:
+        tags.append("report_only_private_layout")
+    if (
+        gate in {"exact_source_identity_required", "report_only_source_identity", "source_build_mismatch"}
+        or "exact_private_layout_source_required" in primary_reasons
+        or "trusted_source_required" in evidence
+    ):
+        tags.append("exact_source_identity_missing")
+    if gate == "validated_rewrite_residue_review" or "validated_rewrite_residue" in notes:
+        tags.append("validated_secondary_residue")
+    if gate == "source_stability_required" or "source_stability_gate_is_blocking" in details:
+        tags.append("source_stability_unproven")
+    if gate == "type_conflict_required" or "type_evidence_gate_is_blocking" in details:
+        tags.append("type_conflict_unresolved")
+    if _int_value(blocker_families.get("source_reassigned"), 0) > 0:
+        tags.append("source_reassigned")
+    if _int_value(blocker_families.get("source_address_taken"), 0) > 0:
+        tags.append("source_address_taken")
+    if _int_value(blocker_families.get("source_compound_assignment"), 0) > 0:
+        tags.append("source_compound_assignment")
+    if _int_value(blocker_families.get("type_wide_overlay"), 0) > 0:
+        tags.append("wide_overlay_conflict")
+    if _int_value(blocker_families.get("type_narrow_subfield"), 0) > 0:
+        tags.append("narrow_subfield_conflict")
+    if _int_value(blocker_families.get("type_unaligned"), 0) > 0:
+        tags.append("unaligned_type_conflict")
+    if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
+        tags.append("parameter_indexed_layout")
+    if "avoid_naive_parameter_alias_rewrite" in details:
+        tags.append("typed_pointer_stride_alias_risk")
+    if (
+        "pointer_indexed_array_or_table_shape" in evidence
+        or "pointer_indexed_metrics_present" in details
+    ):
+        tags.append("pointer_indexed_layout")
+    if _int_value(source_provenance.get("parameter_direct_alias"), 0) > 0:
+        tags.append("direct_parameter_alias_review")
+    if _int_value(source_provenance.get("parameter_field_pointer_alias"), 0) > 0:
+        tags.append("parameter_field_pointer_alias_review")
+    if _int_value(source_provenance.get("named_call_result_alias"), 0) > 0:
+        tags.append("named_call_result_alias_review")
+    if gate == "threshold_evidence_gap":
+        tags.append("threshold_evidence_gap")
+    if gate == "low_pressure_deferred":
+        tags.append("low_pressure_deferred")
+    if gate == "manual_review_required" or review_class == "unclassified_offset_residue":
+        tags.append("manual_classification_required")
+    if _int_value(item.get("direct_base_deref_survivors"), 0) > 0:
+        tags.append("direct_base_zero_deref_residue")
+    if _int_value(item.get("generic_parameter_survivors"), 0) > 0:
+        tags.append("generic_parameter_survivor")
+    return list(dict.fromkeys(tags))
+
+
 def _body_offset_residue_review_focus(
     subsystem: str,
     fail_closed_gate: str,
@@ -7536,6 +7656,11 @@ def _body_offset_named_goal_target_status(
                     if str(base)
                 ][:8],
                 "blocker_families": _coerce_dict(item.get("blocker_families", {})),
+                "residue_cause_tags": [
+                    str(tag)
+                    for tag in item.get("residue_cause_tags", []) or []
+                    if str(tag)
+                ],
                 "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
                 "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
                 "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
@@ -7626,6 +7751,11 @@ def _body_offset_residue_next_goal_candidates(
     )
     review_focuses = Counter(str(item.get("review_focus", "") or "") for item in selected)
     safety_policies = Counter(str(item.get("rewrite_safety_policy", "") or "") for item in selected)
+    residue_cause_tags: Counter[str] = Counter()
+    for item in selected:
+        for tag in item.get("residue_cause_tags", []) or []:
+            if str(tag):
+                residue_cause_tags[str(tag)] += 1
     review_batches = _body_offset_residue_next_goal_review_batches(selected, limit)
     return {
         "schema": "body_offset_next_goal_candidates_v1",
@@ -7648,6 +7778,9 @@ def _body_offset_residue_next_goal_candidates(
         "review_focuses": _counter_to_dict(Counter(dict(review_focuses.most_common(limit)))),
         "rewrite_safety_policies": _counter_to_dict(
             Counter(dict(safety_policies.most_common(limit)))
+        ),
+        "residue_cause_tags": _counter_to_dict(
+            Counter(dict(residue_cause_tags.most_common(limit)))
         ),
         "review_batches": review_batches,
         "items": selected,
@@ -7695,11 +7828,15 @@ def _body_offset_residue_next_goal_review_batches(
         )
         stable_source_provenance: Counter[str] = Counter()
         domain_profiles: Counter[str] = Counter()
+        residue_cause_tags: Counter[str] = Counter()
         for item in group_items:
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
             for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
                 domain_profiles[str(key)] += _int_value(value, 0)
+            for tag in item.get("residue_cause_tags", []) or []:
+                if str(tag):
+                    residue_cause_tags[str(tag)] += 1
         batches.append(
             {
                 "batch": "%s:%s" % (subsystem, kind),
@@ -7769,6 +7906,9 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(stable_source_provenance.most_common(limit)))
                 ),
                 "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
+                "residue_cause_tags": _counter_to_dict(
+                    Counter(dict(residue_cause_tags.most_common(limit)))
+                ),
                 "recommended_next_step": str(top_item.get("next_step", "") or ""),
                 "top_functions": [
                     {
@@ -7786,6 +7926,11 @@ def _body_offset_residue_next_goal_review_batches(
                         "type_conflict_requirement": str(
                             item.get("type_conflict_requirement", "") or ""
                         ),
+                        "residue_cause_tags": [
+                            str(tag)
+                            for tag in item.get("residue_cause_tags", []) or []
+                            if str(tag)
+                        ],
                     }
                     for item in group_items[: min(5, limit)]
                 ],
@@ -7843,6 +7988,11 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             str(note)
             for note in item.get("residue_review_notes", []) or []
             if str(note)
+        ],
+        "residue_cause_tags": [
+            str(tag)
+            for tag in item.get("residue_cause_tags", []) or []
+            if str(tag)
         ],
         "next_action_details": [
             str(detail)
@@ -8166,6 +8316,7 @@ def _body_offset_residue_review_queue_summary(
     pressure_classes = Counter(str(item.get("residue_pressure_class", "") or "unknown") for item in items)
     primary_review_reasons: Counter[str] = Counter()
     residue_review_notes: Counter[str] = Counter()
+    residue_cause_tags: Counter[str] = Counter()
     blocker_reasons: Counter[str] = Counter()
     blocker_families: Counter[str] = Counter()
     promotion_lanes: Counter[str] = Counter()
@@ -8190,6 +8341,9 @@ def _body_offset_residue_review_queue_summary(
         for note in item.get("residue_review_notes", []) or []:
             if str(note):
                 residue_review_notes[str(note)] += 1
+        for tag in item.get("residue_cause_tags", []) or []:
+            if str(tag):
+                residue_cause_tags[str(tag)] += 1
         for key, value in _coerce_dict(item.get("blocker_reasons", {})).items():
             blocker_reasons[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("blocker_families", {})).items():
@@ -8255,6 +8409,9 @@ def _body_offset_residue_review_queue_summary(
         "residue_review_notes": _counter_to_dict(
             Counter(dict(residue_review_notes.most_common(limit)))
         ),
+        "residue_cause_tags": _counter_to_dict(
+            Counter(dict(residue_cause_tags.most_common(limit)))
+        ),
         "blocker_reasons": _counter_to_dict(Counter(dict(blocker_reasons.most_common(limit)))),
         "blocker_families": _counter_to_dict(Counter(dict(blocker_families.most_common(limit)))),
         "promotion_lanes": _counter_to_dict(Counter(dict(promotion_lanes.most_common(limit)))),
@@ -8318,6 +8475,11 @@ def _body_offset_residue_review_queue_item(
             str(note)
             for note in item.get("residue_review_notes", []) or []
             if str(note)
+        ],
+        "residue_cause_tags": [
+            str(tag)
+            for tag in item.get("residue_cause_tags", []) or []
+            if str(tag)
         ],
         "next_action_details": [
             str(detail)
@@ -8482,6 +8644,13 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     stable_source_parts = _body_offset_stable_source_summary_parts(item)
     if stable_source_parts:
         parts.append("stable-source=%s" % " ".join(stable_source_parts))
+    cause_tags = [
+        str(tag)
+        for tag in item.get("residue_cause_tags", []) or []
+        if str(tag)
+    ][:4]
+    if cause_tags:
+        parts.append("causes=%s" % ",".join(cause_tags))
     parameter_indexed_count = _int_value(item.get("parameter_indexed_element_count"), 0)
     if parameter_indexed_count > 0:
         indexed_parts = []
