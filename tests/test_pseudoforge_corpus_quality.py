@@ -1389,6 +1389,19 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 {"transactionLogEntry": 1},
                 cmp_queue_item["top_stable_sources"],
             )
+            self.assertTrue(
+                any(
+                    "keyControlBlock+0x10:_QWORD" in sample
+                    for sample in cmp_queue_item["offset_deref_samples"]
+                )
+            )
+            self.assertIn("keyControlBlock", cmp_queue_item["top_base_offset_samples"])
+            self.assertTrue(
+                any(
+                    "keyControlBlock+0x18:_QWORD" in sample
+                    for sample in cmp_queue_item["top_base_offset_samples"]["keyControlBlock"]
+                )
+            )
             self.assertEqual(
                 {"windows.registry_config.queue": 1},
                 cmp_queue_item["domain_profiles"],
@@ -1483,6 +1496,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "direct parameter alias source",
                 cmp_next_goal_item["source_identity_requirement"],
             )
+            self.assertTrue(
+                any(
+                    "keyControlBlock+0x10:_QWORD" in sample
+                    for sample in cmp_next_goal_item["offset_deref_samples"]
+                )
+            )
             self.assertEqual("", cmp_next_goal_item["type_conflict_requirement"])
             type_next_goal_item = next(
                 item
@@ -1499,6 +1518,8 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("direct_parameter_source_identity", markdown)
             self.assertIn("direct parameter alias source", markdown)
             self.assertIn("Report-only profile remains closed", markdown)
+            self.assertIn("Offset samples", markdown)
+            self.assertIn("keyControlBlock+0x10:_QWORD", markdown)
             self.assertEqual(
                 "resolve_type_overlay_or_alignment",
                 type_queue_item["promotion_lane"],
@@ -1635,6 +1656,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     == [
                         "CmGetKCBCacheSecurity(keyControlBlock, 0):_DWORD => CmGetKCBCacheSecurity:PVOID, role=registryKcbCacheSecurityCell, mode=report-only"
                     ]
+                    and any(
+                        "keyControlBlock+0x8:_DWORD" in sample
+                        for sample in item["offset_deref_samples"]
+                    )
                     for item in target_status["present_targets"]
                 )
             )

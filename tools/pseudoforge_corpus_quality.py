@@ -2699,8 +2699,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Direct-base bases | Generic params | Nested field residue | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Direct-base bases | Offset samples | Generic params | Nested field residue | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2845,8 +2845,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             direct_base_summary = "%s; calls %s" % (direct_base_summary, direct_call_anchors) if direct_base_summary else "calls %s" % direct_call_anchors
         if direct_call_hints:
             direct_base_summary = "%s; call-hints %s" % (direct_base_summary, direct_call_hints) if direct_base_summary else "call-hints %s" % direct_call_hints
+        offset_samples = _body_offset_offset_deref_sample_summary(queue)
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2854,6 +2855,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(queue.get("offset_deref_survivors", 0) or 0),
                 int(queue.get("direct_base_deref_survivors", 0) or 0),
                 _markdown_table_cell(direct_base_summary),
+                _markdown_table_cell(offset_samples),
                 int(queue.get("generic_parameter_survivors", 0) or 0),
                 int(queue.get("nested_field_pointer_residue", 0) or 0),
                 _markdown_table_cell(target_groups),
@@ -2988,8 +2990,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Actionability | Residue | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Offset samples | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -3040,8 +3042,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 )
             parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(batch)
             parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(batch)
+            offset_samples = _body_offset_offset_deref_sample_summary(batch)
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
@@ -3051,6 +3054,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     _markdown_table_cell(call_result_anchors),
                     _markdown_table_cell(parameter_field_pointer_anchors),
                     _markdown_table_cell(parameter_indexed_anchors),
+                    _markdown_table_cell(offset_samples),
                     _markdown_table_cell(gates),
                     _markdown_table_cell(cause_tags),
                     _markdown_table_cell(", ".join(requirements)),
@@ -3061,8 +3065,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Offset samples | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -3107,11 +3111,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             )
         parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
         parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(item)
+        offset_samples = _body_offset_offset_deref_sample_summary(item)
         direct_base_roots = str(item.get("direct_base_root_summary", "") or "")
         if not direct_base_roots:
             direct_base_roots = _body_offset_direct_base_root_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
@@ -3126,6 +3131,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(call_result_anchors),
                 _markdown_table_cell(parameter_field_pointer_anchors),
                 _markdown_table_cell(parameter_indexed_anchors),
+                _markdown_table_cell(offset_samples),
                 _markdown_table_cell(cause_tags),
                 _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
@@ -3150,8 +3156,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             % target_status.get("no_body_offset_residue_count", 0),
             "- Missing targets: `%s`" % target_status.get("missing_count", 0),
             "",
-            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Direct-base roots | Cause tags | Bases | Blockers | Stable sources | Recommended next |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Direct-base roots | Offset samples | Cause tags | Bases | Blockers | Stable sources | Recommended next |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in target_status.get("present_targets", []) or []:
@@ -3168,8 +3174,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         )
         cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
         direct_base_roots = _body_offset_direct_base_root_summary(item)
+        offset_samples = _body_offset_offset_deref_sample_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("target_group", "") or ""),
@@ -3180,6 +3187,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
                 _markdown_table_cell(direct_base_roots),
+                _markdown_table_cell(offset_samples),
                 _markdown_table_cell(cause_tags),
                 _markdown_table_cell(bases),
                 _markdown_table_cell(blockers),
@@ -3224,8 +3232,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Cause tags | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Cause tags | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Offset samples | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -3246,8 +3254,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         goal_group = str(item.get("named_goal_target_group", "") or "")
         goal_text = goal_group if bool(item.get("named_goal_target")) else ""
         promotion_lane = str(item.get("promotion_lane", "") or "")
+        offset_samples = _body_offset_offset_deref_sample_summary(item)
         lines.append(
-            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 _markdown_table_cell(str(item.get("review_summary", "") or "")),
@@ -3271,6 +3280,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("priority_score", 0) or 0),
                 int(item.get("offset_deref_survivors", 0) or 0),
                 int(item.get("direct_base_deref_survivors", 0) or 0),
+                _markdown_table_cell(offset_samples),
                 int(item.get("field_access_pressure", 0) or 0),
                 int(item.get("body_rewrite_ready", 0) or 0),
                 int(item.get("body_rewrite_blockers", 0) or 0),
@@ -6868,6 +6878,22 @@ def _body_offset_residue_function_summary(
             pointer_indexed_metrics.get("pointer_indexed_offset_deref_patterns"),
             0,
         ),
+        "offset_deref_samples": [
+            str(sample)
+            for sample in offset_shape_profile.get("offset_deref_samples", []) or []
+            if str(sample)
+        ][:8],
+        "top_base_offset_samples": {
+            str(base): [
+                str(sample)
+                for sample in samples or []
+                if str(sample)
+            ][:3]
+            for base, samples in _coerce_dict(
+                offset_shape_profile.get("top_base_offset_samples", {})
+            ).items()
+            if str(base)
+        },
         "top_bases": _body_offset_top_bases(
             layout_hints,
             hot_field_clusters,
@@ -7962,6 +7988,8 @@ def _offset_deref_shape_profile(cleaned_path: Path | None) -> dict[str, Any]:
         "dense_bases": dense_bases[:8],
         "low_pressure": low_pressure,
         "top_base_offsets": _offset_deref_top_base_offsets(base_offsets, base_accesses),
+        "top_base_offset_samples": _offset_deref_top_base_offset_samples(items, base_accesses),
+        "offset_deref_samples": _offset_deref_review_samples(items),
     }
 
 
@@ -8283,14 +8311,55 @@ def _offset_deref_items(text: str) -> list[dict[str, Any]]:
         base = str(match.group("base") or "")
         if not base:
             continue
+        type_name = _normalized_offset_deref_type(match.group("type"))
         items.append(
             {
                 "base": base,
                 "offset": offset,
-                "type": _normalized_offset_deref_type(match.group("type")),
+                "type": type_name,
+                "sample": _offset_deref_sample_text(
+                    base,
+                    offset,
+                    type_name,
+                    text or "",
+                    match.start(),
+                    match.end(),
+                ),
             }
         )
     return items
+
+
+def _offset_deref_sample_text(
+    base: str,
+    offset: int,
+    type_name: str,
+    text: str,
+    start: int,
+    end: int,
+) -> str:
+    line_start = str(text or "").rfind("\n", 0, max(start, 0)) + 1
+    line_end = str(text or "").find("\n", max(end, 0))
+    if line_end < 0:
+        line_end = len(text or "")
+    line = re.sub(r"\s+", " ", str(text or "")[line_start:line_end]).strip()
+    if len(line) > 160:
+        line = line[:157].rstrip() + "..."
+    return "%s+0x%X:%s: %s" % (base, offset, type_name or "unknown", line)
+
+
+def _offset_deref_review_samples(
+    items: list[dict[str, Any]],
+    limit: int = 8,
+) -> list[str]:
+    samples: list[str] = []
+    for item in items:
+        sample = str(item.get("sample", "") or "")
+        if sample and sample not in samples:
+            samples.append(sample)
+        if len(samples) >= limit:
+            break
+    return samples
 
 
 def _normalized_offset_deref_type(type_name: str) -> str:
@@ -8351,6 +8420,29 @@ def _offset_deref_top_base_offsets(
     for base, _count in base_accesses.most_common(5):
         offsets = sorted(base_offsets.get(base, set()))
         result[base] = ["0x%X" % offset for offset in offsets[:12]]
+    return result
+
+
+def _offset_deref_top_base_offset_samples(
+    items: list[dict[str, Any]],
+    base_accesses: Counter[str],
+    base_limit: int = 5,
+    sample_limit: int = 3,
+) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    ordered_bases = [str(base) for base, _count in base_accesses.most_common(base_limit)]
+    for base in ordered_bases:
+        samples: list[str] = []
+        for item in items:
+            if str(item.get("base", "") or "") != base:
+                continue
+            sample = str(item.get("sample", "") or "")
+            if sample and sample not in samples:
+                samples.append(sample)
+            if len(samples) >= sample_limit:
+                break
+        if samples:
+            result[base] = samples
     return result
 
 
@@ -8739,6 +8831,22 @@ def _body_offset_named_goal_target_status(
                     for sample in item.get("direct_call_result_layout_samples", []) or []
                     if str(sample)
                 ],
+                "offset_deref_samples": [
+                    str(sample)
+                    for sample in item.get("offset_deref_samples", []) or []
+                    if str(sample)
+                ],
+                "top_base_offset_samples": {
+                    str(base): [
+                        str(sample)
+                        for sample in samples or []
+                        if str(sample)
+                    ]
+                    for base, samples in _coerce_dict(
+                        item.get("top_base_offset_samples", {})
+                    ).items()
+                    if str(base)
+                },
                 "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
                 "top_bases": [
                     str(base)
@@ -9004,6 +9112,33 @@ def _body_offset_parameter_field_pointer_anchor_summary(
     if sources:
         return ", ".join(sources)
     return ""
+
+
+def _body_offset_offset_deref_sample_summary(
+    item: dict[str, Any],
+    limit: int = 3,
+) -> str:
+    samples = [
+        str(sample)
+        for sample in item.get("offset_deref_samples", []) or []
+        if str(sample)
+    ][:limit]
+    if samples:
+        return " | ".join(samples)
+    base_samples = _coerce_dict(item.get("top_base_offset_samples", {}))
+    result: list[str] = []
+    for base, values in base_samples.items():
+        value_samples = [
+            str(sample)
+            for sample in values or []
+            if str(sample)
+        ]
+        if not value_samples:
+            continue
+        result.append("%s: %s" % (str(base), " | ".join(value_samples[:2])))
+        if len(result) >= limit:
+            break
+    return " | ".join(result)
 
 
 def _body_offset_residue_next_goal_candidates(
@@ -9400,6 +9535,8 @@ def _body_offset_residue_next_goal_review_batches(
         parameter_indexed_offsets: list[str] = []
         callee_arity_residue_callees: Counter[str] = Counter()
         callee_arity_residue_samples: list[str] = []
+        offset_deref_samples: list[str] = []
+        top_base_offset_samples: dict[str, list[str]] = {}
         for item in group_items:
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
@@ -9462,6 +9599,19 @@ def _body_offset_residue_next_goal_review_batches(
                 sample_text = str(sample)
                 if sample_text and sample_text not in callee_arity_residue_samples:
                     callee_arity_residue_samples.append(sample_text)
+            for sample in item.get("offset_deref_samples", []) or []:
+                sample_text = str(sample)
+                if sample_text and sample_text not in offset_deref_samples:
+                    offset_deref_samples.append(sample_text)
+            for base, samples in _coerce_dict(item.get("top_base_offset_samples", {})).items():
+                base_text = str(base)
+                if not base_text:
+                    continue
+                bucket = top_base_offset_samples.setdefault(base_text, [])
+                for sample in samples or []:
+                    sample_text = str(sample)
+                    if sample_text and sample_text not in bucket:
+                        bucket.append(sample_text)
         batches.append(
             {
                 "batch": "%s:%s" % (subsystem, kind),
@@ -9590,6 +9740,11 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(callee_arity_residue_callees.most_common(limit)))
                 ),
                 "callee_arity_residue_samples": callee_arity_residue_samples[:limit],
+                "offset_deref_samples": offset_deref_samples[:limit],
+                "top_base_offset_samples": {
+                    str(base): samples[:3]
+                    for base, samples in list(top_base_offset_samples.items())[:limit]
+                },
                 "residue_cause_tags": _counter_to_dict(
                     Counter(dict(residue_cause_tags.most_common(limit)))
                 ),
@@ -9652,6 +9807,22 @@ def _body_offset_residue_next_goal_review_batches(
                             for sample in item.get("callee_arity_residue_samples", []) or []
                             if str(sample)
                         ],
+                        "offset_deref_samples": [
+                            str(sample)
+                            for sample in item.get("offset_deref_samples", []) or []
+                            if str(sample)
+                        ],
+                        "top_base_offset_samples": {
+                            str(base): [
+                                str(sample)
+                                for sample in samples or []
+                                if str(sample)
+                            ]
+                            for base, samples in _coerce_dict(
+                                item.get("top_base_offset_samples", {})
+                            ).items()
+                            if str(base)
+                        },
                         "residue_cause_tags": [
                             str(tag)
                             for tag in item.get("residue_cause_tags", []) or []
@@ -9779,6 +9950,20 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             for offset in item.get("parameter_indexed_offsets", []) or []
             if str(offset)
         ],
+        "offset_deref_samples": [
+            str(sample)
+            for sample in item.get("offset_deref_samples", []) or []
+            if str(sample)
+        ],
+        "top_base_offset_samples": {
+            str(base): [
+                str(sample)
+                for sample in samples or []
+                if str(sample)
+            ]
+            for base, samples in _coerce_dict(item.get("top_base_offset_samples", {})).items()
+            if str(base)
+        },
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "nested_field_pointer_residue_count": _int_value(
             item.get("nested_field_pointer_residue_count"),
@@ -10359,6 +10544,8 @@ def _body_offset_residue_review_queue_summary(
     direct_call_result_hint_modes: Counter[str] = Counter()
     direct_call_result_samples: list[str] = []
     direct_call_result_layout_samples: list[str] = []
+    offset_deref_samples: list[str] = []
+    top_base_offset_samples: dict[str, list[str]] = {}
     existing_parameter_alias_actions: Counter[str] = Counter()
     existing_parameter_alias_registers: Counter[str] = Counter()
     existing_parameter_alias_callees: Counter[str] = Counter()
@@ -10441,6 +10628,19 @@ def _body_offset_residue_review_queue_summary(
             sample_text = str(sample)
             if sample_text and sample_text not in direct_call_result_layout_samples:
                 direct_call_result_layout_samples.append(sample_text)
+        for sample in item.get("offset_deref_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in offset_deref_samples:
+                offset_deref_samples.append(sample_text)
+        for base, samples in _coerce_dict(item.get("top_base_offset_samples", {})).items():
+            base_text = str(base)
+            if not base_text:
+                continue
+            bucket = top_base_offset_samples.setdefault(base_text, [])
+            for sample in samples or []:
+                sample_text = str(sample)
+                if sample_text and sample_text not in bucket:
+                    bucket.append(sample_text)
         for key, value in _coerce_dict(item.get("existing_parameter_alias_actions", {})).items():
             existing_parameter_alias_actions[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("existing_parameter_alias_registers", {})).items():
@@ -10541,6 +10741,11 @@ def _body_offset_residue_review_queue_summary(
         ),
         "direct_call_result_samples": direct_call_result_samples[:limit],
         "direct_call_result_layout_samples": direct_call_result_layout_samples[:limit],
+        "offset_deref_samples": offset_deref_samples[:limit],
+        "top_base_offset_samples": {
+            str(base): samples[:3]
+            for base, samples in list(top_base_offset_samples.items())[:limit]
+        },
         "existing_parameter_alias_count": sum(
             _int_value(item.get("existing_parameter_alias_count"), 0)
             for item in items
@@ -10744,6 +10949,20 @@ def _body_offset_residue_review_queue_item(
             for sample in item.get("direct_call_result_layout_samples", []) or []
             if str(sample)
         ],
+        "offset_deref_samples": [
+            str(sample)
+            for sample in item.get("offset_deref_samples", []) or []
+            if str(sample)
+        ],
+        "top_base_offset_samples": {
+            str(base): [
+                str(sample)
+                for sample in samples or []
+                if str(sample)
+            ]
+            for base, samples in _coerce_dict(item.get("top_base_offset_samples", {})).items()
+            if str(base)
+        },
         "live_in_parameter_gap_count": _int_value(item.get("live_in_parameter_gap_count"), 0),
         "live_in_parameter_gap_actions": _coerce_dict(item.get("live_in_parameter_gap_actions", {})),
         "live_in_parameter_gap_registers": _coerce_dict(item.get("live_in_parameter_gap_registers", {})),
