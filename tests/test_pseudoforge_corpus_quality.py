@@ -1137,6 +1137,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             stats = report["body_offset_residue_review_stats"]
             queues = stats["review_queues"]
             next_goal_candidates = stats["next_goal_candidates"]
+            review_batches = next_goal_candidates["review_batches"]
 
             self.assertIn("next_action_details", stats)
             self.assertIn("priority_factors", stats)
@@ -1164,6 +1165,42 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(
                 1,
                 next_goal_candidates["candidate_kinds"]["parameter_profile_or_type_correction"],
+            )
+            self.assertGreaterEqual(len(review_batches), 4)
+            self.assertTrue(
+                any(
+                    batch["batch"] == "registry:direct_parameter_source_identity"
+                    and batch["function_count"] == 1
+                    and batch["actionability_classes"]["exact_evidence_attempt"] == 1
+                    and batch["source_identity_requirements"][
+                        "direct parameter alias source must match exact function/build/profile identity"
+                    ]
+                    == 1
+                    and batch["stable_source_provenance"]["parameter_direct_alias"] == 1
+                    and batch["top_functions"][0]["name"] == "CmpQueueResidue"
+                    for batch in review_batches
+                )
+            )
+            self.assertTrue(
+                any(
+                    batch["batch"] == "memory:type_conflict_resolution"
+                    and batch["actionability_classes"]["model_or_reread_before_rewrite"] == 1
+                    and batch["type_conflict_requirements"][
+                        "resolve wide overlay, unaligned typed offset conflict before rewrite"
+                    ]
+                    == 1
+                    and batch["top_functions"][0]["name"] == "MiTypeConflictResidue"
+                    for batch in review_batches
+                )
+            )
+            self.assertTrue(
+                any(
+                    batch["batch"] == "other:parameter_profile_or_type_correction"
+                    and batch["actionability_classes"]["exact_evidence_attempt"] == 1
+                    and batch["generic_parameter_survivors"] == 1
+                    and batch["top_functions"][0]["name"] == "ParameterResidue"
+                    for batch in review_batches
+                )
             )
             self.assertIn(
                 "primary_review_reasons",
@@ -1454,6 +1491,9 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("wide overlay", type_next_goal_item["type_conflict_requirement"])
             self.assertIn("unaligned typed offset", type_next_goal_item["type_conflict_requirement"])
             self.assertIn("Residue Next Goal Candidates", markdown)
+            self.assertIn("Candidate Review Batches", markdown)
+            self.assertIn("registry:direct_parameter_source_identity", markdown)
+            self.assertIn("memory:type_conflict_resolution", markdown)
             self.assertIn("direct_parameter_source_identity", markdown)
             self.assertIn("direct parameter alias source", markdown)
             self.assertIn("Report-only profile remains closed", markdown)

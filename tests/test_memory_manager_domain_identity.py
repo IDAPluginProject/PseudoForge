@@ -1438,6 +1438,69 @@ unsigned __int64 __fastcall MiDeleteEmptyPageTableCommit(__int64 *a1, unsigned _
             )
         )
 
+    def test_delete_awe_page_tables_corrects_target_process_parameter(self) -> None:
+        profile_id = "windows.memory_manager.delete_awe_page_tables"
+        without_callees = self._plan(
+            """
+LONG_PTR __fastcall MiDeleteAwePageTables(_KPROCESS *referencedObject)
+{
+  return 0;
+}
+"""
+        )
+        with_callees_capture = capture_from_pseudocode(
+            """
+LONG_PTR __fastcall MiDeleteAwePageTables(_KPROCESS *referencedObject)
+{
+  _KPROCESS *currentProcess;
+  __int64 attachState;
+
+  currentProcess = KeGetCurrentThread()->ApcState.Process;
+  if ( referencedObject != currentProcess )
+  {
+    KiStackAttachProcess(referencedObject, 0LL, (__int64)&attachState);
+  }
+  MiDeleteEmptyPageTables(0, 0, 1);
+  KiUnstackDetachProcess(&attachState);
+  return 0;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        with_callees = build_clean_plan(with_callees_capture)
+        rendered = render_cleaned_pseudocode(with_callees_capture, with_callees)
+        corrections = [
+            item
+            for item in with_callees.type_corrections
+            if item.profile_id == profile_id
+        ]
+        identity = self._single_identity(
+            with_callees,
+            profile_id,
+            role="targetProcess",
+        )
+
+        self.assertFalse(
+            any(
+                item["profile_id"] == profile_id
+                for item in self._identities(without_callees)
+            )
+        )
+        self.assertEqual("KPROCESS", identity["structure_name"])
+        self.assertEqual("report-only", identity["effective_mode"])
+        self.assertEqual(1, len(corrections))
+        self.assertEqual("PKPROCESS", corrections[0].canonical_type)
+        self.assertEqual("targetProcess", corrections[0].new_name)
+        self.assertTrue(corrections[0].apply_to_preview)
+        self.assertFalse(corrections[0].apply_to_idb)
+        self.assertIn("LONG_PTR __fastcall MiDeleteAwePageTables(PKPROCESS targetProcess)", rendered)
+        signature_line = next(
+            line
+            for line in rendered.splitlines()
+            if "MiDeleteAwePageTables(" in line and "__fastcall" in line
+        )
+        self.assertNotIn("referencedObject", signature_line)
+
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(
             """

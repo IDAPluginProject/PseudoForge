@@ -268,9 +268,9 @@
       "source": "PseudoForge curated ntoskrnl Memory Manager VAD/address-space role-only identity profiles",
       "schema": "domain_identity_profiles_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "FE02F06D9E7039DCDC33EA0450875C41F5E5B9D567B0AB3E8793D27E59BFC8B3",
+      "sha256": "9A7DB2EA0336A9FBFE183E5747C17152FB8CB29CE3B1D1D377D3C58D17E97A27",
       "counts": {
-        "profiles": 32
+        "profiles": 43
       }
     },
     "domain_identity/registry_config.json": {

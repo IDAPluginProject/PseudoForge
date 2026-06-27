@@ -3083,6 +3083,66 @@
       ]
     },
     {
+      "id": "windows.memory_manager.delete_awe_page_tables",
+      "target": {
+        "build": [
+          "26200.8457"
+        ]
+      },
+      "source": "Reviewed MiDeleteAwePageTables ntoskrnl 26200.8457 process attach/detach path through KeGetCurrentThread, KiStackAttachProcess, AWE page-table enumeration, MiDeleteEmptyPageTables, and KiUnstackDetachProcess; preview-only target-process correction.",
+      "function_names": [
+        "MiDeleteAwePageTables"
+      ],
+      "parameter_count": 1,
+      "required_calls": [
+        "KeGetCurrentThread",
+        "KiStackAttachProcess",
+        "MiDeleteEmptyPageTables",
+        "KiUnstackDetachProcess"
+      ],
+      "prototype": {
+        "return_type": "LONG_PTR",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "targetProcess",
+            "canonical_type": "PKPROCESS",
+            "accepted_types": [
+              "_KPROCESS *",
+              "PKPROCESS",
+              "PEPROCESS",
+              "PVOID",
+              "__int64"
+            ],
+            "semantic_role": "targetProcess",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "targetProcess",
+          "rename_to": "targetProcess",
+          "rename_confidence": 0.86,
+          "structure": "KPROCESS",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "_KPROCESS *",
+            "PKPROCESS",
+            "PEPROCESS",
+            "PVOID",
+            "__int64"
+          ],
+          "source": "MiDeleteAwePageTables compares the first parameter with the current thread process and attaches to it before deleting AWE page tables"
+        }
+      ]
+    },
+    {
       "id": "windows.memory_manager.vmp_split_memory_range",
       "target": {
         "build": [

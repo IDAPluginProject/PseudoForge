@@ -2607,6 +2607,66 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "Candidate kind",
         )
     )
+    review_batches = [
+        item
+        for item in next_goal_candidates.get("review_batches", []) or []
+        if isinstance(item, dict)
+    ]
+    if review_batches:
+        lines.extend(
+            [
+                "",
+                "#### Candidate Review Batches",
+                "",
+                "| Batch | Functions | Actionability | Residue | Gates | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for batch in review_batches:
+            actionability = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("actionability_classes", {})).items()
+            )
+            gates = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("fail_closed_gates", {})).items()
+            )
+            requirements: list[str] = []
+            for field in [
+                "source_identity_requirements",
+                "source_stability_requirements",
+                "type_conflict_requirements",
+            ]:
+                requirements.extend(
+                    "%s=%s" % (key, value)
+                    for key, value in _coerce_dict(batch.get(field, {})).items()
+                )
+            top_functions = ", ".join(
+                "%s(%s)" % (
+                    str(item.get("name", "") or ""),
+                    _int_value(item.get("actionability_score"), 0),
+                )
+                for item in batch.get("top_functions", []) or []
+                if isinstance(item, dict)
+            )
+            residue = "offset=%s, direct=%s, generic=%s" % (
+                _int_value(batch.get("offset_deref_survivors"), 0),
+                _int_value(batch.get("direct_base_deref_survivors"), 0),
+                _int_value(batch.get("generic_parameter_survivors"), 0),
+            )
+            lines.append(
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s |"
+                % (
+                    str(batch.get("batch", "") or ""),
+                    _int_value(batch.get("function_count"), 0),
+                    _markdown_table_cell(actionability),
+                    _markdown_table_cell(residue),
+                    _markdown_table_cell(gates),
+                    _markdown_table_cell(", ".join(requirements)),
+                    _markdown_table_cell(top_functions),
+                    _markdown_table_cell(str(batch.get("recommended_next_step", "") or "")),
+                )
+            )
     lines.extend(
         [
             "",
@@ -7473,6 +7533,7 @@ def _body_offset_residue_next_goal_candidates(
     )
     review_focuses = Counter(str(item.get("review_focus", "") or "") for item in selected)
     safety_policies = Counter(str(item.get("rewrite_safety_policy", "") or "") for item in selected)
+    review_batches = _body_offset_residue_next_goal_review_batches(selected, limit)
     return {
         "schema": "body_offset_next_goal_candidates_v1",
         "description": (
@@ -7495,8 +7556,158 @@ def _body_offset_residue_next_goal_candidates(
         "rewrite_safety_policies": _counter_to_dict(
             Counter(dict(safety_policies.most_common(limit)))
         ),
+        "review_batches": review_batches,
         "items": selected,
     }
+
+
+def _body_offset_residue_next_goal_review_batches(
+    items: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for item in items:
+        subsystem = str(item.get("subsystem", "") or "other")
+        kind = str(item.get("candidate_kind", "") or "manual_review")
+        grouped.setdefault((subsystem, kind), []).append(item)
+
+    batches: list[dict[str, Any]] = []
+    for (subsystem, kind), group_items in grouped.items():
+        group_items.sort(
+            key=lambda item: (
+                -_int_value(item.get("actionability_score"), 0),
+                -_int_value(item.get("offset_deref_survivors"), 0),
+                str(item.get("name", "")),
+            )
+        )
+        top_item = group_items[0] if group_items else {}
+        actionability_classes = Counter(
+            str(item.get("actionability_class", "") or "manual_review")
+            for item in group_items
+        )
+        source_identity_requirements = Counter(
+            str(item.get("source_identity_requirement", "") or "")
+            for item in group_items
+            if str(item.get("source_identity_requirement", "") or "")
+        )
+        source_stability_requirements = Counter(
+            str(item.get("source_stability_requirement", "") or "")
+            for item in group_items
+            if str(item.get("source_stability_requirement", "") or "")
+        )
+        type_conflict_requirements = Counter(
+            str(item.get("type_conflict_requirement", "") or "")
+            for item in group_items
+            if str(item.get("type_conflict_requirement", "") or "")
+        )
+        stable_source_provenance: Counter[str] = Counter()
+        domain_profiles: Counter[str] = Counter()
+        for item in group_items:
+            for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
+                stable_source_provenance[str(key)] += _int_value(value, 0)
+            for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
+                domain_profiles[str(key)] += _int_value(value, 0)
+        batches.append(
+            {
+                "batch": "%s:%s" % (subsystem, kind),
+                "subsystem": subsystem,
+                "candidate_kind": kind,
+                "actionability_classes": _counter_to_dict(
+                    Counter(dict(actionability_classes.most_common(limit)))
+                ),
+                "function_count": len(group_items),
+                "offset_deref_survivors": sum(
+                    _int_value(item.get("offset_deref_survivors"), 0)
+                    for item in group_items
+                ),
+                "direct_base_deref_survivors": sum(
+                    _int_value(item.get("direct_base_deref_survivors"), 0)
+                    for item in group_items
+                ),
+                "generic_parameter_survivors": sum(
+                    _int_value(item.get("generic_parameter_survivors"), 0)
+                    for item in group_items
+                ),
+                "max_actionability_score": max(
+                    [_int_value(item.get("actionability_score"), 0) for item in group_items]
+                    or [0]
+                ),
+                "fail_closed_gates": _counter_to_dict(
+                    Counter(
+                        dict(
+                            Counter(
+                                str(item.get("fail_closed_gate", "") or "review_only")
+                                for item in group_items
+                            ).most_common(limit)
+                        )
+                    )
+                ),
+                "promotion_lanes": _counter_to_dict(
+                    Counter(
+                        dict(
+                            Counter(
+                                str(item.get("promotion_lane", "") or "")
+                                for item in group_items
+                                if str(item.get("promotion_lane", "") or "")
+                            ).most_common(limit)
+                        )
+                    )
+                ),
+                "rewrite_safety_policies": _counter_to_dict(
+                    Counter(
+                        dict(
+                            Counter(
+                                str(item.get("rewrite_safety_policy", "") or "review_only")
+                                for item in group_items
+                            ).most_common(limit)
+                        )
+                    )
+                ),
+                "source_identity_requirements": _counter_to_dict(
+                    Counter(dict(source_identity_requirements.most_common(limit)))
+                ),
+                "source_stability_requirements": _counter_to_dict(
+                    Counter(dict(source_stability_requirements.most_common(limit)))
+                ),
+                "type_conflict_requirements": _counter_to_dict(
+                    Counter(dict(type_conflict_requirements.most_common(limit)))
+                ),
+                "stable_source_provenance": _counter_to_dict(
+                    Counter(dict(stable_source_provenance.most_common(limit)))
+                ),
+                "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
+                "recommended_next_step": str(top_item.get("next_step", "") or ""),
+                "top_functions": [
+                    {
+                        "name": str(item.get("name", "") or ""),
+                        "ea": str(item.get("ea", "") or ""),
+                        "actionability_score": _int_value(item.get("actionability_score"), 0),
+                        "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
+                        "promotion_lane": str(item.get("promotion_lane", "") or ""),
+                        "source_identity_requirement": str(
+                            item.get("source_identity_requirement", "") or ""
+                        ),
+                        "source_stability_requirement": str(
+                            item.get("source_stability_requirement", "") or ""
+                        ),
+                        "type_conflict_requirement": str(
+                            item.get("type_conflict_requirement", "") or ""
+                        ),
+                    }
+                    for item in group_items[: min(5, limit)]
+                ],
+            }
+        )
+    batches.sort(
+        key=lambda item: (
+            -_int_value(item.get("max_actionability_score"), 0),
+            -_int_value(item.get("function_count"), 0),
+            -_int_value(item.get("offset_deref_survivors"), 0),
+            str(item.get("subsystem", "")),
+            str(item.get("candidate_kind", "")),
+        )
+    )
+    return batches[:limit]
 
 
 def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[str, Any]:
