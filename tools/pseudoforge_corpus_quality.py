@@ -240,7 +240,7 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
         "Direct base +0 dereferences that need field-zero/source identity review before any rewrite."
     ),
     "live_in_parameter_gap_candidates": (
-        "Body-offset residue with live-in ABI register diagnostics that may indicate a missing caller parameter or parameter alias."
+        "Body-offset residue with unresolved live-in ABI register diagnostics that may indicate a missing caller parameter."
     ),
     "callee_arity_residue_candidates": (
         "Body-offset residue with live-in ABI diagnostics that point at callee prototype or helper arity residue, not caller parameters."
@@ -339,7 +339,7 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
         "Treat +0 dereferences as field-zero review candidates only; require exact source identity before rendering them as structure fields."
     ),
     "live_in_parameter_gap_candidates": (
-        "Reread live-in ABI register diagnostics, callee argument use, and existing parameter aliases before adding any type correction."
+        "Reread live-in ABI register diagnostics and callee argument use before adding any caller parameter type correction."
     ),
     "callee_arity_residue_candidates": (
         "Verify the callee contract, helper prototype, and call-site ABI before adding caller parameters or widening the caller signature."
@@ -2757,6 +2757,17 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "%s; field-ptr %s" % (stable_sources, parameter_field_pointer_anchors)
                 if stable_sources
                 else "field-ptr %s" % parameter_field_pointer_anchors
+            )
+        existing_alias_anchors = ", ".join(
+            str(sample)
+            for sample in queue.get("existing_parameter_alias_samples", []) or []
+            if str(sample)
+        )
+        if existing_alias_anchors:
+            stable_sources = (
+                "%s; resolved-alias %s" % (stable_sources, existing_alias_anchors)
+                if stable_sources
+                else "resolved-alias %s" % existing_alias_anchors
             )
         live_in_anchors = ", ".join(
             str(sample)
@@ -6301,6 +6312,7 @@ def _body_offset_residue_function_summary(
         cleaned_path,
         stable_base_sources,
     )
+    existing_parameter_alias_profile = _existing_parameter_alias_profile(warning_diagnostics or [])
     live_in_parameter_gap_profile = _live_in_parameter_gap_profile(warning_diagnostics or [])
     callee_arity_residue_profile = _callee_arity_residue_profile(warning_diagnostics or [])
     review_class = _body_offset_residue_review_class(
@@ -6552,6 +6564,24 @@ def _body_offset_residue_function_summary(
         "direct_base_deref_samples": [
             str(sample)
             for sample in direct_base_deref_profile.get("samples", []) or []
+            if str(sample)
+        ][:5],
+        "existing_parameter_alias_count": _int_value(
+            existing_parameter_alias_profile.get("count"),
+            0,
+        ),
+        "existing_parameter_alias_actions": _coerce_dict(
+            existing_parameter_alias_profile.get("actions", {})
+        ),
+        "existing_parameter_alias_registers": _coerce_dict(
+            existing_parameter_alias_profile.get("registers", {})
+        ),
+        "existing_parameter_alias_callees": _coerce_dict(
+            existing_parameter_alias_profile.get("callees", {})
+        ),
+        "existing_parameter_alias_samples": [
+            str(sample)
+            for sample in existing_parameter_alias_profile.get("samples", []) or []
             if str(sample)
         ][:5],
         "live_in_parameter_gap_count": live_in_parameter_gap_count,
@@ -9534,6 +9564,21 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             for sample in item.get("direct_call_result_layout_samples", []) or []
             if str(sample)
         ],
+        "existing_parameter_alias_count": _int_value(item.get("existing_parameter_alias_count"), 0),
+        "existing_parameter_alias_actions": _coerce_dict(
+            item.get("existing_parameter_alias_actions", {})
+        ),
+        "existing_parameter_alias_registers": _coerce_dict(
+            item.get("existing_parameter_alias_registers", {})
+        ),
+        "existing_parameter_alias_callees": _coerce_dict(
+            item.get("existing_parameter_alias_callees", {})
+        ),
+        "existing_parameter_alias_samples": [
+            str(sample)
+            for sample in item.get("existing_parameter_alias_samples", []) or []
+            if str(sample)
+        ],
         "live_in_parameter_gap_count": _int_value(item.get("live_in_parameter_gap_count"), 0),
         "live_in_parameter_gap_actions": _coerce_dict(item.get("live_in_parameter_gap_actions", {})),
         "live_in_parameter_gap_registers": _coerce_dict(item.get("live_in_parameter_gap_registers", {})),
@@ -10157,6 +10202,10 @@ def _body_offset_residue_review_queue_summary(
     direct_call_result_hint_modes: Counter[str] = Counter()
     direct_call_result_samples: list[str] = []
     direct_call_result_layout_samples: list[str] = []
+    existing_parameter_alias_actions: Counter[str] = Counter()
+    existing_parameter_alias_registers: Counter[str] = Counter()
+    existing_parameter_alias_callees: Counter[str] = Counter()
+    existing_parameter_alias_samples: list[str] = []
     live_in_parameter_gap_actions: Counter[str] = Counter()
     live_in_parameter_gap_registers: Counter[str] = Counter()
     live_in_parameter_gap_callees: Counter[str] = Counter()
@@ -10235,6 +10284,16 @@ def _body_offset_residue_review_queue_summary(
             sample_text = str(sample)
             if sample_text and sample_text not in direct_call_result_layout_samples:
                 direct_call_result_layout_samples.append(sample_text)
+        for key, value in _coerce_dict(item.get("existing_parameter_alias_actions", {})).items():
+            existing_parameter_alias_actions[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("existing_parameter_alias_registers", {})).items():
+            existing_parameter_alias_registers[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("existing_parameter_alias_callees", {})).items():
+            existing_parameter_alias_callees[str(key)] += _int_value(value, 0)
+        for sample in item.get("existing_parameter_alias_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in existing_parameter_alias_samples:
+                existing_parameter_alias_samples.append(sample_text)
         for key, value in _coerce_dict(item.get("live_in_parameter_gap_actions", {})).items():
             live_in_parameter_gap_actions[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("live_in_parameter_gap_registers", {})).items():
@@ -10325,6 +10384,20 @@ def _body_offset_residue_review_queue_summary(
         ),
         "direct_call_result_samples": direct_call_result_samples[:limit],
         "direct_call_result_layout_samples": direct_call_result_layout_samples[:limit],
+        "existing_parameter_alias_count": sum(
+            _int_value(item.get("existing_parameter_alias_count"), 0)
+            for item in items
+        ),
+        "existing_parameter_alias_actions": _counter_to_dict(
+            Counter(dict(existing_parameter_alias_actions.most_common(limit)))
+        ),
+        "existing_parameter_alias_registers": _counter_to_dict(
+            Counter(dict(existing_parameter_alias_registers.most_common(limit)))
+        ),
+        "existing_parameter_alias_callees": _counter_to_dict(
+            Counter(dict(existing_parameter_alias_callees.most_common(limit)))
+        ),
+        "existing_parameter_alias_samples": existing_parameter_alias_samples[:limit],
         "live_in_parameter_gap_count": sum(
             _int_value(item.get("live_in_parameter_gap_count"), 0)
             for item in items
@@ -15697,6 +15770,63 @@ def _existing_parameter_register_alias_diagnostics(
     ]
 
 
+def _existing_parameter_alias_profile(
+    warning_diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    actions: Counter[str] = Counter()
+    registers: Counter[str] = Counter()
+    callees: Counter[str] = Counter()
+    symbols: Counter[str] = Counter()
+    samples: list[str] = []
+    diagnostics = _existing_parameter_register_alias_diagnostics(warning_diagnostics)
+    for item in diagnostics:
+        action = str(item.get("candidate_action", "") or "").strip()
+        symbol = str(item.get("symbol", "") or "").strip()
+        register = str(item.get("register", "") or "").strip()
+        callee = str(item.get("callee_name", "") or "").strip()
+        if action:
+            actions[action] += 1
+        if register:
+            registers[register] += 1
+        if callee:
+            callees[callee] += 1
+        if symbol:
+            symbols[symbol] += 1
+        sample = _existing_parameter_alias_sample(item)
+        if sample and sample not in samples:
+            samples.append(sample)
+    if not diagnostics:
+        return {}
+    return {
+        "count": len(diagnostics),
+        "actions": _counter_to_dict(Counter(dict(actions.most_common(8)))),
+        "registers": _counter_to_dict(Counter(dict(registers.most_common(8)))),
+        "callees": _counter_to_dict(Counter(dict(callees.most_common(8)))),
+        "symbols": _counter_to_dict(Counter(dict(symbols.most_common(8)))),
+        "samples": samples[:5],
+    }
+
+
+def _existing_parameter_alias_sample(item: dict[str, Any]) -> str:
+    symbol = str(item.get("symbol", "") or "live_in").strip()
+    register = str(item.get("register", "") or "").strip()
+    rendered_name = str(item.get("existing_parameter_rendered_name", "") or "").strip()
+    callee = str(item.get("callee_name", "") or "").strip()
+    argument_index = _int_value(item.get("argument_index"), -1)
+    left = symbol
+    if register:
+        left = "%s(%s)" % (left, register)
+    if rendered_name:
+        result = "%s->%s" % (left, rendered_name)
+    else:
+        result = "%s->existing_parameter" % left
+    if argument_index >= 0:
+        result = "%s arg%d" % (result, argument_index)
+    if callee:
+        result = "%s %s" % (result, callee)
+    return result
+
+
 def _existing_parameter_alias_function_summary(
     name: str,
     ea: str,
@@ -15729,7 +15859,6 @@ def _existing_parameter_alias_function_summary(
 
 _LIVE_IN_PARAMETER_GAP_ACTIONS = {
     "caller_parameter_gap_candidate",
-    "existing_parameter_register_alias",
     "parameter_gap_candidate",
 }
 
