@@ -2946,8 +2946,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "- Present targets: `%s`" % target_status.get("present_count", 0),
             "- Missing targets: `%s`" % target_status.get("missing_count", 0),
             "",
-            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Cause tags | Bases | Blockers | Stable sources | Recommended next |",
-            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+            "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Direct-base roots | Cause tags | Bases | Blockers | Stable sources | Recommended next |",
+            "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in target_status.get("present_targets", []) or []:
@@ -2963,8 +2963,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
         )
         cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
+        direct_base_roots = _body_offset_direct_base_root_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("target_group", "") or ""),
@@ -2974,6 +2975,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("priority_score"), 0),
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(direct_base_roots),
                 _markdown_table_cell(cause_tags),
                 _markdown_table_cell(bases),
                 _markdown_table_cell(blockers),
@@ -8233,6 +8235,38 @@ def _body_offset_direct_base_root_next_step(root_class: str) -> str:
     if value == "named_base":
         return "Classify the named base source and require exact layout identity before field-zero rewrite."
     return "Keep direct +0 dereference fail-closed until exact field-zero source identity is available."
+
+
+def _body_offset_direct_base_root_summary(
+    item: dict[str, Any],
+    root_limit: int = 3,
+    base_limit: int = 3,
+) -> str:
+    class_counts = _coerce_dict(item.get("direct_base_deref_base_classes", {}))
+    class_bases = _coerce_dict(item.get("direct_base_deref_class_bases", {}))
+    parts: list[str] = []
+    ordered_classes = sorted(
+        [str(root_class) for root_class in class_counts.keys() if str(root_class)],
+        key=lambda root_class: (
+            -_int_value(class_counts.get(root_class), 0),
+            root_class,
+        ),
+    )
+    for root_class in ordered_classes[:root_limit]:
+        bases = _coerce_dict(class_bases.get(root_class, {}))
+        if not bases:
+            count = _int_value(class_counts.get(root_class), 0)
+            if count > 0:
+                parts.append("%s=%d" % (root_class, count))
+            continue
+        base_text = ",".join(
+            "%s=%d" % (str(base), _int_value(count, 0))
+            for base, count in list(bases.items())[:base_limit]
+            if str(base) and _int_value(count, 0) > 0
+        )
+        if base_text:
+            parts.append("%s: %s" % (root_class, base_text))
+    return "; ".join(parts)
 
 
 def _body_offset_residue_next_goal_review_batches(

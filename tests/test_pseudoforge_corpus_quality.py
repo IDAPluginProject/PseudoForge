@@ -1644,6 +1644,8 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             markdown = render_quality_markdown(report)
             self.assertIn("Named Goal Target Status", markdown)
             self.assertIn("CmpFreeKeyControlBlock", markdown)
+            self.assertIn("Direct-base roots", markdown)
+            self.assertIn("context_like: context=1", markdown)
             self.assertIn("Keep report-only closed", markdown)
 
     def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:
