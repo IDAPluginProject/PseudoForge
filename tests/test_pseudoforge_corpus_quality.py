@@ -1561,6 +1561,19 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     ]
                 ),
             )
+            write_function(
+                "0x140060000",
+                "ExpGetNextCallback",
+                "\n".join(
+                    [
+                        "PVOID __fastcall ExpGetNextCallback(PVOID previousCallbackObject)",
+                        "{",
+                        "  return previousCallbackObject;",
+                        "}",
+                        "",
+                    ]
+                ),
+            )
 
             report = analyze_corpus(root)
             stats = report["body_offset_residue_review_stats"]
@@ -1582,13 +1595,29 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 {"registry": 1, "memory": 1},
                 queues["named_goal_targets"]["target_groups"],
             )
+            self.assertEqual(3, target_status["corpus_present_count"])
+            self.assertEqual(2, target_status["body_offset_residue_present_count"])
             self.assertEqual(2, target_status["present_count"])
-            self.assertEqual(10, target_status["missing_count"])
+            self.assertEqual(1, target_status["no_body_offset_residue_count"])
+            self.assertEqual(9, target_status["missing_count"])
             self.assertEqual({"registry": 1, "memory": 1}, target_status["groups"])
+            self.assertEqual(
+                {"registry": 1, "memory": 1, "object_callback_token": 1},
+                target_status["corpus_groups"],
+            )
             self.assertEqual(1, target_status["fail_closed_gates"]["report_only_private_layout"])
             self.assertEqual(1, target_status["fail_closed_gates"]["low_pressure_deferred"])
             self.assertEqual(1, target_status["promotion_lanes"]["collect_exact_private_layout_source"])
             self.assertEqual(1, target_status["promotion_lanes"]["defer_low_pressure"])
+            self.assertTrue(
+                any(
+                    item["name"] == "ExpGetNextCallback"
+                    and item["target_group"] == "object_callback_token"
+                    and item["body_offset_residue_present"] is False
+                    and "callback/list-entry semantics" in item["recommended_next"]
+                    for item in target_status["no_body_offset_residue_targets"]
+                )
+            )
             self.assertTrue(
                 any(
                     item["name"] == "CmpFreeKeyControlBlock"
@@ -1652,6 +1681,9 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("context_like: context=1", markdown)
             self.assertIn("direct_call_result: CmGetKCBCacheSecurity=1", markdown)
             self.assertIn("CmGetKCBCacheSecurity(keyControlBlock, 0)", markdown)
+            self.assertIn("No body-offset residue named targets", markdown)
+            self.assertIn("ExpGetNextCallback", markdown)
+            self.assertIn("callback/list-entry semantics", markdown)
             self.assertIn("Keep report-only closed", markdown)
 
     def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:

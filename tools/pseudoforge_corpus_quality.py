@@ -960,6 +960,7 @@ def analyze_corpus(
     top_ntstatus_body_unprofiled_functions = []
     top_prototype_correction_functions = []
     prototype_negative_control_functions = []
+    analyzed_functions: list[dict[str, Any]] = []
 
     for summary_path in summary_paths:
         summary = _coerce_dict(_read_json(summary_path))
@@ -975,6 +976,15 @@ def analyze_corpus(
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
         cleaned_path = _artifact_path(summary_path, artifacts, "cleaned_pseudocode")
         raw_path = _artifact_path(summary_path, artifacts, "raw_pseudocode")
+        analyzed_functions.append(
+            {
+                "name": name,
+                "ea": ea,
+                "summary_path": str(summary_path),
+                "cleaned_path": str(cleaned_path),
+                "named_goal_target_group": _body_offset_named_goal_target_group(name),
+            }
+        )
         rewrite_preview_metadata = _coerce_dict(
             _read_json(_artifact_path(summary_path, artifacts, "layout_rewrite_preview_metadata"))
         )
@@ -1947,6 +1957,7 @@ def analyze_corpus(
             "named_goal_target_status": _body_offset_named_goal_target_status(
                 top_body_offset_residue_functions,
                 top,
+                analyzed_functions,
             ),
             "top_functions": top_body_offset_residue_functions[:top],
         },
@@ -3005,7 +3016,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Named Goal Target Status",
             "",
-            "- Present targets: `%s`" % target_status.get("present_count", 0),
+            "- Corpus present targets: `%s`" % target_status.get("corpus_present_count", 0),
+            "- Body-offset residue targets: `%s`"
+            % target_status.get(
+                "body_offset_residue_present_count",
+                target_status.get("present_count", 0),
+            ),
+            "- No body-offset residue targets: `%s`"
+            % target_status.get("no_body_offset_residue_count", 0),
             "- Missing targets: `%s`" % target_status.get("missing_count", 0),
             "",
             "| Function | Group | Gate | Lane | Pressure | Score | Offset derefs | Direct-base derefs | Direct-base roots | Cause tags | Bases | Blockers | Stable sources | Recommended next |",
@@ -3045,6 +3063,31 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(str(item.get("recommended_next", "") or "")),
             )
         )
+    no_residue_targets = [
+        item
+        for item in target_status.get("no_body_offset_residue_targets", []) or []
+        if isinstance(item, dict)
+    ]
+    if no_residue_targets:
+        lines.extend(
+            [
+                "",
+                "No body-offset residue named targets:",
+                "",
+                "| Function | Group | EA | Recommended next |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for item in no_residue_targets:
+            lines.append(
+                "| `%s` | `%s` | `%s` | %s |"
+                % (
+                    str(item.get("name", "") or ""),
+                    str(item.get("target_group", "") or ""),
+                    str(item.get("ea", "") or ""),
+                    _markdown_table_cell(str(item.get("recommended_next", "") or "")),
+                )
+            )
     if target_status.get("missing_targets"):
         missing = ", ".join(
             str(item.get("name", "") or "")
@@ -8073,17 +8116,43 @@ def _body_offset_residue_review_queues(
 def _body_offset_named_goal_target_status(
     items: list[dict[str, Any]],
     limit: int,
+    analyzed_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     items_by_name = {str(item.get("name", "") or ""): item for item in items}
+    analyzed_by_name = {
+        str(item.get("name", "") or ""): item
+        for item in analyzed_items or []
+        if str(item.get("name", "") or "")
+    }
     present_targets: list[dict[str, Any]] = []
+    no_body_offset_residue_targets: list[dict[str, Any]] = []
     missing_targets: list[dict[str, Any]] = []
     groups: Counter[str] = Counter()
+    corpus_groups: Counter[str] = Counter()
     fail_closed_gates: Counter[str] = Counter()
     promotion_lanes: Counter[str] = Counter()
     pressure_classes: Counter[str] = Counter()
     for name, group in _BODY_OFFSET_NAMED_GOAL_TARGETS.items():
         item = items_by_name.get(name)
         if item is None:
+            analyzed_item = analyzed_by_name.get(name)
+            if analyzed_item is not None:
+                corpus_groups[group] += 1
+                no_body_offset_residue_targets.append(
+                    {
+                        "name": name,
+                        "ea": str(analyzed_item.get("ea", "") or ""),
+                        "target_group": group,
+                        "present": True,
+                        "body_offset_residue_present": False,
+                        "recommended_next": _body_offset_named_goal_target_no_residue_next(
+                            group,
+                        ),
+                        "summary_path": str(analyzed_item.get("summary_path", "") or ""),
+                        "cleaned_path": str(analyzed_item.get("cleaned_path", "") or ""),
+                    }
+                )
+                continue
             missing_targets.append(
                 {
                     "name": name,
@@ -8097,6 +8166,7 @@ def _body_offset_named_goal_target_status(
         lane = str(item.get("promotion_lane", "") or "")
         pressure = str(item.get("residue_pressure_class", "") or "")
         groups[group] += 1
+        corpus_groups[group] += 1
         if gate:
             fail_closed_gates[gate] += 1
         if lane:
@@ -8109,6 +8179,7 @@ def _body_offset_named_goal_target_status(
                 "ea": str(item.get("ea", "") or ""),
                 "target_group": group,
                 "present": True,
+                "body_offset_residue_present": True,
                 "subsystem": str(item.get("subsystem", "") or ""),
                 "priority_score": _int_value(item.get("priority_score"), 0),
                 "fail_closed_gate": gate,
@@ -8178,16 +8249,39 @@ def _body_offset_named_goal_target_status(
             str(item.get("name", "")),
         )
     )
+    no_body_offset_residue_targets.sort(
+        key=lambda item: (
+            str(item.get("target_group", "")),
+            str(item.get("name", "")),
+        )
+    )
     return {
         "present_count": len(present_targets),
+        "corpus_present_count": len(present_targets) + len(no_body_offset_residue_targets),
+        "body_offset_residue_present_count": len(present_targets),
+        "no_body_offset_residue_count": len(no_body_offset_residue_targets),
         "missing_count": len(missing_targets),
         "groups": _counter_to_dict(groups),
+        "corpus_groups": _counter_to_dict(corpus_groups),
         "fail_closed_gates": _counter_to_dict(fail_closed_gates),
         "promotion_lanes": _counter_to_dict(promotion_lanes),
         "pressure_classes": _counter_to_dict(pressure_classes),
         "present_targets": present_targets[:limit],
+        "no_body_offset_residue_targets": no_body_offset_residue_targets[:limit],
         "missing_targets": missing_targets,
     }
+
+
+def _body_offset_named_goal_target_no_residue_next(group: str) -> str:
+    if group == "object_callback_token":
+        return (
+            "Function is present but has no body-offset residue; review callback/list-entry "
+            "semantics separately from canonical body-offset rewrite gates."
+        )
+    return (
+        "Function is present but has no body-offset residue in this corpus; keep it out of "
+        "body-offset rewrite queues unless new residue evidence appears."
+    )
 
 
 def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str:
