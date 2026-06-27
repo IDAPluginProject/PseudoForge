@@ -242,6 +242,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "live_in_parameter_gap_candidates": (
         "Body-offset residue with live-in ABI register diagnostics that may indicate a missing caller parameter or parameter alias."
     ),
+    "callee_arity_residue_candidates": (
+        "Body-offset residue with live-in ABI diagnostics that point at callee prototype or helper arity residue, not caller parameters."
+    ),
     "source_stability_required": (
         "Candidates whose base object may move, reload, or be reassigned after layout access."
     ),
@@ -338,6 +341,9 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     "live_in_parameter_gap_candidates": (
         "Reread live-in ABI register diagnostics, callee argument use, and existing parameter aliases before adding any type correction."
     ),
+    "callee_arity_residue_candidates": (
+        "Verify the callee contract, helper prototype, and call-site ABI before adding caller parameters or widening the caller signature."
+    ),
     "source_stability_required": (
         "Prove a single stable initializer and no risky post-access reassignment for the candidate base."
     ),
@@ -394,6 +400,7 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "high_pressure_unresolved_residue": 5,
     "direct_base_zero_residue": 5,
     "live_in_parameter_gap": 9,
+    "callee_arity_residue": 7,
     "named_target_direct_base_residue": 6,
     "high_pressure_report_only_alias": 7,
     "core_report_only_deferred_shape": 5,
@@ -2762,6 +2769,17 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 if stable_sources
                 else "live-in %s" % live_in_anchors
             )
+        callee_arity_anchors = ", ".join(
+            str(sample)
+            for sample in queue.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        )
+        if callee_arity_anchors:
+            stable_sources = (
+                "%s; callee-arity %s" % (stable_sources, callee_arity_anchors)
+                if stable_sources
+                else "callee-arity %s" % callee_arity_anchors
+            )
         domain_profiles = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
@@ -3012,6 +3030,17 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
         )
+        callee_arity_anchors = ", ".join(
+            str(sample)
+            for sample in item.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        )
+        if callee_arity_anchors:
+            stable_sources = (
+                "%s; callee-arity %s" % (stable_sources, callee_arity_anchors)
+                if stable_sources
+                else "callee-arity %s" % callee_arity_anchors
+            )
         domain_profiles = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("domain_profiles", {})).items()
@@ -6263,6 +6292,7 @@ def _body_offset_residue_function_summary(
         stable_base_sources,
     )
     live_in_parameter_gap_profile = _live_in_parameter_gap_profile(warning_diagnostics or [])
+    callee_arity_residue_profile = _callee_arity_residue_profile(warning_diagnostics or [])
     review_class = _body_offset_residue_review_class(
         prototype_metrics,
         layout_hints,
@@ -6311,6 +6341,10 @@ def _body_offset_residue_function_summary(
     if live_in_parameter_gap_count > 0:
         review_evidence.append("live_in_parameter_gap")
         review_evidence = list(dict.fromkeys(review_evidence))
+    callee_arity_residue_count = _int_value(callee_arity_residue_profile.get("count"), 0)
+    if callee_arity_residue_count > 0:
+        review_evidence.append("callee_arity_residue")
+        review_evidence = list(dict.fromkeys(review_evidence))
     named_target_group = _body_offset_named_goal_target_group(name)
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
@@ -6344,6 +6378,9 @@ def _body_offset_residue_function_summary(
         next_action_details = list(dict.fromkeys(next_action_details))
     if live_in_parameter_gap_count > 0:
         next_action_details.append("review_live_in_parameter_gap_before_type_correction")
+        next_action_details = list(dict.fromkeys(next_action_details))
+    if callee_arity_residue_count > 0:
+        next_action_details.append("review_callee_contract_before_caller_parameter_correction")
         next_action_details = list(dict.fromkeys(next_action_details))
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -6398,6 +6435,9 @@ def _body_offset_residue_function_summary(
     if live_in_parameter_gap_count > 0:
         residue_review_notes.append("live_in_parameter_gap_candidate")
         residue_review_notes = list(dict.fromkeys(residue_review_notes))
+    if callee_arity_residue_count > 0:
+        residue_review_notes.append("callee_arity_residue_candidate")
+        residue_review_notes = list(dict.fromkeys(residue_review_notes))
     priority_factors = _body_offset_residue_priority_factors(
         subsystem,
         review_class,
@@ -6416,6 +6456,9 @@ def _body_offset_residue_function_summary(
         priority_factors = list(dict.fromkeys(priority_factors))
     if live_in_parameter_gap_count > 0:
         priority_factors.append("live_in_parameter_gap")
+        priority_factors = list(dict.fromkeys(priority_factors))
+    if callee_arity_residue_count > 0:
+        priority_factors.append("callee_arity_residue")
         priority_factors = list(dict.fromkeys(priority_factors))
     review_focus = _body_offset_residue_review_focus(subsystem, fail_closed_gate, priority_factors)
     priority_score = offset_deref_survivors
@@ -6437,6 +6480,8 @@ def _body_offset_residue_function_summary(
         priority_score += min(20, 4 + nested_field_pointer_count)
     if live_in_parameter_gap_count > 0:
         priority_score += min(18, 6 * live_in_parameter_gap_count)
+    if callee_arity_residue_count > 0:
+        priority_score += min(15, 5 * callee_arity_residue_count)
     priority_score += _body_offset_residue_priority_bonus(priority_factors)
     result = {
         "ea": ea,
@@ -6515,6 +6560,24 @@ def _body_offset_residue_function_summary(
         "live_in_parameter_gap_samples": [
             str(sample)
             for sample in live_in_parameter_gap_profile.get("samples", []) or []
+            if str(sample)
+        ][:5],
+        "callee_arity_residue_count": callee_arity_residue_count,
+        "callee_arity_residue_actions": _coerce_dict(
+            callee_arity_residue_profile.get("actions", {})
+        ),
+        "callee_arity_residue_registers": _coerce_dict(
+            callee_arity_residue_profile.get("registers", {})
+        ),
+        "callee_arity_residue_callees": _coerce_dict(
+            callee_arity_residue_profile.get("callees", {})
+        ),
+        "callee_arity_residue_evidence": _coerce_dict(
+            callee_arity_residue_profile.get("evidence", {})
+        ),
+        "callee_arity_residue_samples": [
+            str(sample)
+            for sample in callee_arity_residue_profile.get("samples", []) or []
             if str(sample)
         ][:5],
         "parameter_field_pointer_source_anchor_count": _int_value(
@@ -7587,6 +7650,8 @@ def _body_offset_residue_cause_tags(item: dict[str, Any]) -> list[str]:
         tags.append("named_call_result_alias_review")
     if _int_value(item.get("live_in_parameter_gap_count"), 0) > 0:
         tags.append("live_in_parameter_gap")
+    if _int_value(item.get("callee_arity_residue_count"), 0) > 0:
+        tags.append("callee_arity_residue")
     if gate == "threshold_evidence_gap":
         tags.append("threshold_evidence_gap")
     if gate == "low_pressure_deferred":
@@ -8341,6 +8406,7 @@ def _body_offset_residue_review_queues(
         "direct_call_result_layout_candidates",
         "direct_base_zero_deref_candidates",
         "live_in_parameter_gap_candidates",
+        "callee_arity_residue_candidates",
         "source_stability_required",
         "type_conflict_required",
         "pointer_indexed_layout_candidates",
@@ -9128,6 +9194,8 @@ def _body_offset_residue_next_goal_review_batches(
         parameter_field_pointer_sources: Counter[str] = Counter()
         parameter_field_pointer_offsets: Counter[str] = Counter()
         parameter_field_pointer_samples: list[str] = []
+        callee_arity_residue_callees: Counter[str] = Counter()
+        callee_arity_residue_samples: list[str] = []
         for item in group_items:
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
@@ -9164,6 +9232,12 @@ def _body_offset_residue_next_goal_review_batches(
                 sample_text = str(sample)
                 if sample_text and sample_text not in parameter_field_pointer_samples:
                     parameter_field_pointer_samples.append(sample_text)
+            for callee, count in _coerce_dict(item.get("callee_arity_residue_callees", {})).items():
+                callee_arity_residue_callees[str(callee)] += _int_value(count, 0)
+            for sample in item.get("callee_arity_residue_samples", []) or []:
+                sample_text = str(sample)
+                if sample_text and sample_text not in callee_arity_residue_samples:
+                    callee_arity_residue_samples.append(sample_text)
         batches.append(
             {
                 "batch": "%s:%s" % (subsystem, kind),
@@ -9264,6 +9338,10 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(parameter_field_pointer_offsets.most_common(limit)))
                 ),
                 "parameter_field_pointer_samples": parameter_field_pointer_samples[:limit],
+                "callee_arity_residue_callees": _counter_to_dict(
+                    Counter(dict(callee_arity_residue_callees.most_common(limit)))
+                ),
+                "callee_arity_residue_samples": callee_arity_residue_samples[:limit],
                 "residue_cause_tags": _counter_to_dict(
                     Counter(dict(residue_cause_tags.most_common(limit)))
                 ),
@@ -9297,6 +9375,11 @@ def _body_offset_residue_next_goal_review_batches(
                         "parameter_field_pointer_samples": [
                             str(sample)
                             for sample in item.get("parameter_field_pointer_samples", []) or []
+                            if str(sample)
+                        ],
+                        "callee_arity_residue_samples": [
+                            str(sample)
+                            for sample in item.get("callee_arity_residue_samples", []) or []
                             if str(sample)
                         ],
                         "residue_cause_tags": [
@@ -9376,6 +9459,16 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             for sample in item.get("live_in_parameter_gap_samples", []) or []
             if str(sample)
         ],
+        "callee_arity_residue_count": _int_value(item.get("callee_arity_residue_count"), 0),
+        "callee_arity_residue_actions": _coerce_dict(item.get("callee_arity_residue_actions", {})),
+        "callee_arity_residue_registers": _coerce_dict(item.get("callee_arity_residue_registers", {})),
+        "callee_arity_residue_callees": _coerce_dict(item.get("callee_arity_residue_callees", {})),
+        "callee_arity_residue_evidence": _coerce_dict(item.get("callee_arity_residue_evidence", {})),
+        "callee_arity_residue_samples": [
+            str(sample)
+            for sample in item.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        ],
         "parameter_field_pointer_source_anchor_count": _int_value(
             item.get("parameter_field_pointer_source_anchor_count"),
             0,
@@ -9451,6 +9544,8 @@ def _body_offset_residue_next_goal_candidate_kind(item: dict[str, Any]) -> str:
         return "direct_call_result_layout_identity"
     if _int_value(item.get("live_in_parameter_gap_count"), 0) > 0:
         return "live_in_parameter_gap_type_correction"
+    if _int_value(item.get("callee_arity_residue_count"), 0) > 0:
+        return "callee_arity_contract_review"
     if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
         return "exact_function_build_source_identity"
     if gate == "report_only_private_layout":
@@ -9495,6 +9590,8 @@ def _body_offset_residue_next_goal_actionability_class(item: dict[str, Any], kin
         "live_in_parameter_gap_type_correction",
     }:
         return "exact_evidence_attempt"
+    if kind == "callee_arity_contract_review":
+        return "callee_contract_review"
     if kind in {
         "source_stability_proof",
         "type_conflict_resolution",
@@ -9527,6 +9624,7 @@ def _body_offset_residue_next_goal_actionability_score(item: dict[str, Any], kin
     } else 0
     score += 40 if kind == "exact_function_build_source_identity" else 0
     score += 55 if kind == "direct_call_result_layout_identity" else 0
+    score += 24 if kind == "callee_arity_contract_review" else 0
     score += 36 if kind == "live_in_parameter_gap_type_correction" else 0
     score += 14 if kind in {"type_conflict_resolution", "source_stability_proof"} else 0
     score += 10 if kind == "indexed_layout_model" else 0
@@ -9572,6 +9670,18 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
                 % anchors
             )
         return "Verify returned layout/type identity for the direct call-result before any field-zero rewrite."
+    if kind == "callee_arity_contract_review":
+        samples = ", ".join(
+            str(sample)
+            for sample in item.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        )
+        if samples:
+            return (
+                "Validate callee arity/helper residue %s against the callee contract before adding caller parameters or widening this function signature."
+                % samples
+            )
+        return "Validate callee arity/helper residue against the callee contract before adding caller parameters or widening this function signature."
     if kind == "live_in_parameter_gap_type_correction":
         samples = ", ".join(
             str(sample)
@@ -9626,6 +9736,8 @@ def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) 
         return "Direct +0 dereference is not enough to render field_0; exact source identity is still required."
     if kind == "direct_call_result_layout_identity":
         return "Direct call-result +0 residue remains fail-closed until callee return type, source object, and build identity are exact."
+    if kind == "callee_arity_contract_review":
+        return "Callee arity residue is not caller-parameter proof; keep caller signature and body rewrite closed until the callee ABI is exact."
     if kind == "live_in_parameter_gap_type_correction":
         return "Live-in register evidence is a type-correction lead only; do not rewrite the body or mutate IDB without exact ABI proof."
     if kind == "parameter_profile_or_type_correction":
@@ -9656,6 +9768,15 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         if anchors:
             return "callee return layout identity required for %s" % anchors
         return "callee return layout identity required for direct call-result residue"
+    if kind == "callee_arity_contract_review":
+        samples = ", ".join(
+            str(sample)
+            for sample in item.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        )
+        if samples:
+            return "callee arity residue evidence %s must match exact callee prototype and helper contract identity" % samples
+        return "callee arity residue evidence must match exact callee prototype and helper contract identity"
     if kind == "live_in_parameter_gap_type_correction":
         samples = ", ".join(
             str(sample)
@@ -9766,6 +9887,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
         return _int_value(item.get("direct_base_deref_survivors"), 0) > 0
     if queue_name == "live_in_parameter_gap_candidates":
         return _int_value(item.get("live_in_parameter_gap_count"), 0) > 0
+    if queue_name == "callee_arity_residue_candidates":
+        return _int_value(item.get("callee_arity_residue_count"), 0) > 0
     if queue_name == "source_stability_required":
         return (
             review_class == "source_stability_blocked_residue"
@@ -9873,6 +9996,11 @@ def _body_offset_residue_review_queue_summary(
     live_in_parameter_gap_registers: Counter[str] = Counter()
     live_in_parameter_gap_callees: Counter[str] = Counter()
     live_in_parameter_gap_samples: list[str] = []
+    callee_arity_residue_actions: Counter[str] = Counter()
+    callee_arity_residue_registers: Counter[str] = Counter()
+    callee_arity_residue_callees: Counter[str] = Counter()
+    callee_arity_residue_evidence: Counter[str] = Counter()
+    callee_arity_residue_samples: list[str] = []
     parameter_field_pointer_sources: Counter[str] = Counter()
     parameter_field_pointer_targets: Counter[str] = Counter()
     parameter_field_pointer_offsets: Counter[str] = Counter()
@@ -9952,6 +10080,18 @@ def _body_offset_residue_review_queue_summary(
             sample_text = str(sample)
             if sample_text and sample_text not in live_in_parameter_gap_samples:
                 live_in_parameter_gap_samples.append(sample_text)
+        for key, value in _coerce_dict(item.get("callee_arity_residue_actions", {})).items():
+            callee_arity_residue_actions[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("callee_arity_residue_registers", {})).items():
+            callee_arity_residue_registers[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("callee_arity_residue_callees", {})).items():
+            callee_arity_residue_callees[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("callee_arity_residue_evidence", {})).items():
+            callee_arity_residue_evidence[str(key)] += _int_value(value, 0)
+        for sample in item.get("callee_arity_residue_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in callee_arity_residue_samples:
+                callee_arity_residue_samples.append(sample_text)
         for key, value in _coerce_dict(item.get("parameter_field_pointer_sources", {})).items():
             parameter_field_pointer_sources[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_field_pointer_targets", {})).items():
@@ -10034,6 +10174,23 @@ def _body_offset_residue_review_queue_summary(
             Counter(dict(live_in_parameter_gap_callees.most_common(limit)))
         ),
         "live_in_parameter_gap_samples": live_in_parameter_gap_samples[:limit],
+        "callee_arity_residue_count": sum(
+            _int_value(item.get("callee_arity_residue_count"), 0)
+            for item in items
+        ),
+        "callee_arity_residue_actions": _counter_to_dict(
+            Counter(dict(callee_arity_residue_actions.most_common(limit)))
+        ),
+        "callee_arity_residue_registers": _counter_to_dict(
+            Counter(dict(callee_arity_residue_registers.most_common(limit)))
+        ),
+        "callee_arity_residue_callees": _counter_to_dict(
+            Counter(dict(callee_arity_residue_callees.most_common(limit)))
+        ),
+        "callee_arity_residue_evidence": _counter_to_dict(
+            Counter(dict(callee_arity_residue_evidence.most_common(limit)))
+        ),
+        "callee_arity_residue_samples": callee_arity_residue_samples[:limit],
         "parameter_field_pointer_source_anchors": sum(
             _int_value(item.get("parameter_field_pointer_source_anchor_count"), 0)
             for item in items
@@ -10201,6 +10358,16 @@ def _body_offset_residue_review_queue_item(
             for sample in item.get("live_in_parameter_gap_samples", []) or []
             if str(sample)
         ],
+        "callee_arity_residue_count": _int_value(item.get("callee_arity_residue_count"), 0),
+        "callee_arity_residue_actions": _coerce_dict(item.get("callee_arity_residue_actions", {})),
+        "callee_arity_residue_registers": _coerce_dict(item.get("callee_arity_residue_registers", {})),
+        "callee_arity_residue_callees": _coerce_dict(item.get("callee_arity_residue_callees", {})),
+        "callee_arity_residue_evidence": _coerce_dict(item.get("callee_arity_residue_evidence", {})),
+        "callee_arity_residue_samples": [
+            str(sample)
+            for sample in item.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        ],
         "parameter_field_pointer_source_anchor_count": _int_value(
             item.get("parameter_field_pointer_source_anchor_count"),
             0,
@@ -10361,6 +10528,18 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
                 % ", ".join(samples)
             )
         return "live-in ABI parameter gap needs caller/callee argument validation before type correction"
+    if queue == "callee_arity_residue_candidates":
+        samples = [
+            str(sample)
+            for sample in item.get("callee_arity_residue_samples", []) or []
+            if str(sample)
+        ][:3]
+        if samples:
+            return (
+                "callee arity/helper residue candidate(s) %s need callee contract validation before adding caller parameters"
+                % ", ".join(samples)
+            )
+        return "callee arity/helper residue needs callee contract validation before adding caller parameters"
     if queue == "source_stability_required":
         families = _coerce_dict(item.get("blocker_families", {}))
         if _int_value(families.get("source_reassigned"), 0) > 0:
@@ -10552,6 +10731,13 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:2]
     if live_in_samples:
         parts.append("live-in=%s" % ",".join(live_in_samples))
+    callee_arity_samples = [
+        str(sample)
+        for sample in item.get("callee_arity_residue_samples", []) or []
+        if str(sample)
+    ][:2]
+    if callee_arity_samples:
+        parts.append("callee-arity=%s" % ",".join(callee_arity_samples))
     return "; ".join(parts)
 
 
@@ -15451,6 +15637,53 @@ def _live_in_parameter_gap_sample(
     if target:
         return "%s->%s %s" % (left, target, action)
     return "%s %s" % (left, action)
+
+
+def _callee_arity_residue_profile(
+    warning_diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    actions: Counter[str] = Counter()
+    registers: Counter[str] = Counter()
+    callees: Counter[str] = Counter()
+    evidence: Counter[str] = Counter()
+    samples: list[str] = []
+    count = 0
+    for item in warning_diagnostics:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("kind", "") or "") != "unassigned_local_live_in_register":
+            continue
+        if str(item.get("register_class", "") or "") != "abi_argument":
+            continue
+        action = str(item.get("candidate_action", "") or "").strip()
+        if action != "callee_arity_residue_candidate":
+            continue
+        symbol = str(item.get("symbol", "") or "").strip()
+        register = str(item.get("register", "") or "").strip()
+        callee = str(item.get("callee_name", "") or "").strip()
+        argument_index = _int_value(item.get("argument_index"), -1)
+        contract_evidence = str(item.get("callee_contract_evidence", "") or "").strip()
+        count += 1
+        actions[action] += 1
+        if register:
+            registers[register] += 1
+        if callee:
+            callees[callee] += 1
+        if contract_evidence:
+            evidence[contract_evidence] += 1
+        sample = _live_in_parameter_gap_sample(symbol, register, callee, argument_index, action, item)
+        if sample and sample not in samples:
+            samples.append(sample)
+    if count <= 0:
+        return {}
+    return {
+        "count": count,
+        "actions": _counter_to_dict(Counter(dict(actions.most_common(8)))),
+        "registers": _counter_to_dict(Counter(dict(registers.most_common(8)))),
+        "callees": _counter_to_dict(Counter(dict(callees.most_common(8)))),
+        "evidence": _counter_to_dict(Counter(dict(evidence.most_common(8)))),
+        "samples": samples[:5],
+    }
 
 
 def _effective_warning_count(
