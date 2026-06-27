@@ -1714,6 +1714,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             queues = stats["review_queues"]
             target_status = stats["named_goal_target_status"]
             named_items = queues["named_goal_targets"]["items"]
+            next_goal_candidates = stats["next_goal_candidates"]
 
             self.assertEqual("registry", _body_offset_named_goal_target_group("CmpFreeKeyControlBlock"))
             self.assertEqual("memory", _body_offset_named_goal_target_group("MiPrefetchVirtualMemory"))
@@ -1728,6 +1729,11 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(
                 {"registry": 1, "memory": 1},
                 queues["named_goal_targets"]["target_groups"],
+            )
+            self.assertEqual(2, next_goal_candidates["named_goal_targets"])
+            self.assertEqual(
+                {"registry": 1, "memory": 1},
+                next_goal_candidates["named_target_groups"],
             )
             self.assertEqual(3, target_status["corpus_present_count"])
             self.assertEqual(2, target_status["body_offset_residue_present_count"])
@@ -1788,6 +1794,31 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertTrue(
                 any(
                     item["name"] == "CmpFreeKeyControlBlock"
+                    and item["named_goal_target"]
+                    and item["named_goal_target_group"] == "registry"
+                    for item in next_goal_candidates["items"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["name"] == "MiPrefetchVirtualMemory"
+                    and item["named_goal_target"]
+                    and item["named_goal_target_group"] == "memory"
+                    for item in next_goal_candidates["items"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    batch["named_goal_targets"] == 1
+                    and batch["named_target_groups"] == {"registry": 1}
+                    and batch["top_functions"][0]["named_goal_target"]
+                    and batch["top_functions"][0]["named_goal_target_group"] == "registry"
+                    for batch in next_goal_candidates["review_batches"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    item["name"] == "CmpFreeKeyControlBlock"
                     and item["named_goal_target_group"] == "registry"
                     and item["fail_closed_family"] == "report_only_identity"
                     and item["rewrite_safety_policy"] == "do_not_rewrite_report_only_profile"
@@ -1820,6 +1851,9 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             )
             markdown = render_quality_markdown(report)
             self.assertIn("Named Goal Target Status", markdown)
+            self.assertIn("Target group", markdown)
+            self.assertIn("Named targets", markdown)
+            self.assertIn("1: registry=1", markdown)
             self.assertIn("CmpFreeKeyControlBlock", markdown)
             self.assertIn("Direct-base roots", markdown)
             self.assertIn("context_like: context=1", markdown)

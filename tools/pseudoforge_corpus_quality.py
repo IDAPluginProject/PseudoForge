@@ -3084,8 +3084,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Offset samples | Gates | Cause tags | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Named targets | Actionability | Residue | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Offset samples | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -3101,6 +3101,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "%s=%s" % (key, value)
                 for key, value in _coerce_dict(batch.get("residue_cause_tags", {})).items()
             )
+            named_targets = _body_offset_named_target_summary(batch)
             requirements: list[str] = []
             for field in [
                 "source_identity_requirements",
@@ -3144,10 +3145,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(batch)
             offset_samples = _body_offset_offset_deref_sample_summary(batch)
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
+                    _markdown_table_cell(named_targets),
                     _markdown_table_cell(actionability),
                     _markdown_table_cell(residue),
                     _markdown_table_cell(direct_base_roots),
@@ -3165,8 +3167,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Offset samples | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Target group | Gate | Lane | Score | Offset derefs | Direct-base derefs | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Offset samples | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -3239,13 +3241,15 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         direct_base_roots = str(item.get("direct_base_root_summary", "") or "")
         if not direct_base_roots:
             direct_base_roots = _body_offset_direct_base_root_summary(item)
+        target_group = _body_offset_named_target_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
                 str(item.get("actionability_class", "") or ""),
                 str(item.get("subsystem", "") or ""),
+                _markdown_table_cell(target_group),
                 str(item.get("fail_closed_gate", "") or ""),
                 str(item.get("promotion_lane", "") or ""),
                 _int_value(item.get("actionability_score"), 0),
@@ -9821,6 +9825,11 @@ def _body_offset_residue_next_goal_candidates(
     )
     review_focuses = Counter(str(item.get("review_focus", "") or "") for item in selected)
     safety_policies = Counter(str(item.get("rewrite_safety_policy", "") or "") for item in selected)
+    named_target_groups = Counter(
+        str(item.get("named_goal_target_group", "") or "non_goal_target")
+        for item in selected
+        if bool(item.get("named_goal_target"))
+    )
     residue_cause_tags: Counter[str] = Counter()
     for item in selected:
         for tag in item.get("residue_cause_tags", []) or []:
@@ -9844,6 +9853,10 @@ def _body_offset_residue_next_goal_candidates(
         "promotion_lanes": _counter_to_dict(Counter(dict(promotion_lanes.most_common(limit)))),
         "actionability_classes": _counter_to_dict(
             Counter(dict(actionability_classes.most_common(limit)))
+        ),
+        "named_goal_targets": sum(1 for item in selected if bool(item.get("named_goal_target"))),
+        "named_target_groups": _counter_to_dict(
+            Counter(dict(named_target_groups.most_common(limit)))
         ),
         "review_focuses": _counter_to_dict(Counter(dict(review_focuses.most_common(limit)))),
         "rewrite_safety_policies": _counter_to_dict(
@@ -10167,6 +10180,7 @@ def _body_offset_residue_next_goal_review_batches(
         function_identity_source_contexts: Counter[str] = Counter()
         source_bound_identity_sources: dict[str, str] = {}
         domain_profiles: Counter[str] = Counter()
+        named_target_groups: Counter[str] = Counter()
         residue_cause_tags: Counter[str] = Counter()
         direct_base_deref_base_classes: Counter[str] = Counter()
         direct_base_deref_class_bases: dict[str, Counter[str]] = {}
@@ -10191,6 +10205,9 @@ def _body_offset_residue_next_goal_review_batches(
         offset_deref_samples: list[str] = []
         top_base_offset_samples: dict[str, list[str]] = {}
         for item in group_items:
+            if bool(item.get("named_goal_target")):
+                target_group = str(item.get("named_goal_target_group", "") or "non_goal_target")
+                named_target_groups[target_group] += 1
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
             item_identity_sources = _coerce_dict(item.get("source_bound_identity_sources", {}))
@@ -10300,6 +10317,10 @@ def _body_offset_residue_next_goal_review_batches(
                 "nested_field_pointer_residue": sum(
                     _int_value(item.get("nested_field_pointer_residue_count"), 0)
                     for item in group_items
+                ),
+                "named_goal_targets": sum(1 for item in group_items if bool(item.get("named_goal_target"))),
+                "named_target_groups": _counter_to_dict(
+                    Counter(dict(named_target_groups.most_common(limit)))
                 ),
                 "max_actionability_score": max(
                     [_int_value(item.get("actionability_score"), 0) for item in group_items]
@@ -10428,6 +10449,10 @@ def _body_offset_residue_next_goal_review_batches(
                         "name": str(item.get("name", "") or ""),
                         "ea": str(item.get("ea", "") or ""),
                         "actionability_score": _int_value(item.get("actionability_score"), 0),
+                        "named_goal_target": bool(item.get("named_goal_target")),
+                        "named_goal_target_group": str(
+                            item.get("named_goal_target_group", "") or ""
+                        ),
                         "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
                         "promotion_lane": str(item.get("promotion_lane", "") or ""),
                         "source_identity_requirement": str(
@@ -10550,6 +10575,8 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "rewrite_safety_policy": str(item.get("rewrite_safety_policy", "") or ""),
         "evidence_maturity": str(item.get("evidence_maturity", "") or ""),
         "residue_pressure_class": str(item.get("residue_pressure_class", "") or ""),
+        "named_goal_target": bool(item.get("named_goal_target")),
+        "named_goal_target_group": str(item.get("named_goal_target_group", "") or ""),
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
         "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
         "direct_base_deref_bases": _coerce_dict(item.get("direct_base_deref_bases", {})),
@@ -11069,6 +11096,24 @@ def _body_offset_identity_source_summary(item: dict[str, Any], limit: int = 2) -
         if str(profile_id) and str(profile_source):
             parts.append("%s: %s" % (profile_id, profile_source))
     return "; ".join(parts)
+
+
+def _body_offset_named_target_summary(item: dict[str, Any], limit: int = 3) -> str:
+    groups = _coerce_dict(item.get("named_target_groups", {}))
+    if groups:
+        group_text = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in list(groups.items())[:limit]
+            if str(key)
+        )
+        count = _int_value(item.get("named_goal_targets"), 0)
+        if count > 0 and group_text:
+            return "%d: %s" % (count, group_text)
+        return group_text
+    if bool(item.get("named_goal_target")):
+        group = str(item.get("named_goal_target_group", "") or "goal_target")
+        return group
+    return ""
 
 
 def _body_offset_parameter_indexed_anchor_summary(
