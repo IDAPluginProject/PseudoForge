@@ -878,6 +878,7 @@ def analyze_corpus(
     body_offset_residue_review_focuses: Counter[str] = Counter()
     body_offset_residue_shape_classes: Counter[str] = Counter()
     body_offset_residue_base_classes: Counter[str] = Counter()
+    body_offset_residue_direct_base_classes: Counter[str] = Counter()
     body_offset_residue_named_target_groups: Counter[str] = Counter()
     body_offset_residue_safety_policies: Counter[str] = Counter()
     body_offset_residue_evidence_maturity: Counter[str] = Counter()
@@ -1262,6 +1263,7 @@ def analyze_corpus(
                         body_offset_residue_review_focuses,
                         body_offset_residue_shape_classes,
                         body_offset_residue_base_classes,
+                        body_offset_residue_direct_base_classes,
                         body_offset_residue_named_target_groups,
                         body_offset_residue_safety_policies,
                         body_offset_residue_evidence_maturity,
@@ -1892,6 +1894,9 @@ def analyze_corpus(
             ),
             "offset_shape_classes": _counter_to_dict(Counter(dict(body_offset_residue_shape_classes.most_common(top)))),
             "offset_base_classes": _counter_to_dict(Counter(dict(body_offset_residue_base_classes.most_common(top)))),
+            "direct_base_classes": _counter_to_dict(
+                Counter(dict(body_offset_residue_direct_base_classes.most_common(top)))
+            ),
             "named_target_groups": _counter_to_dict(
                 Counter(dict(body_offset_residue_named_target_groups.most_common(top)))
             ),
@@ -2590,6 +2595,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         _markdown_counter_table(
             _coerce_dict(body_offset_residue_stats.get("offset_base_classes", {})),
             "Base class",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Residue Direct-Base Classes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(body_offset_residue_stats.get("direct_base_classes", {})),
+            "Direct-base class",
         )
     )
     lines.extend(
@@ -6331,6 +6349,7 @@ def _update_body_offset_residue_metrics(
     review_focuses: Counter[str],
     shape_classes: Counter[str],
     base_classes: Counter[str],
+    direct_base_classes: Counter[str],
     named_target_groups: Counter[str],
     safety_policies: Counter[str],
     evidence_maturity: Counter[str],
@@ -6416,6 +6435,8 @@ def _update_body_offset_residue_metrics(
         shape_classes[shape_class] += 1
     for base_class, count in _coerce_dict(shape_profile.get("base_classes", {})).items():
         base_classes[str(base_class)] += _int_value(count, 0)
+    for base_class, count in _coerce_dict(item.get("direct_base_deref_base_classes", {})).items():
+        direct_base_classes[str(base_class)] += _int_value(count, 0)
 
 
 def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
@@ -7215,6 +7236,7 @@ def _body_offset_residue_cause_tags(item: dict[str, Any]) -> list[str]:
     }
     blocker_families = _coerce_dict(item.get("blocker_families", {}))
     source_provenance = _coerce_dict(item.get("stable_source_provenance", {}))
+    direct_base_classes = _coerce_dict(item.get("direct_base_deref_base_classes", {}))
 
     if gate == "report_only_private_layout" or "report_only_profile_kept_closed" in evidence:
         tags.append("report_only_private_layout")
@@ -7269,6 +7291,23 @@ def _body_offset_residue_cause_tags(item: dict[str, Any]) -> list[str]:
         tags.append("manual_classification_required")
     if _int_value(item.get("direct_base_deref_survivors"), 0) > 0:
         tags.append("direct_base_zero_deref_residue")
+    if _int_value(direct_base_classes.get("decompiler_temp"), 0) > 0:
+        tags.append("direct_base_temp_root")
+    if (
+        _int_value(direct_base_classes.get("decompiler_argument"), 0) > 0
+        or _int_value(direct_base_classes.get("renamed_argument"), 0) > 0
+    ):
+        tags.append("direct_base_parameter_root")
+    if _int_value(direct_base_classes.get("direct_call_result"), 0) > 0:
+        tags.append("direct_base_call_result_root")
+    if _int_value(direct_base_classes.get("context_like"), 0) > 0:
+        tags.append("direct_base_context_root")
+    if _int_value(direct_base_classes.get("thread_process_like"), 0) > 0:
+        tags.append("direct_base_thread_process_root")
+    if _int_value(direct_base_classes.get("object_or_token_like"), 0) > 0:
+        tags.append("direct_base_object_token_root")
+    if _int_value(direct_base_classes.get("named_base"), 0) > 0:
+        tags.append("direct_base_named_root")
     if _int_value(item.get("generic_parameter_survivors"), 0) > 0:
         tags.append("generic_parameter_survivor")
     return list(dict.fromkeys(tags))
