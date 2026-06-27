@@ -1795,6 +1795,45 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertTrue(any("exact_function_name" in item for item in proposal.evidence))
         self.assertEqual(proposal.corrections, ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",))
 
+    def test_type_assisted_prototype_allows_exact_report_only_signature_preview(self):
+        capture, plan = _type_assisted_capture_plan()
+        plan.function_identity_candidates[0].effective_mode = "report-only"
+        plan.function_identity_candidates[0].blockers = ["report_only_profile"]
+        plan.type_corrections[0].effective_mode = "report-only"
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertFalse(proposal.blockers)
+        self.assertIn("PDEVICE_OBJECT deviceObject", proposal.prototype)
+        self.assertIn(
+            "type_correction_report_only_preview:windows.io_manager.delete_device:param0",
+            proposal.evidence,
+        )
+        self.assertEqual(proposal.corrections, ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",))
+
+    def test_type_assisted_prototype_refuses_report_only_build_mismatch(self):
+        capture, plan = _type_assisted_capture_plan()
+        plan.function_identity_candidates[0].effective_mode = "report-only"
+        plan.function_identity_candidates[0].blockers = ["report_only_profile", "build_mismatch"]
+        plan.type_corrections[0].effective_mode = "report-only"
+        plan.type_corrections[0].blockers = ["build_mismatch"]
+        plan.type_corrections[0].apply_to_preview = False
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertIn(
+            "function_identity_blocked:windows.io_manager.delete_device:build_mismatch",
+            proposal.blockers,
+        )
+        self.assertIn(
+            "type_correction_blocked:windows.io_manager.delete_device:param0:build_mismatch",
+            proposal.blockers,
+        )
+        self.assertIn(
+            "type_correction_preview_disabled:windows.io_manager.delete_device:param0",
+            proposal.blockers,
+        )
+
     def test_type_assisted_prototype_refuses_blocked_corrections_before_type_api(self):
         capture, plan = _type_assisted_capture_plan()
         plan.type_corrections[0].blockers.append("type_conflict")

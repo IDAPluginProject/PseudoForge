@@ -1477,6 +1477,8 @@ def _build_type_assisted_prototype_proposal(
                 % (profile_id, ",".join(candidate.ambiguous_profile_ids))
             )
         for blocker in candidate.blockers:
+            if blocker == "report_only_profile" and _type_assisted_report_only_identity_allowed(candidate):
+                continue
             blockers.append("function_identity_blocked:%s:%s" % (profile_id, blocker))
 
     if not plan.type_corrections:
@@ -1505,25 +1507,38 @@ def _build_type_assisted_prototype_proposal(
             correction_blockers.append("missing_canonical_type:%s" % parameter_tag)
         if not correction.new_name:
             correction_blockers.append("missing_canonical_parameter_name:%s" % parameter_tag)
-        if correction.effective_mode == _TYPE_ASSISTED_REPORT_ONLY_MODE:
+        report_only_preview_allowed = _type_assisted_report_only_correction_allowed(
+            correction,
+            identity_by_profile.get(correction.profile_id),
+        )
+        if (
+            correction.effective_mode == _TYPE_ASSISTED_REPORT_ONLY_MODE
+            and not report_only_preview_allowed
+        ):
             correction_blockers.append("type_correction_report_only:%s" % parameter_tag)
         elif correction.effective_mode not in _TYPE_ASSISTED_ALLOWED_MODES:
-            correction_blockers.append(
-                "type_correction_mode_not_allowed:%s:%s"
-                % (parameter_tag, correction.effective_mode or "missing")
-            )
+            if not report_only_preview_allowed:
+                correction_blockers.append(
+                    "type_correction_mode_not_allowed:%s:%s"
+                    % (parameter_tag, correction.effective_mode or "missing")
+                )
 
         identity = identity_by_profile.get(correction.profile_id)
         if identity is None:
             correction_blockers.append("missing_function_identity_candidate:%s" % profile_id)
         else:
-            if identity.effective_mode == _TYPE_ASSISTED_REPORT_ONLY_MODE:
+            identity_report_only_preview_allowed = _type_assisted_report_only_identity_allowed(identity)
+            if (
+                identity.effective_mode == _TYPE_ASSISTED_REPORT_ONLY_MODE
+                and not identity_report_only_preview_allowed
+            ):
                 correction_blockers.append("function_identity_report_only:%s" % profile_id)
             elif identity.effective_mode not in _TYPE_ASSISTED_ALLOWED_MODES:
-                correction_blockers.append(
-                    "function_identity_mode_not_allowed:%s:%s"
-                    % (profile_id, identity.effective_mode or "missing")
-                )
+                if not identity_report_only_preview_allowed:
+                    correction_blockers.append(
+                        "function_identity_mode_not_allowed:%s:%s"
+                        % (profile_id, identity.effective_mode or "missing")
+                    )
             if identity.evidence:
                 evidence.append(
                     "function_identity:%s:%s"
@@ -1546,6 +1561,11 @@ def _build_type_assisted_prototype_proposal(
                 correction.confidence,
             )
         )
+        if report_only_preview_allowed:
+            evidence.append(
+                "type_correction_report_only_preview:%s:param%d"
+                % (profile_id, correction.parameter_index)
+            )
         corrections.append(
             "param%d %s->%s %s->%s"
             % (
@@ -1572,6 +1592,49 @@ def _build_type_assisted_prototype_proposal(
         blockers=tuple(_dedupe_text(blockers)),
         corrections=tuple(corrections),
     )
+
+
+def _type_assisted_report_only_correction_allowed(correction, identity) -> bool:
+    if correction.effective_mode != _TYPE_ASSISTED_REPORT_ONLY_MODE:
+        return False
+    if correction.blockers:
+        return False
+    if not correction.apply_to_preview:
+        return False
+    if not (correction.canonical_type or correction.display_type):
+        return False
+    if not correction.new_name:
+        return False
+    return _type_assisted_report_only_identity_allowed(identity)
+
+
+def _type_assisted_report_only_identity_allowed(identity) -> bool:
+    if identity is None:
+        return False
+    if getattr(identity, "profile_id", "") == "ambiguous":
+        return False
+    if _is_body_only_weak_identity_candidate(identity):
+        return False
+    blockers = [
+        str(blocker)
+        for blocker in getattr(identity, "blockers", ()) or ()
+        if str(blocker) and str(blocker) != "report_only_profile"
+    ]
+    if blockers:
+        return False
+    match_kind = str(getattr(identity, "match_kind", "") or "").lower().replace("-", "_")
+    evidence = {
+        str(item or "").lower().replace("-", "_")
+        for item in getattr(identity, "evidence", ()) or ()
+        if str(item or "")
+    }
+    exact_evidence = {
+        "function_name",
+        "demangled_name",
+        "exact_function_name",
+        "exact_demangled_name",
+    }
+    return match_kind in {"function_name", "demangled_name"} or bool(evidence & exact_evidence)
 
 
 def _is_body_only_weak_identity_candidate(candidate) -> bool:
