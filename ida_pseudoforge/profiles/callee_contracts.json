@@ -49,6 +49,7 @@
         "IommupHvSetRootFaultReportingReady",
         "IommupHvUnblockDefaultDma",
         "KiCheckVpBackingLongSpinWaitHypercall",
+        "KiRemoveSystemWorkPriorityKick",
         "MiEndingOffsetWithLock",
         "MiRemoveLockedPageCharge",
         "PipCreateDependencyNode",
@@ -63,6 +64,15 @@
       "action": "callee_arity_residue_candidate",
       "confidence": 0.68,
       "evidence": "packaged callee contract marks this helper as likely arity or internal helper residue"
+    },
+    {
+      "id": "atomic_intrinsic_operand_residue",
+      "callees": [
+        "_InterlockedCompareExchange16"
+      ],
+      "action": "callee_arity_residue_candidate",
+      "confidence": 0.7,
+      "evidence": "atomic intrinsic compare-exchange operand pseudo-locals should be reviewed as intrinsic lowering residue before adding caller parameters"
     }
   ]
 }

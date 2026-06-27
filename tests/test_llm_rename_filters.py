@@ -1096,6 +1096,57 @@ __int64 __fastcall TokenSecurityQueryResidueSample(__int64 token, __int64 names,
         self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
         self.assertTrue(any("callee arity/helper residue" in warning for warning in warnings))
 
+    def test_scheduler_and_atomic_intrinsic_live_ins_are_helper_residue(self) -> None:
+        text = """
+__int64 __fastcall SchedulerAtomicResidueSample()
+{
+  __int64 v1; // rcx
+  __int64 v2; // rdx
+  __int64 v3; // r8
+  __int64 v4; // r9
+  __int16 v5; // r9
+
+  KiRemoveSystemWorkPriorityKick(v1, v2, v3, v4);
+  return _InterlockedCompareExchange16((volatile signed __int16 *)v1, v5, 1);
+}
+"""
+        capture = FunctionCapture(
+            name="SchedulerAtomicResidueSample",
+            prototype="__int64 __fastcall SchedulerAtomicResidueSample()",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v1", type="__int64", is_arg=False),
+                LocalVariable(name="v2", type="__int64", is_arg=False),
+                LocalVariable(name="v3", type="__int64", is_arg=False),
+                LocalVariable(name="v4", type="__int64", is_arg=False),
+                LocalVariable(name="v5", type="__int16", is_arg=False),
+            ],
+        )
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, [])
+        warnings = unassigned_local_usage_warnings(capture, [])
+        actions_by_callee = {}
+        evidence_by_callee = {}
+        for item in diagnostics:
+            actions_by_callee.setdefault(item.callee_name, set()).add(item.candidate_action)
+            evidence_by_callee.setdefault(item.callee_name, set()).add(item.callee_contract_evidence)
+
+        self.assertIn(
+            "callee_arity_residue_candidate",
+            actions_by_callee["KiRemoveSystemWorkPriorityKick"],
+        )
+        self.assertIn(
+            "callee_arity_residue_candidate",
+            actions_by_callee["_InterlockedCompareExchange16"],
+        )
+        self.assertTrue(
+            any(
+                "atomic intrinsic compare-exchange operand" in evidence
+                for evidence in evidence_by_callee["_InterlockedCompareExchange16"]
+            )
+        )
+        self.assertFalse(any("Hex-Rays may have omitted a function parameter" in warning for warning in warnings))
+
     def test_repeated_dif_thunk_slots_are_helper_thunk_candidates(self) -> None:
         text = """
 bool __fastcall VfBindDifDDIWrappers(int argument0, int argument1, __int64 argument2)

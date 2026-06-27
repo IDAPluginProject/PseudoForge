@@ -99,9 +99,9 @@
       "source": "PseudoForge curated internal helper and thunk callee contracts",
       "schema": "pseudoforge_callee_contracts_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "16330F6E6857DAE7B7623585E2A96B6B294958C55FAB5B8344E76743D943567A",
+      "sha256": "014D81C813E458FD3D9EE207B7EC0814667B9700C7A7BB6FA4523DC413E8F27F",
       "counts": {
-        "contracts": 3
+        "contracts": 4
       }
     },
     "direct_call_result_layout_hints.json": {
