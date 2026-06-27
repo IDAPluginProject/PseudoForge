@@ -6026,6 +6026,9 @@ def _quality_accepted_parameter_renames_by_old_name(
         if _float_value(item.get("confidence"), 0.0) < 0.75:
             continue
         result[old_name] = item
+        # Quality reads the rendered signature, so keep the post-rename
+        # parameter name addressable as the same ABI slot evidence.
+        result.setdefault(new_name, item)
     return result
 
 
@@ -6056,7 +6059,7 @@ def _quality_existing_parameter_alias_for_diagnostic(
         return None
     return {
         "parameter_index": parameter_index,
-        "raw_name": raw_name,
+        "raw_name": str(rename.get("old", "") or raw_name).strip(),
         "rendered_name": rendered_name,
         "rename_source": str(rename.get("source", "") or ""),
     }
@@ -12286,6 +12289,13 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:2]
     if live_in_samples:
         parts.append("live-in=%s" % ",".join(live_in_samples))
+    existing_parameter_alias_samples = [
+        str(sample)
+        for sample in item.get("existing_parameter_alias_samples", []) or []
+        if str(sample)
+    ][:2]
+    if existing_parameter_alias_samples:
+        parts.append("resolved-alias=%s" % ",".join(existing_parameter_alias_samples))
     callee_arity_samples = [
         str(sample)
         for sample in item.get("callee_arity_residue_samples", []) or []
