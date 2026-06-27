@@ -239,6 +239,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "direct_base_zero_deref_candidates": (
         "Direct base +0 dereferences that need field-zero/source identity review before any rewrite."
     ),
+    "live_in_parameter_gap_candidates": (
+        "Body-offset residue with live-in ABI register diagnostics that may indicate a missing caller parameter or parameter alias."
+    ),
     "source_stability_required": (
         "Candidates whose base object may move, reload, or be reassigned after layout access."
     ),
@@ -332,6 +335,9 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     "direct_base_zero_deref_candidates": (
         "Treat +0 dereferences as field-zero review candidates only; require exact source identity before rendering them as structure fields."
     ),
+    "live_in_parameter_gap_candidates": (
+        "Reread live-in ABI register diagnostics, callee argument use, and existing parameter aliases before adding any type correction."
+    ),
     "source_stability_required": (
         "Prove a single stable initializer and no risky post-access reassignment for the candidate base."
     ),
@@ -387,6 +393,7 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "generic_context_identity_gap": 6,
     "high_pressure_unresolved_residue": 5,
     "direct_base_zero_residue": 5,
+    "live_in_parameter_gap": 9,
     "named_target_direct_base_residue": 6,
     "high_pressure_report_only_alias": 7,
     "core_report_only_deferred_shape": 5,
@@ -1280,6 +1287,7 @@ def analyze_corpus(
                     domain_identities,
                     pointer_indexed_metrics,
                     offset_shape_profile,
+                    warning_diagnostics,
                 )
                 if body_offset_residue_item:
                     _update_body_offset_residue_metrics(
@@ -2742,6 +2750,17 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "%s; field-ptr %s" % (stable_sources, parameter_field_pointer_anchors)
                 if stable_sources
                 else "field-ptr %s" % parameter_field_pointer_anchors
+            )
+        live_in_anchors = ", ".join(
+            str(sample)
+            for sample in queue.get("live_in_parameter_gap_samples", []) or []
+            if str(sample)
+        )
+        if live_in_anchors:
+            stable_sources = (
+                "%s; live-in %s" % (stable_sources, live_in_anchors)
+                if stable_sources
+                else "live-in %s" % live_in_anchors
             )
         domain_profiles = ", ".join(
             "%s=%s" % (key, value)
@@ -6205,6 +6224,7 @@ def _body_offset_residue_function_summary(
     domain_identities: list[dict[str, Any]],
     pointer_indexed_metrics: dict[str, Any],
     offset_shape_profile: dict[str, Any],
+    warning_diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     offset_deref_survivors = _int_value(prototype_metrics.get("offset_deref_survivors"), 0)
     if offset_deref_survivors <= 0:
@@ -6242,6 +6262,7 @@ def _body_offset_residue_function_summary(
         cleaned_path,
         stable_base_sources,
     )
+    live_in_parameter_gap_profile = _live_in_parameter_gap_profile(warning_diagnostics or [])
     review_class = _body_offset_residue_review_class(
         prototype_metrics,
         layout_hints,
@@ -6286,6 +6307,10 @@ def _body_offset_residue_function_summary(
     if nested_field_pointer_count > 0:
         review_evidence.append("nested_field_pointer_residue")
         review_evidence = list(dict.fromkeys(review_evidence))
+    live_in_parameter_gap_count = _int_value(live_in_parameter_gap_profile.get("count"), 0)
+    if live_in_parameter_gap_count > 0:
+        review_evidence.append("live_in_parameter_gap")
+        review_evidence = list(dict.fromkeys(review_evidence))
     named_target_group = _body_offset_named_goal_target_group(name)
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
@@ -6316,6 +6341,9 @@ def _body_offset_residue_function_summary(
         next_action_details = list(dict.fromkeys(next_action_details))
     if nested_field_pointer_count > 0:
         next_action_details.append("nested_field_pointer_layout_model_required")
+        next_action_details = list(dict.fromkeys(next_action_details))
+    if live_in_parameter_gap_count > 0:
+        next_action_details.append("review_live_in_parameter_gap_before_type_correction")
         next_action_details = list(dict.fromkeys(next_action_details))
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -6367,6 +6395,9 @@ def _body_offset_residue_function_summary(
         _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
         blocker_reasons,
     )
+    if live_in_parameter_gap_count > 0:
+        residue_review_notes.append("live_in_parameter_gap_candidate")
+        residue_review_notes = list(dict.fromkeys(residue_review_notes))
     priority_factors = _body_offset_residue_priority_factors(
         subsystem,
         review_class,
@@ -6382,6 +6413,9 @@ def _body_offset_residue_function_summary(
     )
     if nested_field_pointer_count > 0:
         priority_factors.append("nested_field_pointer_residue")
+        priority_factors = list(dict.fromkeys(priority_factors))
+    if live_in_parameter_gap_count > 0:
+        priority_factors.append("live_in_parameter_gap")
         priority_factors = list(dict.fromkeys(priority_factors))
     review_focus = _body_offset_residue_review_focus(subsystem, fail_closed_gate, priority_factors)
     priority_score = offset_deref_survivors
@@ -6401,6 +6435,8 @@ def _body_offset_residue_function_summary(
         priority_score += 18
     if nested_field_pointer_count > 0:
         priority_score += min(20, 4 + nested_field_pointer_count)
+    if live_in_parameter_gap_count > 0:
+        priority_score += min(18, 6 * live_in_parameter_gap_count)
     priority_score += _body_offset_residue_priority_bonus(priority_factors)
     result = {
         "ea": ea,
@@ -6461,6 +6497,24 @@ def _body_offset_residue_function_summary(
         "direct_base_deref_samples": [
             str(sample)
             for sample in direct_base_deref_profile.get("samples", []) or []
+            if str(sample)
+        ][:5],
+        "live_in_parameter_gap_count": live_in_parameter_gap_count,
+        "live_in_parameter_gap_actions": _coerce_dict(
+            live_in_parameter_gap_profile.get("actions", {})
+        ),
+        "live_in_parameter_gap_registers": _coerce_dict(
+            live_in_parameter_gap_profile.get("registers", {})
+        ),
+        "live_in_parameter_gap_callees": _coerce_dict(
+            live_in_parameter_gap_profile.get("callees", {})
+        ),
+        "live_in_parameter_gap_symbols": _coerce_dict(
+            live_in_parameter_gap_profile.get("symbols", {})
+        ),
+        "live_in_parameter_gap_samples": [
+            str(sample)
+            for sample in live_in_parameter_gap_profile.get("samples", []) or []
             if str(sample)
         ][:5],
         "parameter_field_pointer_source_anchor_count": _int_value(
@@ -7531,6 +7585,8 @@ def _body_offset_residue_cause_tags(item: dict[str, Any]) -> list[str]:
         tags.append("parameter_field_pointer_alias_review")
     if _int_value(source_provenance.get("named_call_result_alias"), 0) > 0:
         tags.append("named_call_result_alias_review")
+    if _int_value(item.get("live_in_parameter_gap_count"), 0) > 0:
+        tags.append("live_in_parameter_gap")
     if gate == "threshold_evidence_gap":
         tags.append("threshold_evidence_gap")
     if gate == "low_pressure_deferred":
@@ -8284,6 +8340,7 @@ def _body_offset_residue_review_queues(
         "nested_field_pointer_residue_candidates",
         "direct_call_result_layout_candidates",
         "direct_base_zero_deref_candidates",
+        "live_in_parameter_gap_candidates",
         "source_stability_required",
         "type_conflict_required",
         "pointer_indexed_layout_candidates",
@@ -9310,6 +9367,15 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             for sample in item.get("direct_call_result_layout_samples", []) or []
             if str(sample)
         ],
+        "live_in_parameter_gap_count": _int_value(item.get("live_in_parameter_gap_count"), 0),
+        "live_in_parameter_gap_actions": _coerce_dict(item.get("live_in_parameter_gap_actions", {})),
+        "live_in_parameter_gap_registers": _coerce_dict(item.get("live_in_parameter_gap_registers", {})),
+        "live_in_parameter_gap_callees": _coerce_dict(item.get("live_in_parameter_gap_callees", {})),
+        "live_in_parameter_gap_samples": [
+            str(sample)
+            for sample in item.get("live_in_parameter_gap_samples", []) or []
+            if str(sample)
+        ],
         "parameter_field_pointer_source_anchor_count": _int_value(
             item.get("parameter_field_pointer_source_anchor_count"),
             0,
@@ -9383,6 +9449,8 @@ def _body_offset_residue_next_goal_candidate_kind(item: dict[str, Any]) -> str:
     factors = {str(value) for value in item.get("priority_factors", []) or [] if str(value)}
     if _body_offset_direct_call_result_count(item) > 0:
         return "direct_call_result_layout_identity"
+    if _int_value(item.get("live_in_parameter_gap_count"), 0) > 0:
+        return "live_in_parameter_gap_type_correction"
     if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
         return "exact_function_build_source_identity"
     if gate == "report_only_private_layout":
@@ -9424,6 +9492,7 @@ def _body_offset_residue_next_goal_actionability_class(item: dict[str, Any], kin
         "exact_function_build_source_identity",
         "parameter_profile_or_type_correction",
         "direct_call_result_layout_identity",
+        "live_in_parameter_gap_type_correction",
     }:
         return "exact_evidence_attempt"
     if kind in {
@@ -9458,6 +9527,7 @@ def _body_offset_residue_next_goal_actionability_score(item: dict[str, Any], kin
     } else 0
     score += 40 if kind == "exact_function_build_source_identity" else 0
     score += 55 if kind == "direct_call_result_layout_identity" else 0
+    score += 36 if kind == "live_in_parameter_gap_type_correction" else 0
     score += 14 if kind in {"type_conflict_resolution", "source_stability_proof"} else 0
     score += 10 if kind == "indexed_layout_model" else 0
     score += 18 if kind == "nested_field_pointer_layout_model" else 0
@@ -9502,6 +9572,18 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
                 % anchors
             )
         return "Verify returned layout/type identity for the direct call-result before any field-zero rewrite."
+    if kind == "live_in_parameter_gap_type_correction":
+        samples = ", ".join(
+            str(sample)
+            for sample in item.get("live_in_parameter_gap_samples", []) or []
+            if str(sample)
+        )
+        if samples:
+            return (
+                "Validate live-in ABI parameter gap(s) %s against caller/callee argument use before adding an exact parameter type correction."
+                % samples
+            )
+        return "Validate live-in ABI parameter gaps against caller/callee argument use before adding an exact parameter type correction."
     if kind == "exact_private_layout_source":
         return "Keep aliases report-only while collecting exact private field layout source evidence."
     if kind == "source_stability_proof":
@@ -9544,6 +9626,8 @@ def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) 
         return "Direct +0 dereference is not enough to render field_0; exact source identity is still required."
     if kind == "direct_call_result_layout_identity":
         return "Direct call-result +0 residue remains fail-closed until callee return type, source object, and build identity are exact."
+    if kind == "live_in_parameter_gap_type_correction":
+        return "Live-in register evidence is a type-correction lead only; do not rewrite the body or mutate IDB without exact ABI proof."
     if kind == "parameter_profile_or_type_correction":
         return "Use canonical_type/display_type for output; accepted_types are input guards only."
     if policy:
@@ -9572,6 +9656,15 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         if anchors:
             return "callee return layout identity required for %s" % anchors
         return "callee return layout identity required for direct call-result residue"
+    if kind == "live_in_parameter_gap_type_correction":
+        samples = ", ".join(
+            str(sample)
+            for sample in item.get("live_in_parameter_gap_samples", []) or []
+            if str(sample)
+        )
+        if samples:
+            return "live-in ABI parameter gap evidence %s must match exact caller/callee ABI identity" % samples
+        return "live-in ABI parameter gap evidence must match exact caller/callee ABI identity"
     if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
         return "exact function, build, profile, and source object identity required"
     if gate == "report_only_private_layout":
@@ -9671,6 +9764,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
         return _body_offset_direct_call_result_count(item) > 0
     if queue_name == "direct_base_zero_deref_candidates":
         return _int_value(item.get("direct_base_deref_survivors"), 0) > 0
+    if queue_name == "live_in_parameter_gap_candidates":
+        return _int_value(item.get("live_in_parameter_gap_count"), 0) > 0
     if queue_name == "source_stability_required":
         return (
             review_class == "source_stability_blocked_residue"
@@ -9774,6 +9869,10 @@ def _body_offset_residue_review_queue_summary(
     direct_call_result_hint_modes: Counter[str] = Counter()
     direct_call_result_samples: list[str] = []
     direct_call_result_layout_samples: list[str] = []
+    live_in_parameter_gap_actions: Counter[str] = Counter()
+    live_in_parameter_gap_registers: Counter[str] = Counter()
+    live_in_parameter_gap_callees: Counter[str] = Counter()
+    live_in_parameter_gap_samples: list[str] = []
     parameter_field_pointer_sources: Counter[str] = Counter()
     parameter_field_pointer_targets: Counter[str] = Counter()
     parameter_field_pointer_offsets: Counter[str] = Counter()
@@ -9843,6 +9942,16 @@ def _body_offset_residue_review_queue_summary(
             sample_text = str(sample)
             if sample_text and sample_text not in direct_call_result_layout_samples:
                 direct_call_result_layout_samples.append(sample_text)
+        for key, value in _coerce_dict(item.get("live_in_parameter_gap_actions", {})).items():
+            live_in_parameter_gap_actions[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("live_in_parameter_gap_registers", {})).items():
+            live_in_parameter_gap_registers[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("live_in_parameter_gap_callees", {})).items():
+            live_in_parameter_gap_callees[str(key)] += _int_value(value, 0)
+        for sample in item.get("live_in_parameter_gap_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in live_in_parameter_gap_samples:
+                live_in_parameter_gap_samples.append(sample_text)
         for key, value in _coerce_dict(item.get("parameter_field_pointer_sources", {})).items():
             parameter_field_pointer_sources[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_field_pointer_targets", {})).items():
@@ -9911,6 +10020,20 @@ def _body_offset_residue_review_queue_summary(
         ),
         "direct_call_result_samples": direct_call_result_samples[:limit],
         "direct_call_result_layout_samples": direct_call_result_layout_samples[:limit],
+        "live_in_parameter_gap_count": sum(
+            _int_value(item.get("live_in_parameter_gap_count"), 0)
+            for item in items
+        ),
+        "live_in_parameter_gap_actions": _counter_to_dict(
+            Counter(dict(live_in_parameter_gap_actions.most_common(limit)))
+        ),
+        "live_in_parameter_gap_registers": _counter_to_dict(
+            Counter(dict(live_in_parameter_gap_registers.most_common(limit)))
+        ),
+        "live_in_parameter_gap_callees": _counter_to_dict(
+            Counter(dict(live_in_parameter_gap_callees.most_common(limit)))
+        ),
+        "live_in_parameter_gap_samples": live_in_parameter_gap_samples[:limit],
         "parameter_field_pointer_source_anchors": sum(
             _int_value(item.get("parameter_field_pointer_source_anchor_count"), 0)
             for item in items
@@ -10069,6 +10192,15 @@ def _body_offset_residue_review_queue_item(
             for sample in item.get("direct_call_result_layout_samples", []) or []
             if str(sample)
         ],
+        "live_in_parameter_gap_count": _int_value(item.get("live_in_parameter_gap_count"), 0),
+        "live_in_parameter_gap_actions": _coerce_dict(item.get("live_in_parameter_gap_actions", {})),
+        "live_in_parameter_gap_registers": _coerce_dict(item.get("live_in_parameter_gap_registers", {})),
+        "live_in_parameter_gap_callees": _coerce_dict(item.get("live_in_parameter_gap_callees", {})),
+        "live_in_parameter_gap_samples": [
+            str(sample)
+            for sample in item.get("live_in_parameter_gap_samples", []) or []
+            if str(sample)
+        ],
         "parameter_field_pointer_source_anchor_count": _int_value(
             item.get("parameter_field_pointer_source_anchor_count"),
             0,
@@ -10217,6 +10349,18 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
                 % ", ".join(bases)
             )
         return "direct +0 dereference needs exact field-zero source identity before rewrite"
+    if queue == "live_in_parameter_gap_candidates":
+        samples = [
+            str(sample)
+            for sample in item.get("live_in_parameter_gap_samples", []) or []
+            if str(sample)
+        ][:3]
+        if samples:
+            return (
+                "live-in ABI parameter gap candidate(s) %s need caller/callee argument validation before type correction"
+                % ", ".join(samples)
+            )
+        return "live-in ABI parameter gap needs caller/callee argument validation before type correction"
     if queue == "source_stability_required":
         families = _coerce_dict(item.get("blocker_families", {}))
         if _int_value(families.get("source_reassigned"), 0) > 0:
@@ -10401,6 +10545,13 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
             parts.append("indexed-element=%s" % " ".join(indexed_parts))
         else:
             parts.append("indexed-element=%d evidence" % parameter_indexed_count)
+    live_in_samples = [
+        str(sample)
+        for sample in item.get("live_in_parameter_gap_samples", []) or []
+        if str(sample)
+    ][:2]
+    if live_in_samples:
+        parts.append("live-in=%s" % ",".join(live_in_samples))
     return "; ".join(parts)
 
 
@@ -15223,6 +15374,83 @@ def _existing_parameter_alias_function_summary(
         "aliases": aliases,
         "summary_path": str(summary_path),
     }
+
+
+_LIVE_IN_PARAMETER_GAP_ACTIONS = {
+    "caller_parameter_gap_candidate",
+    "existing_parameter_register_alias",
+    "parameter_gap_candidate",
+}
+
+
+def _live_in_parameter_gap_profile(
+    warning_diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    actions: Counter[str] = Counter()
+    registers: Counter[str] = Counter()
+    callees: Counter[str] = Counter()
+    symbols: Counter[str] = Counter()
+    samples: list[str] = []
+    count = 0
+    for item in warning_diagnostics:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("kind", "") or "") != "unassigned_local_live_in_register":
+            continue
+        if str(item.get("register_class", "") or "") != "abi_argument":
+            continue
+        action = str(item.get("candidate_action", "") or "").strip()
+        if action not in _LIVE_IN_PARAMETER_GAP_ACTIONS:
+            continue
+        symbol = str(item.get("symbol", "") or "").strip()
+        register = str(item.get("register", "") or "").strip()
+        callee = str(item.get("callee_name", "") or "").strip()
+        argument_index = _int_value(item.get("argument_index"), -1)
+        count += 1
+        if action:
+            actions[action] += 1
+        if register:
+            registers[register] += 1
+        if callee:
+            callees[callee] += 1
+        if symbol:
+            symbols[symbol] += 1
+        sample = _live_in_parameter_gap_sample(symbol, register, callee, argument_index, action, item)
+        if sample and sample not in samples:
+            samples.append(sample)
+    if count <= 0:
+        return {}
+    return {
+        "count": count,
+        "actions": _counter_to_dict(Counter(dict(actions.most_common(8)))),
+        "registers": _counter_to_dict(Counter(dict(registers.most_common(8)))),
+        "callees": _counter_to_dict(Counter(dict(callees.most_common(8)))),
+        "symbols": _counter_to_dict(Counter(dict(symbols.most_common(8)))),
+        "samples": samples[:5],
+    }
+
+
+def _live_in_parameter_gap_sample(
+    symbol: str,
+    register: str,
+    callee: str,
+    argument_index: int,
+    action: str,
+    item: dict[str, Any],
+) -> str:
+    left = symbol or "live_in"
+    if register:
+        left = "%s(%s)" % (left, register)
+    target = callee
+    if argument_index >= 0:
+        target = "%s[arg%d]" % (target or "call", argument_index)
+    if action == "existing_parameter_register_alias":
+        existing_name = str(item.get("existing_parameter_rendered_name", "") or "").strip()
+        if existing_name:
+            target = "%s=>%s" % (target or "existing_parameter", existing_name)
+    if target:
+        return "%s->%s %s" % (left, target, action)
+    return "%s %s" % (left, action)
 
 
 def _effective_warning_count(
