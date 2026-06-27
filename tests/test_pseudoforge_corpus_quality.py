@@ -3374,6 +3374,27 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 next_candidates["items"][0]["direct_call_result_layout_samples"],
             )
             self.assertIn(
+                "context_like: context=1",
+                next_candidates["items"][0]["direct_base_root_summary"],
+            )
+            self.assertIn(
+                "direct_call_result: KeGetCurrentPrcb=1 calls=KeGetCurrentPrcb()->MmInternal",
+                next_candidates["items"][0]["direct_base_root_summary"],
+            )
+            review_batch = next(
+                batch
+                for batch in next_candidates["review_batches"]
+                if batch["candidate_kind"] == "direct_call_result_layout_identity"
+            )
+            self.assertEqual(
+                {"context_like": 1, "direct_call_result": 1, "renamed_argument": 1},
+                review_batch["direct_base_deref_base_classes"],
+            )
+            self.assertEqual(
+                {"KeGetCurrentPrcb": 1},
+                review_batch["direct_base_deref_class_bases"]["direct_call_result"],
+            )
+            self.assertIn(
                 "callee return/member layout identity required for KeGetCurrentPrcb()->MmInternal",
                 next_candidates["items"][0]["source_identity_requirement"],
             )
@@ -3422,6 +3443,8 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
             self.assertIn("Direct-Base Root Review Batches", markdown)
             self.assertIn("direct_call_result_layout_candidates", markdown)
             self.assertIn("direct_call_result_layout_identity", markdown)
+            self.assertIn("Direct-base roots", markdown)
+            self.assertIn("direct_call_result: KeGetCurrentPrcb=1", markdown)
             self.assertIn("direct_call_result=1", markdown)
             self.assertIn("KeGetCurrentPrcb()->MmInternal", markdown)
             self.assertIn("KeGetCurrentPrcb:PKPRCB", markdown)

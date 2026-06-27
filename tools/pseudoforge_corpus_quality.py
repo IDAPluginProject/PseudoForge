@@ -2950,8 +2950,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Call-result anchors | Field-pointer anchors | Indexed anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Actionability | Residue | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -2991,6 +2991,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(batch.get("generic_parameter_survivors"), 0),
                 _int_value(batch.get("nested_field_pointer_residue"), 0),
             )
+            direct_base_roots = _body_offset_direct_base_root_summary(batch)
             call_result_anchors = _body_offset_direct_call_result_anchor_summary(batch)
             call_result_hints = _body_offset_direct_call_result_hint_summary(batch)
             if call_result_hints:
@@ -3002,12 +3003,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(batch)
             parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(batch)
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
                     _markdown_table_cell(actionability),
                     _markdown_table_cell(residue),
+                    _markdown_table_cell(direct_base_roots),
                     _markdown_table_cell(call_result_anchors),
                     _markdown_table_cell(parameter_field_pointer_anchors),
                     _markdown_table_cell(parameter_indexed_anchors),
@@ -3021,8 +3023,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Call-result anchors | Field-pointer anchors | Indexed anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Direct-base roots | Call-result anchors | Field-pointer anchors | Indexed anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -3067,8 +3069,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             )
         parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
         parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(item)
+        direct_base_roots = str(item.get("direct_base_root_summary", "") or "")
+        if not direct_base_roots:
+            direct_base_roots = _body_offset_direct_base_root_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
@@ -3079,6 +3084,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("actionability_score"), 0),
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(direct_base_roots),
                 _markdown_table_cell(call_result_anchors),
                 _markdown_table_cell(parameter_field_pointer_anchors),
                 _markdown_table_cell(parameter_indexed_anchors),
@@ -9187,6 +9193,8 @@ def _body_offset_residue_next_goal_review_batches(
         stable_source_provenance: Counter[str] = Counter()
         domain_profiles: Counter[str] = Counter()
         residue_cause_tags: Counter[str] = Counter()
+        direct_base_deref_base_classes: Counter[str] = Counter()
+        direct_base_deref_class_bases: dict[str, Counter[str]] = {}
         call_result_callees: Counter[str] = Counter()
         call_result_arg_roots: Counter[str] = Counter()
         call_result_member_paths: Counter[str] = Counter()
@@ -9213,6 +9221,14 @@ def _body_offset_residue_next_goal_review_batches(
             for tag in item.get("residue_cause_tags", []) or []:
                 if str(tag):
                     residue_cause_tags[str(tag)] += 1
+            for root_class, count in _coerce_dict(item.get("direct_base_deref_base_classes", {})).items():
+                direct_base_deref_base_classes[str(root_class)] += _int_value(count, 0)
+            for root_class, bases in _coerce_dict(item.get("direct_base_deref_class_bases", {})).items():
+                if not isinstance(bases, dict):
+                    continue
+                class_counter = direct_base_deref_class_bases.setdefault(str(root_class), Counter())
+                for base, count in _coerce_dict(bases).items():
+                    class_counter[str(base)] += _int_value(count, 0)
             for callee, count in _coerce_dict(item.get("direct_call_result_callees", {})).items():
                 call_result_callees[str(callee)] += _int_value(count, 0)
             for root, count in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
@@ -9332,6 +9348,13 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(stable_source_provenance.most_common(limit)))
                 ),
                 "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
+                "direct_base_deref_base_classes": _counter_to_dict(
+                    Counter(dict(direct_base_deref_base_classes.most_common(limit)))
+                ),
+                "direct_base_deref_class_bases": {
+                    root_class: _counter_to_dict(Counter(dict(counter.most_common(limit))))
+                    for root_class, counter in direct_base_deref_class_bases.items()
+                },
                 "direct_call_result_callees": _counter_to_dict(
                     Counter(dict(call_result_callees.most_common(limit)))
                 ),
@@ -9410,6 +9433,7 @@ def _body_offset_residue_next_goal_review_batches(
                             for sample in item.get("direct_call_result_layout_samples", []) or []
                             if str(sample)
                         ],
+                        "direct_base_root_summary": _body_offset_direct_base_root_summary(item),
                         "parameter_field_pointer_samples": [
                             str(sample)
                             for sample in item.get("parameter_field_pointer_samples", []) or []
@@ -9493,6 +9517,7 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             item.get("direct_base_deref_base_classes", {})
         ),
         "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
+        "direct_base_root_summary": _body_offset_direct_base_root_summary(item),
         "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {})),
         "direct_call_result_arg_roots": _coerce_dict(item.get("direct_call_result_arg_roots", {})),
         "direct_call_result_member_paths": _coerce_dict(item.get("direct_call_result_member_paths", {})),
