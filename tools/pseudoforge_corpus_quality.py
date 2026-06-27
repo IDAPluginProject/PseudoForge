@@ -48,6 +48,12 @@ OFFSET_DEREF_ITEM_RE = re.compile(
     r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
 )
+NESTED_FIELD_POINTER_DEREF_RE = re.compile(
+    r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"\(\s*(?P<parent>[A-Za-z_][A-Za-z0-9_]*)->(?P<field>field_[0-9A-Fa-f]+)"
+    r"(?:\s*/\*[^*]*\*/)?\s*\+\s*"
+    r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
 DIRECT_BASE_DEREF_RE = re.compile(
     r"\*\s*\(\s*[^()]*?\*\s*\)\s*"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b"
@@ -202,6 +208,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "validated_rewrite_residue": (
         "Validated canonical rewrite outputs that still have residual raw offset dereferences to reread."
     ),
+    "nested_field_pointer_residue_candidates": (
+        "Parent rewrite exposed nested field-pointer residue; model the nested object separately before widening rewrite."
+    ),
     "source_stability_required": (
         "Candidates whose base object may move, reload, or be reassigned after layout access."
     ),
@@ -283,6 +292,9 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     "validated_rewrite_residue": (
         "Compare the canonical cleaned output with the preview artifact and rewrite only advertised same-object residue."
     ),
+    "nested_field_pointer_residue_candidates": (
+        "Reread the parent field source, identify the nested object layout, and keep parent-body rewrite closed unless exact nested identity is proven."
+    ),
     "source_stability_required": (
         "Prove a single stable initializer and no risky post-access reassignment for the candidate base."
     ),
@@ -327,6 +339,7 @@ _BODY_OFFSET_PRIORITY_BONUSES = {
     "type_conflict_gate": 8,
     "pointer_indexed_shape": 6,
     "parameter_indexed_element_shape": 6,
+    "nested_field_pointer_residue": 7,
     "validated_rewrite_residue": 7,
     "parameter_type_followup": 5,
     "dense_shape_without_identity": 6,
@@ -2324,6 +2337,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             ),
             "- Generic parameter survivors in residue functions: `%s`"
             % body_offset_residue_totals.get("generic_parameter_survivors", 0),
+            "- Nested field-pointer residue: `%s` across `%s` functions"
+            % (
+                body_offset_residue_totals.get("nested_field_pointer_residue", 0),
+                body_offset_residue_totals.get("functions_with_nested_field_pointer_residue", 0),
+            ),
             "- Rewrite-ready residue functions: `%s`"
             % body_offset_residue_totals.get("functions_with_rewrite_ready", 0),
             "- Rewrite-blocked residue functions: `%s`"
@@ -2569,8 +2587,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Nested field residue | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2653,7 +2671,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
@@ -2661,6 +2679,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(queue.get("offset_deref_survivors", 0) or 0),
                 int(queue.get("direct_base_deref_survivors", 0) or 0),
                 int(queue.get("generic_parameter_survivors", 0) or 0),
+                int(queue.get("nested_field_pointer_residue", 0) or 0),
                 _markdown_table_cell(target_groups),
                 _markdown_table_cell(subsystems),
                 _markdown_table_cell(gates),
@@ -2747,10 +2766,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 for item in batch.get("top_functions", []) or []
                 if isinstance(item, dict)
             )
-            residue = "offset=%s, direct=%s, generic=%s" % (
+            residue = "offset=%s, direct=%s, generic=%s, nested=%s" % (
                 _int_value(batch.get("offset_deref_survivors"), 0),
                 _int_value(batch.get("direct_base_deref_survivors"), 0),
                 _int_value(batch.get("generic_parameter_survivors"), 0),
+                _int_value(batch.get("nested_field_pointer_residue"), 0),
             )
             lines.append(
                 "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
@@ -5974,6 +5994,11 @@ def _body_offset_residue_function_summary(
         ]
         or [0]
     )
+    nested_field_pointer_profile = _nested_field_pointer_residue_profile(cleaned_path)
+    nested_field_pointer_count = _int_value(
+        nested_field_pointer_profile.get("count"),
+        0,
+    )
     review_class = _body_offset_residue_review_class(
         prototype_metrics,
         layout_hints,
@@ -6015,6 +6040,9 @@ def _body_offset_residue_function_summary(
     if parameter_indexed_elements:
         review_evidence.append("parameter_indexed_element_shape")
         review_evidence = list(dict.fromkeys(review_evidence))
+    if nested_field_pointer_count > 0:
+        review_evidence.append("nested_field_pointer_residue")
+        review_evidence = list(dict.fromkeys(review_evidence))
     named_target_group = _body_offset_named_goal_target_group(name)
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
@@ -6042,6 +6070,9 @@ def _body_offset_residue_function_summary(
         next_action_details.append("parameter_indexed_parent_stride_available")
         if _body_offset_parameter_indexed_counter(parameter_indexed_elements, "alias_rewrite_risk"):
             next_action_details.append("avoid_naive_parameter_alias_rewrite")
+        next_action_details = list(dict.fromkeys(next_action_details))
+    if nested_field_pointer_count > 0:
+        next_action_details.append("nested_field_pointer_layout_model_required")
         next_action_details = list(dict.fromkeys(next_action_details))
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -6106,6 +6137,9 @@ def _body_offset_residue_function_summary(
         field_access_pressure,
         named_target_group,
     )
+    if nested_field_pointer_count > 0:
+        priority_factors.append("nested_field_pointer_residue")
+        priority_factors = list(dict.fromkeys(priority_factors))
     review_focus = _body_offset_residue_review_focus(subsystem, fail_closed_gate, priority_factors)
     priority_score = offset_deref_survivors
     priority_score += direct_base_deref_survivors
@@ -6122,6 +6156,8 @@ def _body_offset_residue_function_summary(
         priority_score += 6
     if named_target_group:
         priority_score += 18
+    if nested_field_pointer_count > 0:
+        priority_score += min(20, 4 + nested_field_pointer_count)
     priority_score += _body_offset_residue_priority_bonus(priority_factors)
     result = {
         "ea": ea,
@@ -6168,6 +6204,24 @@ def _body_offset_residue_function_summary(
         "parameter_indexed_offsets": _body_offset_parameter_indexed_offsets(
             parameter_indexed_elements,
         ),
+        "nested_field_pointer_residue_count": nested_field_pointer_count,
+        "nested_field_pointer_parents": _coerce_dict(
+            nested_field_pointer_profile.get("parents", {})
+        ),
+        "nested_field_pointer_fields": _coerce_dict(
+            nested_field_pointer_profile.get("fields", {})
+        ),
+        "nested_field_pointer_parent_fields": _coerce_dict(
+            nested_field_pointer_profile.get("parent_fields", {})
+        ),
+        "nested_field_pointer_offsets": _coerce_dict(
+            nested_field_pointer_profile.get("offsets", {})
+        ),
+        "nested_field_pointer_samples": [
+            str(sample)
+            for sample in nested_field_pointer_profile.get("samples", []) or []
+            if str(sample)
+        ][:5],
         "stable_base_source_count": len(stable_base_sources),
         "stable_source_provenance": _body_offset_source_counter(
             stable_base_sources,
@@ -6264,6 +6318,13 @@ def _update_body_offset_residue_metrics(
         totals["functions_with_indexed_callback_tables"] += 1
     if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
         totals["functions_with_parameter_indexed_elements"] += 1
+    nested_field_pointer_residue_count = _int_value(
+        item.get("nested_field_pointer_residue_count"),
+        0,
+    )
+    totals["nested_field_pointer_residue"] += nested_field_pointer_residue_count
+    if nested_field_pointer_residue_count > 0:
+        totals["functions_with_nested_field_pointer_residue"] += 1
     if bool(item.get("named_goal_target")):
         totals["functions_with_named_goal_targets"] += 1
     subsystems[str(item.get("subsystem", "") or "other")] += 1
@@ -6332,6 +6393,8 @@ def _body_offset_residue_totals_dict(counter: Counter[str]) -> dict[str, int]:
         "functions_with_stable_base_sources",
         "functions_with_indexed_callback_tables",
         "functions_with_parameter_indexed_elements",
+        "nested_field_pointer_residue",
+        "functions_with_nested_field_pointer_residue",
         "functions_with_named_goal_targets",
     ]
     result = _counter_to_dict(counter)
@@ -7124,6 +7187,10 @@ def _body_offset_residue_cause_tags(item: dict[str, Any]) -> list[str]:
         tags.append("exact_source_identity_missing")
     if gate == "validated_rewrite_residue_review" or "validated_rewrite_residue" in notes:
         tags.append("validated_secondary_residue")
+    if _int_value(item.get("nested_field_pointer_residue_count"), 0) > 0:
+        tags.append("nested_field_pointer_residue")
+        if gate == "validated_rewrite_residue_review":
+            tags.append("validated_nested_field_residue")
     if gate == "source_stability_required" or "source_stability_gate_is_blocking" in details:
         tags.append("source_stability_unproven")
     if gate == "type_conflict_required" or "type_evidence_gate_is_blocking" in details:
@@ -7251,6 +7318,44 @@ def _offset_deref_shape_profile(cleaned_path: Path | None) -> dict[str, Any]:
         "dense_bases": dense_bases[:8],
         "low_pressure": low_pressure,
         "top_base_offsets": _offset_deref_top_base_offsets(base_offsets, base_accesses),
+    }
+
+
+def _nested_field_pointer_residue_profile(cleaned_path: Path | None) -> dict[str, Any]:
+    if cleaned_path is None or not cleaned_path.exists():
+        return {}
+    text = _read_text(cleaned_path)
+    body = _strip_pseudoforge_header(text) if text else ""
+    parents: Counter[str] = Counter()
+    fields: Counter[str] = Counter()
+    parent_fields: Counter[str] = Counter()
+    offsets: Counter[str] = Counter()
+    samples: list[str] = []
+    count = 0
+    for match in NESTED_FIELD_POINTER_DEREF_RE.finditer(body):
+        parent = str(match.group("parent") or "").strip()
+        field = str(match.group("field") or "").strip()
+        offset_value = _parse_pointer_indexed_integer(str(match.group("offset") or ""))
+        if not parent or not field or offset_value is None or offset_value <= 0:
+            continue
+        parent_field = "%s->%s" % (parent, field)
+        offset_text = "+0x%X" % offset_value
+        parents[parent] += 1
+        fields[field] += 1
+        parent_fields[parent_field] += 1
+        offsets[offset_text] += 1
+        count += 1
+        if len(samples) < 5:
+            samples.append("%s+%s" % (parent_field, offset_text))
+    if count <= 0:
+        return {}
+    return {
+        "count": count,
+        "parents": _counter_to_dict(Counter(dict(parents.most_common(8)))),
+        "fields": _counter_to_dict(Counter(dict(fields.most_common(8)))),
+        "parent_fields": _counter_to_dict(Counter(dict(parent_fields.most_common(8)))),
+        "offsets": _counter_to_dict(Counter(dict(offsets.most_common(12)))),
+        "samples": samples,
     }
 
 
@@ -7482,6 +7587,8 @@ def _body_offset_residue_promotion_lane(item: dict[str, Any]) -> str:
 
     if _int_value(item.get("parameter_indexed_element_count"), 0) > 0:
         return "model_parameter_indexed_layout"
+    if _int_value(item.get("nested_field_pointer_residue_count"), 0) > 0:
+        return "model_nested_field_pointer_layout"
     if _int_value(provenance.get("named_call_result_alias"), 0) > 0:
         return "verify_call_result_layout_identity"
     if gate == "validated_rewrite_residue_review":
@@ -7576,6 +7683,7 @@ def _body_offset_residue_review_queues(
         "source_identity_required",
         "source_provenance_review",
         "validated_rewrite_residue",
+        "nested_field_pointer_residue_candidates",
         "source_stability_required",
         "type_conflict_required",
         "pointer_indexed_layout_candidates",
@@ -7670,6 +7778,16 @@ def _body_offset_named_goal_target_status(
                 "parameter_indexed_alias_rewrite_risks": _coerce_dict(
                     item.get("parameter_indexed_alias_rewrite_risks", {})
                 ),
+                "nested_field_pointer_residue_count": _int_value(
+                    item.get("nested_field_pointer_residue_count"),
+                    0,
+                ),
+                "nested_field_pointer_parent_fields": _coerce_dict(
+                    item.get("nested_field_pointer_parent_fields", {})
+                ),
+                "nested_field_pointer_offsets": _coerce_dict(
+                    item.get("nested_field_pointer_offsets", {})
+                ),
                 "recommended_next": _body_offset_named_goal_target_recommended_next(item),
                 "summary_path": str(item.get("summary_path", "") or ""),
                 "cleaned_path": str(item.get("cleaned_path", "") or ""),
@@ -7707,6 +7825,8 @@ def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str
         if _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})):
             return "Model the parameter-indexed element shape separately; typed pointer byte-stride evidence makes naive parameter alias rewrite unsafe."
         return "Model the parameter-indexed element shape separately; do not lower rewrite thresholds or rewrite array fields without exact layout identity."
+    if lane == "model_nested_field_pointer_layout":
+        return "Model the nested object reached through the rewritten parent field before any further body rewrite."
     if lane == "model_indexed_layout":
         return "Model indexed table or array access separately from canonical structure rewrite."
     if lane == "verify_call_result_layout_identity":
@@ -7858,6 +7978,10 @@ def _body_offset_residue_next_goal_review_batches(
                     _int_value(item.get("generic_parameter_survivors"), 0)
                     for item in group_items
                 ),
+                "nested_field_pointer_residue": sum(
+                    _int_value(item.get("nested_field_pointer_residue_count"), 0)
+                    for item in group_items
+                ),
                 "max_actionability_score": max(
                     [_int_value(item.get("actionability_score"), 0) for item in group_items]
                     or [0]
@@ -7931,6 +8055,10 @@ def _body_offset_residue_next_goal_review_batches(
                             for tag in item.get("residue_cause_tags", []) or []
                             if str(tag)
                         ],
+                        "nested_field_pointer_residue_count": _int_value(
+                            item.get("nested_field_pointer_residue_count"),
+                            0,
+                        ),
                     }
                     for item in group_items[: min(5, limit)]
                 ],
@@ -7969,6 +8097,10 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
         "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
+        "nested_field_pointer_residue_count": _int_value(
+            item.get("nested_field_pointer_residue_count"),
+            0,
+        ),
         "review_focus": str(item.get("review_focus", "") or ""),
         "review_summary": _body_offset_residue_review_summary(item),
         "next_step": next_step,
@@ -8009,6 +8141,10 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
         "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
         "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
+        "nested_field_pointer_parent_fields": _coerce_dict(
+            item.get("nested_field_pointer_parent_fields", {})
+        ),
+        "nested_field_pointer_offsets": _coerce_dict(item.get("nested_field_pointer_offsets", {})),
         "summary_path": str(item.get("summary_path", "") or ""),
         "cleaned_path": str(item.get("cleaned_path", "") or ""),
     }
@@ -8033,6 +8169,8 @@ def _body_offset_residue_next_goal_candidate_kind(item: dict[str, Any]) -> str:
         return "type_conflict_resolution"
     if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
         return "indexed_layout_model"
+    if lane == "model_nested_field_pointer_layout":
+        return "nested_field_pointer_layout_model"
     if gate == "validated_rewrite_residue_review":
         return "validated_secondary_residue_reread"
     if lane == "add_parameter_profile_or_type_evidence" or "parameter_type_followup" in factors:
@@ -8061,6 +8199,7 @@ def _body_offset_residue_next_goal_actionability_class(item: dict[str, Any], kin
         "source_stability_proof",
         "type_conflict_resolution",
         "indexed_layout_model",
+        "nested_field_pointer_layout_model",
         "validated_secondary_residue_reread",
     }:
         return "model_or_reread_before_rewrite"
@@ -8088,6 +8227,7 @@ def _body_offset_residue_next_goal_actionability_score(item: dict[str, Any], kin
     score += 40 if kind == "exact_function_build_source_identity" else 0
     score += 14 if kind in {"type_conflict_resolution", "source_stability_proof"} else 0
     score += 10 if kind == "indexed_layout_model" else 0
+    score += 18 if kind == "nested_field_pointer_layout_model" else 0
     score += 8 if kind == "parameter_profile_or_type_correction" else 0
     if str(item.get("fail_closed_gate", "") or "") == "low_pressure_deferred":
         score -= 25
@@ -8115,6 +8255,8 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
         return "Resolve overlay, width, and alignment conflicts before promoting fields."
     if kind == "indexed_layout_model":
         return "Model the array/table element shape separately from canonical structure rewrite."
+    if kind == "nested_field_pointer_layout_model":
+        return "Model the nested field-pointer object separately and prove exact nested layout identity before rewrite."
     if kind == "validated_secondary_residue_reread":
         return "Reread validated output and chase only same-object secondary residue."
     if kind == "parameter_profile_or_type_correction":
@@ -8139,6 +8281,8 @@ def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) 
         return "Unstable source blocks body rewrite."
     if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
         return "Indexed layouts are not canonical field rewrites."
+    if kind == "nested_field_pointer_layout_model":
+        return "Nested field-pointer residue needs its own exact layout identity; parent rewrite evidence is not enough."
     if kind == "parameter_profile_or_type_correction":
         return "Use canonical_type/display_type for output; accepted_types are input guards only."
     if policy:
@@ -8160,6 +8304,8 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         return "exact function, build, profile, and source object identity required"
     if gate == "report_only_private_layout":
         return "exact private layout source required before canonical rewrite"
+    if kind == "nested_field_pointer_layout_model":
+        return "exact nested object layout identity required before nested field rewrite"
     if provenance:
         return "stable source provenance available; verify exact profile identity before promotion"
     return ""
@@ -8236,6 +8382,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
             fail_closed_gate == "validated_rewrite_residue_review"
             or review_class == "rewrite_ready_residue"
         )
+    if queue_name == "nested_field_pointer_residue_candidates":
+        return _int_value(item.get("nested_field_pointer_residue_count"), 0) > 0
     if queue_name == "source_stability_required":
         return (
             review_class == "source_stability_blocked_residue"
@@ -8367,6 +8515,19 @@ def _body_offset_residue_review_queue_summary(
             parameter_indexed_strides[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})).items():
             parameter_indexed_alias_rewrite_risks[str(key)] += _int_value(value, 0)
+    nested_field_pointer_parents: Counter[str] = Counter()
+    nested_field_pointer_fields: Counter[str] = Counter()
+    nested_field_pointer_parent_fields: Counter[str] = Counter()
+    nested_field_pointer_offsets: Counter[str] = Counter()
+    for item in items:
+        for key, value in _coerce_dict(item.get("nested_field_pointer_parents", {})).items():
+            nested_field_pointer_parents[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("nested_field_pointer_fields", {})).items():
+            nested_field_pointer_fields[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("nested_field_pointer_parent_fields", {})).items():
+            nested_field_pointer_parent_fields[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("nested_field_pointer_offsets", {})).items():
+            nested_field_pointer_offsets[str(key)] += _int_value(value, 0)
     return {
         "queue": queue_name,
         "description": _BODY_OFFSET_QUEUE_DESCRIPTIONS.get(queue_name, "Manual body offset residue review queue."),
@@ -8389,6 +8550,10 @@ def _body_offset_residue_review_queue_summary(
         ),
         "parameter_indexed_elements": sum(
             _int_value(item.get("parameter_indexed_element_count"), 0)
+            for item in items
+        ),
+        "nested_field_pointer_residue": sum(
+            _int_value(item.get("nested_field_pointer_residue_count"), 0)
             for item in items
         ),
         "subsystems": _counter_to_dict(Counter(dict(subsystems.most_common(limit)))),
@@ -8432,6 +8597,18 @@ def _body_offset_residue_review_queue_summary(
         ),
         "parameter_indexed_alias_rewrite_risks": _counter_to_dict(
             Counter(dict(parameter_indexed_alias_rewrite_risks.most_common(limit)))
+        ),
+        "nested_field_pointer_parents": _counter_to_dict(
+            Counter(dict(nested_field_pointer_parents.most_common(limit)))
+        ),
+        "nested_field_pointer_fields": _counter_to_dict(
+            Counter(dict(nested_field_pointer_fields.most_common(limit)))
+        ),
+        "nested_field_pointer_parent_fields": _counter_to_dict(
+            Counter(dict(nested_field_pointer_parent_fields.most_common(limit)))
+        ),
+        "nested_field_pointer_offsets": _counter_to_dict(
+            Counter(dict(nested_field_pointer_offsets.most_common(limit)))
         ),
         "items": [
             _body_offset_residue_review_queue_item(item, queue_name=queue_name)
@@ -8523,6 +8700,21 @@ def _body_offset_residue_review_queue_item(
             for offset in item.get("parameter_indexed_offsets", []) or []
             if str(offset)
         ],
+        "nested_field_pointer_residue_count": _int_value(
+            item.get("nested_field_pointer_residue_count"),
+            0,
+        ),
+        "nested_field_pointer_parents": _coerce_dict(item.get("nested_field_pointer_parents", {})),
+        "nested_field_pointer_fields": _coerce_dict(item.get("nested_field_pointer_fields", {})),
+        "nested_field_pointer_parent_fields": _coerce_dict(
+            item.get("nested_field_pointer_parent_fields", {})
+        ),
+        "nested_field_pointer_offsets": _coerce_dict(item.get("nested_field_pointer_offsets", {})),
+        "nested_field_pointer_samples": [
+            str(sample)
+            for sample in item.get("nested_field_pointer_samples", []) or []
+            if str(sample)
+        ],
         "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
         "summary_path": str(item.get("summary_path", "") or ""),
         "cleaned_path": str(item.get("cleaned_path", "") or ""),
@@ -8555,6 +8747,18 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
         return "stable source provenance exists; verify it before widening rewrite"
     if queue == "validated_rewrite_residue":
         return "validated rewrite already ran; reread remaining secondary residue"
+    if queue == "nested_field_pointer_residue_candidates":
+        parent_fields = [
+            str(key)
+            for key in _coerce_dict(item.get("nested_field_pointer_parent_fields", {})).keys()
+            if str(key)
+        ][:2]
+        if parent_fields:
+            return (
+                "nested residue through %s needs a separate object layout model before rewrite"
+                % ", ".join(parent_fields)
+            )
+        return "nested field-pointer residue needs a separate object layout model before rewrite"
     if queue == "source_stability_required":
         families = _coerce_dict(item.get("blocker_families", {}))
         if _int_value(families.get("source_reassigned"), 0) > 0:
@@ -8651,6 +8855,27 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:4]
     if cause_tags:
         parts.append("causes=%s" % ",".join(cause_tags))
+    nested_count = _int_value(item.get("nested_field_pointer_residue_count"), 0)
+    if nested_count > 0:
+        nested_parts = []
+        parent_fields = [
+            str(parent_field)
+            for parent_field in _coerce_dict(item.get("nested_field_pointer_parent_fields", {})).keys()
+            if str(parent_field)
+        ][:2]
+        nested_offsets = [
+            str(offset)
+            for offset in _coerce_dict(item.get("nested_field_pointer_offsets", {})).keys()
+            if str(offset)
+        ][:4]
+        if parent_fields:
+            nested_parts.append("parent-field=%s" % ",".join(parent_fields))
+        if nested_offsets:
+            nested_parts.append("offsets=%s" % ",".join(nested_offsets))
+        if nested_parts:
+            parts.append("nested-field=%s" % " ".join(nested_parts))
+        else:
+            parts.append("nested-field=%d residue" % nested_count)
     parameter_indexed_count = _int_value(item.get("parameter_indexed_element_count"), 0)
     if parameter_indexed_count > 0:
         indexed_parts = []
