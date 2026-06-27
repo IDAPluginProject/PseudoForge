@@ -62,6 +62,11 @@ DIRECT_BASE_DEREF_ITEM_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b(?P<call>\s*\()?"
 )
+DIRECT_CALL_RESULT_DEREF_ITEM_RE = re.compile(
+    r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"\((?P<args>[^;\n()]*)\)"
+)
 POINTER_INDEXED_OFFSET_DEREF_RE = re.compile(
     r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
     r"(?P<pointer_stars>\*+)\s*\)\s*"
@@ -2784,8 +2789,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Direct-Base Root Review Batches",
                 "",
-                "| Root class | Functions | Direct derefs | Named targets | Bases | Gates | Cause tags | Top functions | Next step |",
-                "| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+                "| Root class | Functions | Direct derefs | Named targets | Bases | Call-result anchors | Gates | Cause tags | Top functions | Next step |",
+                "| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in root_batches:
@@ -2793,6 +2798,26 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "%s=%s" % (key, value)
                 for key, value in _coerce_dict(batch.get("direct_base_bases", {})).items()
             )
+            call_result_anchors = ", ".join(
+                str(sample)
+                for sample in batch.get("direct_call_result_samples", []) or []
+                if str(sample)
+            )
+            if not call_result_anchors:
+                call_result_anchors = ", ".join(
+                    "%s=%s" % (key, value)
+                    for key, value in _coerce_dict(batch.get("direct_call_result_callees", {})).items()
+                )
+            arg_roots = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("direct_call_result_arg_roots", {})).items()
+            )
+            if arg_roots:
+                call_result_anchors = (
+                    "%s; args %s" % (call_result_anchors, arg_roots)
+                    if call_result_anchors
+                    else "args %s" % arg_roots
+                )
             gates = ", ".join(
                 "%s=%s" % (key, value)
                 for key, value in _coerce_dict(batch.get("fail_closed_gates", {})).items()
@@ -2810,13 +2835,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 if isinstance(item, dict)
             )
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("root_class", "") or ""),
                     _int_value(batch.get("function_count"), 0),
                     _int_value(batch.get("direct_base_deref_survivors"), 0),
                     _int_value(batch.get("named_goal_targets"), 0),
                     _markdown_table_cell(bases),
+                    _markdown_table_cell(call_result_anchors),
                     _markdown_table_cell(gates),
                     _markdown_table_cell(cause_tags),
                     _markdown_table_cell(top_functions),
@@ -6293,6 +6319,17 @@ def _body_offset_residue_function_summary(
         "direct_base_deref_class_bases": _coerce_dict(
             direct_base_deref_profile.get("class_bases", {})
         ),
+        "direct_call_result_callees": _coerce_dict(
+            direct_base_deref_profile.get("call_result_callees", {})
+        ),
+        "direct_call_result_arg_roots": _coerce_dict(
+            direct_base_deref_profile.get("call_result_arg_roots", {})
+        ),
+        "direct_call_result_samples": [
+            str(sample)
+            for sample in direct_base_deref_profile.get("call_result_samples", []) or []
+            if str(sample)
+        ][:5],
         "direct_base_deref_samples": [
             str(sample)
             for sample in direct_base_deref_profile.get("samples", []) or []
@@ -7508,6 +7545,9 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
     types: Counter[str] = Counter()
     base_classes: Counter[str] = Counter()
     class_bases: dict[str, Counter[str]] = {}
+    call_result_callees: Counter[str] = Counter()
+    call_result_arg_roots: Counter[str] = Counter()
+    call_result_samples: list[str] = []
     samples: list[str] = []
     count = 0
     for match in DIRECT_BASE_DEREF_ITEM_RE.finditer(body):
@@ -7523,6 +7563,17 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
         count += 1
         if len(samples) < 5:
             samples.append("%s:%s:%s" % (base, type_name, base_class))
+    for match in DIRECT_CALL_RESULT_DEREF_ITEM_RE.finditer(body):
+        callee = str(match.group("callee") or "").strip()
+        if not callee:
+            continue
+        args = _direct_call_result_args_text(match.group("args"))
+        call_result_callees[callee] += 1
+        for root in _direct_call_result_argument_roots(args):
+            call_result_arg_roots[root] += 1
+        sample = "%s(%s)" % (callee, args)
+        if len(call_result_samples) < 5 and sample not in call_result_samples:
+            call_result_samples.append(sample)
     if count <= 0:
         return {}
     return {
@@ -7534,8 +7585,25 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
             str(base_class): _counter_to_dict(Counter(dict(counter.most_common(8))))
             for base_class, counter in sorted(class_bases.items())
         },
+        "call_result_callees": _counter_to_dict(Counter(dict(call_result_callees.most_common(8)))),
+        "call_result_arg_roots": _counter_to_dict(Counter(dict(call_result_arg_roots.most_common(8)))),
+        "call_result_samples": call_result_samples,
         "samples": samples,
     }
+
+
+def _direct_call_result_args_text(args: str | None) -> str:
+    return re.sub(r"\s+", " ", str(args or "").strip())
+
+
+def _direct_call_result_argument_roots(args: str | None) -> list[str]:
+    roots: list[str] = []
+    for part in str(args or "").split(","):
+        token = part.strip()
+        match = re.match(r"&?\s*(?P<root>[A-Za-z_][A-Za-z0-9_]*)\b", token)
+        if match:
+            roots.append(match.group("root"))
+    return roots[:6]
 
 
 def _offset_deref_items(text: str) -> list[dict[str, Any]]:
@@ -7945,6 +8013,15 @@ def _body_offset_named_goal_target_status(
                 "direct_base_deref_class_bases": _coerce_dict(
                     item.get("direct_base_deref_class_bases", {})
                 ),
+                "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {})),
+                "direct_call_result_arg_roots": _coerce_dict(
+                    item.get("direct_call_result_arg_roots", {})
+                ),
+                "direct_call_result_samples": [
+                    str(sample)
+                    for sample in item.get("direct_call_result_samples", []) or []
+                    if str(sample)
+                ],
                 "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
                 "top_bases": [
                     str(base)
@@ -8050,10 +8127,12 @@ def _body_offset_named_goal_target_direct_root_next_step(item: dict[str, Any]) -
 
     direct_call_roots = _root_names("direct_call_result")
     if direct_call_roots:
+        direct_call_anchors = _body_offset_direct_call_result_anchor_summary(item)
+        roots = direct_call_anchors or direct_call_roots
         return (
             "Keep report-only closed; verify direct call-result root(s) %s "
             "returned layout/type identity before any field-zero or body rewrite."
-            % direct_call_roots
+            % roots
         )
     thread_process_roots = _root_names("thread_process_like")
     if thread_process_roots:
@@ -8105,6 +8184,26 @@ def _body_offset_named_goal_target_direct_root_next_step(item: dict[str, Any]) -
             % temp_roots
         )
     return ""
+
+
+def _body_offset_direct_call_result_anchor_summary(
+    item: dict[str, Any],
+    limit: int = 3,
+) -> str:
+    samples = [
+        str(sample)
+        for sample in item.get("direct_call_result_samples", []) or []
+        if str(sample)
+    ][:limit]
+    if samples:
+        return ", ".join(samples)
+    callees = _coerce_dict(item.get("direct_call_result_callees", {}))
+    roots = [
+        str(callee)
+        for callee in callees.keys()
+        if str(callee)
+    ][:limit]
+    return ", ".join(roots)
 
 
 def _body_offset_residue_next_goal_candidates(
@@ -8205,6 +8304,9 @@ def _body_offset_direct_base_root_review_batches(
         fail_closed_gates: Counter[str] = Counter()
         promotion_lanes: Counter[str] = Counter()
         cause_tags: Counter[str] = Counter()
+        call_result_callees: Counter[str] = Counter()
+        call_result_arg_roots: Counter[str] = Counter()
+        call_result_samples: list[str] = []
         for item in group_items:
             subsystems[str(item.get("subsystem", "") or "other")] += 1
             gate = str(item.get("fail_closed_gate", "") or "")
@@ -8219,6 +8321,15 @@ def _body_offset_direct_base_root_review_batches(
             class_bases = _coerce_dict(item.get("direct_base_deref_class_bases", {}))
             for base, count in _coerce_dict(class_bases.get(root_class, {})).items():
                 root_bases[str(base)] += _int_value(count, 0)
+            if root_class == "direct_call_result":
+                for callee, count in _coerce_dict(item.get("direct_call_result_callees", {})).items():
+                    call_result_callees[str(callee)] += _int_value(count, 0)
+                for root, count in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
+                    call_result_arg_roots[str(root)] += _int_value(count, 0)
+                for sample in item.get("direct_call_result_samples", []) or []:
+                    sample_text = str(sample)
+                    if sample_text and sample_text not in call_result_samples:
+                        call_result_samples.append(sample_text)
         batches.append(
             {
                 "root_class": root_class,
@@ -8235,6 +8346,13 @@ def _body_offset_direct_base_root_review_batches(
                 "fail_closed_gates": _counter_to_dict(Counter(dict(fail_closed_gates.most_common(limit)))),
                 "promotion_lanes": _counter_to_dict(Counter(dict(promotion_lanes.most_common(limit)))),
                 "direct_base_bases": _counter_to_dict(Counter(dict(root_bases.most_common(limit)))),
+                "direct_call_result_callees": _counter_to_dict(
+                    Counter(dict(call_result_callees.most_common(limit)))
+                ),
+                "direct_call_result_arg_roots": _counter_to_dict(
+                    Counter(dict(call_result_arg_roots.most_common(limit)))
+                ),
+                "direct_call_result_samples": call_result_samples[:limit],
                 "residue_cause_tags": _counter_to_dict(Counter(dict(cause_tags.most_common(limit)))),
                 "top_functions": [
                     {
@@ -8248,6 +8366,21 @@ def _body_offset_direct_base_root_review_batches(
                         "direct_base_bases": _coerce_dict(
                             _coerce_dict(item.get("direct_base_deref_class_bases", {})).get(root_class, {})
                         ),
+                        "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {}))
+                        if root_class == "direct_call_result"
+                        else {},
+                        "direct_call_result_arg_roots": _coerce_dict(
+                            item.get("direct_call_result_arg_roots", {})
+                        )
+                        if root_class == "direct_call_result"
+                        else {},
+                        "direct_call_result_samples": [
+                            str(sample)
+                            for sample in item.get("direct_call_result_samples", []) or []
+                            if str(sample)
+                        ]
+                        if root_class == "direct_call_result"
+                        else [],
                         "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
                         "promotion_lane": str(item.get("promotion_lane", "") or ""),
                         "residue_cause_tags": [
@@ -8342,6 +8475,13 @@ def _body_offset_direct_base_root_summary(
             if str(base) and _int_value(count, 0) > 0
         )
         if base_text:
+            if root_class == "direct_call_result":
+                anchor_text = _body_offset_direct_call_result_anchor_summary(
+                    item,
+                    limit=base_limit,
+                )
+                if anchor_text:
+                    base_text = "%s calls=%s" % (base_text, anchor_text)
             parts.append("%s: %s" % (root_class, base_text))
     return "; ".join(parts)
 
@@ -8541,6 +8681,13 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             item.get("direct_base_deref_base_classes", {})
         ),
         "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
+        "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {})),
+        "direct_call_result_arg_roots": _coerce_dict(item.get("direct_call_result_arg_roots", {})),
+        "direct_call_result_samples": [
+            str(sample)
+            for sample in item.get("direct_call_result_samples", []) or []
+            if str(sample)
+        ],
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "nested_field_pointer_residue_count": _int_value(
             item.get("nested_field_pointer_residue_count"),
@@ -8936,6 +9083,9 @@ def _body_offset_residue_review_queue_summary(
     direct_base_deref_bases: Counter[str] = Counter()
     direct_base_deref_types: Counter[str] = Counter()
     direct_base_deref_base_classes: Counter[str] = Counter()
+    direct_call_result_callees: Counter[str] = Counter()
+    direct_call_result_arg_roots: Counter[str] = Counter()
+    direct_call_result_samples: list[str] = []
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
@@ -8981,6 +9131,14 @@ def _body_offset_residue_review_queue_summary(
             direct_base_deref_types[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("direct_base_deref_base_classes", {})).items():
             direct_base_deref_base_classes[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_call_result_callees", {})).items():
+            direct_call_result_callees[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
+            direct_call_result_arg_roots[str(key)] += _int_value(value, 0)
+        for sample in item.get("direct_call_result_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in direct_call_result_samples:
+                direct_call_result_samples.append(sample_text)
     nested_field_pointer_parents: Counter[str] = Counter()
     nested_field_pointer_fields: Counter[str] = Counter()
     nested_field_pointer_parent_fields: Counter[str] = Counter()
@@ -9019,6 +9177,13 @@ def _body_offset_residue_review_queue_summary(
         "direct_base_deref_base_classes": _counter_to_dict(
             Counter(dict(direct_base_deref_base_classes.most_common(limit)))
         ),
+        "direct_call_result_callees": _counter_to_dict(
+            Counter(dict(direct_call_result_callees.most_common(limit)))
+        ),
+        "direct_call_result_arg_roots": _counter_to_dict(
+            Counter(dict(direct_call_result_arg_roots.most_common(limit)))
+        ),
+        "direct_call_result_samples": direct_call_result_samples[:limit],
         "generic_parameter_survivors": sum(
             _int_value(item.get("generic_parameter_survivors"), 0)
             for item in items
@@ -9147,6 +9312,13 @@ def _body_offset_residue_review_queue_item(
             item.get("direct_base_deref_base_classes", {})
         ),
         "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
+        "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {})),
+        "direct_call_result_arg_roots": _coerce_dict(item.get("direct_call_result_arg_roots", {})),
+        "direct_call_result_samples": [
+            str(sample)
+            for sample in item.get("direct_call_result_samples", []) or []
+            if str(sample)
+        ],
         "direct_base_deref_samples": [
             str(sample)
             for sample in item.get("direct_base_deref_samples", []) or []

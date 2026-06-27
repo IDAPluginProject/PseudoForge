@@ -1595,7 +1595,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     and item["target_group"] == "registry"
                     and item["fail_closed_gate"] == "report_only_private_layout"
                     and item["promotion_lane"] == "collect_exact_private_layout_source"
-                    and "verify direct call-result root(s) CmGetKCBCacheSecurity" in item["recommended_next"]
+                    and "CmGetKCBCacheSecurity(keyControlBlock, 0)" in item["recommended_next"]
+                    and item["direct_call_result_callees"] == {"CmGetKCBCacheSecurity": 1}
+                    and item["direct_call_result_arg_roots"] == {"keyControlBlock": 1}
+                    and item["direct_call_result_samples"] == ["CmGetKCBCacheSecurity(keyControlBlock, 0)"]
                     for item in target_status["present_targets"]
                 )
             )
@@ -1648,6 +1651,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("Direct-base roots", markdown)
             self.assertIn("context_like: context=1", markdown)
             self.assertIn("direct_call_result: CmGetKCBCacheSecurity=1", markdown)
+            self.assertIn("CmGetKCBCacheSecurity(keyControlBlock, 0)", markdown)
             self.assertIn("Keep report-only closed", markdown)
 
     def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:
@@ -3224,6 +3228,9 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 },
                 item["direct_base_deref_class_bases"],
             )
+            self.assertEqual({"KeGetCurrentPrcb": 1}, item["direct_call_result_callees"])
+            self.assertEqual({}, item["direct_call_result_arg_roots"])
+            self.assertEqual(["KeGetCurrentPrcb()"], item["direct_call_result_samples"])
             self.assertIn(
                 "direct_base_zero_deref_residue",
                 item["residue_review_notes"],
@@ -3256,6 +3263,11 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 {"KeGetCurrentPrcb": 1},
                 direct_queue["items"][0]["direct_base_deref_class_bases"]["direct_call_result"],
             )
+            self.assertEqual(
+                {"KeGetCurrentPrcb": 1},
+                direct_queue["items"][0]["direct_call_result_callees"],
+            )
+            self.assertEqual(["KeGetCurrentPrcb()"], direct_queue["items"][0]["direct_call_result_samples"])
             self.assertIn("direct +0 dereference on context", direct_queue["items"][0]["queue_reason"])
             root_batches = body_offset_stats["direct_base_root_review_batches"]
             self.assertEqual(
@@ -3274,6 +3286,14 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 batches_by_class["direct_call_result"]["direct_base_bases"],
             )
             self.assertEqual(
+                {"KeGetCurrentPrcb": 1},
+                batches_by_class["direct_call_result"]["direct_call_result_callees"],
+            )
+            self.assertEqual(
+                ["KeGetCurrentPrcb()"],
+                batches_by_class["direct_call_result"]["direct_call_result_samples"],
+            )
+            self.assertEqual(
                 "Verify the callee return type and exact returned object layout before any field-zero rewrite.",
                 batches_by_class["direct_call_result"]["recommended_next_step"],
             )
@@ -3288,6 +3308,7 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
             self.assertIn("Residue Direct-Base Classes", markdown)
             self.assertIn("Direct-Base Root Review Batches", markdown)
             self.assertIn("direct_call_result=1", markdown)
+            self.assertIn("KeGetCurrentPrcb()", markdown)
 
     def test_nested_field_pointer_residue_is_reported_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
