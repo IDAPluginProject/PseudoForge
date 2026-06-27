@@ -265,6 +265,10 @@ class _UnassignedLocalUsageRisk:
     stack_declaration: str = ""
     stack_slot: str = ""
     pseudo_local_evidence: str = ""
+    existing_parameter_index: int = -1
+    existing_parameter_raw_name: str = ""
+    existing_parameter_rendered_name: str = ""
+    existing_parameter_rename_source: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +368,10 @@ def unassigned_local_usage_diagnostics(
                 stack_declaration=risk.stack_declaration,
                 stack_slot=risk.stack_slot,
                 pseudo_local_evidence=risk.pseudo_local_evidence,
+                existing_parameter_index=risk.existing_parameter_index,
+                existing_parameter_raw_name=risk.existing_parameter_raw_name,
+                existing_parameter_rendered_name=risk.existing_parameter_rendered_name,
+                existing_parameter_rename_source=risk.existing_parameter_rename_source,
             )
         )
     return diagnostics
@@ -635,6 +643,10 @@ def _unassigned_local_usage_risks(
             stack_declaration=stack_pseudo_local.declaration if stack_pseudo_local else "",
             stack_slot=stack_pseudo_local.stack_slot if stack_pseudo_local else "",
             pseudo_local_evidence=stack_pseudo_local.helper_evidence if stack_pseudo_local else "",
+            existing_parameter_index=existing_parameter_alias.parameter_index if existing_parameter_alias else -1,
+            existing_parameter_raw_name=existing_parameter_alias.raw_name if existing_parameter_alias else "",
+            existing_parameter_rendered_name=existing_parameter_alias.rendered_name if existing_parameter_alias else "",
+            existing_parameter_rename_source=existing_parameter_alias.rename_source if existing_parameter_alias else "",
         )
     return risks
 

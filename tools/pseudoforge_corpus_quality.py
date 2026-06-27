@@ -882,6 +882,9 @@ def analyze_corpus(
     text_totals = Counter()
     body_text_totals = Counter()
     top_warning_functions = []
+    existing_parameter_alias_actions: Counter[str] = Counter()
+    existing_parameter_alias_registers: Counter[str] = Counter()
+    top_existing_parameter_alias_functions: list[dict[str, Any]] = []
     top_api_semantic_functions = []
     api_semantic_queue_items: list[dict[str, Any]] = []
     top_layout_hint_functions = []
@@ -990,6 +993,21 @@ def analyze_corpus(
                     "summary_path": str(summary_path),
                 }
             )
+        existing_parameter_aliases = _existing_parameter_register_alias_diagnostics(warning_diagnostics)
+        if existing_parameter_aliases:
+            totals["functions_with_existing_parameter_aliases"] += 1
+            totals["existing_parameter_aliases"] += len(existing_parameter_aliases)
+            top_existing_parameter_alias_functions.append(
+                _existing_parameter_alias_function_summary(
+                    name,
+                    ea,
+                    summary_path,
+                    existing_parameter_aliases,
+                )
+            )
+            for item in existing_parameter_aliases:
+                existing_parameter_alias_actions[str(item.get("candidate_action", "") or "unknown")] += 1
+                existing_parameter_alias_registers[str(item.get("register", "") or "unknown")] += 1
         if cleaned_path and cleaned_path.exists():
             totals["cleaned_files"] += 1
             if text_scan:
@@ -1613,6 +1631,17 @@ def analyze_corpus(
             "top_classes": _counter_to_dict(Counter(dict(warning_classes.most_common(top)))),
             "all_classes": _counter_to_dict(warning_classes),
         },
+        "existing_parameter_alias_stats": {
+            "total_aliases": int(totals.get("existing_parameter_aliases", 0)),
+            "function_count": int(totals.get("functions_with_existing_parameter_aliases", 0)),
+            "candidate_actions": _counter_to_dict(
+                Counter(dict(existing_parameter_alias_actions.most_common(top)))
+            ),
+            "registers": _counter_to_dict(
+                Counter(dict(existing_parameter_alias_registers.most_common(top)))
+            ),
+            "top_functions": top_existing_parameter_alias_functions[:top],
+        },
         "rule_stats": {
             "rewrite_emissions_by_kind": _counter_to_dict(rewrite_kinds),
             "rewrite_emissions": totals["rule_rewrite_emissions"],
@@ -1930,6 +1959,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     totals = _coerce_dict(report.get("totals", {}))
     rename_stats = _coerce_dict(report.get("rename_stats", {}))
     warning_stats = _coerce_dict(report.get("warning_stats", {}))
+    existing_parameter_alias_stats = _coerce_dict(report.get("existing_parameter_alias_stats", {}))
     rule_stats = _coerce_dict(report.get("rule_stats", {}))
     api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
     api_semantic_review_queue = _coerce_dict(report.get("api_semantic_review_queue", {}))
@@ -1997,6 +2027,47 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         "",
     ]
     lines.extend(_markdown_counter_table(_coerce_dict(warning_stats.get("top_classes", {})), "Class"))
+    lines.extend(
+        [
+            "",
+            "### Existing Parameter Register Aliases",
+            "",
+            "- Aliases: `%s` across `%s` functions"
+            % (
+                existing_parameter_alias_stats.get("total_aliases", 0),
+                existing_parameter_alias_stats.get("function_count", 0),
+            ),
+            "",
+            "| Function | EA | Aliases | Details |",
+            "| --- | --- | ---: | --- |",
+        ]
+    )
+    for item in existing_parameter_alias_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        details = []
+        for alias in item.get("aliases", []) or []:
+            if not isinstance(alias, dict):
+                continue
+            details.append(
+                "%s(%s)->%s arg%s %s"
+                % (
+                    str(alias.get("symbol", "") or ""),
+                    str(alias.get("register", "") or ""),
+                    str(alias.get("existing_parameter_rendered_name", "") or ""),
+                    _int_value(alias.get("argument_index"), -1),
+                    str(alias.get("callee_name", "") or ""),
+                )
+            )
+        lines.append(
+            "| `%s` | `%s` | %s | %s |"
+            % (
+                str(item.get("name", "") or ""),
+                str(item.get("ea", "") or ""),
+                _int_value(item.get("alias_count"), 0),
+                _markdown_table_cell(", ".join(details)),
+            )
+        )
     lines.extend(
         [
             "",
@@ -13142,6 +13213,47 @@ def _rewrite_blocker_function_summary(
 
 def _is_decompiler_temp_base(name: str) -> bool:
     return re.fullmatch(r"[av]\d+", str(name or "")) is not None
+
+
+def _existing_parameter_register_alias_diagnostics(
+    warning_diagnostics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in warning_diagnostics
+        if isinstance(item, dict)
+        and str(item.get("candidate_action", "") or "") == "existing_parameter_register_alias"
+    ]
+
+
+def _existing_parameter_alias_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    aliases = []
+    for item in diagnostics[:8]:
+        aliases.append(
+            {
+                "symbol": str(item.get("symbol", "") or ""),
+                "register": str(item.get("register", "") or ""),
+                "existing_parameter_index": _int_value(item.get("existing_parameter_index"), -1),
+                "existing_parameter_raw_name": str(item.get("existing_parameter_raw_name", "") or ""),
+                "existing_parameter_rendered_name": str(
+                    item.get("existing_parameter_rendered_name", "") or ""
+                ),
+                "callee_name": str(item.get("callee_name", "") or ""),
+                "argument_index": _int_value(item.get("argument_index"), -1),
+            }
+        )
+    return {
+        "ea": ea,
+        "name": name,
+        "alias_count": len(diagnostics),
+        "aliases": aliases,
+        "summary_path": str(summary_path),
+    }
 
 
 def _effective_warning_count(

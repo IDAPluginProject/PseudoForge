@@ -3,12 +3,83 @@ from __future__ import annotations
 import unittest
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
-from ida_pseudoforge.core.plan_schema import CleanPlan, RenameSuggestion
-from ida_pseudoforge.core.render import render_cleaned_pseudocode
+from ida_pseudoforge.core.plan_schema import CleanPlan, RenameSuggestion, WarningDiagnostic
+from ida_pseudoforge.core.render import _rewrite_existing_parameter_register_aliases, render_cleaned_pseudocode
 from ida_pseudoforge.core.render_cleanup import apply_generic_render_cleanups
 
 
 class RenderCleanupTests(unittest.TestCase):
+    def test_existing_parameter_register_alias_rewrite_is_single_line_fail_closed(self) -> None:
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="Sample",
+            input_fingerprint="fp",
+            warning_diagnostics=[
+                WarningDiagnostic(
+                    kind="unassigned_local_live_in_register",
+                    message="v12 aliases existing parameter oldCell",
+                    symbol="v12",
+                    usage="call argument to HvpGetCellFlat",
+                    usage_class="call_argument",
+                    register="rdx",
+                    register_class="abi_argument",
+                    candidate_action="existing_parameter_register_alias",
+                    confidence=0.76,
+                    existing_parameter_rendered_name="oldCell",
+                )
+            ],
+        )
+        text = "\n".join(
+            [
+                "void sample(ULONG_PTR oldCell)",
+                "{",
+                "  ULONG_PTR",
+                "  v12; // rdx",
+                "  Use(v12);",
+                "}",
+            ]
+        )
+
+        rendered = _rewrite_existing_parameter_register_aliases(text, plan)
+
+        self.assertIn("  v12; // rdx", rendered)
+        self.assertIn("Use(v12);", rendered)
+
+    def test_existing_parameter_register_alias_rewrite_requires_register_comment(self) -> None:
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="Sample",
+            input_fingerprint="fp",
+            warning_diagnostics=[
+                WarningDiagnostic(
+                    kind="unassigned_local_live_in_register",
+                    message="v12 aliases existing parameter oldCell",
+                    symbol="v12",
+                    usage="call argument to HvpGetCellFlat",
+                    usage_class="call_argument",
+                    register="",
+                    register_class="abi_argument",
+                    candidate_action="existing_parameter_register_alias",
+                    confidence=0.76,
+                    existing_parameter_rendered_name="oldCell",
+                )
+            ],
+        )
+        text = "\n".join(
+            [
+                "void sample(ULONG_PTR oldCell)",
+                "{",
+                "  ULONG_PTR v12; // rdx",
+                "  Use(v12);",
+                "}",
+            ]
+        )
+
+        rendered = _rewrite_existing_parameter_register_aliases(text, plan)
+
+        self.assertIn("ULONG_PTR v12; // rdx", rendered)
+        self.assertIn("Use(v12);", rendered)
+
     def test_scalar_out_array_storage_rewrites_by_usage_pattern(self) -> None:
         text = "\n".join(
             [

@@ -720,6 +720,53 @@ __int64 __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char 
                     self.assertEqual("CM_HIVE_CACHE_ENTRY", hive_cache_entry["structure_name"])
                     self.assertTrue({0xA8, 0x14C, 0x170, 0x17C}.issubset(self._field_offsets(hive_cache_entry)))
 
+    def test_hv_reallocate_cell_rewrites_existing_parameter_register_alias(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+NTSTATUS __fastcall HvReallocateCell(ULONG_PTR a1, unsigned int a2, int a3, char a4, int *a5, __int64 *a6, __int64 a7)
+{
+  ULONG_PTR v12; // rdx
+  __int64 context;
+  void *cellData;
+
+  HvpGetCellContextInitialize(&context);
+  HvpDoAllocateCell(a1, (__int64)a6, (__int64)&context);
+  if ( (*(_BYTE *)(a1 + 140) & 1) != 0 )
+  {
+    cellData = (void *)HvpGetCellFlat(a1, v12, &context);
+  }
+  else
+  {
+    cellData = (void *)HvpGetCellPaged(a1, v12, &context);
+  }
+  if ( a4 )
+  {
+    HvFreeCell(a1, a2);
+  }
+  *a5 = a2;
+  *a6 = (__int64)cellData;
+  HvpGetCellContextMove(a7, &context);
+  return 0;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        diagnostics = [
+            item
+            for item in plan.warning_diagnostics
+            if item.candidate_action == "existing_parameter_register_alias"
+        ]
+
+        self.assertEqual(1, len(diagnostics))
+        self.assertEqual("v12", diagnostics[0].symbol)
+        self.assertEqual("oldCell", diagnostics[0].existing_parameter_rendered_name)
+        self.assertIn("HvpGetCellFlat(hive, oldCell, &context)", rendered)
+        self.assertIn("HvpGetCellPaged(hive, oldCell, &context)", rendered)
+        self.assertNotIn("ULONG_PTR v12;", rendered)
+        self.assertNotIn("HvpGetCellFlat(hive, v12", rendered)
+
     def test_hive_cache_thread_build_mismatch_blocks_type_preview(self) -> None:
         capture = capture_from_pseudocode(
             """

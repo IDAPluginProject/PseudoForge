@@ -134,6 +134,10 @@ class WarningDiagnostic:
     stack_declaration: str = ""
     stack_slot: str = ""
     pseudo_local_evidence: str = ""
+    existing_parameter_index: int = -1
+    existing_parameter_raw_name: str = ""
+    existing_parameter_rendered_name: str = ""
+    existing_parameter_rename_source: str = ""
 
 
 @dataclass(slots=True)

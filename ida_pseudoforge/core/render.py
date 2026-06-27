@@ -105,6 +105,7 @@ def render_cleaned_pseudocode(capture: FunctionCapture, plan: CleanPlan) -> str:
     text = _upgrade_kernel_status_types(text, capture, plan)
     text = _apply_known_function_signature(text, capture)
     text = _apply_profile_parameter_type_corrections(text, capture, plan)
+    text = _rewrite_existing_parameter_register_aliases(text, plan)
     text = _apply_known_callback_signature(text, capture)
     text = _apply_known_signature_body_rewrites(text, capture)
     text = apply_known_kernel_struct_rewrites(text, capture)
@@ -210,3 +211,52 @@ def _scratch_sink_names(plan: CleanPlan) -> set[str]:
         for item in plan.renames
         if item.apply and "scratch sink" in (item.evidence or "").lower()
     }
+
+
+def _rewrite_existing_parameter_register_aliases(text: str, plan: CleanPlan) -> str:
+    result = text or ""
+    for diagnostic in getattr(plan, "warning_diagnostics", []) or []:
+        if getattr(diagnostic, "kind", "") != "unassigned_local_live_in_register":
+            continue
+        if getattr(diagnostic, "candidate_action", "") != "existing_parameter_register_alias":
+            continue
+        alias_name = str(getattr(diagnostic, "symbol", "") or "").strip()
+        parameter_name = str(getattr(diagnostic, "existing_parameter_rendered_name", "") or "").strip()
+        if not _safe_alias_identifier(alias_name) or not _safe_alias_identifier(parameter_name):
+            continue
+        if alias_name == parameter_name:
+            continue
+        register_name = str(getattr(diagnostic, "register", "") or "").strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", register_name):
+            continue
+        if re.search(r"&\s*%s\b" % re.escape(alias_name), result):
+            continue
+        result, removed = _remove_live_in_alias_declaration(
+            result,
+            alias_name,
+            register_name,
+        )
+        if not removed:
+            continue
+        result = safe_identifier_replace(result, {alias_name: parameter_name})
+    return result
+
+
+def _remove_live_in_alias_declaration(text: str, alias_name: str, register_name: str) -> tuple[str, bool]:
+    alias = re.escape(alias_name)
+    register = re.escape(register_name)
+    register_comment = r".*\b%s\b" % register
+    pattern = re.compile(
+        r"(?m)^[ \t]*(?:const[ \t]+)?[A-Za-z_][A-Za-z0-9_:[\] \t\*\&<>]*?[ \t]+"
+        r"(?:[\*\&][\*\&\s]*)?"
+        + alias
+        + r"\s*;\s*//"
+        + register_comment
+        + r".*(?:\r?\n|$)"
+    )
+    result, count = pattern.subn("", text or "", count=1)
+    return result, count == 1
+
+
+def _safe_alias_identifier(name: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name or ""))

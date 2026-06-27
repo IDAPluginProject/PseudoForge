@@ -163,6 +163,10 @@ class RenderWarningsTests(unittest.TestCase):
                 stack_declaration="_UNKNOWN *retaddr; // [rsp+28h] [rbp+0h]",
                 stack_slot="[rsp+28h] [rbp+0h]",
                 pseudo_local_evidence="instrumentation helper consumes return-address context",
+                existing_parameter_index=2,
+                existing_parameter_raw_name="a3",
+                existing_parameter_rendered_name="inputLength",
+                existing_parameter_rename_source="domain-profile",
             )
         )
 
@@ -186,6 +190,10 @@ class RenderWarningsTests(unittest.TestCase):
             "instrumentation helper consumes return-address context",
             diagnostics[0]["pseudo_local_evidence"],
         )
+        self.assertEqual(2, diagnostics[0]["existing_parameter_index"])
+        self.assertEqual("a3", diagnostics[0]["existing_parameter_raw_name"])
+        self.assertEqual("inputLength", diagnostics[0]["existing_parameter_rendered_name"])
+        self.assertEqual("domain-profile", diagnostics[0]["existing_parameter_rename_source"])
 
 
 if __name__ == "__main__":

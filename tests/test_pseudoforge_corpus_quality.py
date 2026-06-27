@@ -3574,6 +3574,66 @@ __int64 __fastcall IndexedElement(PMEMORY_RANGE_ENTRY memoryRanges, ULONG_PTR in
             self.assertEqual(1, report["warning_stats"]["all_classes"]["internal_lock_helper_residue"])
             self.assertNotIn("parameter_gap_candidate", report["warning_stats"]["all_classes"])
 
+    def test_existing_parameter_register_aliases_are_ranked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "000000014088495C_HvReallocateCell"
+            function_dir.mkdir(parents=True)
+            diagnostics_path = function_dir / "function.warning-diagnostics.json"
+            summary_path = function_dir / "function.ida-batch-summary.json"
+            diagnostics_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "unassigned_local_live_in_register",
+                            "message": "Uninitialized local risk: v12 appears to be a live-in register value (rdx)",
+                            "symbol": "v12",
+                            "usage": "call argument to HvpGetCellFlat",
+                            "usage_class": "call_argument",
+                            "register": "rdx",
+                            "register_class": "abi_argument",
+                            "candidate_action": "existing_parameter_register_alias",
+                            "confidence": 0.76,
+                            "source": "validation.unassigned_local_usage",
+                            "callee_name": "HvpGetCellFlat",
+                            "argument_index": 1,
+                            "existing_parameter_index": 1,
+                            "existing_parameter_raw_name": "a2",
+                            "existing_parameter_rendered_name": "oldCell",
+                            "existing_parameter_rename_source": "domain-profile",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "HvReallocateCell",
+                        "function_ea": "0x14088495C",
+                        "warnings": 1,
+                        "artifacts": {
+                            "warning_diagnostics": diagnostics_path.name,
+                            "summary": summary_path.name,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            markdown = render_quality_markdown(report)
+            alias_stats = report["existing_parameter_alias_stats"]
+
+            self.assertEqual(1, alias_stats["total_aliases"])
+            self.assertEqual(1, alias_stats["function_count"])
+            self.assertEqual(1, alias_stats["candidate_actions"]["existing_parameter_register_alias"])
+            self.assertEqual("HvReallocateCell", alias_stats["top_functions"][0]["name"])
+            self.assertEqual("oldCell", alias_stats["top_functions"][0]["aliases"][0]["existing_parameter_rendered_name"])
+            self.assertIn("Existing Parameter Register Aliases", markdown)
+            self.assertIn("v12(rdx)->oldCell", markdown)
+
     def test_analyze_corpus_counts_stack_pseudo_local_diagnostic_class(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
