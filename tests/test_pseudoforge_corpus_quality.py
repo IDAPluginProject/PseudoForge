@@ -1402,6 +1402,20 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     for sample in cmp_queue_item["top_base_offset_samples"]["keyControlBlock"]
                 )
             )
+            sample_functions = queues["report_only_exact_promotion_candidates"][
+                "offset_deref_sample_functions"
+            ]
+            self.assertTrue(
+                any(
+                    item["name"] == "CmpQueueResidue"
+                    and item["fail_closed_gate"] == "report_only_private_layout"
+                    and any(
+                        "keyControlBlock+0x10:_QWORD" in sample
+                        for sample in item["samples"]
+                    )
+                    for item in sample_functions
+                )
+            )
             self.assertEqual(
                 {"windows.registry_config.queue": 1},
                 cmp_queue_item["domain_profiles"],
@@ -1519,10 +1533,23 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("direct parameter alias source", markdown)
             self.assertIn("Report-only profile remains closed", markdown)
             self.assertIn("Offset samples", markdown)
+            self.assertIn("CmpQueueResidue: keyControlBlock+0x10:_QWORD", markdown)
             self.assertIn("keyControlBlock+0x10:_QWORD", markdown)
             self.assertEqual(
                 "resolve_type_overlay_or_alignment",
                 type_queue_item["promotion_lane"],
+            )
+            registry_batch = next(
+                batch
+                for batch in review_batches
+                if batch["batch"] == "registry:direct_parameter_source_identity"
+            )
+            self.assertEqual("CmpQueueResidue", registry_batch["offset_deref_sample_functions"][0]["name"])
+            self.assertTrue(
+                any(
+                    "keyControlBlock+0x10:_QWORD" in sample
+                    for sample in registry_batch["offset_deref_sample_functions"][0]["samples"]
+                )
             )
 
     def test_body_offset_named_goal_targets_stay_visible(self) -> None:

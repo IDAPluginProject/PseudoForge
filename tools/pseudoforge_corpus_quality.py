@@ -9118,6 +9118,9 @@ def _body_offset_offset_deref_sample_summary(
     item: dict[str, Any],
     limit: int = 3,
 ) -> str:
+    function_summary = _body_offset_offset_deref_sample_function_summary(item, limit)
+    if function_summary:
+        return function_summary
     samples = [
         str(sample)
         for sample in item.get("offset_deref_samples", []) or []
@@ -9139,6 +9142,29 @@ def _body_offset_offset_deref_sample_summary(
         if len(result) >= limit:
             break
     return " | ".join(result)
+
+
+def _body_offset_offset_deref_sample_function_summary(
+    item: dict[str, Any],
+    limit: int,
+) -> str:
+    function_items = [
+        function_item
+        for function_item in item.get("offset_deref_sample_functions", []) or []
+        if isinstance(function_item, dict)
+    ]
+    result: list[str] = []
+    for function_item in function_items[:limit]:
+        name = str(function_item.get("name", "") or "")
+        samples = [
+            str(sample)
+            for sample in function_item.get("samples", []) or []
+            if str(sample)
+        ][:2]
+        if not name or not samples:
+            continue
+        result.append("%s: %s" % (name, " | ".join(samples)))
+    return " ; ".join(result)
 
 
 def _body_offset_residue_next_goal_candidates(
@@ -9741,6 +9767,10 @@ def _body_offset_residue_next_goal_review_batches(
                 ),
                 "callee_arity_residue_samples": callee_arity_residue_samples[:limit],
                 "offset_deref_samples": offset_deref_samples[:limit],
+                "offset_deref_sample_functions": _body_offset_sample_function_items(
+                    group_items,
+                    limit,
+                ),
                 "top_base_offset_samples": {
                     str(base): samples[:3]
                     for base, samples in list(top_base_offset_samples.items())[:limit]
@@ -10742,6 +10772,10 @@ def _body_offset_residue_review_queue_summary(
         "direct_call_result_samples": direct_call_result_samples[:limit],
         "direct_call_result_layout_samples": direct_call_result_layout_samples[:limit],
         "offset_deref_samples": offset_deref_samples[:limit],
+        "offset_deref_sample_functions": _body_offset_sample_function_items(
+            items,
+            limit,
+        ),
         "top_base_offset_samples": {
             str(base): samples[:3]
             for base, samples in list(top_base_offset_samples.items())[:limit]
@@ -11052,6 +11086,67 @@ def _body_offset_residue_review_queue_item(
         "summary_path": str(item.get("summary_path", "") or ""),
         "cleaned_path": str(item.get("cleaned_path", "") or ""),
     }
+
+
+def _body_offset_sample_function_items(
+    items: list[dict[str, Any]],
+    limit: int,
+    sample_limit: int = 2,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for item in items:
+        name = str(item.get("name", "") or "")
+        if not name or name in seen_names:
+            continue
+        samples = _body_offset_item_offset_deref_samples(item, sample_limit)
+        if not samples:
+            continue
+        seen_names.add(name)
+        result.append(
+            {
+                "name": name,
+                "ea": str(item.get("ea", "") or ""),
+                "subsystem": str(item.get("subsystem", "") or ""),
+                "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
+                "promotion_lane": str(item.get("promotion_lane", "") or ""),
+                "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
+                "direct_base_deref_survivors": _int_value(
+                    item.get("direct_base_deref_survivors"),
+                    0,
+                ),
+                "samples": samples,
+            }
+        )
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _body_offset_item_offset_deref_samples(
+    item: dict[str, Any],
+    limit: int,
+) -> list[str]:
+    result: list[str] = []
+    for sample in item.get("offset_deref_samples", []) or []:
+        sample_text = str(sample)
+        if sample_text and sample_text not in result:
+            result.append(sample_text)
+        if len(result) >= limit:
+            return result
+    for base, samples in _coerce_dict(item.get("top_base_offset_samples", {})).items():
+        base_text = str(base)
+        for sample in samples or []:
+            sample_text = str(sample)
+            if not sample_text:
+                continue
+            if base_text and not sample_text.startswith("%s:" % base_text):
+                sample_text = "%s: %s" % (base_text, sample_text)
+            if sample_text not in result:
+                result.append(sample_text)
+            if len(result) >= limit:
+                return result
+    return result
 
 
 def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> str:
