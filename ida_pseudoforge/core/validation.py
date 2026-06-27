@@ -924,10 +924,14 @@ def _is_existing_parameter_alias_name(
 ) -> bool:
     if not rendered_name or not is_valid_c_identifier(rendered_name):
         return False
+    if _is_generic_parameter_alias_name(raw_name):
+        if rename is None:
+            return False
+        if _is_generic_parameter_alias_name(rendered_name):
+            return str(rename.source or "").lower() == "prototype"
+        return True
     if _is_generic_parameter_alias_name(rendered_name):
         return False
-    if _is_generic_parameter_alias_name(raw_name):
-        return rename is not None and not _is_generic_parameter_alias_name(rendered_name)
     return True
 
 

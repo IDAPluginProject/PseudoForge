@@ -15,6 +15,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP, STATUS_ARGUMENT_INDEXES
+from ida_pseudoforge.core.normalize import (
+    extract_function_signature,
+    extract_parameters_from_signature,
+)
 from ida_pseudoforge.profiles import loader as profile_loader
 from ida_pseudoforge.version import VERSION, plugin_title
 
@@ -43,6 +47,24 @@ _KNOWN_DEBUG_FILL_VALUES = {
 }
 GENERIC_IDENTIFIER_RE = re.compile(r"\b[av]\d+\b")
 GENERIC_PARAMETER_NAME_RE = re.compile(r"\b(?:[av]\d+|argument\d+)\b")
+ABI_INTEGER_ARGUMENT_REGISTER_INDEX = {
+    "rcx": 0,
+    "ecx": 0,
+    "cx": 0,
+    "cl": 0,
+    "rdx": 1,
+    "edx": 1,
+    "dx": 1,
+    "dl": 1,
+    "r8": 2,
+    "r8d": 2,
+    "r8w": 2,
+    "r8b": 2,
+    "r9": 3,
+    "r9d": 3,
+    "r9w": 3,
+    "r9b": 3,
+}
 OFFSET_DEREF_RE = re.compile(
     r"\*\s*\([^)]*\*\s*\)\s*\([^;\n]*\+\s*(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L)?\s*\)"
 )
@@ -987,13 +1009,18 @@ def analyze_corpus(
         ea = str(summary.get("function_ea", ""))
         warnings = _read_warnings(_artifact_path(summary_path, artifacts, "warnings"))
         warning_diagnostics = _read_warning_diagnostics(_artifact_path(summary_path, artifacts, "warning_diagnostics"))
-        warning_class_items: list[Any] = warning_diagnostics if warning_diagnostics else warnings
-        warning_count = _effective_warning_count(summary, warnings, warning_diagnostics)
         rename_items = _read_rename_items(_artifact_path(summary_path, artifacts, "rename_map"))
         rule_report = _coerce_dict(_read_json(_artifact_path(summary_path, artifacts, "rule_report")))
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
         cleaned_path = _artifact_path(summary_path, artifacts, "cleaned_pseudocode")
         raw_path = _artifact_path(summary_path, artifacts, "raw_pseudocode")
+        warning_diagnostics = _normalize_warning_diagnostics_for_quality(
+            warning_diagnostics,
+            rename_items,
+            cleaned_path,
+        )
+        warning_class_items: list[Any] = warning_diagnostics if warning_diagnostics else warnings
+        warning_count = _effective_warning_count(summary, warnings, warning_diagnostics)
         analyzed_functions.append(
             {
                 "name": name,
@@ -5685,6 +5712,136 @@ def _read_warning_diagnostics(path: Path) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
+
+
+def _normalize_warning_diagnostics_for_quality(
+    warning_diagnostics: list[dict[str, Any]],
+    rename_items: list[dict[str, Any]],
+    cleaned_path: Path,
+) -> list[dict[str, Any]]:
+    if not warning_diagnostics:
+        return []
+    parameters = _quality_signature_parameters(cleaned_path)
+    if not parameters:
+        return warning_diagnostics
+    accepted_renames = _quality_accepted_parameter_renames_by_old_name(rename_items)
+    if not accepted_renames:
+        return warning_diagnostics
+
+    result: list[dict[str, Any]] = []
+    changed = False
+    for item in warning_diagnostics:
+        alias = _quality_existing_parameter_alias_for_diagnostic(
+            item,
+            parameters,
+            accepted_renames,
+        )
+        if alias is None:
+            result.append(item)
+            continue
+        updated = dict(item)
+        updated["candidate_action"] = "existing_parameter_register_alias"
+        updated["legacy_candidate_action"] = ""
+        updated["existing_parameter_index"] = alias["parameter_index"]
+        updated["existing_parameter_raw_name"] = alias["raw_name"]
+        updated["existing_parameter_rendered_name"] = alias["rendered_name"]
+        updated["existing_parameter_rename_source"] = alias["rename_source"]
+        result.append(updated)
+        changed = True
+    return result if changed else warning_diagnostics
+
+
+def _quality_signature_parameters(cleaned_path: Path) -> list[tuple[str, str]]:
+    text = _read_text(cleaned_path)
+    if not text:
+        return []
+    signature = extract_function_signature(text)
+    return extract_parameters_from_signature(signature)
+
+
+def _quality_accepted_parameter_renames_by_old_name(
+    rename_items: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in rename_items:
+        if not _rename_applied(item):
+            continue
+        if str(item.get("kind", "") or "").lower() != "arg":
+            continue
+        old_name = str(item.get("old", "") or "").strip()
+        new_name = str(item.get("new", "") or "").strip()
+        if not old_name or not new_name:
+            continue
+        if str(item.get("source", "") or "").lower() == "llm":
+            continue
+        if _float_value(item.get("confidence"), 0.0) < 0.75:
+            continue
+        result[old_name] = item
+    return result
+
+
+def _quality_existing_parameter_alias_for_diagnostic(
+    item: dict[str, Any],
+    parameters: list[tuple[str, str]],
+    accepted_renames: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if str(item.get("kind", "") or "") != "unassigned_local_live_in_register":
+        return None
+    if str(item.get("candidate_action", "") or "") != "caller_parameter_gap_candidate":
+        return None
+    if str(item.get("usage_class", "") or "") != "call_argument":
+        return None
+    parameter_index = ABI_INTEGER_ARGUMENT_REGISTER_INDEX.get(
+        str(item.get("register", "") or "").lower()
+    )
+    if parameter_index is None or parameter_index >= len(parameters):
+        return None
+    raw_name = str(parameters[parameter_index][0] or "").strip()
+    if not _quality_is_identifier(raw_name):
+        return None
+    rename = accepted_renames.get(raw_name)
+    if rename is None:
+        return None
+    rendered_name = str(rename.get("new", "") or raw_name).strip()
+    if not _quality_is_existing_parameter_alias_name(rendered_name, raw_name, rename):
+        return None
+    return {
+        "parameter_index": parameter_index,
+        "raw_name": raw_name,
+        "rendered_name": rendered_name,
+        "rename_source": str(rename.get("source", "") or ""),
+    }
+
+
+def _quality_is_existing_parameter_alias_name(
+    rendered_name: str,
+    raw_name: str,
+    rename: dict[str, Any],
+) -> bool:
+    if not _quality_is_identifier(rendered_name):
+        return False
+    if _quality_is_generic_parameter_alias_name(raw_name):
+        if _quality_is_generic_parameter_alias_name(rendered_name):
+            return str(rename.get("source", "") or "").lower() == "prototype"
+        return True
+    if _quality_is_generic_parameter_alias_name(rendered_name):
+        return False
+    return True
+
+
+def _quality_is_identifier(value: str) -> bool:
+    return re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(value or "")) is not None
+
+
+def _quality_is_generic_parameter_alias_name(value: str) -> bool:
+    lowered = str(value or "").strip().lower()
+    return bool(
+        re.fullmatch(r"a\d+", lowered)
+        or re.fullmatch(r"argument\d+", lowered)
+        or re.fullmatch(r"bugcheckparameter\d+", lowered)
+        or re.fullmatch(r"param(?:eter)?\d+", lowered)
+        or re.fullmatch(r"v\d+", lowered)
+    )
 
 
 def _read_list(path: Path) -> list[Any]:

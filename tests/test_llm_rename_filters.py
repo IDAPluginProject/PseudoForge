@@ -900,6 +900,55 @@ __int64 __fastcall WeakAliasSample(__int64 a1, unsigned int a2)
         self.assertEqual("caller_parameter_gap_candidate", diagnostics[0].candidate_action)
         self.assertEqual("parameter_gap_candidate", diagnostics[0].legacy_candidate_action)
 
+    def test_generic_prototype_parameter_slot_alias_is_not_parameter_gap(self) -> None:
+        text = """
+__int64 __fastcall PrototypeAliasSample(__int64 a1, char a2, unsigned __int64 a3)
+{
+  __int64 v33; // rdx
+  __int64 v34; // r8
+  __int64 v35; // r9
+
+  return ExpGetThreadResourceHint(a1, v33, v34, v35);
+}
+"""
+        capture = FunctionCapture(
+            name="PrototypeAliasSample",
+            prototype="__int64 __fastcall PrototypeAliasSample(__int64 a1, char a2, unsigned __int64 a3)",
+            pseudocode=text,
+            lvars=[
+                LocalVariable(name="v33", type="__int64", is_arg=False),
+                LocalVariable(name="v34", type="__int64", is_arg=False),
+                LocalVariable(name="v35", type="__int64", is_arg=False),
+            ],
+        )
+        renames = [
+            RenameSuggestion(
+                kind="arg",
+                old="a2",
+                new="argument1",
+                confidence=0.82,
+                source="prototype",
+                evidence="Parameter 1 inferred from prototype",
+            ),
+            RenameSuggestion(
+                kind="arg",
+                old="a3",
+                new="argument2",
+                confidence=0.82,
+                source="prototype",
+                evidence="Parameter 2 inferred from prototype",
+            ),
+        ]
+
+        diagnostics = unassigned_local_usage_diagnostics(capture, renames)
+        actions = {item.symbol: item.candidate_action for item in diagnostics}
+
+        self.assertEqual("existing_parameter_register_alias", actions["v33"])
+        self.assertEqual("existing_parameter_register_alias", actions["v34"])
+        self.assertEqual("caller_parameter_gap_candidate", actions["v35"])
+        self.assertEqual("argument1", diagnostics[0].existing_parameter_rendered_name)
+        self.assertEqual("prototype", diagnostics[0].existing_parameter_rename_source)
+
     def test_ex_reference_callback_block_live_ins_are_helper_arity_residue(self) -> None:
         text = """
 __int64 __fastcall CallbackBlockResidueSample()
