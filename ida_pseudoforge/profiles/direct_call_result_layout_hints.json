@@ -1,0 +1,34 @@
+{
+  "schema": "pseudoforge_direct_call_result_layout_hints_v1",
+  "source": "PseudoForge curated report-only direct call-result layout hints",
+  "source_version": "10.0.26200.8457",
+  "hints": [
+    {
+      "callee": "KeGetCurrentPrcb",
+      "mode": "report-only",
+      "return_role": "currentProcessorControlBlock",
+      "return_type": "PKPRCB",
+      "member_paths": [
+        {
+          "mode": "report-only",
+          "note": "Observed direct stores through KeGetCurrentPrcb()->MmInternal in ntoskrnl private Memory Manager paths. Do not rewrite without exact KPRCB member layout identity for the target build.",
+          "path": "MmInternal",
+          "role": "memoryManagerInternalState",
+          "type": "PVOID"
+        }
+      ],
+      "recommended_next": "Verify KPRCB return identity and private MmInternal member layout for the target build before any direct +0/member rewrite."
+    },
+    {
+      "argument_roles": [
+        "keyControlBlock",
+        "transactionContext"
+      ],
+      "callee": "CmGetKCBCacheSecurity",
+      "mode": "report-only",
+      "return_role": "registryKcbCacheSecurityCell",
+      "return_type": "PVOID",
+      "recommended_next": "Verify returned registry security-cache layout and argument-specific source identity before any call-result rewrite."
+    }
+  ]
+}

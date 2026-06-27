@@ -104,6 +104,16 @@
         "contracts": 3
       }
     },
+    "direct_call_result_layout_hints.json": {
+      "profile_kind": "direct_call_result_layout_hints",
+      "source": "PseudoForge curated report-only direct call-result layout hints",
+      "schema": "pseudoforge_direct_call_result_layout_hints_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "DC36AA391BCE7E4853C6A82CC7800CCE31C2DF2BAD941DB4D32C9CA5A1F9E119",
+      "counts": {
+        "hints": 2
+      }
+    },
     "domain_identity.json": {
       "profile_kind": "domain_identity",
       "source": "PseudoForge curated deterministic domain structure identity profiles",

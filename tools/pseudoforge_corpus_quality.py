@@ -6,6 +6,7 @@ import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ida_pseudoforge.core.api_semantics import NTSTATUS_RETURN_MAP, STATUS_ARGUMENT_INDEXES
+from ida_pseudoforge.profiles import loader as profile_loader
 from ida_pseudoforge.version import VERSION, plugin_title
 
 
+DIRECT_CALL_RESULT_LAYOUT_HINTS_PROFILE_NAME = "direct_call_result_layout_hints.json"
 _DEBUG_EXCEPTION_STATUS_NAMES = {
     "STATUS_BREAKPOINT",
     "STATUS_GUARD_PAGE_VIOLATION",
@@ -66,6 +69,7 @@ DIRECT_CALL_RESULT_DEREF_ITEM_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
     r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\s*"
     r"\((?P<args>[^;\n()]*)\)"
+    r"(?P<member_path>(?:\s*->\s*[A-Za-z_][A-Za-z0-9_]*)*)"
 )
 PARAMETER_FIELD_POINTER_SOURCE_LOAD_RE = re.compile(
     r"(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
@@ -2756,6 +2760,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(queue.get("direct_base_deref_base_classes", {})).items()
         )
         direct_call_anchors = _body_offset_direct_call_result_anchor_summary(queue)
+        direct_call_hints = _body_offset_direct_call_result_hint_summary(queue)
         direct_base_summary = direct_base_bases
         if direct_base_types:
             direct_base_summary = "%s; types %s" % (direct_base_summary, direct_base_types) if direct_base_summary else "types %s" % direct_base_types
@@ -2763,6 +2768,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             direct_base_summary = "%s; classes %s" % (direct_base_summary, direct_base_classes) if direct_base_summary else "classes %s" % direct_base_classes
         if direct_call_anchors:
             direct_base_summary = "%s; calls %s" % (direct_base_summary, direct_call_anchors) if direct_base_summary else "calls %s" % direct_call_anchors
+        if direct_call_hints:
+            direct_base_summary = "%s; call-hints %s" % (direct_base_summary, direct_call_hints) if direct_base_summary else "call-hints %s" % direct_call_hints
         lines.append(
             "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
@@ -2857,6 +2864,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     if call_result_anchors
                     else "args %s" % arg_roots
                 )
+            call_result_hints = _body_offset_direct_call_result_hint_summary(batch)
+            if call_result_hints:
+                call_result_anchors = (
+                    "%s; hints %s" % (call_result_anchors, call_result_hints)
+                    if call_result_anchors
+                    else "hints %s" % call_result_hints
+                )
             gates = ", ".join(
                 "%s=%s" % (key, value)
                 for key, value in _coerce_dict(batch.get("fail_closed_gates", {})).items()
@@ -2941,6 +2955,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(batch.get("nested_field_pointer_residue"), 0),
             )
             call_result_anchors = _body_offset_direct_call_result_anchor_summary(batch)
+            call_result_hints = _body_offset_direct_call_result_hint_summary(batch)
+            if call_result_hints:
+                call_result_anchors = (
+                    "%s; hints %s" % (call_result_anchors, call_result_hints)
+                    if call_result_anchors
+                    else "hints %s" % call_result_hints
+                )
             parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(batch)
             lines.append(
                 "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
@@ -2987,6 +3008,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             if str(item.get(key, "") or "")
         )
         call_result_anchors = _body_offset_direct_call_result_anchor_summary(item)
+        call_result_hints = _body_offset_direct_call_result_hint_summary(item)
+        if call_result_hints:
+            call_result_anchors = (
+                "%s; hints %s" % (call_result_anchors, call_result_hints)
+                if call_result_anchors
+                else "hints %s" % call_result_hints
+            )
         parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
         lines.append(
             "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
@@ -6408,9 +6436,26 @@ def _body_offset_residue_function_summary(
         "direct_call_result_arg_roots": _coerce_dict(
             direct_base_deref_profile.get("call_result_arg_roots", {})
         ),
+        "direct_call_result_member_paths": _coerce_dict(
+            direct_base_deref_profile.get("call_result_member_paths", {})
+        ),
+        "direct_call_result_deref_types": _coerce_dict(
+            direct_base_deref_profile.get("call_result_deref_types", {})
+        ),
+        "direct_call_result_layout_hints": _coerce_dict(
+            direct_base_deref_profile.get("call_result_layout_hints", {})
+        ),
+        "direct_call_result_hint_modes": _coerce_dict(
+            direct_base_deref_profile.get("call_result_hint_modes", {})
+        ),
         "direct_call_result_samples": [
             str(sample)
             for sample in direct_base_deref_profile.get("call_result_samples", []) or []
+            if str(sample)
+        ][:5],
+        "direct_call_result_layout_samples": [
+            str(sample)
+            for sample in direct_base_deref_profile.get("call_result_layout_samples", []) or []
             if str(sample)
         ][:5],
         "direct_base_deref_samples": [
@@ -7651,7 +7696,12 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
     class_bases: dict[str, Counter[str]] = {}
     call_result_callees: Counter[str] = Counter()
     call_result_arg_roots: Counter[str] = Counter()
+    call_result_member_paths: Counter[str] = Counter()
+    call_result_deref_types: Counter[str] = Counter()
+    call_result_layout_hints: Counter[str] = Counter()
+    call_result_hint_modes: Counter[str] = Counter()
     call_result_samples: list[str] = []
+    call_result_layout_samples: list[str] = []
     samples: list[str] = []
     count = 0
     for match in DIRECT_BASE_DEREF_ITEM_RE.finditer(body):
@@ -7672,12 +7722,40 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
         if not callee:
             continue
         args = _direct_call_result_args_text(match.group("args"))
+        type_name = _normalized_offset_deref_type(match.group("type"))
+        member_suffix = _direct_call_result_member_path_suffix(match.group("member_path"))
+        anchor = _direct_call_result_anchor_text(callee, args, member_suffix)
         call_result_callees[callee] += 1
         for root in _direct_call_result_argument_roots(args):
             call_result_arg_roots[root] += 1
-        sample = "%s(%s)" % (callee, args)
-        if len(call_result_samples) < 5 and sample not in call_result_samples:
-            call_result_samples.append(sample)
+        if member_suffix:
+            call_result_member_paths["%s()%s" % (callee, member_suffix)] += 1
+        if anchor and type_name:
+            call_result_deref_types["%s:%s" % (anchor, type_name)] += 1
+        hint = _direct_call_result_layout_hint(callee)
+        if hint:
+            hint_key = _direct_call_result_layout_hint_key(callee, hint)
+            if hint_key:
+                call_result_layout_hints[hint_key] += 1
+            mode = str(hint.get("mode", "") or "report-only").strip()
+            if mode:
+                call_result_hint_modes[mode] += 1
+            member_hint = _direct_call_result_member_hint(hint, member_suffix)
+            member_key = _direct_call_result_member_layout_hint_key(callee, member_suffix, member_hint)
+            if member_key:
+                call_result_layout_hints[member_key] += 1
+            hint_sample = _direct_call_result_layout_hint_sample(
+                callee,
+                args,
+                type_name,
+                member_suffix,
+                hint,
+                member_hint,
+            )
+            if hint_sample and len(call_result_layout_samples) < 5 and hint_sample not in call_result_layout_samples:
+                call_result_layout_samples.append(hint_sample)
+        if len(call_result_samples) < 5 and anchor not in call_result_samples:
+            call_result_samples.append(anchor)
     if count <= 0:
         return {}
     return {
@@ -7691,7 +7769,12 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
         },
         "call_result_callees": _counter_to_dict(Counter(dict(call_result_callees.most_common(8)))),
         "call_result_arg_roots": _counter_to_dict(Counter(dict(call_result_arg_roots.most_common(8)))),
+        "call_result_member_paths": _counter_to_dict(Counter(dict(call_result_member_paths.most_common(8)))),
+        "call_result_deref_types": _counter_to_dict(Counter(dict(call_result_deref_types.most_common(8)))),
+        "call_result_layout_hints": _counter_to_dict(Counter(dict(call_result_layout_hints.most_common(8)))),
+        "call_result_hint_modes": _counter_to_dict(Counter(dict(call_result_hint_modes.most_common(8)))),
         "call_result_samples": call_result_samples,
+        "call_result_layout_samples": call_result_layout_samples,
         "samples": samples,
     }
 
@@ -7708,6 +7791,119 @@ def _direct_call_result_argument_roots(args: str | None) -> list[str]:
         if match:
             roots.append(match.group("root"))
     return roots[:6]
+
+
+def _direct_call_result_layout_hints_by_callee() -> dict[str, dict[str, Any]]:
+    return _direct_call_result_layout_hints_by_callee_for_root(profile_loader.active_profile_root())
+
+
+@lru_cache(maxsize=4)
+def _direct_call_result_layout_hints_by_callee_for_root(_profile_root: str) -> dict[str, dict[str, Any]]:
+    payload = profile_loader.load_json_profile(DIRECT_CALL_RESULT_LAYOUT_HINTS_PROFILE_NAME)
+    if not isinstance(payload, dict):
+        return {}
+    hints = payload.get("hints", [])
+    if not isinstance(hints, list):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in hints:
+        if not isinstance(item, dict):
+            continue
+        callee = str(item.get("callee", "") or "").strip()
+        if not callee:
+            continue
+        result[callee] = item
+    return result
+
+
+def _direct_call_result_layout_hint(callee: str) -> dict[str, Any]:
+    hint = _direct_call_result_layout_hints_by_callee().get(str(callee or "").strip(), {})
+    return dict(hint) if isinstance(hint, dict) else {}
+
+
+def _direct_call_result_layout_hint_key(callee: str, hint: dict[str, Any]) -> str:
+    return_type = str(hint.get("return_type", "") or "").strip()
+    if return_type:
+        return "%s:%s" % (callee, return_type)
+    role = str(hint.get("return_role", "") or "").strip()
+    if role:
+        return "%s:%s" % (callee, role)
+    return str(callee or "").strip()
+
+
+def _direct_call_result_member_path_suffix(value: str | None) -> str:
+    parts = re.findall(r"->\s*([A-Za-z_][A-Za-z0-9_]*)", str(value or ""))
+    if not parts:
+        return ""
+    return "".join("->%s" % part for part in parts)
+
+
+def _direct_call_result_member_path_name(value: str | None) -> str:
+    parts = re.findall(r"->\s*([A-Za-z_][A-Za-z0-9_]*)", str(value or ""))
+    return "->".join(parts)
+
+
+def _direct_call_result_anchor_text(callee: str, args: str, member_suffix: str = "") -> str:
+    return "%s(%s)%s" % (callee, args, member_suffix)
+
+
+def _direct_call_result_member_hint(hint: dict[str, Any], member_suffix: str) -> dict[str, Any]:
+    member_name = _direct_call_result_member_path_name(member_suffix)
+    if not member_name:
+        return {}
+    for item in hint.get("member_paths", []) or []:
+        if not isinstance(item, dict):
+            continue
+        path = _direct_call_result_member_path_name(str(item.get("path", "") or ""))
+        if not path:
+            path = str(item.get("path", "") or "").strip().lstrip("->")
+        if path == member_name:
+            return dict(item)
+    return {}
+
+
+def _direct_call_result_member_layout_hint_key(
+    callee: str,
+    member_suffix: str,
+    member_hint: dict[str, Any],
+) -> str:
+    if not member_hint:
+        return ""
+    member_type = str(member_hint.get("type", "") or "").strip()
+    member_role = str(member_hint.get("role", "") or "").strip()
+    suffix = member_suffix or ""
+    if member_type:
+        return "%s%s:%s" % (callee, suffix, member_type)
+    if member_role:
+        return "%s%s:%s" % (callee, suffix, member_role)
+    return "%s%s" % (callee, suffix)
+
+
+def _direct_call_result_layout_hint_sample(
+    callee: str,
+    args: str,
+    deref_type: str,
+    member_suffix: str,
+    hint: dict[str, Any],
+    member_hint: dict[str, Any],
+) -> str:
+    anchor = _direct_call_result_anchor_text(callee, args, member_suffix)
+    parts: list[str] = []
+    return_key = _direct_call_result_layout_hint_key(callee, hint)
+    if return_key:
+        parts.append(return_key)
+    return_role = str(hint.get("return_role", "") or "").strip()
+    if return_role:
+        parts.append("role=%s" % return_role)
+    member_key = _direct_call_result_member_layout_hint_key(callee, member_suffix, member_hint)
+    if member_key:
+        parts.append(member_key)
+    mode = str(member_hint.get("mode", "") or hint.get("mode", "") or "report-only").strip()
+    if mode:
+        parts.append("mode=%s" % mode)
+    if not parts:
+        return ""
+    return "%s:%s => %s" % (anchor, deref_type, ", ".join(parts))
 
 
 def _parameter_field_pointer_source_anchor_profile(
@@ -8201,9 +8397,26 @@ def _body_offset_named_goal_target_status(
                 "direct_call_result_arg_roots": _coerce_dict(
                     item.get("direct_call_result_arg_roots", {})
                 ),
+                "direct_call_result_member_paths": _coerce_dict(
+                    item.get("direct_call_result_member_paths", {})
+                ),
+                "direct_call_result_deref_types": _coerce_dict(
+                    item.get("direct_call_result_deref_types", {})
+                ),
+                "direct_call_result_layout_hints": _coerce_dict(
+                    item.get("direct_call_result_layout_hints", {})
+                ),
+                "direct_call_result_hint_modes": _coerce_dict(
+                    item.get("direct_call_result_hint_modes", {})
+                ),
                 "direct_call_result_samples": [
                     str(sample)
                     for sample in item.get("direct_call_result_samples", []) or []
+                    if str(sample)
+                ],
+                "direct_call_result_layout_samples": [
+                    str(sample)
+                    for sample in item.get("direct_call_result_layout_samples", []) or []
                     if str(sample)
                 ],
                 "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
@@ -8413,6 +8626,25 @@ def _body_offset_direct_call_result_anchor_summary(
     return ", ".join(roots)
 
 
+def _body_offset_direct_call_result_hint_summary(
+    item: dict[str, Any],
+    limit: int = 3,
+) -> str:
+    samples = [
+        str(sample)
+        for sample in item.get("direct_call_result_layout_samples", []) or []
+        if str(sample)
+    ][:limit]
+    if samples:
+        return ", ".join(samples)
+    hints = _coerce_dict(item.get("direct_call_result_layout_hints", {}))
+    return ", ".join(
+        "%s=%s" % (key, value)
+        for key, value in hints.items()
+        if str(key)
+    )
+
+
 def _body_offset_direct_call_result_count(item: dict[str, Any]) -> int:
     class_count = _int_value(
         _coerce_dict(item.get("direct_base_deref_base_classes", {})).get("direct_call_result"),
@@ -8554,7 +8786,12 @@ def _body_offset_direct_base_root_review_batches(
         cause_tags: Counter[str] = Counter()
         call_result_callees: Counter[str] = Counter()
         call_result_arg_roots: Counter[str] = Counter()
+        call_result_member_paths: Counter[str] = Counter()
+        call_result_deref_types: Counter[str] = Counter()
+        call_result_layout_hints: Counter[str] = Counter()
+        call_result_hint_modes: Counter[str] = Counter()
         call_result_samples: list[str] = []
+        call_result_layout_samples: list[str] = []
         for item in group_items:
             subsystems[str(item.get("subsystem", "") or "other")] += 1
             gate = str(item.get("fail_closed_gate", "") or "")
@@ -8574,10 +8811,22 @@ def _body_offset_direct_base_root_review_batches(
                     call_result_callees[str(callee)] += _int_value(count, 0)
                 for root, count in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
                     call_result_arg_roots[str(root)] += _int_value(count, 0)
+                for path, count in _coerce_dict(item.get("direct_call_result_member_paths", {})).items():
+                    call_result_member_paths[str(path)] += _int_value(count, 0)
+                for key, count in _coerce_dict(item.get("direct_call_result_deref_types", {})).items():
+                    call_result_deref_types[str(key)] += _int_value(count, 0)
+                for key, count in _coerce_dict(item.get("direct_call_result_layout_hints", {})).items():
+                    call_result_layout_hints[str(key)] += _int_value(count, 0)
+                for key, count in _coerce_dict(item.get("direct_call_result_hint_modes", {})).items():
+                    call_result_hint_modes[str(key)] += _int_value(count, 0)
                 for sample in item.get("direct_call_result_samples", []) or []:
                     sample_text = str(sample)
                     if sample_text and sample_text not in call_result_samples:
                         call_result_samples.append(sample_text)
+                for sample in item.get("direct_call_result_layout_samples", []) or []:
+                    sample_text = str(sample)
+                    if sample_text and sample_text not in call_result_layout_samples:
+                        call_result_layout_samples.append(sample_text)
         batches.append(
             {
                 "root_class": root_class,
@@ -8600,7 +8849,20 @@ def _body_offset_direct_base_root_review_batches(
                 "direct_call_result_arg_roots": _counter_to_dict(
                     Counter(dict(call_result_arg_roots.most_common(limit)))
                 ),
+                "direct_call_result_member_paths": _counter_to_dict(
+                    Counter(dict(call_result_member_paths.most_common(limit)))
+                ),
+                "direct_call_result_deref_types": _counter_to_dict(
+                    Counter(dict(call_result_deref_types.most_common(limit)))
+                ),
+                "direct_call_result_layout_hints": _counter_to_dict(
+                    Counter(dict(call_result_layout_hints.most_common(limit)))
+                ),
+                "direct_call_result_hint_modes": _counter_to_dict(
+                    Counter(dict(call_result_hint_modes.most_common(limit)))
+                ),
                 "direct_call_result_samples": call_result_samples[:limit],
+                "direct_call_result_layout_samples": call_result_layout_samples[:limit],
                 "residue_cause_tags": _counter_to_dict(Counter(dict(cause_tags.most_common(limit)))),
                 "top_functions": [
                     {
@@ -8622,9 +8884,31 @@ def _body_offset_direct_base_root_review_batches(
                         )
                         if root_class == "direct_call_result"
                         else {},
+                        "direct_call_result_member_paths": _coerce_dict(
+                            item.get("direct_call_result_member_paths", {})
+                        )
+                        if root_class == "direct_call_result"
+                        else {},
+                        "direct_call_result_deref_types": _coerce_dict(
+                            item.get("direct_call_result_deref_types", {})
+                        )
+                        if root_class == "direct_call_result"
+                        else {},
+                        "direct_call_result_layout_hints": _coerce_dict(
+                            item.get("direct_call_result_layout_hints", {})
+                        )
+                        if root_class == "direct_call_result"
+                        else {},
                         "direct_call_result_samples": [
                             str(sample)
                             for sample in item.get("direct_call_result_samples", []) or []
+                            if str(sample)
+                        ]
+                        if root_class == "direct_call_result"
+                        else [],
+                        "direct_call_result_layout_samples": [
+                            str(sample)
+                            for sample in item.get("direct_call_result_layout_samples", []) or []
                             if str(sample)
                         ]
                         if root_class == "direct_call_result"
@@ -8778,7 +9062,12 @@ def _body_offset_residue_next_goal_review_batches(
         residue_cause_tags: Counter[str] = Counter()
         call_result_callees: Counter[str] = Counter()
         call_result_arg_roots: Counter[str] = Counter()
+        call_result_member_paths: Counter[str] = Counter()
+        call_result_deref_types: Counter[str] = Counter()
+        call_result_layout_hints: Counter[str] = Counter()
+        call_result_hint_modes: Counter[str] = Counter()
         call_result_samples: list[str] = []
+        call_result_layout_samples: list[str] = []
         parameter_field_pointer_sources: Counter[str] = Counter()
         parameter_field_pointer_offsets: Counter[str] = Counter()
         parameter_field_pointer_samples: list[str] = []
@@ -8794,10 +9083,22 @@ def _body_offset_residue_next_goal_review_batches(
                 call_result_callees[str(callee)] += _int_value(count, 0)
             for root, count in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
                 call_result_arg_roots[str(root)] += _int_value(count, 0)
+            for key, count in _coerce_dict(item.get("direct_call_result_member_paths", {})).items():
+                call_result_member_paths[str(key)] += _int_value(count, 0)
+            for key, count in _coerce_dict(item.get("direct_call_result_deref_types", {})).items():
+                call_result_deref_types[str(key)] += _int_value(count, 0)
+            for key, count in _coerce_dict(item.get("direct_call_result_layout_hints", {})).items():
+                call_result_layout_hints[str(key)] += _int_value(count, 0)
+            for key, count in _coerce_dict(item.get("direct_call_result_hint_modes", {})).items():
+                call_result_hint_modes[str(key)] += _int_value(count, 0)
             for sample in item.get("direct_call_result_samples", []) or []:
                 sample_text = str(sample)
                 if sample_text and sample_text not in call_result_samples:
                     call_result_samples.append(sample_text)
+            for sample in item.get("direct_call_result_layout_samples", []) or []:
+                sample_text = str(sample)
+                if sample_text and sample_text not in call_result_layout_samples:
+                    call_result_layout_samples.append(sample_text)
             for source, count in _coerce_dict(item.get("parameter_field_pointer_sources", {})).items():
                 parameter_field_pointer_sources[str(source)] += _int_value(count, 0)
             for offset, count in _coerce_dict(item.get("parameter_field_pointer_offsets", {})).items():
@@ -8885,7 +9186,20 @@ def _body_offset_residue_next_goal_review_batches(
                 "direct_call_result_arg_roots": _counter_to_dict(
                     Counter(dict(call_result_arg_roots.most_common(limit)))
                 ),
+                "direct_call_result_member_paths": _counter_to_dict(
+                    Counter(dict(call_result_member_paths.most_common(limit)))
+                ),
+                "direct_call_result_deref_types": _counter_to_dict(
+                    Counter(dict(call_result_deref_types.most_common(limit)))
+                ),
+                "direct_call_result_layout_hints": _counter_to_dict(
+                    Counter(dict(call_result_layout_hints.most_common(limit)))
+                ),
+                "direct_call_result_hint_modes": _counter_to_dict(
+                    Counter(dict(call_result_hint_modes.most_common(limit)))
+                ),
                 "direct_call_result_samples": call_result_samples[:limit],
+                "direct_call_result_layout_samples": call_result_layout_samples[:limit],
                 "parameter_field_pointer_sources": _counter_to_dict(
                     Counter(dict(parameter_field_pointer_sources.most_common(limit)))
                 ),
@@ -8916,6 +9230,11 @@ def _body_offset_residue_next_goal_review_batches(
                         "direct_call_result_samples": [
                             str(sample)
                             for sample in item.get("direct_call_result_samples", []) or []
+                            if str(sample)
+                        ],
+                        "direct_call_result_layout_samples": [
+                            str(sample)
+                            for sample in item.get("direct_call_result_layout_samples", []) or []
                             if str(sample)
                         ],
                         "parameter_field_pointer_samples": [
@@ -8977,9 +9296,18 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
         "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {})),
         "direct_call_result_arg_roots": _coerce_dict(item.get("direct_call_result_arg_roots", {})),
+        "direct_call_result_member_paths": _coerce_dict(item.get("direct_call_result_member_paths", {})),
+        "direct_call_result_deref_types": _coerce_dict(item.get("direct_call_result_deref_types", {})),
+        "direct_call_result_layout_hints": _coerce_dict(item.get("direct_call_result_layout_hints", {})),
+        "direct_call_result_hint_modes": _coerce_dict(item.get("direct_call_result_hint_modes", {})),
         "direct_call_result_samples": [
             str(sample)
             for sample in item.get("direct_call_result_samples", []) or []
+            if str(sample)
+        ],
+        "direct_call_result_layout_samples": [
+            str(sample)
+            for sample in item.get("direct_call_result_layout_samples", []) or []
             if str(sample)
         ],
         "parameter_field_pointer_source_anchor_count": _int_value(
@@ -9162,6 +9490,12 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
         return "Resolve function/profile/build/source identity before any body rewrite or stronger type correction."
     if kind == "direct_call_result_layout_identity":
         anchors = _body_offset_direct_call_result_anchor_summary(item)
+        hints = _body_offset_direct_call_result_hint_summary(item)
+        if anchors and hints:
+            return (
+                "Verify report-only return/member layout hint(s) %s for %s, including call arguments and build/source provenance, before any field-zero rewrite."
+                % (hints, anchors)
+            )
         if anchors:
             return (
                 "Verify returned layout/type identity for %s, including call arguments and build/source provenance, before any field-zero rewrite."
@@ -9232,6 +9566,9 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         return "parameter-field pointer source must match exact containing-object layout identity"
     if kind == "direct_call_result_layout_identity":
         anchors = _body_offset_direct_call_result_anchor_summary(item)
+        hints = _body_offset_direct_call_result_hint_summary(item)
+        if anchors and hints:
+            return "callee return/member layout identity required for %s; report-only hint(s) %s" % (anchors, hints)
         if anchors:
             return "callee return layout identity required for %s" % anchors
         return "callee return layout identity required for direct call-result residue"
@@ -9431,7 +9768,12 @@ def _body_offset_residue_review_queue_summary(
     direct_base_deref_base_classes: Counter[str] = Counter()
     direct_call_result_callees: Counter[str] = Counter()
     direct_call_result_arg_roots: Counter[str] = Counter()
+    direct_call_result_member_paths: Counter[str] = Counter()
+    direct_call_result_deref_types: Counter[str] = Counter()
+    direct_call_result_layout_hints: Counter[str] = Counter()
+    direct_call_result_hint_modes: Counter[str] = Counter()
     direct_call_result_samples: list[str] = []
+    direct_call_result_layout_samples: list[str] = []
     parameter_field_pointer_sources: Counter[str] = Counter()
     parameter_field_pointer_targets: Counter[str] = Counter()
     parameter_field_pointer_offsets: Counter[str] = Counter()
@@ -9485,10 +9827,22 @@ def _body_offset_residue_review_queue_summary(
             direct_call_result_callees[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("direct_call_result_arg_roots", {})).items():
             direct_call_result_arg_roots[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_call_result_member_paths", {})).items():
+            direct_call_result_member_paths[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_call_result_deref_types", {})).items():
+            direct_call_result_deref_types[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_call_result_layout_hints", {})).items():
+            direct_call_result_layout_hints[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_call_result_hint_modes", {})).items():
+            direct_call_result_hint_modes[str(key)] += _int_value(value, 0)
         for sample in item.get("direct_call_result_samples", []) or []:
             sample_text = str(sample)
             if sample_text and sample_text not in direct_call_result_samples:
                 direct_call_result_samples.append(sample_text)
+        for sample in item.get("direct_call_result_layout_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in direct_call_result_layout_samples:
+                direct_call_result_layout_samples.append(sample_text)
         for key, value in _coerce_dict(item.get("parameter_field_pointer_sources", {})).items():
             parameter_field_pointer_sources[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_field_pointer_targets", {})).items():
@@ -9543,7 +9897,20 @@ def _body_offset_residue_review_queue_summary(
         "direct_call_result_arg_roots": _counter_to_dict(
             Counter(dict(direct_call_result_arg_roots.most_common(limit)))
         ),
+        "direct_call_result_member_paths": _counter_to_dict(
+            Counter(dict(direct_call_result_member_paths.most_common(limit)))
+        ),
+        "direct_call_result_deref_types": _counter_to_dict(
+            Counter(dict(direct_call_result_deref_types.most_common(limit)))
+        ),
+        "direct_call_result_layout_hints": _counter_to_dict(
+            Counter(dict(direct_call_result_layout_hints.most_common(limit)))
+        ),
+        "direct_call_result_hint_modes": _counter_to_dict(
+            Counter(dict(direct_call_result_hint_modes.most_common(limit)))
+        ),
         "direct_call_result_samples": direct_call_result_samples[:limit],
+        "direct_call_result_layout_samples": direct_call_result_layout_samples[:limit],
         "parameter_field_pointer_source_anchors": sum(
             _int_value(item.get("parameter_field_pointer_source_anchor_count"), 0)
             for item in items
@@ -9688,9 +10055,18 @@ def _body_offset_residue_review_queue_item(
         "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
         "direct_call_result_callees": _coerce_dict(item.get("direct_call_result_callees", {})),
         "direct_call_result_arg_roots": _coerce_dict(item.get("direct_call_result_arg_roots", {})),
+        "direct_call_result_member_paths": _coerce_dict(item.get("direct_call_result_member_paths", {})),
+        "direct_call_result_deref_types": _coerce_dict(item.get("direct_call_result_deref_types", {})),
+        "direct_call_result_layout_hints": _coerce_dict(item.get("direct_call_result_layout_hints", {})),
+        "direct_call_result_hint_modes": _coerce_dict(item.get("direct_call_result_hint_modes", {})),
         "direct_call_result_samples": [
             str(sample)
             for sample in item.get("direct_call_result_samples", []) or []
+            if str(sample)
+        ],
+        "direct_call_result_layout_samples": [
+            str(sample)
+            for sample in item.get("direct_call_result_layout_samples", []) or []
             if str(sample)
         ],
         "parameter_field_pointer_source_anchor_count": _int_value(
@@ -9817,6 +10193,12 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
         return "nested field-pointer residue needs a separate object layout model before rewrite"
     if queue == "direct_call_result_layout_candidates":
         anchors = _body_offset_direct_call_result_anchor_summary(item)
+        hints = _body_offset_direct_call_result_hint_summary(item)
+        if anchors and hints:
+            return (
+                "direct call-result %s has report-only layout hint(s) %s; verify returned layout/type identity before field-zero rewrite"
+                % (anchors, hints)
+            )
         if anchors:
             return (
                 "direct call-result %s needs returned layout/type identity before field-zero rewrite"

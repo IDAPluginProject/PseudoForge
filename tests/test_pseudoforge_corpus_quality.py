@@ -1628,6 +1628,12 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     and item["direct_call_result_callees"] == {"CmGetKCBCacheSecurity": 1}
                     and item["direct_call_result_arg_roots"] == {"keyControlBlock": 1}
                     and item["direct_call_result_samples"] == ["CmGetKCBCacheSecurity(keyControlBlock, 0)"]
+                    and item["direct_call_result_layout_hints"] == {"CmGetKCBCacheSecurity:PVOID": 1}
+                    and item["direct_call_result_hint_modes"] == {"report-only": 1}
+                    and item["direct_call_result_layout_samples"]
+                    == [
+                        "CmGetKCBCacheSecurity(keyControlBlock, 0):_DWORD => CmGetKCBCacheSecurity:PVOID, role=registryKcbCacheSecurityCell, mode=report-only"
+                    ]
                     for item in target_status["present_targets"]
                 )
             )
@@ -1681,6 +1687,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("context_like: context=1", markdown)
             self.assertIn("direct_call_result: CmGetKCBCacheSecurity=1", markdown)
             self.assertIn("CmGetKCBCacheSecurity(keyControlBlock, 0)", markdown)
+            self.assertIn("CmGetKCBCacheSecurity:PVOID", markdown)
             self.assertIn("No body-offset residue named targets", markdown)
             self.assertIn("ExpGetNextCallback", markdown)
             self.assertIn("callback/list-entry semantics", markdown)
@@ -3212,7 +3219,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
 */
 __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
 {
-  if ( *(_DWORD *)context + *(_QWORD *)KeGetCurrentPrcb() + *(_WORD *)argument0 )
+  if ( *(_DWORD *)context + *(_QWORD *)KeGetCurrentPrcb()->MmInternal + *(_WORD *)argument0 )
     return *(_DWORD *)(context + 8);
   return 0;
 }
@@ -3262,7 +3269,23 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
             )
             self.assertEqual({"KeGetCurrentPrcb": 1}, item["direct_call_result_callees"])
             self.assertEqual({}, item["direct_call_result_arg_roots"])
-            self.assertEqual(["KeGetCurrentPrcb()"], item["direct_call_result_samples"])
+            self.assertEqual({"KeGetCurrentPrcb()->MmInternal": 1}, item["direct_call_result_member_paths"])
+            self.assertEqual(
+                {"KeGetCurrentPrcb()->MmInternal:_QWORD": 1},
+                item["direct_call_result_deref_types"],
+            )
+            self.assertEqual(
+                {"KeGetCurrentPrcb:PKPRCB": 1, "KeGetCurrentPrcb->MmInternal:PVOID": 1},
+                item["direct_call_result_layout_hints"],
+            )
+            self.assertEqual({"report-only": 1}, item["direct_call_result_hint_modes"])
+            self.assertEqual(["KeGetCurrentPrcb()->MmInternal"], item["direct_call_result_samples"])
+            self.assertEqual(
+                [
+                    "KeGetCurrentPrcb()->MmInternal:_QWORD => KeGetCurrentPrcb:PKPRCB, role=currentProcessorControlBlock, KeGetCurrentPrcb->MmInternal:PVOID, mode=report-only"
+                ],
+                item["direct_call_result_layout_samples"],
+            )
             self.assertIn(
                 "direct_base_zero_deref_residue",
                 item["residue_review_notes"],
@@ -3299,7 +3322,14 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 {"KeGetCurrentPrcb": 1},
                 direct_queue["items"][0]["direct_call_result_callees"],
             )
-            self.assertEqual(["KeGetCurrentPrcb()"], direct_queue["items"][0]["direct_call_result_samples"])
+            self.assertEqual(
+                ["KeGetCurrentPrcb()->MmInternal"],
+                direct_queue["items"][0]["direct_call_result_samples"],
+            )
+            self.assertEqual(
+                ["KeGetCurrentPrcb()->MmInternal:_QWORD => KeGetCurrentPrcb:PKPRCB, role=currentProcessorControlBlock, KeGetCurrentPrcb->MmInternal:PVOID, mode=report-only"],
+                direct_queue["items"][0]["direct_call_result_layout_samples"],
+            )
             self.assertIn("direct +0 dereference on context", direct_queue["items"][0]["queue_reason"])
             call_result_queue = body_offset_stats["review_queues"]["direct_call_result_layout_candidates"]
             self.assertEqual(1, call_result_queue["functions"])
@@ -3307,11 +3337,24 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 {"KeGetCurrentPrcb": 1},
                 call_result_queue["direct_call_result_callees"],
             )
-            self.assertEqual(["KeGetCurrentPrcb()"], call_result_queue["direct_call_result_samples"])
+            self.assertEqual(
+                {"KeGetCurrentPrcb()->MmInternal": 1},
+                call_result_queue["direct_call_result_member_paths"],
+            )
+            self.assertEqual(
+                {"KeGetCurrentPrcb:PKPRCB": 1, "KeGetCurrentPrcb->MmInternal:PVOID": 1},
+                call_result_queue["direct_call_result_layout_hints"],
+            )
+            self.assertEqual(["KeGetCurrentPrcb()->MmInternal"], call_result_queue["direct_call_result_samples"])
+            self.assertEqual(
+                ["KeGetCurrentPrcb()->MmInternal:_QWORD => KeGetCurrentPrcb:PKPRCB, role=currentProcessorControlBlock, KeGetCurrentPrcb->MmInternal:PVOID, mode=report-only"],
+                call_result_queue["direct_call_result_layout_samples"],
+            )
             self.assertIn(
                 "returned layout/type identity",
                 call_result_queue["items"][0]["queue_reason"],
             )
+            self.assertIn("report-only layout hint", call_result_queue["items"][0]["queue_reason"])
             next_candidates = body_offset_stats["next_goal_candidates"]
             self.assertEqual(
                 {"direct_call_result_layout_identity": 1},
@@ -3322,13 +3365,18 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 next_candidates["items"][0]["candidate_kind"],
             )
             self.assertEqual(
-                ["KeGetCurrentPrcb()"],
+                ["KeGetCurrentPrcb()->MmInternal"],
                 next_candidates["items"][0]["direct_call_result_samples"],
             )
+            self.assertEqual(
+                ["KeGetCurrentPrcb()->MmInternal:_QWORD => KeGetCurrentPrcb:PKPRCB, role=currentProcessorControlBlock, KeGetCurrentPrcb->MmInternal:PVOID, mode=report-only"],
+                next_candidates["items"][0]["direct_call_result_layout_samples"],
+            )
             self.assertIn(
-                "callee return layout identity required for KeGetCurrentPrcb()",
+                "callee return/member layout identity required for KeGetCurrentPrcb()->MmInternal",
                 next_candidates["items"][0]["source_identity_requirement"],
             )
+            self.assertIn("report-only hint", next_candidates["items"][0]["source_identity_requirement"])
             root_batches = body_offset_stats["direct_base_root_review_batches"]
             self.assertEqual(
                 "body_offset_direct_base_root_review_batches_v1",
@@ -3350,8 +3398,12 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 batches_by_class["direct_call_result"]["direct_call_result_callees"],
             )
             self.assertEqual(
-                ["KeGetCurrentPrcb()"],
+                ["KeGetCurrentPrcb()->MmInternal"],
                 batches_by_class["direct_call_result"]["direct_call_result_samples"],
+            )
+            self.assertEqual(
+                {"KeGetCurrentPrcb:PKPRCB": 1, "KeGetCurrentPrcb->MmInternal:PVOID": 1},
+                batches_by_class["direct_call_result"]["direct_call_result_layout_hints"],
             )
             self.assertEqual(
                 "Verify the callee return type and exact returned object layout before any field-zero rewrite.",
@@ -3370,7 +3422,8 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
             self.assertIn("direct_call_result_layout_candidates", markdown)
             self.assertIn("direct_call_result_layout_identity", markdown)
             self.assertIn("direct_call_result=1", markdown)
-            self.assertIn("KeGetCurrentPrcb()", markdown)
+            self.assertIn("KeGetCurrentPrcb()->MmInternal", markdown)
+            self.assertIn("KeGetCurrentPrcb:PKPRCB", markdown)
 
     def test_nested_field_pointer_residue_is_reported_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
