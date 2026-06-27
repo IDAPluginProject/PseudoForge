@@ -8841,14 +8841,22 @@ def _body_offset_source_detail_counter(items: list[dict[str, Any]]) -> dict[str,
         source = str(item.get("source", "") or "").strip()
         anchor = str(item.get("source_anchor", "") or "").strip()
         source_type = str(item.get("source_type", "") or "").strip()
+        source_provenance = str(item.get("source_provenance", "") or "").strip()
         rhs_kind = str(item.get("source_rhs_kind", "") or "").strip()
-        if not base or not anchor:
+        if not base:
             continue
-        parts = [base, "<-", anchor]
-        if source and not anchor.startswith(source):
+        suffixes = []
+        if anchor:
+            parts = [base, "<-", anchor]
+        elif source:
+            parts = [base, "<-", source]
+            if source_provenance and source_provenance not in {"none", "unknown"}:
+                suffixes.append(source_provenance)
+        else:
+            continue
+        if source and anchor and not anchor.startswith(source):
             parts.extend([" via ", source])
         detail = "".join(parts)
-        suffixes = []
         if source_type:
             suffixes.append(source_type)
         if rhs_kind and rhs_kind not in {"none", "unknown"}:

@@ -1050,7 +1050,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                         "/*",
                         "    Kernel insights:",
                         "      - domain_structure_identity: Domain identity for keyControlBlock: role keyControlBlock, structure CM_KEY_CONTROL_BLOCK, mode report-only, profile windows.registry_config.queue parameter 0. Fields field_10=+0x10 ULONG_PTR, field_18=+0x18 ULONG_PTR.",
-                        "      - inferred_offset_stable_base_source: Stable base source for keyControlBlock: transactionLogEntry (parameter source, parameter_direct_alias), 4 typed dereference(s) across 4 offset(s). Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68",
+                        "      - inferred_offset_stable_base_source: Stable base source for keyControlBlock: transactionLogEntry (parameter source, parameter_direct_alias), 4 typed dereference(s) across 4 offset(s). Source detail rhs direct_parameter. Review-only; temp/generic base keeps rewrite blocked until source identity is trusted. confidence=0.68",
                         "      - inferred_offset_rewrite_blockers: Offset field rewrite blocked for keyControlBlock: domain identity profile is report-only; source domain identity profile is report-only; trusted rewrite source is required for canonical body rewrite. Review-only aliases remain available. confidence=0.73",
                         "*/",
                         "__int64 __fastcall CmpQueueResidue(PVOID keyControlBlock)",
@@ -1175,7 +1175,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     and batch["function_count"] == 1
                     and batch["actionability_classes"]["exact_evidence_attempt"] == 1
                     and batch["source_identity_requirements"][
-                        "direct parameter alias source must match exact function/build/profile identity"
+                        "direct parameter alias source keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter must match exact function/build/profile identity"
                     ]
                     == 1
                     and batch["stable_source_provenance"]["parameter_direct_alias"] == 1
@@ -1333,6 +1333,14 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 {"transactionLogEntry": 1},
                 queues["source_provenance_review"]["top_stable_sources"],
             )
+            self.assertEqual(
+                {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
+                stats["top_stable_source_details"],
+            )
+            self.assertEqual(
+                {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
+                queues["source_provenance_review"]["top_stable_source_details"],
+            )
             cmp_queue_item = next(
                 item
                 for item in queues["report_only_exact_promotion_candidates"]["items"]
@@ -1388,6 +1396,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(
                 {"transactionLogEntry": 1},
                 cmp_queue_item["top_stable_sources"],
+            )
+            self.assertEqual(
+                {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
+                cmp_queue_item["top_stable_source_details"],
             )
             self.assertTrue(
                 any(
@@ -1510,6 +1522,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "direct parameter alias source",
                 cmp_next_goal_item["source_identity_requirement"],
             )
+            self.assertEqual(
+                {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
+                cmp_next_goal_item["top_stable_source_details"],
+            )
             self.assertTrue(
                 any(
                     "keyControlBlock+0x10:_QWORD" in sample
@@ -1531,6 +1547,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("memory:type_conflict_resolution", markdown)
             self.assertIn("direct_parameter_source_identity", markdown)
             self.assertIn("direct parameter alias source", markdown)
+            self.assertIn(
+                "keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter",
+                markdown,
+            )
             self.assertIn("Report-only profile remains closed", markdown)
             self.assertIn("Offset samples", markdown)
             self.assertIn("CmpQueueResidue: keyControlBlock+0x10:_QWORD", markdown)
