@@ -67,6 +67,12 @@ DIRECT_CALL_RESULT_DEREF_ITEM_RE = re.compile(
     r"(?P<callee>[A-Za-z_][A-Za-z0-9_]*)\s*"
     r"\((?P<args>[^;\n()]*)\)"
 )
+PARAMETER_FIELD_POINTER_SOURCE_LOAD_RE = re.compile(
+    r"(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+    r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"\(\s*(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
 POINTER_INDEXED_OFFSET_DEREF_RE = re.compile(
     r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
     r"(?P<pointer_stars>\*+)\s*\)\s*"
@@ -214,6 +220,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "source_provenance_review": (
         "Candidates with stable source provenance evidence that can guide exact source identity review."
     ),
+    "parameter_field_pointer_alias_candidates": (
+        "Parameter-field pointer aliases with concrete source+offset anchors that still need exact containing-object identity."
+    ),
     "validated_rewrite_residue": (
         "Validated canonical rewrite outputs that still have residual raw offset dereferences to reread."
     ),
@@ -303,6 +312,9 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     ),
     "source_provenance_review": (
         "Follow the recorded direct or field-pointer source alias, then require exact function/build/source identity before promotion."
+    ),
+    "parameter_field_pointer_alias_candidates": (
+        "Use the source+offset anchors to prove the containing object layout; keep temp/generic aliases report-only until exact identity exists."
     ),
     "validated_rewrite_residue": (
         "Compare the canonical cleaned output with the preview artifact and rewrite only advertised same-object residue."
@@ -2709,6 +2721,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("top_stable_sources", {})).items()
         )
+        parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(queue)
+        if parameter_field_pointer_anchors:
+            stable_sources = (
+                "%s; field-ptr %s" % (stable_sources, parameter_field_pointer_anchors)
+                if stable_sources
+                else "field-ptr %s" % parameter_field_pointer_anchors
+            )
         domain_profiles = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
@@ -2869,8 +2888,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Call-result anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Actionability | Residue | Call-result anchors | Field-pointer anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -2911,14 +2930,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(batch.get("nested_field_pointer_residue"), 0),
             )
             call_result_anchors = _body_offset_direct_call_result_anchor_summary(batch)
+            parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(batch)
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
                     _markdown_table_cell(actionability),
                     _markdown_table_cell(residue),
                     _markdown_table_cell(call_result_anchors),
+                    _markdown_table_cell(parameter_field_pointer_anchors),
                     _markdown_table_cell(gates),
                     _markdown_table_cell(cause_tags),
                     _markdown_table_cell(", ".join(requirements)),
@@ -2929,8 +2950,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Call-result anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Call-result anchors | Field-pointer anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -2955,8 +2976,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             if str(item.get(key, "") or "")
         )
         call_result_anchors = _body_offset_direct_call_result_anchor_summary(item)
+        parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
@@ -2968,6 +2990,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("offset_deref_survivors"), 0),
                 _int_value(item.get("direct_base_deref_survivors"), 0),
                 _markdown_table_cell(call_result_anchors),
+                _markdown_table_cell(parameter_field_pointer_anchors),
                 _markdown_table_cell(cause_tags),
                 _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
@@ -6144,6 +6167,10 @@ def _body_offset_residue_function_summary(
         0,
     )
     direct_base_deref_profile = _direct_base_deref_profile(cleaned_path)
+    parameter_field_pointer_source_profile = _parameter_field_pointer_source_anchor_profile(
+        cleaned_path,
+        stable_base_sources,
+    )
     review_class = _body_offset_residue_review_class(
         prototype_metrics,
         layout_hints,
@@ -6346,6 +6373,27 @@ def _body_offset_residue_function_summary(
         "direct_base_deref_samples": [
             str(sample)
             for sample in direct_base_deref_profile.get("samples", []) or []
+            if str(sample)
+        ][:5],
+        "parameter_field_pointer_source_anchor_count": _int_value(
+            parameter_field_pointer_source_profile.get("count"),
+            0,
+        ),
+        "parameter_field_pointer_sources": _coerce_dict(
+            parameter_field_pointer_source_profile.get("sources", {})
+        ),
+        "parameter_field_pointer_targets": _coerce_dict(
+            parameter_field_pointer_source_profile.get("targets", {})
+        ),
+        "parameter_field_pointer_offsets": _coerce_dict(
+            parameter_field_pointer_source_profile.get("offsets", {})
+        ),
+        "parameter_field_pointer_types": _coerce_dict(
+            parameter_field_pointer_source_profile.get("types", {})
+        ),
+        "parameter_field_pointer_samples": [
+            str(sample)
+            for sample in parameter_field_pointer_source_profile.get("samples", []) or []
             if str(sample)
         ][:5],
         "generic_parameter_survivors": _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
@@ -7619,6 +7667,56 @@ def _direct_call_result_argument_roots(args: str | None) -> list[str]:
     return roots[:6]
 
 
+def _parameter_field_pointer_source_anchor_profile(
+    cleaned_path: Path | None,
+    stable_base_sources: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_names = {
+        str(item.get("source", "") or "")
+        for item in stable_base_sources
+        if str(item.get("source_provenance", "") or "") == "parameter_field_pointer_alias"
+        and str(item.get("source", "") or "")
+    }
+    if cleaned_path is None or not cleaned_path.exists() or not source_names:
+        return {}
+    text = _read_text(cleaned_path)
+    body = _strip_pseudoforge_header(text) if text else ""
+    sources: Counter[str] = Counter()
+    targets: Counter[str] = Counter()
+    offsets: Counter[str] = Counter()
+    types: Counter[str] = Counter()
+    samples: list[str] = []
+    count = 0
+    for match in PARAMETER_FIELD_POINTER_SOURCE_LOAD_RE.finditer(body):
+        source = str(match.group("source") or "").strip()
+        if source not in source_names:
+            continue
+        target = str(match.group("target") or "").strip()
+        offset = _parse_pointer_indexed_integer(match.group("offset"))
+        if not source or not target or offset is None:
+            continue
+        offset_text = "+0x%X" % offset
+        type_name = _normalized_offset_deref_type(match.group("type"))
+        sources[source] += 1
+        targets[target] += 1
+        offsets[offset_text] += 1
+        types[type_name] += 1
+        count += 1
+        sample = "%s<-%s%s:%s" % (target, source, offset_text, type_name)
+        if len(samples) < 5 and sample not in samples:
+            samples.append(sample)
+    if count <= 0:
+        return {}
+    return {
+        "count": count,
+        "sources": _counter_to_dict(Counter(dict(sources.most_common(8)))),
+        "targets": _counter_to_dict(Counter(dict(targets.most_common(8)))),
+        "offsets": _counter_to_dict(Counter(dict(offsets.most_common(8)))),
+        "types": _counter_to_dict(Counter(dict(types.most_common(8)))),
+        "samples": samples,
+    }
+
+
 def _offset_deref_items(text: str) -> list[dict[str, Any]]:
     items = []
     for match in OFFSET_DEREF_ITEM_RE.finditer(text or ""):
@@ -7942,6 +8040,7 @@ def _body_offset_residue_review_queues(
         "report_only_field_alias_review",
         "source_identity_required",
         "source_provenance_review",
+        "parameter_field_pointer_alias_candidates",
         "validated_rewrite_residue",
         "nested_field_pointer_residue_candidates",
         "direct_call_result_layout_candidates",
@@ -8231,6 +8330,34 @@ def _body_offset_direct_call_result_count(item: dict[str, Any]) -> int:
         _int_value(value, 0)
         for value in _coerce_dict(item.get("direct_call_result_callees", {})).values()
     )
+
+
+def _body_offset_parameter_field_pointer_anchor_summary(
+    item: dict[str, Any],
+    limit: int = 3,
+) -> str:
+    samples = [
+        str(sample)
+        for sample in item.get("parameter_field_pointer_samples", []) or []
+        if str(sample)
+    ][:limit]
+    if samples:
+        return ", ".join(samples)
+    sources = [
+        str(source)
+        for source in _coerce_dict(item.get("parameter_field_pointer_sources", {})).keys()
+        if str(source)
+    ][:limit]
+    offsets = [
+        str(offset)
+        for offset in _coerce_dict(item.get("parameter_field_pointer_offsets", {})).keys()
+        if str(offset)
+    ][:limit]
+    if sources and offsets:
+        return "%s via %s" % (", ".join(sources), ",".join(offsets))
+    if sources:
+        return ", ".join(sources)
+    return ""
 
 
 def _body_offset_residue_next_goal_candidates(
@@ -8558,6 +8685,9 @@ def _body_offset_residue_next_goal_review_batches(
         call_result_callees: Counter[str] = Counter()
         call_result_arg_roots: Counter[str] = Counter()
         call_result_samples: list[str] = []
+        parameter_field_pointer_sources: Counter[str] = Counter()
+        parameter_field_pointer_offsets: Counter[str] = Counter()
+        parameter_field_pointer_samples: list[str] = []
         for item in group_items:
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
@@ -8574,6 +8704,14 @@ def _body_offset_residue_next_goal_review_batches(
                 sample_text = str(sample)
                 if sample_text and sample_text not in call_result_samples:
                     call_result_samples.append(sample_text)
+            for source, count in _coerce_dict(item.get("parameter_field_pointer_sources", {})).items():
+                parameter_field_pointer_sources[str(source)] += _int_value(count, 0)
+            for offset, count in _coerce_dict(item.get("parameter_field_pointer_offsets", {})).items():
+                parameter_field_pointer_offsets[str(offset)] += _int_value(count, 0)
+            for sample in item.get("parameter_field_pointer_samples", []) or []:
+                sample_text = str(sample)
+                if sample_text and sample_text not in parameter_field_pointer_samples:
+                    parameter_field_pointer_samples.append(sample_text)
         batches.append(
             {
                 "batch": "%s:%s" % (subsystem, kind),
@@ -8654,6 +8792,13 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(call_result_arg_roots.most_common(limit)))
                 ),
                 "direct_call_result_samples": call_result_samples[:limit],
+                "parameter_field_pointer_sources": _counter_to_dict(
+                    Counter(dict(parameter_field_pointer_sources.most_common(limit)))
+                ),
+                "parameter_field_pointer_offsets": _counter_to_dict(
+                    Counter(dict(parameter_field_pointer_offsets.most_common(limit)))
+                ),
+                "parameter_field_pointer_samples": parameter_field_pointer_samples[:limit],
                 "residue_cause_tags": _counter_to_dict(
                     Counter(dict(residue_cause_tags.most_common(limit)))
                 ),
@@ -8677,6 +8822,11 @@ def _body_offset_residue_next_goal_review_batches(
                         "direct_call_result_samples": [
                             str(sample)
                             for sample in item.get("direct_call_result_samples", []) or []
+                            if str(sample)
+                        ],
+                        "parameter_field_pointer_samples": [
+                            str(sample)
+                            for sample in item.get("parameter_field_pointer_samples", []) or []
                             if str(sample)
                         ],
                         "residue_cause_tags": [
@@ -8736,6 +8886,18 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "direct_call_result_samples": [
             str(sample)
             for sample in item.get("direct_call_result_samples", []) or []
+            if str(sample)
+        ],
+        "parameter_field_pointer_source_anchor_count": _int_value(
+            item.get("parameter_field_pointer_source_anchor_count"),
+            0,
+        ),
+        "parameter_field_pointer_sources": _coerce_dict(item.get("parameter_field_pointer_sources", {})),
+        "parameter_field_pointer_targets": _coerce_dict(item.get("parameter_field_pointer_targets", {})),
+        "parameter_field_pointer_offsets": _coerce_dict(item.get("parameter_field_pointer_offsets", {})),
+        "parameter_field_pointer_samples": [
+            str(sample)
+            for sample in item.get("parameter_field_pointer_samples", []) or []
             if str(sample)
         ],
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
@@ -8891,6 +9053,13 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
             "identity only if the profile proves the private layout source."
         )
     if kind == "parameter_field_pointer_source_identity":
+        anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
+        if anchors:
+            return (
+                "Trace parameter-field pointer anchor(s) %s, prove the containing object layout, "
+                "and keep the temp/generic base closed without exact evidence."
+                % anchors
+            )
         return (
             "Trace the parameter-field pointer source, prove the containing object "
             "layout, and keep the temp/generic base closed without exact evidence."
@@ -8963,6 +9132,9 @@ def _body_offset_residue_next_goal_source_identity_requirement(
     if kind == "direct_parameter_source_identity":
         return "direct parameter alias source must match exact function/build/profile identity"
     if kind == "parameter_field_pointer_source_identity":
+        anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
+        if anchors:
+            return "parameter-field pointer source anchors %s must match exact containing-object layout identity" % anchors
         return "parameter-field pointer source must match exact containing-object layout identity"
     if kind == "direct_call_result_layout_identity":
         anchors = _body_offset_direct_call_result_anchor_summary(item)
@@ -9047,6 +9219,15 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
         return (
             _int_value(item.get("stable_base_source_count"), 0) > 0
             or "stable_source_provenance_available_for_review" in details
+        )
+    if queue_name == "parameter_field_pointer_alias_candidates":
+        return (
+            _int_value(item.get("parameter_field_pointer_source_anchor_count"), 0) > 0
+            or _int_value(
+                _coerce_dict(item.get("stable_source_provenance", {})).get("parameter_field_pointer_alias"),
+                0,
+            )
+            > 0
         )
     if queue_name == "validated_rewrite_residue":
         return (
@@ -9157,6 +9338,10 @@ def _body_offset_residue_review_queue_summary(
     direct_call_result_callees: Counter[str] = Counter()
     direct_call_result_arg_roots: Counter[str] = Counter()
     direct_call_result_samples: list[str] = []
+    parameter_field_pointer_sources: Counter[str] = Counter()
+    parameter_field_pointer_targets: Counter[str] = Counter()
+    parameter_field_pointer_offsets: Counter[str] = Counter()
+    parameter_field_pointer_samples: list[str] = []
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
@@ -9210,6 +9395,16 @@ def _body_offset_residue_review_queue_summary(
             sample_text = str(sample)
             if sample_text and sample_text not in direct_call_result_samples:
                 direct_call_result_samples.append(sample_text)
+        for key, value in _coerce_dict(item.get("parameter_field_pointer_sources", {})).items():
+            parameter_field_pointer_sources[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("parameter_field_pointer_targets", {})).items():
+            parameter_field_pointer_targets[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("parameter_field_pointer_offsets", {})).items():
+            parameter_field_pointer_offsets[str(key)] += _int_value(value, 0)
+        for sample in item.get("parameter_field_pointer_samples", []) or []:
+            sample_text = str(sample)
+            if sample_text and sample_text not in parameter_field_pointer_samples:
+                parameter_field_pointer_samples.append(sample_text)
     nested_field_pointer_parents: Counter[str] = Counter()
     nested_field_pointer_fields: Counter[str] = Counter()
     nested_field_pointer_parent_fields: Counter[str] = Counter()
@@ -9255,6 +9450,20 @@ def _body_offset_residue_review_queue_summary(
             Counter(dict(direct_call_result_arg_roots.most_common(limit)))
         ),
         "direct_call_result_samples": direct_call_result_samples[:limit],
+        "parameter_field_pointer_source_anchors": sum(
+            _int_value(item.get("parameter_field_pointer_source_anchor_count"), 0)
+            for item in items
+        ),
+        "parameter_field_pointer_sources": _counter_to_dict(
+            Counter(dict(parameter_field_pointer_sources.most_common(limit)))
+        ),
+        "parameter_field_pointer_targets": _counter_to_dict(
+            Counter(dict(parameter_field_pointer_targets.most_common(limit)))
+        ),
+        "parameter_field_pointer_offsets": _counter_to_dict(
+            Counter(dict(parameter_field_pointer_offsets.most_common(limit)))
+        ),
+        "parameter_field_pointer_samples": parameter_field_pointer_samples[:limit],
         "generic_parameter_survivors": sum(
             _int_value(item.get("generic_parameter_survivors"), 0)
             for item in items
@@ -9390,6 +9599,18 @@ def _body_offset_residue_review_queue_item(
             for sample in item.get("direct_call_result_samples", []) or []
             if str(sample)
         ],
+        "parameter_field_pointer_source_anchor_count": _int_value(
+            item.get("parameter_field_pointer_source_anchor_count"),
+            0,
+        ),
+        "parameter_field_pointer_sources": _coerce_dict(item.get("parameter_field_pointer_sources", {})),
+        "parameter_field_pointer_targets": _coerce_dict(item.get("parameter_field_pointer_targets", {})),
+        "parameter_field_pointer_offsets": _coerce_dict(item.get("parameter_field_pointer_offsets", {})),
+        "parameter_field_pointer_samples": [
+            str(sample)
+            for sample in item.get("parameter_field_pointer_samples", []) or []
+            if str(sample)
+        ],
         "direct_base_deref_samples": [
             str(sample)
             for sample in item.get("direct_base_deref_samples", []) or []
@@ -9474,6 +9695,18 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
         if _int_value(provenance.get("named_call_result_alias"), 0) > 0:
             return "named call-result source alias exists; verify returned layout identity before rewrite"
         return "stable source provenance exists; verify it before widening rewrite"
+    if queue == "parameter_field_pointer_alias_candidates":
+        samples = [
+            str(sample)
+            for sample in item.get("parameter_field_pointer_samples", []) or []
+            if str(sample)
+        ][:3]
+        if samples:
+            return (
+                "parameter-field pointer source anchor(s) %s need exact containing-object identity"
+                % ", ".join(samples)
+            )
+        return "parameter-field pointer source alias needs exact containing-object identity"
     if queue == "validated_rewrite_residue":
         return "validated rewrite already ran; reread remaining secondary residue"
     if queue == "nested_field_pointer_residue_candidates":
