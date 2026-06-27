@@ -94,6 +94,10 @@ _DIRECT_SOURCE_ALIAS_REWRITE_PROVENANCES = {
     "temporary_call_result_alias",
     "temporary_parameter_direct_alias",
 }
+_SOURCE_ALIAS_RESIDUAL_EXTENSION_PROVENANCES = {
+    "named_parameter_direct_alias",
+    "parameter_direct_alias",
+}
 
 
 @dataclass(slots=True)
@@ -112,6 +116,12 @@ def build_layout_rewrite_preview_bundle(
     plans = _layout_rewrite_preview_plans(cleaned_text)
     if not plans:
         return None
+    source_alias_residual_extensions = []
+    if apply_validated_body_rewrite:
+        plans, source_alias_residual_extensions = _extend_source_alias_residual_offsets(
+            cleaned_text,
+            plans,
+        )
     normalized_cleaned_text, normalized_plans, normalization_items = _normalize_layout_rewrite_advertisements(
         cleaned_text,
         plans,
@@ -164,6 +174,7 @@ def build_layout_rewrite_preview_bundle(
         "rewritten_bases": rewrite_stats["rewritten_bases"],
         "rewrite_results": rewrite_stats["rewrite_results"],
         "source_aliases_by_result_base": rewrite_stats["source_aliases_by_result_base"],
+        "source_alias_residual_extensions": source_alias_residual_extensions,
         "advertisement_normalizations": normalization_items,
         "validation": validation,
     }
@@ -456,6 +467,82 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
     return result
 
 
+def _extend_source_alias_residual_offsets(
+    text: str,
+    plans: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    extended_plans: list[dict[str, Any]] = []
+    extensions: list[dict[str, Any]] = []
+    for plan in plans:
+        updated = dict(plan)
+        extra_offsets = _safe_source_alias_residual_offsets(text, updated)
+        if extra_offsets:
+            original_offsets = _plan_advertised_offsets(updated)
+            updated["advertised_offsets"] = sorted(original_offsets | set(extra_offsets))
+            extensions.append(
+                {
+                    "base": str(updated.get("base", "") or ""),
+                    "source": str(updated.get("source", "") or ""),
+                    "source_provenance": str(updated.get("source_provenance", "") or ""),
+                    "original_offsets": sorted(original_offsets),
+                    "extended_offsets": extra_offsets,
+                }
+            )
+        extended_plans.append(updated)
+    return extended_plans, extensions
+
+
+def _safe_source_alias_residual_offsets(text: str, plan: dict[str, Any]) -> list[int]:
+    if not _source_alias_residual_extension_allowed(plan):
+        return []
+    source = str(plan.get("source", "") or "")
+    advertised_offsets = _plan_advertised_offsets(plan)
+    observations: dict[int, dict[str, Any]] = {}
+    for match in _OFFSET_DEREF_RE.finditer(text or ""):
+        if match.group("base") != source:
+            continue
+        offset = _parse_offset(match.group("offset"))
+        if offset is None or offset <= 0 or offset in advertised_offsets:
+            continue
+        type_name = _rewritten_field_type(
+            match.group("type"),
+            match.group("pointer_stars"),
+        )
+        element_size = _indexed_element_size(type_name)
+        if element_size <= 0:
+            continue
+        item = observations.setdefault(
+            offset,
+            {
+                "sizes": set(),
+                "unsafe": False,
+            },
+        )
+        item["sizes"].add(element_size)
+        if offset % element_size != 0:
+            item["unsafe"] = True
+    safe_offsets = []
+    for offset, item in sorted(observations.items()):
+        sizes = set(item.get("sizes") or set())
+        if item.get("unsafe") or len(sizes) != 1:
+            continue
+        safe_offsets.append(offset)
+    return safe_offsets
+
+
+def _source_alias_residual_extension_allowed(plan: dict[str, Any]) -> bool:
+    if not _source_alias_rewrite_allowed(plan):
+        return False
+    source_provenance = str(plan.get("source_provenance", "") or "")
+    if source_provenance not in _SOURCE_ALIAS_RESIDUAL_EXTENSION_PROVENANCES:
+        return False
+    if int(plan.get("advertised_access_count", 0) or 0) < _REWRITE_ACCESS_THRESHOLD:
+        return False
+    if len(_plan_advertised_offsets(plan)) < _REWRITE_FIELD_THRESHOLD:
+        return False
+    return True
+
+
 def _source_alias_rewrite_allowed(plan: dict[str, Any]) -> bool:
     if _plan_kind(plan) != "full":
         return False
@@ -561,9 +648,7 @@ def _rewrite_preview_advertisement_comment(
     field_count: int,
     field_aliases: list[str],
 ) -> str:
-    field_text = ", ".join(field_aliases[:8])
-    if len(field_aliases) > 8:
-        field_text += ", ..."
+    field_text = ", ".join(field_aliases)
 
     def replace(match: re.Match[str]) -> str:
         if match.group("base") != base:

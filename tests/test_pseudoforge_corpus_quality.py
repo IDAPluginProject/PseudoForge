@@ -2190,6 +2190,15 @@ __int64 __fastcall ExpressionSource(__int64 context)
                     "rewritten_accesses": 12,
                     "rewritten_fields": 8,
                     "rewritten_bases": ["fullBase"],
+                    "source_alias_residual_extensions": [
+                        {
+                            "base": "fullBase",
+                            "source": "context",
+                            "source_provenance": "parameter_direct_alias",
+                            "original_offsets": [0x10, 0x18, 0x20, 0x28],
+                            "extended_offsets": [0xB8, 0xC0],
+                        }
+                    ],
                     "rewrite_results": {
                         "fullBase": {
                             "rewritten_accesses": 12,
@@ -2247,6 +2256,9 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, stats["totals"]["functions_with_direct_zero_rewrites"])
             self.assertEqual(2, stats["totals"]["canonical_direct_zero_rewritten_accesses"])
             self.assertEqual(1, stats["totals"]["functions_with_canonical_direct_zero_rewrites"])
+            self.assertEqual(1, stats["totals"]["source_alias_residual_extensions"])
+            self.assertEqual(1, stats["totals"]["functions_with_source_alias_residual_extensions"])
+            self.assertEqual(2, stats["totals"]["source_alias_residual_extended_offsets"])
             self.assertEqual(1, stats["totals"]["full_preview_plans"])
             self.assertEqual(1, stats["totals"]["partial_preview_plans"])
             self.assertEqual(1, stats["canonical_rewrite_statuses"]["applied"])
@@ -2255,6 +2267,9 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual("Partial", stats["top_functions"][0]["name"])
             self.assertEqual(2, stats["top_functions"][0]["direct_zero_rewritten_accesses"])
             self.assertEqual(2, stats["top_functions"][0]["canonical_direct_zero_rewritten_accesses"])
+            full_item = next(item for item in stats["top_functions"] if item["name"] == "Full")
+            self.assertEqual(1, full_item["source_alias_residual_extension_count"])
+            self.assertEqual(2, full_item["source_alias_residual_extended_offsets"])
 
     def test_analyze_corpus_counts_warning_rename_rule_and_text_residue_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -4758,6 +4758,16 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             % rewrite_preview_artifact_totals.get("normalized_access_delta", 0),
             "- Normalized field delta: `%s`"
             % rewrite_preview_artifact_totals.get("normalized_field_delta", 0),
+            "- Source alias residual extensions: `%s` across `%s` functions"
+            % (
+                rewrite_preview_artifact_totals.get("source_alias_residual_extensions", 0),
+                rewrite_preview_artifact_totals.get(
+                    "functions_with_source_alias_residual_extensions",
+                    0,
+                ),
+            ),
+            "- Source alias residual extended offsets: `%s`"
+            % rewrite_preview_artifact_totals.get("source_alias_residual_extended_offsets", 0),
             "- Canonical rewrite requested: `%s`"
             % rewrite_preview_artifact_totals.get("canonical_rewrite_requested", 0),
             "- Canonical rewrite applied: `%s`" % rewrite_preview_artifact_totals.get("canonical_rewrite_applied", 0),
@@ -15804,6 +15814,22 @@ def _update_layout_rewrite_preview_artifact_metrics(
         normalized_fields = _int_value(item.get("normalized_fields"), 0)
         totals["normalized_access_delta"] += max(0, original_accesses - normalized_accesses)
         totals["normalized_field_delta"] += max(0, original_fields - normalized_fields)
+    source_alias_extensions = [
+        item
+        for item in metadata.get("source_alias_residual_extensions", []) or []
+        if isinstance(item, dict)
+    ]
+    totals["source_alias_residual_extensions"] += len(source_alias_extensions)
+    if source_alias_extensions:
+        totals["functions_with_source_alias_residual_extensions"] += 1
+    for item in source_alias_extensions:
+        totals["source_alias_residual_extended_offsets"] += len(
+            [
+                offset
+                for offset in item.get("extended_offsets", []) or []
+                if _rewrite_preview_artifact_offset_key(offset) is not None
+            ]
+        )
     canonical_status = str(metadata.get("canonical_rewrite_status", "") or "unknown")
     canonical_statuses[canonical_status] += 1
     preview_plans = [
@@ -15858,6 +15884,8 @@ def _rewrite_preview_artifact_direct_zero_rewrite_accesses(metadata: dict[str, A
 
 
 def _rewrite_preview_artifact_offset_key(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
     text = str(value or "").strip()
     if not text:
         return None
@@ -16934,6 +16962,11 @@ def _rewrite_preview_artifact_function_summary(
     validation = _coerce_dict(metadata.get("validation", {}))
     direct_zero_rewritten_accesses = _rewrite_preview_artifact_direct_zero_rewrite_accesses(metadata)
     canonical_modified = bool(metadata.get("canonical_cleaned_output_modified", False))
+    source_alias_extensions = [
+        dict(item)
+        for item in metadata.get("source_alias_residual_extensions", []) or []
+        if isinstance(item, dict)
+    ]
     return {
         "ea": ea,
         "name": name,
@@ -16957,6 +16990,18 @@ def _rewrite_preview_artifact_function_summary(
             for item in metadata.get("advertisement_normalizations", []) or []
             if isinstance(item, dict)
         ],
+        "source_alias_residual_extensions": source_alias_extensions,
+        "source_alias_residual_extension_count": len(source_alias_extensions),
+        "source_alias_residual_extended_offsets": sum(
+            len(
+                [
+                    offset
+                    for offset in item.get("extended_offsets", []) or []
+                    if _rewrite_preview_artifact_offset_key(offset) is not None
+                ]
+            )
+            for item in source_alias_extensions
+        ),
         "rewritten_accesses": _int_value(metadata.get("rewritten_accesses"), 0),
         "rewritten_fields": _int_value(metadata.get("rewritten_fields"), 0),
         "direct_zero_rewritten_accesses": direct_zero_rewritten_accesses,
