@@ -1851,6 +1851,10 @@ def analyze_corpus(
                 top_body_offset_residue_functions,
                 top,
             ),
+            "next_goal_candidates": _body_offset_residue_next_goal_candidates(
+                top_body_offset_residue_functions,
+                top,
+            ),
             "named_goal_target_status": _body_offset_named_goal_target_status(
                 top_body_offset_residue_functions,
                 top,
@@ -2583,6 +2587,70 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
                 _markdown_table_cell(str(queue.get("recommended_next_step", "") or "")),
+            )
+        )
+    next_goal_candidates = _coerce_dict(body_offset_residue_stats.get("next_goal_candidates", {}))
+    lines.extend(
+        [
+            "",
+            "### Residue Next Goal Candidates",
+            "",
+            "- Candidate count: `%s`" % next_goal_candidates.get("candidate_count", 0),
+            "- Workflow: %s"
+            % _markdown_table_cell(str(next_goal_candidates.get("recommended_workflow", "") or "")),
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(next_goal_candidates.get("candidate_kinds", {})),
+            "Candidate kind",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for item in next_goal_candidates.get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        stable_sources = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("top_stable_sources", {})).items()
+        )
+        domain_profiles = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("domain_profiles", {})).items()
+        )
+        requirements = "; ".join(
+            str(item.get(key, "") or "")
+            for key in [
+                "source_identity_requirement",
+                "source_stability_requirement",
+                "type_conflict_requirement",
+            ]
+            if str(item.get(key, "") or "")
+        )
+        lines.append(
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "") or ""),
+                str(item.get("candidate_kind", "") or ""),
+                str(item.get("actionability_class", "") or ""),
+                str(item.get("subsystem", "") or ""),
+                str(item.get("fail_closed_gate", "") or ""),
+                str(item.get("promotion_lane", "") or ""),
+                _int_value(item.get("actionability_score"), 0),
+                _int_value(item.get("offset_deref_survivors"), 0),
+                _int_value(item.get("direct_base_deref_survivors"), 0),
+                _markdown_table_cell(stable_sources),
+                _markdown_table_cell(domain_profiles),
+                _markdown_table_cell(str(item.get("next_step", "") or "")),
+                _markdown_table_cell(requirements),
+                _markdown_table_cell(str(item.get("safety_note", "") or "")),
             )
         )
     target_status = _coerce_dict(body_offset_residue_stats.get("named_goal_target_status", {}))
@@ -7370,6 +7438,306 @@ def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str
     if lane == "collect_function_build_source_identity":
         return "Collect exact function/build/source identity before enabling correction or rewrite."
     return "Review manually and keep fail-closed gates until exact evidence exists."
+
+
+def _body_offset_residue_next_goal_candidates(
+    items: list[dict[str, Any]],
+    limit: int,
+) -> dict[str, Any]:
+    candidates = [
+        _body_offset_residue_next_goal_candidate_item(item)
+        for item in items
+        if isinstance(item, dict) and _body_offset_residue_next_goal_candidate_kind(item)
+    ]
+    candidates.sort(
+        key=lambda item: (
+            -_int_value(item.get("actionability_score"), 0),
+            -_int_value(item.get("priority_score"), 0),
+            -_int_value(item.get("offset_deref_survivors"), 0),
+            str(item.get("subsystem", "")),
+            str(item.get("name", "")),
+        )
+    )
+    selected = candidates[:limit]
+    candidate_kinds = Counter(str(item.get("candidate_kind", "") or "") for item in selected)
+    subsystems = Counter(str(item.get("subsystem", "") or "other") for item in selected)
+    fail_closed_gates = Counter(str(item.get("fail_closed_gate", "") or "review_only") for item in selected)
+    promotion_lanes = Counter(str(item.get("promotion_lane", "") or "") for item in selected)
+    actionability_classes = Counter(
+        str(item.get("actionability_class", "") or "manual_review")
+        for item in selected
+    )
+    review_focuses = Counter(str(item.get("review_focus", "") or "") for item in selected)
+    safety_policies = Counter(str(item.get("rewrite_safety_policy", "") or "") for item in selected)
+    return {
+        "schema": "body_offset_next_goal_candidates_v1",
+        "description": (
+            "Highest-value body offset residue candidates grouped by subsystem, "
+            "function identity, source stability, type conflict, and indexed-layout gates."
+        ),
+        "recommended_workflow": (
+            "Attempt exact profile/source/type evidence first; keep report-only, "
+            "ambiguous, unstable, and type-conflicted bodies fail-closed."
+        ),
+        "candidate_count": len(selected),
+        "candidate_kinds": _counter_to_dict(Counter(dict(candidate_kinds.most_common(limit)))),
+        "subsystems": _counter_to_dict(Counter(dict(subsystems.most_common(limit)))),
+        "fail_closed_gates": _counter_to_dict(Counter(dict(fail_closed_gates.most_common(limit)))),
+        "promotion_lanes": _counter_to_dict(Counter(dict(promotion_lanes.most_common(limit)))),
+        "actionability_classes": _counter_to_dict(
+            Counter(dict(actionability_classes.most_common(limit)))
+        ),
+        "review_focuses": _counter_to_dict(Counter(dict(review_focuses.most_common(limit)))),
+        "rewrite_safety_policies": _counter_to_dict(
+            Counter(dict(safety_policies.most_common(limit)))
+        ),
+        "items": selected,
+    }
+
+
+def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[str, Any]:
+    kind = _body_offset_residue_next_goal_candidate_kind(item)
+    actionability = _body_offset_residue_next_goal_actionability_class(item, kind)
+    next_step = _body_offset_residue_next_goal_candidate_next_step(item, kind)
+    return {
+        "name": str(item.get("name", "") or ""),
+        "ea": str(item.get("ea", "") or ""),
+        "subsystem": str(item.get("subsystem", "") or "other"),
+        "candidate_kind": kind,
+        "actionability_class": actionability,
+        "actionability_score": _body_offset_residue_next_goal_actionability_score(item, kind),
+        "priority_score": _int_value(item.get("priority_score"), 0),
+        "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
+        "fail_closed_family": str(item.get("fail_closed_family", "") or ""),
+        "promotion_lane": str(item.get("promotion_lane", "") or ""),
+        "rewrite_safety_policy": str(item.get("rewrite_safety_policy", "") or ""),
+        "evidence_maturity": str(item.get("evidence_maturity", "") or ""),
+        "residue_pressure_class": str(item.get("residue_pressure_class", "") or ""),
+        "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
+        "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
+        "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
+        "review_focus": str(item.get("review_focus", "") or ""),
+        "review_summary": _body_offset_residue_review_summary(item),
+        "next_step": next_step,
+        "safety_note": _body_offset_residue_next_goal_safety_note(item, kind),
+        "source_identity_requirement": _body_offset_residue_next_goal_source_identity_requirement(
+            item,
+            kind,
+        ),
+        "source_stability_requirement": _body_offset_residue_next_goal_source_stability_requirement(item),
+        "type_conflict_requirement": _body_offset_residue_next_goal_type_conflict_requirement(item),
+        "primary_review_reasons": [
+            str(reason)
+            for reason in item.get("primary_review_reasons", []) or []
+            if str(reason)
+        ],
+        "residue_review_notes": [
+            str(note)
+            for note in item.get("residue_review_notes", []) or []
+            if str(note)
+        ],
+        "next_action_details": [
+            str(detail)
+            for detail in item.get("next_action_details", []) or []
+            if str(detail)
+        ],
+        "top_bases": [
+            str(base)
+            for base in item.get("top_bases", []) or []
+            if str(base)
+        ][:8],
+        "blocker_families": _coerce_dict(item.get("blocker_families", {})),
+        "stable_source_provenance": _coerce_dict(item.get("stable_source_provenance", {})),
+        "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
+        "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
+        "domain_profiles": _coerce_dict(item.get("domain_profiles", {})),
+        "summary_path": str(item.get("summary_path", "") or ""),
+        "cleaned_path": str(item.get("cleaned_path", "") or ""),
+    }
+
+
+def _body_offset_residue_next_goal_candidate_kind(item: dict[str, Any]) -> str:
+    gate = str(item.get("fail_closed_gate", "") or "")
+    lane = str(item.get("promotion_lane", "") or "")
+    details = {str(value) for value in item.get("next_action_details", []) or [] if str(value)}
+    factors = {str(value) for value in item.get("priority_factors", []) or [] if str(value)}
+    if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
+        return "exact_function_build_source_identity"
+    if gate == "report_only_private_layout":
+        if "parameter_field_pointer_alias_requires_source_profile" in details:
+            return "parameter_field_pointer_source_identity"
+        if "direct_parameter_source_alias_available" in details:
+            return "direct_parameter_source_identity"
+        return "exact_private_layout_source"
+    if gate == "source_stability_required":
+        return "source_stability_proof"
+    if gate == "type_conflict_required":
+        return "type_conflict_resolution"
+    if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
+        return "indexed_layout_model"
+    if gate == "validated_rewrite_residue_review":
+        return "validated_secondary_residue_reread"
+    if lane == "add_parameter_profile_or_type_evidence" or "parameter_type_followup" in factors:
+        return "parameter_profile_or_type_correction"
+    if lane == "add_exact_context_profile":
+        return "exact_context_profile"
+    if gate == "temp_source_identity_required":
+        return "temp_source_identity_trace"
+    if gate in {"manual_review_required", "threshold_evidence_gap"}:
+        return "manual_or_threshold_gap"
+    if gate == "low_pressure_deferred" and bool(item.get("named_goal_target")):
+        return "named_target_low_pressure_followup"
+    return ""
+
+
+def _body_offset_residue_next_goal_actionability_class(item: dict[str, Any], kind: str) -> str:
+    gate = str(item.get("fail_closed_gate", "") or "")
+    if kind in {
+        "direct_parameter_source_identity",
+        "parameter_field_pointer_source_identity",
+        "exact_function_build_source_identity",
+        "parameter_profile_or_type_correction",
+    }:
+        return "exact_evidence_attempt"
+    if kind in {
+        "source_stability_proof",
+        "type_conflict_resolution",
+        "indexed_layout_model",
+        "validated_secondary_residue_reread",
+    }:
+        return "model_or_reread_before_rewrite"
+    if gate in {"report_only_private_layout", "report_only_source_identity"}:
+        return "report_only_fail_closed"
+    if gate == "temp_source_identity_required":
+        return "source_trace_required"
+    if gate == "low_pressure_deferred":
+        return "deferred"
+    return "manual_review"
+
+
+def _body_offset_residue_next_goal_actionability_score(item: dict[str, Any], kind: str) -> int:
+    score = _int_value(item.get("priority_score"), 0)
+    score += 30 if bool(item.get("named_goal_target")) else 0
+    score += 20 if kind in {
+        "direct_parameter_source_identity",
+        "parameter_field_pointer_source_identity",
+        "exact_function_build_source_identity",
+    } else 0
+    score += 60 if kind in {
+        "direct_parameter_source_identity",
+        "parameter_field_pointer_source_identity",
+    } else 0
+    score += 40 if kind == "exact_function_build_source_identity" else 0
+    score += 14 if kind in {"type_conflict_resolution", "source_stability_proof"} else 0
+    score += 10 if kind == "indexed_layout_model" else 0
+    score += 8 if kind == "parameter_profile_or_type_correction" else 0
+    if str(item.get("fail_closed_gate", "") or "") == "low_pressure_deferred":
+        score -= 25
+    return score
+
+
+def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kind: str) -> str:
+    if kind == "direct_parameter_source_identity":
+        return (
+            "Reread the direct parameter alias and add exact function/build/source "
+            "identity only if the profile proves the private layout source."
+        )
+    if kind == "parameter_field_pointer_source_identity":
+        return (
+            "Trace the parameter-field pointer source, prove the containing object "
+            "layout, and keep the temp/generic base closed without exact evidence."
+        )
+    if kind == "exact_function_build_source_identity":
+        return "Resolve function/profile/build/source identity before any body rewrite or stronger type correction."
+    if kind == "exact_private_layout_source":
+        return "Keep aliases report-only while collecting exact private field layout source evidence."
+    if kind == "source_stability_proof":
+        return "Prove single initializer dominance and no post-access reassignment before rewrite."
+    if kind == "type_conflict_resolution":
+        return "Resolve overlay, width, and alignment conflicts before promoting fields."
+    if kind == "indexed_layout_model":
+        return "Model the array/table element shape separately from canonical structure rewrite."
+    if kind == "validated_secondary_residue_reread":
+        return "Reread validated output and chase only same-object secondary residue."
+    if kind == "parameter_profile_or_type_correction":
+        return "Add exact parameter semantic profile or type correction, not a generic field rewrite."
+    if kind == "exact_context_profile":
+        return "Add an exact function-scoped context profile or leave the context base review-only."
+    if kind == "temp_source_identity_trace":
+        return "Trace the temp initializer to a trusted source before any promotion."
+    if kind == "manual_or_threshold_gap":
+        return "Review manually and collect threshold evidence without lowering rewrite thresholds."
+    return "Keep fail-closed until exact evidence is available."
+
+
+def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) -> str:
+    policy = str(item.get("rewrite_safety_policy", "") or "")
+    gate = str(item.get("fail_closed_gate", "") or "")
+    if gate in {"report_only_private_layout", "report_only_source_identity"}:
+        return "Report-only profile remains closed; canonical rewrite is forbidden without exact identity."
+    if gate == "type_conflict_required":
+        return "Type/overlay conflict blocks body rewrite."
+    if gate == "source_stability_required":
+        return "Unstable source blocks body rewrite."
+    if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
+        return "Indexed layouts are not canonical field rewrites."
+    if kind == "parameter_profile_or_type_correction":
+        return "Use canonical_type/display_type for output; accepted_types are input guards only."
+    if policy:
+        return "Policy: %s." % policy
+    return "No canonical body rewrite without exact function/profile/source/build identity."
+
+
+def _body_offset_residue_next_goal_source_identity_requirement(
+    item: dict[str, Any],
+    kind: str,
+) -> str:
+    gate = str(item.get("fail_closed_gate", "") or "")
+    provenance = _coerce_dict(item.get("stable_source_provenance", {}))
+    if kind == "direct_parameter_source_identity":
+        return "direct parameter alias source must match exact function/build/profile identity"
+    if kind == "parameter_field_pointer_source_identity":
+        return "parameter-field pointer source must match exact containing-object layout identity"
+    if gate in {"source_build_mismatch", "exact_source_identity_required", "report_only_source_identity"}:
+        return "exact function, build, profile, and source object identity required"
+    if gate == "report_only_private_layout":
+        return "exact private layout source required before canonical rewrite"
+    if provenance:
+        return "stable source provenance available; verify exact profile identity before promotion"
+    return ""
+
+
+def _body_offset_residue_next_goal_source_stability_requirement(item: dict[str, Any]) -> str:
+    gate = str(item.get("fail_closed_gate", "") or "")
+    families = _coerce_dict(item.get("blocker_families", {}))
+    if gate == "source_stability_required":
+        return "prove initializer dominance and no post-access reassignment"
+    if _int_value(families.get("source_reassigned"), 0) > 0:
+        return "base reassignment must be proven harmless before rewrite"
+    if _int_value(families.get("source_address_taken"), 0) > 0:
+        return "address-taken source needs alias-stability proof"
+    if _int_value(families.get("source_compound_assignment"), 0) > 0:
+        return "compound assignment source needs stability proof"
+    return ""
+
+
+def _body_offset_residue_next_goal_type_conflict_requirement(item: dict[str, Any]) -> str:
+    gate = str(item.get("fail_closed_gate", "") or "")
+    families = _coerce_dict(item.get("blocker_families", {}))
+    conflict_parts: list[str] = []
+    for key, text in [
+        ("type_wide_overlay", "wide overlay"),
+        ("type_narrow_subfield", "narrow subfield"),
+        ("type_unaligned", "unaligned typed offset"),
+        ("type_irregular_width", "irregular width"),
+    ]:
+        if _int_value(families.get(key), 0) > 0:
+            conflict_parts.append(text)
+    if not conflict_parts and gate != "type_conflict_required":
+        return ""
+    if conflict_parts:
+        return "resolve %s conflict before rewrite" % ", ".join(conflict_parts)
+    return "resolve type width, overlay, or alignment conflict before rewrite"
 
 
 def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any]) -> bool:

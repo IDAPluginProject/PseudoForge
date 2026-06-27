@@ -1136,6 +1136,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             markdown = render_quality_markdown(report)
             stats = report["body_offset_residue_review_stats"]
             queues = stats["review_queues"]
+            next_goal_candidates = stats["next_goal_candidates"]
 
             self.assertIn("next_action_details", stats)
             self.assertIn("priority_factors", stats)
@@ -1146,6 +1147,24 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("review_focuses", stats)
             self.assertIn("residue_review_notes", stats)
             self.assertIn("promotion_lanes", stats)
+            self.assertEqual("body_offset_next_goal_candidates_v1", next_goal_candidates["schema"])
+            self.assertEqual(4, next_goal_candidates["candidate_count"])
+            self.assertEqual(
+                1,
+                next_goal_candidates["candidate_kinds"]["direct_parameter_source_identity"],
+            )
+            self.assertEqual(
+                1,
+                next_goal_candidates["candidate_kinds"]["exact_function_build_source_identity"],
+            )
+            self.assertEqual(
+                1,
+                next_goal_candidates["candidate_kinds"]["type_conflict_resolution"],
+            )
+            self.assertEqual(
+                1,
+                next_goal_candidates["candidate_kinds"]["parameter_profile_or_type_correction"],
+            )
             self.assertIn(
                 "primary_review_reasons",
                 queues["report_only_exact_promotion_candidates"],
@@ -1412,6 +1431,32 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 "lane=collect_exact_source_for_direct_parameter_alias",
                 cmp_queue_item["review_summary"],
             )
+            cmp_next_goal_item = next(
+                item
+                for item in next_goal_candidates["items"]
+                if item["name"] == "CmpQueueResidue"
+            )
+            self.assertEqual("direct_parameter_source_identity", cmp_next_goal_item["candidate_kind"])
+            self.assertEqual("exact_evidence_attempt", cmp_next_goal_item["actionability_class"])
+            self.assertIn("exact function/build/source", cmp_next_goal_item["next_step"])
+            self.assertIn("Report-only profile remains closed", cmp_next_goal_item["safety_note"])
+            self.assertIn(
+                "direct parameter alias source",
+                cmp_next_goal_item["source_identity_requirement"],
+            )
+            self.assertEqual("", cmp_next_goal_item["type_conflict_requirement"])
+            type_next_goal_item = next(
+                item
+                for item in next_goal_candidates["items"]
+                if item["name"] == "MiTypeConflictResidue"
+            )
+            self.assertEqual("type_conflict_resolution", type_next_goal_item["candidate_kind"])
+            self.assertIn("wide overlay", type_next_goal_item["type_conflict_requirement"])
+            self.assertIn("unaligned typed offset", type_next_goal_item["type_conflict_requirement"])
+            self.assertIn("Residue Next Goal Candidates", markdown)
+            self.assertIn("direct_parameter_source_identity", markdown)
+            self.assertIn("direct parameter alias source", markdown)
+            self.assertIn("Report-only profile remains closed", markdown)
             self.assertEqual(
                 "resolve_type_overlay_or_alignment",
                 type_queue_item["promotion_lane"],
