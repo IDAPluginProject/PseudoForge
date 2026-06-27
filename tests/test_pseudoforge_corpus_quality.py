@@ -4383,6 +4383,11 @@ ULONG_PTR __fastcall SourceBoundLiveIn(PMMSUPPORT_INSTANCE workingSet, ULONG_PTR
 
             self.assertEqual(1, item["live_in_parameter_gap_count"])
             self.assertEqual(1, item["source_bound_live_in_parameter_gap_count"])
+            self.assertEqual({"abi_slot3": 1}, item["live_in_parameter_gap_abi_slots"])
+            self.assertEqual(
+                {"abi_slot3_after_2_params": 1},
+                item["live_in_parameter_gap_missing_signature_slots"],
+            )
             self.assertIn("source_bound_live_in_parameter_gap", item["review_evidence"])
             self.assertIn("source_bound_live_in_parameter_gap", item["residue_cause_tags"])
             self.assertIn(
@@ -4391,6 +4396,10 @@ ULONG_PTR __fastcall SourceBoundLiveIn(PMMSUPPORT_INSTANCE workingSet, ULONG_PTR
             )
             self.assertEqual(1, source_bound_queue["functions"])
             self.assertEqual(1, source_bound_queue["source_bound_live_in_parameter_gap_count"])
+            self.assertEqual(
+                {"abi_slot3_after_2_params": 1},
+                source_bound_queue["live_in_parameter_gap_missing_signature_slots"],
+            )
             self.assertEqual(1, live_in_queue["functions"])
             self.assertEqual(
                 {"ntoskrnl.exe:26200.8457:x64": 1},
@@ -4405,8 +4414,10 @@ ULONG_PTR __fastcall SourceBoundLiveIn(PMMSUPPORT_INSTANCE workingSet, ULONG_PTR
                 next_item["candidate_kind"],
             )
             self.assertIn("source-bound live-in ABI parameter gap", next_item["next_step"])
+            self.assertIn("abi_slot3_after_2_params", next_item["next_step"])
             self.assertIn("missing-parameter lead only", next_item["safety_note"])
             self.assertIn("source_bound_live_in_parameter_gap_candidates", markdown)
+            self.assertIn("abi_slot3_after_2_params", markdown)
             self.assertIn("source-bound live-in ABI gap evidence", markdown)
 
     def test_next_goal_candidate_prefers_direct_call_result_over_live_in_gap(self) -> None:
@@ -4828,8 +4839,15 @@ __int64 __fastcall PrototypeAlias(__int64 a1, char a2, unsigned __int64 a3)
                 item["existing_parameter_alias_samples"],
             )
             self.assertEqual(
-                ["v35(r9)->ExpGetThreadResourceHint[arg3] caller_parameter_gap_candidate"],
+                [
+                    "v35(r9)->ExpGetThreadResourceHint[arg3] "
+                    "abi_slot3_after_3_params caller_parameter_gap_candidate"
+                ],
                 item["live_in_parameter_gap_samples"],
+            )
+            self.assertEqual(
+                {"abi_slot3_after_3_params": 1},
+                item["live_in_parameter_gap_missing_signature_slots"],
             )
 
     def test_analyze_corpus_counts_stack_pseudo_local_diagnostic_class(self) -> None:

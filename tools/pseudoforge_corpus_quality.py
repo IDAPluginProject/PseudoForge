@@ -5868,13 +5868,18 @@ def _normalize_warning_diagnostics_for_quality(
     parameters = _quality_signature_parameters(cleaned_path)
     if not parameters:
         return warning_diagnostics
+    slot_context_diagnostics = _quality_add_live_in_signature_slot_context(
+        warning_diagnostics,
+        parameters,
+    )
+    slot_context_changed = slot_context_diagnostics is not warning_diagnostics
     accepted_renames = _quality_accepted_parameter_renames_by_old_name(rename_items)
     if not accepted_renames:
-        return warning_diagnostics
+        return slot_context_diagnostics if slot_context_changed else warning_diagnostics
 
     result: list[dict[str, Any]] = []
     changed = False
-    for item in warning_diagnostics:
+    for item in slot_context_diagnostics:
         alias = _quality_existing_parameter_alias_for_diagnostic(
             item,
             parameters,
@@ -5892,7 +5897,54 @@ def _normalize_warning_diagnostics_for_quality(
         updated["existing_parameter_rename_source"] = alias["rename_source"]
         result.append(updated)
         changed = True
+    return result if changed or slot_context_changed else warning_diagnostics
+
+
+def _quality_add_live_in_signature_slot_context(
+    warning_diagnostics: list[dict[str, Any]],
+    parameters: list[tuple[str, str]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    changed = False
+    for item in warning_diagnostics:
+        slot_context = _quality_live_in_signature_slot_context(item, parameters)
+        if slot_context is None:
+            result.append(item)
+            continue
+        updated = dict(item)
+        updated.update(slot_context)
+        result.append(updated)
+        changed = True
     return result if changed else warning_diagnostics
+
+
+def _quality_live_in_signature_slot_context(
+    item: dict[str, Any],
+    parameters: list[tuple[str, str]],
+) -> dict[str, Any] | None:
+    if str(item.get("kind", "") or "") != "unassigned_local_live_in_register":
+        return None
+    if str(item.get("register_class", "") or "") != "abi_argument":
+        return None
+    register = str(item.get("register", "") or "").lower()
+    parameter_index = ABI_INTEGER_ARGUMENT_REGISTER_INDEX.get(register)
+    if parameter_index is None:
+        return None
+    parameter_count = len(parameters)
+    context: dict[str, Any] = {
+        "abi_parameter_index": parameter_index,
+        "signature_parameter_count": parameter_count,
+        "missing_signature_parameter_slot": parameter_index >= parameter_count,
+    }
+    if parameter_index >= parameter_count:
+        context["missing_signature_parameter_slot_label"] = (
+            "abi_slot%d_after_%d_params" % (parameter_index, parameter_count)
+        )
+        return context
+    parameter_name, parameter_type = parameters[parameter_index]
+    context["signature_parameter_name"] = str(parameter_name or "")
+    context["signature_parameter_type"] = str(parameter_type or "")
+    return context
 
 
 def _quality_signature_parameters(cleaned_path: Path) -> list[tuple[str, str]]:
@@ -7216,6 +7268,12 @@ def _body_offset_residue_function_summary(
         ),
         "live_in_parameter_gap_callees": _coerce_dict(
             live_in_parameter_gap_profile.get("callees", {})
+        ),
+        "live_in_parameter_gap_abi_slots": _coerce_dict(
+            live_in_parameter_gap_profile.get("abi_slots", {})
+        ),
+        "live_in_parameter_gap_missing_signature_slots": _coerce_dict(
+            live_in_parameter_gap_profile.get("missing_signature_slots", {})
         ),
         "live_in_parameter_gap_symbols": _coerce_dict(
             live_in_parameter_gap_profile.get("symbols", {})
@@ -10491,6 +10549,10 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "live_in_parameter_gap_actions": _coerce_dict(item.get("live_in_parameter_gap_actions", {})),
         "live_in_parameter_gap_registers": _coerce_dict(item.get("live_in_parameter_gap_registers", {})),
         "live_in_parameter_gap_callees": _coerce_dict(item.get("live_in_parameter_gap_callees", {})),
+        "live_in_parameter_gap_abi_slots": _coerce_dict(item.get("live_in_parameter_gap_abi_slots", {})),
+        "live_in_parameter_gap_missing_signature_slots": _coerce_dict(
+            item.get("live_in_parameter_gap_missing_signature_slots", {})
+        ),
         "live_in_parameter_gap_samples": [
             str(sample)
             for sample in item.get("live_in_parameter_gap_samples", []) or []
@@ -11222,6 +11284,8 @@ def _body_offset_residue_review_queue_summary(
     live_in_parameter_gap_actions: Counter[str] = Counter()
     live_in_parameter_gap_registers: Counter[str] = Counter()
     live_in_parameter_gap_callees: Counter[str] = Counter()
+    live_in_parameter_gap_abi_slots: Counter[str] = Counter()
+    live_in_parameter_gap_missing_signature_slots: Counter[str] = Counter()
     live_in_parameter_gap_samples: list[str] = []
     callee_arity_residue_actions: Counter[str] = Counter()
     callee_arity_residue_registers: Counter[str] = Counter()
@@ -11339,6 +11403,10 @@ def _body_offset_residue_review_queue_summary(
             live_in_parameter_gap_registers[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("live_in_parameter_gap_callees", {})).items():
             live_in_parameter_gap_callees[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("live_in_parameter_gap_abi_slots", {})).items():
+            live_in_parameter_gap_abi_slots[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("live_in_parameter_gap_missing_signature_slots", {})).items():
+            live_in_parameter_gap_missing_signature_slots[str(key)] += _int_value(value, 0)
         for sample in item.get("live_in_parameter_gap_samples", []) or []:
             sample_text = str(sample)
             if sample_text and sample_text not in live_in_parameter_gap_samples:
@@ -11462,6 +11530,12 @@ def _body_offset_residue_review_queue_summary(
         ),
         "live_in_parameter_gap_callees": _counter_to_dict(
             Counter(dict(live_in_parameter_gap_callees.most_common(limit)))
+        ),
+        "live_in_parameter_gap_abi_slots": _counter_to_dict(
+            Counter(dict(live_in_parameter_gap_abi_slots.most_common(limit)))
+        ),
+        "live_in_parameter_gap_missing_signature_slots": _counter_to_dict(
+            Counter(dict(live_in_parameter_gap_missing_signature_slots.most_common(limit)))
         ),
         "live_in_parameter_gap_samples": live_in_parameter_gap_samples[:limit],
         "callee_arity_residue_count": sum(
@@ -11668,6 +11742,10 @@ def _body_offset_residue_review_queue_item(
         "live_in_parameter_gap_actions": _coerce_dict(item.get("live_in_parameter_gap_actions", {})),
         "live_in_parameter_gap_registers": _coerce_dict(item.get("live_in_parameter_gap_registers", {})),
         "live_in_parameter_gap_callees": _coerce_dict(item.get("live_in_parameter_gap_callees", {})),
+        "live_in_parameter_gap_abi_slots": _coerce_dict(item.get("live_in_parameter_gap_abi_slots", {})),
+        "live_in_parameter_gap_missing_signature_slots": _coerce_dict(
+            item.get("live_in_parameter_gap_missing_signature_slots", {})
+        ),
         "live_in_parameter_gap_samples": [
             str(sample)
             for sample in item.get("live_in_parameter_gap_samples", []) or []
@@ -17056,6 +17134,8 @@ def _live_in_parameter_gap_profile(
     registers: Counter[str] = Counter()
     callees: Counter[str] = Counter()
     symbols: Counter[str] = Counter()
+    abi_slots: Counter[str] = Counter()
+    missing_signature_slots: Counter[str] = Counter()
     samples: list[str] = []
     count = 0
     for item in warning_diagnostics:
@@ -17072,6 +17152,8 @@ def _live_in_parameter_gap_profile(
         register = str(item.get("register", "") or "").strip()
         callee = str(item.get("callee_name", "") or "").strip()
         argument_index = _int_value(item.get("argument_index"), -1)
+        abi_parameter_index = _int_value(item.get("abi_parameter_index"), -1)
+        missing_slot_label = str(item.get("missing_signature_parameter_slot_label", "") or "").strip()
         count += 1
         if action:
             actions[action] += 1
@@ -17081,6 +17163,10 @@ def _live_in_parameter_gap_profile(
             callees[callee] += 1
         if symbol:
             symbols[symbol] += 1
+        if abi_parameter_index >= 0:
+            abi_slots["abi_slot%d" % abi_parameter_index] += 1
+        if bool(item.get("missing_signature_parameter_slot")) and missing_slot_label:
+            missing_signature_slots[missing_slot_label] += 1
         sample = _live_in_parameter_gap_sample(symbol, register, callee, argument_index, action, item)
         if sample and sample not in samples:
             samples.append(sample)
@@ -17092,6 +17178,10 @@ def _live_in_parameter_gap_profile(
         "registers": _counter_to_dict(Counter(dict(registers.most_common(8)))),
         "callees": _counter_to_dict(Counter(dict(callees.most_common(8)))),
         "symbols": _counter_to_dict(Counter(dict(symbols.most_common(8)))),
+        "abi_slots": _counter_to_dict(Counter(dict(abi_slots.most_common(8)))),
+        "missing_signature_slots": _counter_to_dict(
+            Counter(dict(missing_signature_slots.most_common(8)))
+        ),
         "samples": samples[:5],
     }
 
@@ -17114,6 +17204,9 @@ def _live_in_parameter_gap_sample(
         existing_name = str(item.get("existing_parameter_rendered_name", "") or "").strip()
         if existing_name:
             target = "%s=>%s" % (target or "existing_parameter", existing_name)
+    missing_slot_label = str(item.get("missing_signature_parameter_slot_label", "") or "").strip()
+    if missing_slot_label:
+        target = "%s %s" % (target or "call", missing_slot_label)
     if target:
         return "%s->%s %s" % (left, target, action)
     return "%s %s" % (left, action)
