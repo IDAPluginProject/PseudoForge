@@ -3191,6 +3191,7 @@ __int64 __fastcall DirectBase(__int64 context)
             )
 
             report = analyze_corpus(root)
+            markdown = render_quality_markdown(report)
 
             self.assertEqual(1, report["body_text_stats"]["direct_base_deref_patterns"])
             self.assertEqual(1, report["body_text_stats"]["functions_with_direct_base_derefs"])
@@ -3200,11 +3201,26 @@ __int64 __fastcall DirectBase(__int64 context)
             body_offset_stats = report["body_offset_residue_review_stats"]
             self.assertEqual(1, body_offset_stats["totals"]["direct_base_deref_survivors"])
             self.assertEqual(1, body_offset_stats["totals"]["functions_with_direct_base_deref_residue"])
-            self.assertEqual(1, body_offset_stats["top_functions"][0]["direct_base_deref_survivors"])
+            item = body_offset_stats["top_functions"][0]
+            self.assertEqual(1, item["direct_base_deref_survivors"])
+            self.assertEqual({"context": 1}, item["direct_base_deref_bases"])
+            self.assertEqual({"_DWORD": 1}, item["direct_base_deref_types"])
+            self.assertEqual({"context_like": 1}, item["direct_base_deref_base_classes"])
             self.assertIn(
                 "direct_base_zero_deref_residue",
-                body_offset_stats["top_functions"][0]["residue_review_notes"],
+                item["residue_review_notes"],
             )
+            self.assertIn("direct-base=bases=context types=_DWORD", item["review_summary"])
+            direct_queue = body_offset_stats["review_queues"]["direct_base_zero_deref_candidates"]
+            self.assertEqual(1, direct_queue["functions"])
+            self.assertEqual(1, direct_queue["direct_base_deref_survivors"])
+            self.assertEqual({"context": 1}, direct_queue["direct_base_deref_bases"])
+            self.assertEqual({"_DWORD": 1}, direct_queue["direct_base_deref_types"])
+            self.assertEqual({"context_like": 1}, direct_queue["direct_base_deref_base_classes"])
+            self.assertEqual({"context": 1}, direct_queue["items"][0]["direct_base_deref_bases"])
+            self.assertIn("direct +0 dereference on context", direct_queue["items"][0]["queue_reason"])
+            self.assertIn("direct_base_zero_deref_candidates", markdown)
+            self.assertIn("context=1", markdown)
 
     def test_nested_field_pointer_residue_is_reported_separately(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -58,6 +58,10 @@ DIRECT_BASE_DEREF_RE = re.compile(
     r"\*\s*\(\s*[^()]*?\*\s*\)\s*"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b"
 )
+DIRECT_BASE_DEREF_ITEM_RE = re.compile(
+    r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b(?P<call>\s*\()?"
+)
 POINTER_INDEXED_OFFSET_DEREF_RE = re.compile(
     r"(?P<outer_stars>\*+)\s*\(\s*\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:\s]*?)\s*"
     r"(?P<pointer_stars>\*+)\s*\)\s*"
@@ -211,6 +215,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     "nested_field_pointer_residue_candidates": (
         "Parent rewrite exposed nested field-pointer residue; model the nested object separately before widening rewrite."
     ),
+    "direct_base_zero_deref_candidates": (
+        "Direct base +0 dereferences that need field-zero/source identity review before any rewrite."
+    ),
     "source_stability_required": (
         "Candidates whose base object may move, reload, or be reassigned after layout access."
     ),
@@ -294,6 +301,9 @@ _BODY_OFFSET_QUEUE_RECOMMENDED_NEXT_STEPS = {
     ),
     "nested_field_pointer_residue_candidates": (
         "Reread the parent field source, identify the nested object layout, and keep parent-body rewrite closed unless exact nested identity is proven."
+    ),
+    "direct_base_zero_deref_candidates": (
+        "Treat +0 dereferences as field-zero review candidates only; require exact source identity before rendering them as structure fields."
     ),
     "source_stability_required": (
         "Prove a single stable initializer and no risky post-access reassignment for the candidate base."
@@ -2587,8 +2597,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Residue Review Queues",
             "",
-            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Generic params | Nested field residue | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Queue | Description | Functions | Offset derefs | Direct-base derefs | Direct-base bases | Generic params | Nested field residue | Target groups | Subsystems | Gates | Families | Policies | Maturity | Pressure | Primary reasons | Notes | Cause tags | Blocker families | Promotion lanes | Factors | Classes | Details | Source provenance | Source kinds | Stable sources | Profiles | Next step |",
+            "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for queue_name, queue in _coerce_dict(body_offset_residue_stats.get("review_queues", {})).items():
@@ -2670,14 +2680,32 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
+        direct_base_bases = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("direct_base_deref_bases", {})).items()
+        )
+        direct_base_types = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("direct_base_deref_types", {})).items()
+        )
+        direct_base_classes = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(queue.get("direct_base_deref_base_classes", {})).items()
+        )
+        direct_base_summary = direct_base_bases
+        if direct_base_types:
+            direct_base_summary = "%s; types %s" % (direct_base_summary, direct_base_types) if direct_base_summary else "types %s" % direct_base_types
+        if direct_base_classes:
+            direct_base_summary = "%s; classes %s" % (direct_base_summary, direct_base_classes) if direct_base_summary else "classes %s" % direct_base_classes
         lines.append(
-            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(queue_name),
                 _markdown_table_cell(str(queue.get("description", "") or "")),
                 int(queue.get("functions", 0) or 0),
                 int(queue.get("offset_deref_survivors", 0) or 0),
                 int(queue.get("direct_base_deref_survivors", 0) or 0),
+                _markdown_table_cell(direct_base_summary),
                 int(queue.get("generic_parameter_survivors", 0) or 0),
                 int(queue.get("nested_field_pointer_residue", 0) or 0),
                 _markdown_table_cell(target_groups),
@@ -5999,6 +6027,7 @@ def _body_offset_residue_function_summary(
         nested_field_pointer_profile.get("count"),
         0,
     )
+    direct_base_deref_profile = _direct_base_deref_profile(cleaned_path)
     review_class = _body_offset_residue_review_class(
         prototype_metrics,
         layout_hints,
@@ -6179,6 +6208,16 @@ def _body_offset_residue_function_summary(
         "priority_factors": priority_factors,
         "offset_deref_survivors": offset_deref_survivors,
         "direct_base_deref_survivors": direct_base_deref_survivors,
+        "direct_base_deref_bases": _coerce_dict(direct_base_deref_profile.get("bases", {})),
+        "direct_base_deref_types": _coerce_dict(direct_base_deref_profile.get("types", {})),
+        "direct_base_deref_base_classes": _coerce_dict(
+            direct_base_deref_profile.get("base_classes", {})
+        ),
+        "direct_base_deref_samples": [
+            str(sample)
+            for sample in direct_base_deref_profile.get("samples", []) or []
+            if str(sample)
+        ][:5],
         "generic_parameter_survivors": _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
         "body_rewrite_ready": _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
         "body_rewrite_blockers": _int_value(prototype_metrics.get("body_rewrite_blockers"), 0),
@@ -7359,6 +7398,39 @@ def _nested_field_pointer_residue_profile(cleaned_path: Path | None) -> dict[str
     }
 
 
+def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
+    if cleaned_path is None or not cleaned_path.exists():
+        return {}
+    text = _read_text(cleaned_path)
+    body = _strip_pseudoforge_header(text) if text else ""
+    bases: Counter[str] = Counter()
+    types: Counter[str] = Counter()
+    base_classes: Counter[str] = Counter()
+    samples: list[str] = []
+    count = 0
+    for match in DIRECT_BASE_DEREF_ITEM_RE.finditer(body):
+        base = str(match.group("base") or "").strip()
+        type_name = _normalized_offset_deref_type(match.group("type"))
+        if not base:
+            continue
+        base_class = "direct_call_result" if str(match.group("call") or "").strip() else _offset_deref_base_class(base)
+        bases[base] += 1
+        types[type_name] += 1
+        base_classes[base_class] += 1
+        count += 1
+        if len(samples) < 5:
+            samples.append("%s:%s:%s" % (base, type_name, base_class))
+    if count <= 0:
+        return {}
+    return {
+        "count": count,
+        "bases": _counter_to_dict(Counter(dict(bases.most_common(8)))),
+        "types": _counter_to_dict(Counter(dict(types.most_common(8)))),
+        "base_classes": _counter_to_dict(Counter(dict(base_classes.most_common(8)))),
+        "samples": samples,
+    }
+
+
 def _offset_deref_items(text: str) -> list[dict[str, Any]]:
     items = []
     for match in OFFSET_DEREF_ITEM_RE.finditer(text or ""):
@@ -7684,6 +7756,7 @@ def _body_offset_residue_review_queues(
         "source_provenance_review",
         "validated_rewrite_residue",
         "nested_field_pointer_residue_candidates",
+        "direct_base_zero_deref_candidates",
         "source_stability_required",
         "type_conflict_required",
         "pointer_indexed_layout_candidates",
@@ -7757,6 +7830,11 @@ def _body_offset_named_goal_target_status(
                 "residue_pressure_class": pressure,
                 "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
                 "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
+                "direct_base_deref_bases": _coerce_dict(item.get("direct_base_deref_bases", {})),
+                "direct_base_deref_types": _coerce_dict(item.get("direct_base_deref_types", {})),
+                "direct_base_deref_base_classes": _coerce_dict(
+                    item.get("direct_base_deref_base_classes", {})
+                ),
                 "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
                 "top_bases": [
                     str(base)
@@ -8096,6 +8174,11 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "residue_pressure_class": str(item.get("residue_pressure_class", "") or ""),
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
         "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
+        "direct_base_deref_bases": _coerce_dict(item.get("direct_base_deref_bases", {})),
+        "direct_base_deref_types": _coerce_dict(item.get("direct_base_deref_types", {})),
+        "direct_base_deref_base_classes": _coerce_dict(
+            item.get("direct_base_deref_base_classes", {})
+        ),
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "nested_field_pointer_residue_count": _int_value(
             item.get("nested_field_pointer_residue_count"),
@@ -8179,6 +8262,8 @@ def _body_offset_residue_next_goal_candidate_kind(item: dict[str, Any]) -> str:
         return "exact_context_profile"
     if gate == "temp_source_identity_required":
         return "temp_source_identity_trace"
+    if _int_value(item.get("direct_base_deref_survivors"), 0) > 0:
+        return "direct_base_zero_deref_review"
     if gate in {"manual_review_required", "threshold_evidence_gap"}:
         return "manual_or_threshold_gap"
     if gate == "low_pressure_deferred" and bool(item.get("named_goal_target")):
@@ -8201,6 +8286,7 @@ def _body_offset_residue_next_goal_actionability_class(item: dict[str, Any], kin
         "indexed_layout_model",
         "nested_field_pointer_layout_model",
         "validated_secondary_residue_reread",
+        "direct_base_zero_deref_review",
     }:
         return "model_or_reread_before_rewrite"
     if gate in {"report_only_private_layout", "report_only_source_identity"}:
@@ -8228,6 +8314,7 @@ def _body_offset_residue_next_goal_actionability_score(item: dict[str, Any], kin
     score += 14 if kind in {"type_conflict_resolution", "source_stability_proof"} else 0
     score += 10 if kind == "indexed_layout_model" else 0
     score += 18 if kind == "nested_field_pointer_layout_model" else 0
+    score += 12 if kind == "direct_base_zero_deref_review" else 0
     score += 8 if kind == "parameter_profile_or_type_correction" else 0
     if str(item.get("fail_closed_gate", "") or "") == "low_pressure_deferred":
         score -= 25
@@ -8259,6 +8346,8 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
         return "Model the nested field-pointer object separately and prove exact nested layout identity before rewrite."
     if kind == "validated_secondary_residue_reread":
         return "Reread validated output and chase only same-object secondary residue."
+    if kind == "direct_base_zero_deref_review":
+        return "Classify direct base +0 dereferences and require exact field-zero source identity before rewrite."
     if kind == "parameter_profile_or_type_correction":
         return "Add exact parameter semantic profile or type correction, not a generic field rewrite."
     if kind == "exact_context_profile":
@@ -8283,6 +8372,8 @@ def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) 
         return "Indexed layouts are not canonical field rewrites."
     if kind == "nested_field_pointer_layout_model":
         return "Nested field-pointer residue needs its own exact layout identity; parent rewrite evidence is not enough."
+    if kind == "direct_base_zero_deref_review":
+        return "Direct +0 dereference is not enough to render field_0; exact source identity is still required."
     if kind == "parameter_profile_or_type_correction":
         return "Use canonical_type/display_type for output; accepted_types are input guards only."
     if policy:
@@ -8306,6 +8397,8 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         return "exact private layout source required before canonical rewrite"
     if kind == "nested_field_pointer_layout_model":
         return "exact nested object layout identity required before nested field rewrite"
+    if kind == "direct_base_zero_deref_review":
+        return "exact field-zero source identity required before direct-base rewrite"
     if provenance:
         return "stable source provenance available; verify exact profile identity before promotion"
     return ""
@@ -8384,6 +8477,8 @@ def _body_offset_residue_item_matches_queue(queue_name: str, item: dict[str, Any
         )
     if queue_name == "nested_field_pointer_residue_candidates":
         return _int_value(item.get("nested_field_pointer_residue_count"), 0) > 0
+    if queue_name == "direct_base_zero_deref_candidates":
+        return _int_value(item.get("direct_base_deref_survivors"), 0) > 0
     if queue_name == "source_stability_required":
         return (
             review_class == "source_stability_blocked_residue"
@@ -8476,6 +8571,9 @@ def _body_offset_residue_review_queue_summary(
     parameter_indexed_parent_types: Counter[str] = Counter()
     parameter_indexed_strides: Counter[str] = Counter()
     parameter_indexed_alias_rewrite_risks: Counter[str] = Counter()
+    direct_base_deref_bases: Counter[str] = Counter()
+    direct_base_deref_types: Counter[str] = Counter()
+    direct_base_deref_base_classes: Counter[str] = Counter()
     for item in items:
         for detail in item.get("next_action_details", []) or []:
             if str(detail):
@@ -8515,6 +8613,12 @@ def _body_offset_residue_review_queue_summary(
             parameter_indexed_strides[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})).items():
             parameter_indexed_alias_rewrite_risks[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_base_deref_bases", {})).items():
+            direct_base_deref_bases[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_base_deref_types", {})).items():
+            direct_base_deref_types[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("direct_base_deref_base_classes", {})).items():
+            direct_base_deref_base_classes[str(key)] += _int_value(value, 0)
     nested_field_pointer_parents: Counter[str] = Counter()
     nested_field_pointer_fields: Counter[str] = Counter()
     nested_field_pointer_parent_fields: Counter[str] = Counter()
@@ -8543,6 +8647,15 @@ def _body_offset_residue_review_queue_summary(
         "direct_base_deref_survivors": sum(
             _int_value(item.get("direct_base_deref_survivors"), 0)
             for item in items
+        ),
+        "direct_base_deref_bases": _counter_to_dict(
+            Counter(dict(direct_base_deref_bases.most_common(limit)))
+        ),
+        "direct_base_deref_types": _counter_to_dict(
+            Counter(dict(direct_base_deref_types.most_common(limit)))
+        ),
+        "direct_base_deref_base_classes": _counter_to_dict(
+            Counter(dict(direct_base_deref_base_classes.most_common(limit)))
         ),
         "generic_parameter_survivors": sum(
             _int_value(item.get("generic_parameter_survivors"), 0)
@@ -8666,6 +8779,16 @@ def _body_offset_residue_review_queue_item(
         "priority_score": _int_value(item.get("priority_score"), 0),
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
         "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
+        "direct_base_deref_bases": _coerce_dict(item.get("direct_base_deref_bases", {})),
+        "direct_base_deref_types": _coerce_dict(item.get("direct_base_deref_types", {})),
+        "direct_base_deref_base_classes": _coerce_dict(
+            item.get("direct_base_deref_base_classes", {})
+        ),
+        "direct_base_deref_samples": [
+            str(sample)
+            for sample in item.get("direct_base_deref_samples", []) or []
+            if str(sample)
+        ],
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "field_access_pressure": _int_value(item.get("field_access_pressure"), 0),
         "review_evidence": [
@@ -8759,6 +8882,18 @@ def _body_offset_residue_queue_reason(queue_name: str, item: dict[str, Any]) -> 
                 % ", ".join(parent_fields)
             )
         return "nested field-pointer residue needs a separate object layout model before rewrite"
+    if queue == "direct_base_zero_deref_candidates":
+        bases = [
+            str(key)
+            for key in _coerce_dict(item.get("direct_base_deref_bases", {})).keys()
+            if str(key)
+        ][:3]
+        if bases:
+            return (
+                "direct +0 dereference on %s needs exact field-zero source identity before rewrite"
+                % ", ".join(bases)
+            )
+        return "direct +0 dereference needs exact field-zero source identity before rewrite"
     if queue == "source_stability_required":
         families = _coerce_dict(item.get("blocker_families", {}))
         if _int_value(families.get("source_reassigned"), 0) > 0:
@@ -8848,6 +8983,31 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     stable_source_parts = _body_offset_stable_source_summary_parts(item)
     if stable_source_parts:
         parts.append("stable-source=%s" % " ".join(stable_source_parts))
+    if direct_base_derefs:
+        direct_parts = []
+        direct_bases = [
+            str(base)
+            for base in _coerce_dict(item.get("direct_base_deref_bases", {})).keys()
+            if str(base)
+        ][:3]
+        direct_types = [
+            str(type_name)
+            for type_name in _coerce_dict(item.get("direct_base_deref_types", {})).keys()
+            if str(type_name)
+        ][:2]
+        direct_classes = [
+            str(base_class)
+            for base_class in _coerce_dict(item.get("direct_base_deref_base_classes", {})).keys()
+            if str(base_class)
+        ][:2]
+        if direct_bases:
+            direct_parts.append("bases=%s" % ",".join(direct_bases))
+        if direct_types:
+            direct_parts.append("types=%s" % ",".join(direct_types))
+        if direct_classes:
+            direct_parts.append("classes=%s" % ",".join(direct_classes))
+        if direct_parts:
+            parts.append("direct-base=%s" % " ".join(direct_parts))
     cause_tags = [
         str(tag)
         for tag in item.get("residue_cause_tags", []) or []
