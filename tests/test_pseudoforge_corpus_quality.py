@@ -3761,6 +3761,10 @@ __int64 __fastcall ObpFreeObject(__int64 objectHeader)
                 {"v16<-objectHeader+0x20:_QWORD:field_pointer": 1},
                 body_offset_stats["top_stable_source_details"],
             )
+            self.assertIn(
+                "field-pointer=v16<-objectHeader+0x20:_QWORD",
+                item["review_summary"],
+            )
 
             queue = body_offset_stats["review_queues"]["parameter_field_pointer_alias_candidates"]
             self.assertEqual(1, queue["functions"])
@@ -3772,6 +3776,10 @@ __int64 __fastcall ObpFreeObject(__int64 objectHeader)
             self.assertIn(
                 "v16<-objectHeader+0x20:_QWORD",
                 queue["items"][0]["queue_reason"],
+            )
+            self.assertIn(
+                "field-pointer=v16<-objectHeader+0x20:_QWORD",
+                queue["items"][0]["review_summary"],
             )
 
             next_candidates = body_offset_stats["next_goal_candidates"]
@@ -3786,6 +3794,10 @@ __int64 __fastcall ObpFreeObject(__int64 objectHeader)
             self.assertIn(
                 "v16<-objectHeader+0x20:_QWORD",
                 next_candidates["items"][0]["source_identity_requirement"],
+            )
+            self.assertIn(
+                "field-pointer=v16<-objectHeader+0x20:_QWORD",
+                next_candidates["items"][0]["review_summary"],
             )
 
             markdown = render_quality_markdown(report)
@@ -4549,6 +4561,96 @@ __int64 __fastcall CalleeArityResidue(__int64 context, __int64 argument1)
             self.assertIn("not caller-parameter proof", next_item["safety_note"])
             self.assertIn("callee_arity_residue_candidates", markdown)
             self.assertIn("SepInternalQuerySecurityAttributesTokenEx[arg1]", markdown)
+
+    def test_quality_normalization_applies_current_callee_contracts_to_stale_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140002100_StaleCalleeGap"
+            function_dir.mkdir(parents=True)
+            diagnostics_path = function_dir / "function.warning-diagnostics.json"
+            cleaned_path = function_dir / "function.cleaned.cpp"
+            summary_path = function_dir / "function.ida-batch-summary.json"
+            diagnostics_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "kind": "unassigned_local_live_in_register",
+                            "message": "old corpus classified this as an omitted caller parameter",
+                            "symbol": "v46",
+                            "usage": "call argument to KiRemoveSystemWorkPriorityKick",
+                            "usage_class": "call_argument",
+                            "register": "r9",
+                            "register_class": "abi_argument",
+                            "candidate_action": "caller_parameter_gap_candidate",
+                            "legacy_candidate_action": "parameter_gap_candidate",
+                            "callee_name": "KiRemoveSystemWorkPriorityKick",
+                            "call_index": 82,
+                            "argument_index": 3,
+                            "callee_contract_action": "",
+                            "callee_contract_confidence": 0.0,
+                            "callee_contract_evidence": "",
+                            "confidence": 0.78,
+                            "source": "validation.unassigned_local_usage",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            cleaned_path.write_text(
+                """
+__int64 __fastcall StaleCalleeGap(__int64 context)
+{
+  __int64 v46; // r9
+
+  KiRemoveSystemWorkPriorityKick(context, 1, 2, v46);
+  return *(_QWORD *)(context + 8);
+}
+""".lstrip(),
+                encoding="utf-8",
+            )
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "StaleCalleeGap",
+                        "function_ea": "0x140002100",
+                        "warnings": 1,
+                        "artifacts": {
+                            "cleaned_pseudocode": cleaned_path.name,
+                            "warning_diagnostics": diagnostics_path.name,
+                            "summary": summary_path.name,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            stats = report["body_offset_residue_review_stats"]
+            item = stats["top_functions"][0]
+
+            self.assertEqual(0, item["live_in_parameter_gap_count"])
+            self.assertEqual(1, item["callee_arity_residue_count"])
+            self.assertEqual(
+                {"callee_arity_residue_candidate": 1},
+                item["callee_arity_residue_actions"],
+            )
+            self.assertEqual(
+                {"KiRemoveSystemWorkPriorityKick": 1},
+                item["callee_arity_residue_callees"],
+            )
+            self.assertNotIn(
+                "caller_parameter_gap_candidate",
+                report["warning_stats"]["all_classes"],
+            )
+            self.assertEqual(
+                1,
+                report["warning_stats"]["all_classes"]["callee_arity_residue_candidate"],
+            )
+            self.assertEqual(
+                "callee_arity_contract_review",
+                stats["next_goal_candidates"]["items"][0]["candidate_kind"],
+            )
 
     def test_analyze_corpus_prefers_refined_candidate_action_over_legacy_action(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

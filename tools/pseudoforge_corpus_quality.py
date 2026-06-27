@@ -19,6 +19,7 @@ from ida_pseudoforge.core.normalize import (
     extract_function_signature,
     extract_parameters_from_signature,
 )
+from ida_pseudoforge.profiles.callee_contracts import callee_contract_for_call
 from ida_pseudoforge.profiles import loader as profile_loader
 from ida_pseudoforge.version import VERSION, plugin_title
 
@@ -5865,17 +5866,21 @@ def _normalize_warning_diagnostics_for_quality(
 ) -> list[dict[str, Any]]:
     if not warning_diagnostics:
         return []
+    contract_diagnostics = _quality_apply_current_callee_contracts(warning_diagnostics)
+    contract_changed = contract_diagnostics is not warning_diagnostics
     parameters = _quality_signature_parameters(cleaned_path)
     if not parameters:
-        return warning_diagnostics
+        return contract_diagnostics if contract_changed else warning_diagnostics
     slot_context_diagnostics = _quality_add_live_in_signature_slot_context(
-        warning_diagnostics,
+        contract_diagnostics,
         parameters,
     )
-    slot_context_changed = slot_context_diagnostics is not warning_diagnostics
+    slot_context_changed = slot_context_diagnostics is not contract_diagnostics
     accepted_renames = _quality_accepted_parameter_renames_by_old_name(rename_items)
     if not accepted_renames:
-        return slot_context_diagnostics if slot_context_changed else warning_diagnostics
+        if contract_changed or slot_context_changed:
+            return slot_context_diagnostics
+        return warning_diagnostics
 
     result: list[dict[str, Any]] = []
     changed = False
@@ -5897,7 +5902,51 @@ def _normalize_warning_diagnostics_for_quality(
         updated["existing_parameter_rename_source"] = alias["rename_source"]
         result.append(updated)
         changed = True
-    return result if changed or slot_context_changed else warning_diagnostics
+    if changed or slot_context_changed or contract_changed:
+        return result
+    return warning_diagnostics
+
+
+def _quality_apply_current_callee_contracts(
+    warning_diagnostics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    changed = False
+    for item in warning_diagnostics:
+        if not _quality_callee_contract_candidate(item):
+            result.append(item)
+            continue
+        contract = callee_contract_for_call(
+            str(item.get("callee_name", "") or ""),
+            _int_value(item.get("argument_index"), -1),
+            _int_value(item.get("call_index"), 0),
+            _int_value(item.get("callee_call_index"), 0),
+        )
+        action = str(contract.get("action", "") or "").strip()
+        if not action:
+            result.append(item)
+            continue
+        updated = dict(item)
+        updated["candidate_action"] = action
+        updated["quality_candidate_action_source"] = "current_callee_contract"
+        updated["quality_previous_candidate_action"] = str(item.get("candidate_action", "") or "")
+        updated["callee_contract_action"] = action
+        updated["callee_contract_confidence"] = _float_value(contract.get("confidence"), 0.0)
+        updated["callee_contract_evidence"] = str(contract.get("evidence", "") or "").strip()
+        result.append(updated)
+        changed = True
+    return result if changed else warning_diagnostics
+
+
+def _quality_callee_contract_candidate(item: dict[str, Any]) -> bool:
+    if str(item.get("kind", "") or "") != "unassigned_local_live_in_register":
+        return False
+    if str(item.get("usage_class", "") or "") != "call_argument":
+        return False
+    action = str(item.get("candidate_action", "") or "").strip()
+    if action not in _LIVE_IN_PARAMETER_GAP_ACTIONS:
+        return False
+    return bool(str(item.get("callee_name", "") or "").strip())
 
 
 def _quality_add_live_in_signature_slot_context(
@@ -12199,6 +12248,13 @@ def _body_offset_residue_review_summary(item: dict[str, Any]) -> str:
     ][:2]
     if callee_arity_samples:
         parts.append("callee-arity=%s" % ",".join(callee_arity_samples))
+    parameter_field_pointer_samples = [
+        str(sample)
+        for sample in item.get("parameter_field_pointer_samples", []) or []
+        if str(sample)
+    ][:2]
+    if parameter_field_pointer_samples:
+        parts.append("field-pointer=%s" % ",".join(parameter_field_pointer_samples))
     return "; ".join(parts)
 
 
