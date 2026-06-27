@@ -1913,6 +1913,10 @@ def analyze_corpus(
                 top_body_offset_residue_functions,
                 top,
             ),
+            "direct_base_root_review_batches": _body_offset_direct_base_root_review_batches(
+                top_body_offset_residue_functions,
+                top,
+            ),
             "next_goal_candidates": _body_offset_residue_next_goal_candidates(
                 top_body_offset_residue_functions,
                 top,
@@ -2766,6 +2770,59 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "Candidate kind",
         )
     )
+    direct_base_batches = _coerce_dict(
+        body_offset_residue_stats.get("direct_base_root_review_batches", {})
+    )
+    root_batches = [
+        item
+        for item in direct_base_batches.get("batches", []) or []
+        if isinstance(item, dict)
+    ]
+    if root_batches:
+        lines.extend(
+            [
+                "",
+                "#### Direct-Base Root Review Batches",
+                "",
+                "| Root class | Functions | Direct derefs | Named targets | Bases | Gates | Cause tags | Top functions | Next step |",
+                "| --- | ---: | ---: | ---: | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for batch in root_batches:
+            bases = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("direct_base_bases", {})).items()
+            )
+            gates = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("fail_closed_gates", {})).items()
+            )
+            cause_tags = ", ".join(
+                "%s=%s" % (key, value)
+                for key, value in _coerce_dict(batch.get("residue_cause_tags", {})).items()
+            )
+            top_functions = ", ".join(
+                "%s(%s)" % (
+                    str(item.get("name", "") or ""),
+                    _int_value(item.get("root_class_direct_base_derefs"), 0),
+                )
+                for item in batch.get("top_functions", []) or []
+                if isinstance(item, dict)
+            )
+            lines.append(
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+                % (
+                    str(batch.get("root_class", "") or ""),
+                    _int_value(batch.get("function_count"), 0),
+                    _int_value(batch.get("direct_base_deref_survivors"), 0),
+                    _int_value(batch.get("named_goal_targets"), 0),
+                    _markdown_table_cell(bases),
+                    _markdown_table_cell(gates),
+                    _markdown_table_cell(cause_tags),
+                    _markdown_table_cell(top_functions),
+                    _markdown_table_cell(str(batch.get("recommended_next_step", "") or "")),
+                )
+            )
     review_batches = [
         item
         for item in next_goal_candidates.get("review_batches", []) or []
@@ -6231,6 +6288,9 @@ def _body_offset_residue_function_summary(
         "direct_base_deref_base_classes": _coerce_dict(
             direct_base_deref_profile.get("base_classes", {})
         ),
+        "direct_base_deref_class_bases": _coerce_dict(
+            direct_base_deref_profile.get("class_bases", {})
+        ),
         "direct_base_deref_samples": [
             str(sample)
             for sample in direct_base_deref_profile.get("samples", []) or []
@@ -7445,6 +7505,7 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
     bases: Counter[str] = Counter()
     types: Counter[str] = Counter()
     base_classes: Counter[str] = Counter()
+    class_bases: dict[str, Counter[str]] = {}
     samples: list[str] = []
     count = 0
     for match in DIRECT_BASE_DEREF_ITEM_RE.finditer(body):
@@ -7456,6 +7517,7 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
         bases[base] += 1
         types[type_name] += 1
         base_classes[base_class] += 1
+        class_bases.setdefault(base_class, Counter())[base] += 1
         count += 1
         if len(samples) < 5:
             samples.append("%s:%s:%s" % (base, type_name, base_class))
@@ -7466,6 +7528,10 @@ def _direct_base_deref_profile(cleaned_path: Path | None) -> dict[str, Any]:
         "bases": _counter_to_dict(Counter(dict(bases.most_common(8)))),
         "types": _counter_to_dict(Counter(dict(types.most_common(8)))),
         "base_classes": _counter_to_dict(Counter(dict(base_classes.most_common(8)))),
+        "class_bases": {
+            str(base_class): _counter_to_dict(Counter(dict(counter.most_common(8))))
+            for base_class, counter in sorted(class_bases.items())
+        },
         "samples": samples,
     }
 
@@ -7874,6 +7940,9 @@ def _body_offset_named_goal_target_status(
                 "direct_base_deref_base_classes": _coerce_dict(
                     item.get("direct_base_deref_base_classes", {})
                 ),
+                "direct_base_deref_class_bases": _coerce_dict(
+                    item.get("direct_base_deref_class_bases", {})
+                ),
                 "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
                 "top_bases": [
                     str(base)
@@ -8022,6 +8091,148 @@ def _body_offset_residue_next_goal_candidates(
         "review_batches": review_batches,
         "items": selected,
     }
+
+
+def _body_offset_direct_base_root_review_batches(
+    items: list[dict[str, Any]],
+    limit: int,
+) -> dict[str, Any]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for root_class, count in _coerce_dict(item.get("direct_base_deref_base_classes", {})).items():
+            if str(root_class) and _int_value(count, 0) > 0:
+                grouped.setdefault(str(root_class), []).append(item)
+
+    batches: list[dict[str, Any]] = []
+    for root_class, group_items in grouped.items():
+        group_items.sort(
+            key=lambda item: (
+                -_int_value(item.get("priority_score"), 0),
+                -_int_value(item.get("direct_base_deref_survivors"), 0),
+                str(item.get("name", "")),
+            )
+        )
+        root_direct_count = sum(
+            _int_value(
+                _coerce_dict(item.get("direct_base_deref_base_classes", {})).get(root_class),
+                0,
+            )
+            for item in group_items
+        )
+        root_bases: Counter[str] = Counter()
+        subsystems: Counter[str] = Counter()
+        fail_closed_gates: Counter[str] = Counter()
+        promotion_lanes: Counter[str] = Counter()
+        cause_tags: Counter[str] = Counter()
+        for item in group_items:
+            subsystems[str(item.get("subsystem", "") or "other")] += 1
+            gate = str(item.get("fail_closed_gate", "") or "")
+            if gate:
+                fail_closed_gates[gate] += 1
+            lane = str(item.get("promotion_lane", "") or "")
+            if lane:
+                promotion_lanes[lane] += 1
+            for tag in item.get("residue_cause_tags", []) or []:
+                if str(tag):
+                    cause_tags[str(tag)] += 1
+            class_bases = _coerce_dict(item.get("direct_base_deref_class_bases", {}))
+            for base, count in _coerce_dict(class_bases.get(root_class, {})).items():
+                root_bases[str(base)] += _int_value(count, 0)
+        batches.append(
+            {
+                "root_class": root_class,
+                "description": _body_offset_direct_base_root_description(root_class),
+                "recommended_next_step": _body_offset_direct_base_root_next_step(root_class),
+                "function_count": len(group_items),
+                "direct_base_deref_survivors": root_direct_count,
+                "offset_deref_survivors": sum(
+                    _int_value(item.get("offset_deref_survivors"), 0)
+                    for item in group_items
+                ),
+                "named_goal_targets": sum(1 for item in group_items if bool(item.get("named_goal_target"))),
+                "subsystems": _counter_to_dict(Counter(dict(subsystems.most_common(limit)))),
+                "fail_closed_gates": _counter_to_dict(Counter(dict(fail_closed_gates.most_common(limit)))),
+                "promotion_lanes": _counter_to_dict(Counter(dict(promotion_lanes.most_common(limit)))),
+                "direct_base_bases": _counter_to_dict(Counter(dict(root_bases.most_common(limit)))),
+                "residue_cause_tags": _counter_to_dict(Counter(dict(cause_tags.most_common(limit)))),
+                "top_functions": [
+                    {
+                        "name": str(item.get("name", "") or ""),
+                        "ea": str(item.get("ea", "") or ""),
+                        "priority_score": _int_value(item.get("priority_score"), 0),
+                        "root_class_direct_base_derefs": _int_value(
+                            _coerce_dict(item.get("direct_base_deref_base_classes", {})).get(root_class),
+                            0,
+                        ),
+                        "direct_base_bases": _coerce_dict(
+                            _coerce_dict(item.get("direct_base_deref_class_bases", {})).get(root_class, {})
+                        ),
+                        "fail_closed_gate": str(item.get("fail_closed_gate", "") or ""),
+                        "promotion_lane": str(item.get("promotion_lane", "") or ""),
+                        "residue_cause_tags": [
+                            str(tag)
+                            for tag in item.get("residue_cause_tags", []) or []
+                            if str(tag)
+                        ],
+                        "summary_path": str(item.get("summary_path", "") or ""),
+                        "cleaned_path": str(item.get("cleaned_path", "") or ""),
+                    }
+                    for item in group_items[: min(5, limit)]
+                ],
+            }
+        )
+    batches.sort(
+        key=lambda item: (
+            -_int_value(item.get("direct_base_deref_survivors"), 0),
+            -_int_value(item.get("function_count"), 0),
+            str(item.get("root_class", "")),
+        )
+    )
+    return {
+        "schema": "body_offset_direct_base_root_review_batches_v1",
+        "description": (
+            "Direct base +0 residue grouped by root class so temp, parameter, "
+            "call-result, context, and named roots can be reviewed separately."
+        ),
+        "batch_count": len(batches),
+        "batches": batches[:limit],
+    }
+
+
+def _body_offset_direct_base_root_description(root_class: str) -> str:
+    value = str(root_class or "")
+    descriptions = {
+        "decompiler_temp": "Decompiler temporary base; source identity and dominance are unproven.",
+        "renamed_argument": "Renamed parameter base; parameter semantics must be exact before field-zero rendering.",
+        "decompiler_argument": "Decompiler argument base; parameter semantics must be exact before field-zero rendering.",
+        "direct_call_result": "Direct call-result base; returned object layout identity must be proven.",
+        "named_base": "Named local/base; source identity still needs review.",
+        "context_like": "Context-like base; function-scoped context profile is required.",
+        "thread_process_like": "Thread/process-like base; private structure/build identity is required.",
+        "object_or_token_like": "Object/token-like base; object header or token layout identity is required.",
+    }
+    return descriptions.get(value, "Direct-base root class needs exact source identity review.")
+
+
+def _body_offset_direct_base_root_next_step(root_class: str) -> str:
+    value = str(root_class or "")
+    if value == "direct_call_result":
+        return "Verify the callee return type and exact returned object layout before any field-zero rewrite."
+    if value == "decompiler_temp":
+        return "Trace the temp initializer and prove a single trusted source before any field-zero rewrite."
+    if value in {"renamed_argument", "decompiler_argument"}:
+        return "Validate parameter semantics and exact function/build/source identity before field-zero rewrite."
+    if value == "context_like":
+        return "Add an exact function-scoped context profile or keep +0 dereferences review-only."
+    if value == "thread_process_like":
+        return "Prove the thread/process private structure and build identity before field-zero rewrite."
+    if value == "object_or_token_like":
+        return "Prove object-header or token layout identity before field-zero rewrite."
+    if value == "named_base":
+        return "Classify the named base source and require exact layout identity before field-zero rewrite."
+    return "Keep direct +0 dereference fail-closed until exact field-zero source identity is available."
 
 
 def _body_offset_residue_next_goal_review_batches(
@@ -8218,6 +8429,7 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "direct_base_deref_base_classes": _coerce_dict(
             item.get("direct_base_deref_base_classes", {})
         ),
+        "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "nested_field_pointer_residue_count": _int_value(
             item.get("nested_field_pointer_residue_count"),
@@ -8823,6 +9035,7 @@ def _body_offset_residue_review_queue_item(
         "direct_base_deref_base_classes": _coerce_dict(
             item.get("direct_base_deref_base_classes", {})
         ),
+        "direct_base_deref_class_bases": _coerce_dict(item.get("direct_base_deref_class_bases", {})),
         "direct_base_deref_samples": [
             str(sample)
             for sample in item.get("direct_base_deref_samples", []) or []

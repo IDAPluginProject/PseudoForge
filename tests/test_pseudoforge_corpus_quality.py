@@ -3212,6 +3212,14 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 {"context_like": 1, "direct_call_result": 1, "renamed_argument": 1},
                 item["direct_base_deref_base_classes"],
             )
+            self.assertEqual(
+                {
+                    "context_like": {"context": 1},
+                    "direct_call_result": {"KeGetCurrentPrcb": 1},
+                    "renamed_argument": {"argument0": 1},
+                },
+                item["direct_base_deref_class_bases"],
+            )
             self.assertIn(
                 "direct_base_zero_deref_residue",
                 item["residue_review_notes"],
@@ -3240,10 +3248,41 @@ __int64 __fastcall DirectBase(__int64 context, PVOID argument0)
                 {"KeGetCurrentPrcb": 1, "argument0": 1, "context": 1},
                 direct_queue["items"][0]["direct_base_deref_bases"],
             )
+            self.assertEqual(
+                {"KeGetCurrentPrcb": 1},
+                direct_queue["items"][0]["direct_base_deref_class_bases"]["direct_call_result"],
+            )
             self.assertIn("direct +0 dereference on context", direct_queue["items"][0]["queue_reason"])
+            root_batches = body_offset_stats["direct_base_root_review_batches"]
+            self.assertEqual(
+                "body_offset_direct_base_root_review_batches_v1",
+                root_batches["schema"],
+            )
+            batches_by_class = {
+                batch["root_class"]: batch
+                for batch in root_batches["batches"]
+            }
+            self.assertIn("context_like", batches_by_class)
+            self.assertIn("direct_call_result", batches_by_class)
+            self.assertIn("renamed_argument", batches_by_class)
+            self.assertEqual(
+                {"KeGetCurrentPrcb": 1},
+                batches_by_class["direct_call_result"]["direct_base_bases"],
+            )
+            self.assertEqual(
+                "Verify the callee return type and exact returned object layout before any field-zero rewrite.",
+                batches_by_class["direct_call_result"]["recommended_next_step"],
+            )
+            self.assertEqual(
+                1,
+                batches_by_class["direct_call_result"]["top_functions"][0][
+                    "root_class_direct_base_derefs"
+                ],
+            )
             self.assertIn("direct_base_zero_deref_candidates", markdown)
             self.assertIn("context=1", markdown)
             self.assertIn("Residue Direct-Base Classes", markdown)
+            self.assertIn("Direct-Base Root Review Batches", markdown)
             self.assertIn("direct_call_result=1", markdown)
 
     def test_nested_field_pointer_residue_is_reported_separately(self) -> None:
