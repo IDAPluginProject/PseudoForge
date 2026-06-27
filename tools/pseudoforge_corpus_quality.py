@@ -8003,7 +8003,10 @@ def _body_offset_named_goal_target_status(
 def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str:
     lane = str(item.get("promotion_lane", "") or "")
     gate = str(item.get("fail_closed_gate", "") or "")
+    direct_root_next = _body_offset_named_goal_target_direct_root_next_step(item)
     if gate == "report_only_private_layout":
+        if direct_root_next:
+            return direct_root_next
         if lane == "collect_exact_source_for_direct_parameter_alias":
             return "Keep report-only closed; collect exact function/build/source evidence for the direct parameter alias before any canonical body rewrite."
         if lane == "collect_exact_source_for_parameter_field_pointer_alias":
@@ -8027,7 +8030,81 @@ def _body_offset_named_goal_target_recommended_next(item: dict[str, Any]) -> str
         return "Resolve mixed-width, overlay, or alignment conflicts before any rewrite."
     if lane == "collect_function_build_source_identity":
         return "Collect exact function/build/source identity before enabling correction or rewrite."
+    if direct_root_next:
+        return direct_root_next
     return "Review manually and keep fail-closed gates until exact evidence exists."
+
+
+def _body_offset_named_goal_target_direct_root_next_step(item: dict[str, Any]) -> str:
+    class_bases = _coerce_dict(item.get("direct_base_deref_class_bases", {}))
+    if not class_bases:
+        return ""
+
+    def _root_names(root_class: str) -> str:
+        roots = [
+            str(root)
+            for root in _coerce_dict(class_bases.get(root_class, {})).keys()
+            if str(root)
+        ][:3]
+        return ", ".join(roots)
+
+    direct_call_roots = _root_names("direct_call_result")
+    if direct_call_roots:
+        return (
+            "Keep report-only closed; verify direct call-result root(s) %s "
+            "returned layout/type identity before any field-zero or body rewrite."
+            % direct_call_roots
+        )
+    thread_process_roots = _root_names("thread_process_like")
+    if thread_process_roots:
+        return (
+            "Keep report-only closed; prove private thread/process structure and build identity "
+            "for %s before any field-zero or body rewrite."
+            % thread_process_roots
+        )
+    object_token_roots = _root_names("object_or_token_like")
+    if object_token_roots:
+        return (
+            "Keep report-only closed; prove object-header or token layout identity for %s "
+            "before any field-zero or body rewrite."
+            % object_token_roots
+        )
+    context_roots = _root_names("context_like")
+    if context_roots:
+        return (
+            "Keep report-only closed; add an exact function-scoped context profile for %s "
+            "before any field-zero or body rewrite."
+            % context_roots
+        )
+    named_roots = _root_names("named_base")
+    if named_roots:
+        return (
+            "Keep report-only closed; classify named direct-base root(s) %s and prove exact "
+            "layout identity before any field-zero or body rewrite."
+            % named_roots
+        )
+    parameter_roots = [
+        root
+        for root in [
+            _root_names("renamed_argument"),
+            _root_names("decompiler_argument"),
+        ]
+        if root
+    ]
+    if parameter_roots:
+        return (
+            "Keep report-only closed; validate parameter direct-base root(s) %s with exact "
+            "function/build/source identity before any field-zero or body rewrite."
+            % ", ".join(parameter_roots)
+        )
+    temp_roots = _root_names("decompiler_temp")
+    if temp_roots:
+        return (
+            "Keep report-only closed; trace temp direct-base root(s) %s to a trusted source "
+            "before any field-zero or body rewrite."
+            % temp_roots
+        )
+    return ""
 
 
 def _body_offset_residue_next_goal_candidates(

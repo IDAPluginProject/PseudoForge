@@ -1541,7 +1541,8 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                         "*/",
                         "__int64 __fastcall CmpFreeKeyControlBlock(PVOID keyControlBlock)",
                         "{",
-                        "  return *(_DWORD *)(keyControlBlock + 0x8);",
+                        "  return *(_DWORD *)(keyControlBlock + 0x8)",
+                        "       + *(_DWORD *)CmGetKCBCacheSecurity(keyControlBlock, 0);",
                         "}",
                         "",
                     ]
@@ -1573,10 +1574,10 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(2, stats["totals"]["functions_with_named_goal_targets"])
             self.assertEqual(1, stats["named_target_groups"]["registry"])
             self.assertEqual(1, stats["named_target_groups"]["memory"])
-            self.assertEqual(1, stats["totals"]["direct_base_deref_survivors"])
-            self.assertEqual(1, stats["totals"]["functions_with_direct_base_deref_residue"])
+            self.assertEqual(2, stats["totals"]["direct_base_deref_survivors"])
+            self.assertEqual(2, stats["totals"]["functions_with_direct_base_deref_residue"])
             self.assertEqual(2, queues["named_goal_targets"]["functions"])
-            self.assertEqual(1, queues["named_goal_targets"]["direct_base_deref_survivors"])
+            self.assertEqual(2, queues["named_goal_targets"]["direct_base_deref_survivors"])
             self.assertEqual(
                 {"registry": 1, "memory": 1},
                 queues["named_goal_targets"]["target_groups"],
@@ -1594,7 +1595,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                     and item["target_group"] == "registry"
                     and item["fail_closed_gate"] == "report_only_private_layout"
                     and item["promotion_lane"] == "collect_exact_private_layout_source"
-                    and item["recommended_next"].startswith("Keep report-only closed")
+                    and "verify direct call-result root(s) CmGetKCBCacheSecurity" in item["recommended_next"]
                     for item in target_status["present_targets"]
                 )
             )
@@ -1646,6 +1647,7 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("CmpFreeKeyControlBlock", markdown)
             self.assertIn("Direct-base roots", markdown)
             self.assertIn("context_like: context=1", markdown)
+            self.assertIn("direct_call_result: CmGetKCBCacheSecurity=1", markdown)
             self.assertIn("Keep report-only closed", markdown)
 
     def test_low_pressure_queue_keeps_stronger_report_only_gate_separate(self) -> None:
