@@ -2894,6 +2894,20 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("domain_profiles", {})).items()
         )
+        identity_context = _body_offset_identity_context_summary(queue)
+        if identity_context:
+            domain_profiles = (
+                "%s; identity %s" % (domain_profiles, identity_context)
+                if domain_profiles
+                else "identity %s" % identity_context
+            )
+        identity_sources = _body_offset_identity_source_summary(queue)
+        if identity_sources:
+            domain_profiles = (
+                "%s; source %s" % (domain_profiles, identity_sources)
+                if domain_profiles
+                else "source %s" % identity_sources
+            )
         direct_base_bases = ", ".join(
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(queue.get("direct_base_deref_bases", {})).items()
@@ -3089,6 +3103,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     "%s=%s" % (key, value)
                     for key, value in _coerce_dict(batch.get(field, {})).items()
                 )
+            identity_context = _body_offset_identity_context_summary(batch)
+            if identity_context:
+                requirements.append("identity_context %s" % identity_context)
+            identity_sources = _body_offset_identity_source_summary(batch)
+            if identity_sources:
+                requirements.append("identity_source %s" % identity_sources)
             top_functions = ", ".join(
                 "%s(%s)" % (
                     str(item.get("name", "") or ""),
@@ -3173,6 +3193,20 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "%s=%s" % (key, value)
             for key, value in _coerce_dict(item.get("domain_profiles", {})).items()
         )
+        identity_context = _body_offset_identity_context_summary(item)
+        if identity_context:
+            domain_profiles = (
+                "%s; identity %s" % (domain_profiles, identity_context)
+                if domain_profiles
+                else "identity %s" % identity_context
+            )
+        identity_sources = _body_offset_identity_source_summary(item)
+        if identity_sources:
+            domain_profiles = (
+                "%s; source %s" % (domain_profiles, identity_sources)
+                if domain_profiles
+                else "source %s" % identity_sources
+            )
         cause_tags = ", ".join(str(value) for value in item.get("residue_cause_tags", []) or [])
         requirements = "; ".join(
             str(item.get(key, "") or "")
@@ -6245,6 +6279,38 @@ def _has_build_bound_source_context(summary: dict[str, Any]) -> bool:
     ) and bool(profile_context.get("build"))
 
 
+def _function_identity_source_context(summary: dict[str, Any]) -> dict[str, str]:
+    source_context = _coerce_dict(summary.get("source_context", {}))
+    profile_context = _coerce_dict(source_context.get("profile_context", {}))
+    source_path = str(source_context.get("source_path", "") or "").strip()
+    image = str(profile_context.get("image", "") or "").strip()
+    build = str(profile_context.get("build", "") or "").strip()
+    arch = str(profile_context.get("arch", "") or "").strip()
+    result = {
+        "source_path": source_path,
+        "source_file": Path(source_path).name if source_path else "",
+        "profile_image": image,
+        "profile_build": build,
+        "profile_arch": arch,
+    }
+    source_key_parts = [part for part in [image, build, arch] if part]
+    if source_key_parts:
+        result["source_key"] = ":".join(source_key_parts)
+    elif source_path:
+        result["source_key"] = Path(source_path).name
+    return {key: value for key, value in result.items() if value}
+
+
+def _function_identity_profile_source_map(items: list[dict[str, Any]]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in items:
+        profile_id = str(item.get("profile_id", "") or "").strip()
+        profile_source = str(item.get("profile_source", "") or "").strip()
+        if profile_id and profile_source and profile_id not in result:
+            result[profile_id] = profile_source
+    return result
+
+
 def _is_body_only_weak_identity_dict(item: dict[str, Any]) -> bool:
     match_kind = _normalized_identity_token(item.get("match_kind"))
     if "body" in match_kind and "weak" in match_kind:
@@ -6358,6 +6424,10 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
     ]
     has_build_bound_source_context = _has_build_bound_source_context(summary)
     source_bound_report_only_identities = exact_report_only_identities if has_build_bound_source_context else []
+    function_identity_source_context = _function_identity_source_context(summary)
+    source_bound_identity_sources = _function_identity_profile_source_map(
+        source_bound_report_only_identities
+    )
     source_bound_report_only_profile_ids = {
         str(item.get("profile_id", "") or "")
         for item in source_bound_report_only_identities
@@ -6404,6 +6474,8 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         "corrected_parameter_map_entries": len(corrected_parameter_map),
         "exact_report_only_identity_candidates": len(exact_report_only_identities),
         "source_bound_report_only_identity_candidates": len(source_bound_report_only_identities),
+        "function_identity_source_context": function_identity_source_context,
+        "source_bound_identity_sources": source_bound_identity_sources,
         "type_assisted_preview_candidates": 1 if report_only_preview_corrections else 0,
         "type_assisted_preview_parameter_corrections": len(report_only_preview_corrections),
         "report_only_identity_preview_candidates": 1 if report_only_preview_corrections else 0,
@@ -7171,6 +7243,12 @@ def _body_offset_residue_function_summary(
             0,
         ),
         "source_bound_report_only_identity_candidates": source_bound_report_only_identity_candidates,
+        "function_identity_source_context": _coerce_dict(
+            prototype_metrics.get("function_identity_source_context", {})
+        ),
+        "source_bound_identity_sources": _coerce_dict(
+            prototype_metrics.get("source_bound_identity_sources", {})
+        ),
         "report_only_identity_preview_candidates": _int_value(
             prototype_metrics.get("report_only_identity_preview_candidates"),
             0,
@@ -9949,6 +10027,8 @@ def _body_offset_residue_next_goal_review_batches(
             if str(item.get("type_conflict_requirement", "") or "")
         )
         stable_source_provenance: Counter[str] = Counter()
+        function_identity_source_contexts: Counter[str] = Counter()
+        source_bound_identity_sources: dict[str, str] = {}
         domain_profiles: Counter[str] = Counter()
         residue_cause_tags: Counter[str] = Counter()
         direct_base_deref_base_classes: Counter[str] = Counter()
@@ -9976,6 +10056,17 @@ def _body_offset_residue_next_goal_review_batches(
         for item in group_items:
             for key, value in _coerce_dict(item.get("stable_source_provenance", {})).items():
                 stable_source_provenance[str(key)] += _int_value(value, 0)
+            item_identity_sources = _coerce_dict(item.get("source_bound_identity_sources", {}))
+            if item_identity_sources:
+                source_context = _coerce_dict(item.get("function_identity_source_context", {}))
+                source_key = str(source_context.get("source_key", "") or "").strip()
+                if source_key:
+                    function_identity_source_contexts[source_key] += 1
+            for key, value in item_identity_sources.items():
+                profile_id = str(key)
+                profile_source = str(value)
+                if profile_id and profile_source and profile_id not in source_bound_identity_sources:
+                    source_bound_identity_sources[profile_id] = profile_source
             for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
                 domain_profiles[str(key)] += _int_value(value, 0)
             for tag in item.get("residue_cause_tags", []) or []:
@@ -10119,6 +10210,12 @@ def _body_offset_residue_next_goal_review_batches(
                 ),
                 "stable_source_provenance": _counter_to_dict(
                     Counter(dict(stable_source_provenance.most_common(limit)))
+                ),
+                "function_identity_source_contexts": _counter_to_dict(
+                    Counter(dict(function_identity_source_contexts.most_common(limit)))
+                ),
+                "source_bound_identity_sources": dict(
+                    list(source_bound_identity_sources.items())[:limit]
                 ),
                 "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
                 "direct_base_deref_base_classes": _counter_to_dict(
@@ -10271,6 +10368,12 @@ def _body_offset_residue_next_goal_review_batches(
                         "top_stable_source_details": _coerce_dict(
                             item.get("top_stable_source_details", {})
                         ),
+                        "function_identity_source_context": _coerce_dict(
+                            item.get("function_identity_source_context", {})
+                        ),
+                        "source_bound_identity_sources": _coerce_dict(
+                            item.get("source_bound_identity_sources", {})
+                        ),
                         "nested_field_pointer_residue_count": _int_value(
                             item.get("nested_field_pointer_residue_count"),
                             0,
@@ -10416,6 +10519,12 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
         "review_summary": _body_offset_residue_review_summary(item),
         "next_step": next_step,
         "safety_note": _body_offset_residue_next_goal_safety_note(item, kind),
+        "function_identity_source_context": _coerce_dict(
+            item.get("function_identity_source_context", {})
+        ),
+        "source_bound_identity_sources": _coerce_dict(
+            item.get("source_bound_identity_sources", {})
+        ),
         "source_identity_requirement": _body_offset_residue_next_goal_source_identity_requirement(
             item,
             kind,
@@ -10758,6 +10867,38 @@ def _body_offset_stable_source_detail_summary(item: dict[str, Any], limit: int =
     return ", ".join(details)
 
 
+def _body_offset_identity_context_summary(item: dict[str, Any], limit: int = 3) -> str:
+    contexts = _coerce_dict(item.get("function_identity_source_contexts", {}))
+    if contexts:
+        return ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in list(contexts.items())[:limit]
+            if str(key)
+        )
+    if not _coerce_dict(item.get("source_bound_identity_sources", {})):
+        return ""
+    context = _coerce_dict(item.get("function_identity_source_context", {}))
+    source_key = str(context.get("source_key", "") or "").strip()
+    if source_key:
+        return source_key
+    image = str(context.get("profile_image", "") or "").strip()
+    build = str(context.get("profile_build", "") or "").strip()
+    arch = str(context.get("profile_arch", "") or "").strip()
+    parts = [part for part in [image, build, arch] if part]
+    if parts:
+        return ":".join(parts)
+    return str(context.get("source_file", "") or "").strip()
+
+
+def _body_offset_identity_source_summary(item: dict[str, Any], limit: int = 2) -> str:
+    sources = _coerce_dict(item.get("source_bound_identity_sources", {}))
+    parts = []
+    for profile_id, profile_source in list(sources.items())[:limit]:
+        if str(profile_id) and str(profile_source):
+            parts.append("%s: %s" % (profile_id, profile_source))
+    return "; ".join(parts)
+
+
 def _body_offset_parameter_indexed_anchor_summary(
     item: dict[str, Any],
     limit: int = 3,
@@ -10991,6 +11132,8 @@ def _body_offset_residue_review_queue_summary(
     stable_source_kinds: Counter[str] = Counter()
     top_stable_sources: Counter[str] = Counter()
     top_stable_source_details: Counter[str] = Counter()
+    function_identity_source_contexts: Counter[str] = Counter()
+    source_bound_identity_sources: dict[str, str] = {}
     domain_profiles: Counter[str] = Counter()
     parameter_indexed_parents: Counter[str] = Counter()
     parameter_indexed_parent_types: Counter[str] = Counter()
@@ -11057,6 +11200,17 @@ def _body_offset_residue_review_queue_summary(
             top_stable_sources[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("top_stable_source_details", {})).items():
             top_stable_source_details[str(key)] += _int_value(value, 0)
+        item_identity_sources = _coerce_dict(item.get("source_bound_identity_sources", {}))
+        if item_identity_sources:
+            source_context = _coerce_dict(item.get("function_identity_source_context", {}))
+            source_key = str(source_context.get("source_key", "") or "").strip()
+            if source_key:
+                function_identity_source_contexts[source_key] += 1
+        for key, value in item_identity_sources.items():
+            profile_id = str(key)
+            profile_source = str(value)
+            if profile_id and profile_source and profile_id not in source_bound_identity_sources:
+                source_bound_identity_sources[profile_id] = profile_source
         for key, value in _coerce_dict(item.get("domain_profiles", {})).items():
             domain_profiles[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("parameter_indexed_parents", {})).items():
@@ -11318,6 +11472,10 @@ def _body_offset_residue_review_queue_summary(
         "top_stable_source_details": _counter_to_dict(
             Counter(dict(top_stable_source_details.most_common(limit)))
         ),
+        "function_identity_source_contexts": _counter_to_dict(
+            Counter(dict(function_identity_source_contexts.most_common(limit)))
+        ),
+        "source_bound_identity_sources": dict(list(source_bound_identity_sources.items())[:limit]),
         "domain_profiles": _counter_to_dict(Counter(dict(domain_profiles.most_common(limit)))),
         "parameter_indexed_parents": _counter_to_dict(
             Counter(dict(parameter_indexed_parents.most_common(limit)))
@@ -11494,6 +11652,12 @@ def _body_offset_residue_review_queue_item(
         "stable_source_kinds": _coerce_dict(item.get("stable_source_kinds", {})),
         "top_stable_sources": _coerce_dict(item.get("top_stable_sources", {})),
         "top_stable_source_details": _coerce_dict(item.get("top_stable_source_details", {})),
+        "function_identity_source_context": _coerce_dict(
+            item.get("function_identity_source_context", {})
+        ),
+        "source_bound_identity_sources": _coerce_dict(
+            item.get("source_bound_identity_sources", {})
+        ),
         "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
         "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
         "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),

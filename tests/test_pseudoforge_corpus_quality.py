@@ -1063,6 +1063,30 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                         "",
                     ]
                 ),
+                {
+                    "source_context": {
+                        "source_path": "D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64",
+                        "profile_context": {
+                            "image": "ntoskrnl.exe",
+                            "build": "26200.8457",
+                            "arch": "x64",
+                        },
+                    },
+                    "function_identity_candidates": [
+                        {
+                            "profile_id": "windows.registry_config.queue",
+                            "subsystem": "Configuration Manager",
+                            "function_name": "CmpQueueResidue",
+                            "match_kind": "function_name",
+                            "evidence": ["function_name"],
+                            "blockers": ["report_only_profile"],
+                            "effective_mode": "report-only",
+                            "profile_source": "Reviewed CmpQueueResidue ntoskrnl 26200.8457 registry queue residue; report-only.",
+                            "profile_version": "registry-config-v1",
+                            "ambiguous_profile_ids": [],
+                        }
+                    ],
+                },
             )
             write_function(
                 "0x140020000",
@@ -1341,6 +1365,18 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
                 queues["source_provenance_review"]["top_stable_source_details"],
             )
+            self.assertEqual(
+                {"ntoskrnl.exe:26200.8457:x64": 1},
+                queues["source_provenance_review"]["function_identity_source_contexts"],
+            )
+            self.assertEqual(
+                {
+                    "windows.registry_config.queue": (
+                        "Reviewed CmpQueueResidue ntoskrnl 26200.8457 registry queue residue; report-only."
+                    )
+                },
+                queues["source_provenance_review"]["source_bound_identity_sources"],
+            )
             cmp_queue_item = next(
                 item
                 for item in queues["report_only_exact_promotion_candidates"]["items"]
@@ -1400,6 +1436,18 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertEqual(
                 {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
                 cmp_queue_item["top_stable_source_details"],
+            )
+            self.assertEqual(
+                "ntoskrnl.exe:26200.8457:x64",
+                cmp_queue_item["function_identity_source_context"]["source_key"],
+            )
+            self.assertEqual(
+                {
+                    "windows.registry_config.queue": (
+                        "Reviewed CmpQueueResidue ntoskrnl 26200.8457 registry queue residue; report-only."
+                    )
+                },
+                cmp_queue_item["source_bound_identity_sources"],
             )
             self.assertTrue(
                 any(
@@ -1526,6 +1574,18 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
                 {"keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter": 1},
                 cmp_next_goal_item["top_stable_source_details"],
             )
+            self.assertEqual(
+                "ntoskrnl.exe:26200.8457:x64",
+                cmp_next_goal_item["function_identity_source_context"]["source_key"],
+            )
+            self.assertEqual(
+                {
+                    "windows.registry_config.queue": (
+                        "Reviewed CmpQueueResidue ntoskrnl 26200.8457 registry queue residue; report-only."
+                    )
+                },
+                cmp_next_goal_item["source_bound_identity_sources"],
+            )
             self.assertTrue(
                 any(
                     "keyControlBlock+0x10:_QWORD" in sample
@@ -1549,6 +1609,11 @@ __int64 __fastcall CappedPointerIndexedRewrite(__int64 argument0)
             self.assertIn("direct parameter alias source", markdown)
             self.assertIn(
                 "keyControlBlock<-transactionLogEntry:parameter_direct_alias:direct_parameter",
+                markdown,
+            )
+            self.assertIn("identity ntoskrnl.exe:26200.8457:x64", markdown)
+            self.assertIn(
+                "Reviewed CmpQueueResidue ntoskrnl 26200.8457 registry queue residue; report-only.",
                 markdown,
             )
             self.assertIn("Report-only profile remains closed", markdown)
