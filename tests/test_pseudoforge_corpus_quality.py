@@ -3691,9 +3691,40 @@ __int64 __fastcall MiPrefetchVirtualMemory(PMEMORY_RANGE_ENTRY memoryRanges, ULO
             self.assertIn("naive parameter alias rewrite unsafe", named_target["recommended_next"])
             next_goal_candidates = body_offset_stats["next_goal_candidates"]
             self.assertEqual(1, next_goal_candidates["residue_cause_tags"]["parameter_indexed_layout"])
-            self.assertIn("parameter_indexed_layout", next_goal_candidates["items"][0]["residue_cause_tags"])
+            next_item = next_goal_candidates["items"][0]
+            self.assertIn("parameter_indexed_layout", next_item["residue_cause_tags"])
+            self.assertEqual("indexed_layout_model", next_item["candidate_kind"])
+            self.assertEqual(1, next_item["parameter_indexed_element_count"])
+            self.assertEqual({"memoryRanges": 1}, next_item["parameter_indexed_parents"])
+            self.assertEqual({"PMEMORY_RANGE_ENTRY": 1}, next_item["parameter_indexed_parent_types"])
+            self.assertEqual({"16": 1}, next_item["parameter_indexed_strides"])
+            self.assertEqual(
+                {"typed_parent_pointer_byte_stride": 1},
+                next_item["parameter_indexed_alias_rewrite_risks"],
+            )
+            self.assertEqual(["+0x0", "+0x8"], next_item["parameter_indexed_offsets"])
+            self.assertIn(
+                "memoryRanges:PMEMORY_RANGE_ENTRY stride=16 offsets=+0x0,+0x8",
+                next_item["next_step"],
+            )
+            self.assertIn(
+                "indexed element identity required for memoryRanges:PMEMORY_RANGE_ENTRY",
+                next_item["source_identity_requirement"],
+            )
+            review_batch = next_goal_candidates["review_batches"][0]
+            self.assertEqual(1, review_batch["parameter_indexed_elements"])
+            self.assertEqual({"memoryRanges": 1}, review_batch["parameter_indexed_parents"])
+            self.assertEqual({"PMEMORY_RANGE_ENTRY": 1}, review_batch["parameter_indexed_parent_types"])
+            self.assertEqual({"16": 1}, review_batch["parameter_indexed_strides"])
+            self.assertEqual(
+                {"typed_parent_pointer_byte_stride": 1},
+                review_batch["parameter_indexed_alias_rewrite_risks"],
+            )
+            self.assertEqual(["+0x0", "+0x8"], review_batch["parameter_indexed_offsets"])
             markdown = render_quality_markdown(report)
             self.assertIn("### Residue Cause Tags", markdown)
+            self.assertIn("Indexed anchors", markdown)
+            self.assertIn("memoryRanges:PMEMORY_RANGE_ENTRY stride=16 offsets=+0x0,+0x8", markdown)
             self.assertIn("Parameter-indexed alias rewrite risks: `1`", markdown)
             self.assertIn("typed_parent_pointer_byte_stride=1", markdown)
             self.assertIn("typed_pointer_stride_alias_risk=1", markdown)

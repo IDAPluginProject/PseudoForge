@@ -2950,8 +2950,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 "",
                 "#### Candidate Review Batches",
                 "",
-                "| Batch | Functions | Actionability | Residue | Call-result anchors | Field-pointer anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
-                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+                "| Batch | Functions | Actionability | Residue | Call-result anchors | Field-pointer anchors | Indexed anchors | Gates | Cause tags | Requirements | Top functions | Next step |",
+                "| --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
             ]
         )
         for batch in review_batches:
@@ -3000,8 +3000,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     else "hints %s" % call_result_hints
                 )
             parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(batch)
+            parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(batch)
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     str(batch.get("batch", "") or ""),
                     _int_value(batch.get("function_count"), 0),
@@ -3009,6 +3010,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     _markdown_table_cell(residue),
                     _markdown_table_cell(call_result_anchors),
                     _markdown_table_cell(parameter_field_pointer_anchors),
+                    _markdown_table_cell(parameter_indexed_anchors),
                     _markdown_table_cell(gates),
                     _markdown_table_cell(cause_tags),
                     _markdown_table_cell(", ".join(requirements)),
@@ -3019,8 +3021,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Call-result anchors | Field-pointer anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
-            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Function | Kind | Actionability | Subsystem | Gate | Lane | Score | Offset derefs | Direct-base derefs | Call-result anchors | Field-pointer anchors | Indexed anchors | Cause tags | Stable sources | Profiles | Next step | Requirements | Safety |",
+            "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for item in next_goal_candidates.get("items", []) or []:
@@ -3064,8 +3066,9 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 else "hints %s" % call_result_hints
             )
         parameter_field_pointer_anchors = _body_offset_parameter_field_pointer_anchor_summary(item)
+        parameter_indexed_anchors = _body_offset_parameter_indexed_anchor_summary(item)
         lines.append(
-            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "") or ""),
                 str(item.get("candidate_kind", "") or ""),
@@ -3078,6 +3081,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 _int_value(item.get("direct_base_deref_survivors"), 0),
                 _markdown_table_cell(call_result_anchors),
                 _markdown_table_cell(parameter_field_pointer_anchors),
+                _markdown_table_cell(parameter_indexed_anchors),
                 _markdown_table_cell(cause_tags),
                 _markdown_table_cell(stable_sources),
                 _markdown_table_cell(domain_profiles),
@@ -9194,6 +9198,11 @@ def _body_offset_residue_next_goal_review_batches(
         parameter_field_pointer_sources: Counter[str] = Counter()
         parameter_field_pointer_offsets: Counter[str] = Counter()
         parameter_field_pointer_samples: list[str] = []
+        parameter_indexed_parents: Counter[str] = Counter()
+        parameter_indexed_parent_types: Counter[str] = Counter()
+        parameter_indexed_strides: Counter[str] = Counter()
+        parameter_indexed_alias_rewrite_risks: Counter[str] = Counter()
+        parameter_indexed_offsets: list[str] = []
         callee_arity_residue_callees: Counter[str] = Counter()
         callee_arity_residue_samples: list[str] = []
         for item in group_items:
@@ -9232,6 +9241,18 @@ def _body_offset_residue_next_goal_review_batches(
                 sample_text = str(sample)
                 if sample_text and sample_text not in parameter_field_pointer_samples:
                     parameter_field_pointer_samples.append(sample_text)
+            for key, value in _coerce_dict(item.get("parameter_indexed_parents", {})).items():
+                parameter_indexed_parents[str(key)] += _int_value(value, 0)
+            for key, value in _coerce_dict(item.get("parameter_indexed_parent_types", {})).items():
+                parameter_indexed_parent_types[str(key)] += _int_value(value, 0)
+            for key, value in _coerce_dict(item.get("parameter_indexed_strides", {})).items():
+                parameter_indexed_strides[str(key)] += _int_value(value, 0)
+            for key, value in _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})).items():
+                parameter_indexed_alias_rewrite_risks[str(key)] += _int_value(value, 0)
+            for offset in item.get("parameter_indexed_offsets", []) or []:
+                offset_text = str(offset)
+                if offset_text and offset_text not in parameter_indexed_offsets:
+                    parameter_indexed_offsets.append(offset_text)
             for callee, count in _coerce_dict(item.get("callee_arity_residue_callees", {})).items():
                 callee_arity_residue_callees[str(callee)] += _int_value(count, 0)
             for sample in item.get("callee_arity_residue_samples", []) or []:
@@ -9338,6 +9359,23 @@ def _body_offset_residue_next_goal_review_batches(
                     Counter(dict(parameter_field_pointer_offsets.most_common(limit)))
                 ),
                 "parameter_field_pointer_samples": parameter_field_pointer_samples[:limit],
+                "parameter_indexed_elements": sum(
+                    _int_value(item.get("parameter_indexed_element_count"), 0)
+                    for item in group_items
+                ),
+                "parameter_indexed_parents": _counter_to_dict(
+                    Counter(dict(parameter_indexed_parents.most_common(limit)))
+                ),
+                "parameter_indexed_parent_types": _counter_to_dict(
+                    Counter(dict(parameter_indexed_parent_types.most_common(limit)))
+                ),
+                "parameter_indexed_strides": _counter_to_dict(
+                    Counter(dict(parameter_indexed_strides.most_common(limit)))
+                ),
+                "parameter_indexed_alias_rewrite_risks": _counter_to_dict(
+                    Counter(dict(parameter_indexed_alias_rewrite_risks.most_common(limit)))
+                ),
+                "parameter_indexed_offsets": parameter_indexed_offsets[:limit],
                 "callee_arity_residue_callees": _counter_to_dict(
                     Counter(dict(callee_arity_residue_callees.most_common(limit)))
                 ),
@@ -9376,6 +9414,27 @@ def _body_offset_residue_next_goal_review_batches(
                             str(sample)
                             for sample in item.get("parameter_field_pointer_samples", []) or []
                             if str(sample)
+                        ],
+                        "parameter_indexed_element_count": _int_value(
+                            item.get("parameter_indexed_element_count"),
+                            0,
+                        ),
+                        "parameter_indexed_parents": _coerce_dict(
+                            item.get("parameter_indexed_parents", {})
+                        ),
+                        "parameter_indexed_parent_types": _coerce_dict(
+                            item.get("parameter_indexed_parent_types", {})
+                        ),
+                        "parameter_indexed_strides": _coerce_dict(
+                            item.get("parameter_indexed_strides", {})
+                        ),
+                        "parameter_indexed_alias_rewrite_risks": _coerce_dict(
+                            item.get("parameter_indexed_alias_rewrite_risks", {})
+                        ),
+                        "parameter_indexed_offsets": [
+                            str(offset)
+                            for offset in item.get("parameter_indexed_offsets", []) or []
+                            if str(offset)
                         ],
                         "callee_arity_residue_samples": [
                             str(sample)
@@ -9480,6 +9539,18 @@ def _body_offset_residue_next_goal_candidate_item(item: dict[str, Any]) -> dict[
             str(sample)
             for sample in item.get("parameter_field_pointer_samples", []) or []
             if str(sample)
+        ],
+        "parameter_indexed_element_count": _int_value(item.get("parameter_indexed_element_count"), 0),
+        "parameter_indexed_parents": _coerce_dict(item.get("parameter_indexed_parents", {})),
+        "parameter_indexed_parent_types": _coerce_dict(item.get("parameter_indexed_parent_types", {})),
+        "parameter_indexed_strides": _coerce_dict(item.get("parameter_indexed_strides", {})),
+        "parameter_indexed_alias_rewrite_risks": _coerce_dict(
+            item.get("parameter_indexed_alias_rewrite_risks", {})
+        ),
+        "parameter_indexed_offsets": [
+            str(offset)
+            for offset in item.get("parameter_indexed_offsets", []) or []
+            if str(offset)
         ],
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "nested_field_pointer_residue_count": _int_value(
@@ -9701,6 +9772,12 @@ def _body_offset_residue_next_goal_candidate_next_step(item: dict[str, Any], kin
     if kind == "type_conflict_resolution":
         return "Resolve overlay, width, and alignment conflicts before promoting fields."
     if kind == "indexed_layout_model":
+        anchors = _body_offset_parameter_indexed_anchor_summary(item)
+        if anchors:
+            return (
+                "Model indexed element shape(s) %s separately from canonical structure rewrite."
+                % anchors
+            )
         return "Model the array/table element shape separately from canonical structure rewrite."
     if kind == "nested_field_pointer_layout_model":
         return "Model the nested field-pointer object separately and prove exact nested layout identity before rewrite."
@@ -9729,6 +9806,9 @@ def _body_offset_residue_next_goal_safety_note(item: dict[str, Any], kind: str) 
     if gate == "source_stability_required":
         return "Unstable source blocks body rewrite."
     if gate in {"pointer_indexed_separate_model", "parameter_indexed_separate_model"}:
+        anchors = _body_offset_parameter_indexed_anchor_summary(item)
+        if anchors:
+            return "Indexed layouts are not canonical field rewrites; %s stays a separate element model." % anchors
         return "Indexed layouts are not canonical field rewrites."
     if kind == "nested_field_pointer_layout_model":
         return "Nested field-pointer residue needs its own exact layout identity; parent rewrite evidence is not enough."
@@ -9790,6 +9870,11 @@ def _body_offset_residue_next_goal_source_identity_requirement(
         return "exact function, build, profile, and source object identity required"
     if gate == "report_only_private_layout":
         return "exact private layout source required before canonical rewrite"
+    if kind == "indexed_layout_model":
+        anchors = _body_offset_parameter_indexed_anchor_summary(item)
+        if anchors:
+            return "indexed element identity required for %s; do not rewrite the parent parameter as a canonical field" % anchors
+        return "indexed element identity required; do not rewrite the parent parameter as a canonical field"
     if kind == "nested_field_pointer_layout_model":
         return "exact nested object layout identity required before nested field rewrite"
     if kind == "direct_base_zero_deref_review":
@@ -9797,6 +9882,61 @@ def _body_offset_residue_next_goal_source_identity_requirement(
     if provenance:
         return "stable source provenance available; verify exact profile identity before promotion"
     return ""
+
+
+def _body_offset_parameter_indexed_anchor_summary(
+    item: dict[str, Any],
+    limit: int = 3,
+) -> str:
+    indexed_count = max(
+        _int_value(item.get("parameter_indexed_element_count"), 0),
+        _int_value(item.get("parameter_indexed_elements"), 0),
+    )
+    if indexed_count <= 0:
+        return ""
+    parents = [
+        str(parent)
+        for parent in _coerce_dict(item.get("parameter_indexed_parents", {})).keys()
+        if str(parent)
+    ][:limit]
+    parent_types = [
+        str(parent_type)
+        for parent_type in _coerce_dict(item.get("parameter_indexed_parent_types", {})).keys()
+        if str(parent_type)
+    ][:limit]
+    strides = [
+        str(stride)
+        for stride in _coerce_dict(item.get("parameter_indexed_strides", {})).keys()
+        if str(stride)
+    ][:limit]
+    offsets = [
+        str(offset)
+        for offset in item.get("parameter_indexed_offsets", []) or []
+        if str(offset)
+    ][:limit]
+    risks = [
+        str(risk)
+        for risk in _coerce_dict(item.get("parameter_indexed_alias_rewrite_risks", {})).keys()
+        if str(risk)
+    ][:limit]
+    parts: list[str] = []
+    if parents and parent_types:
+        paired = []
+        for index, parent in enumerate(parents):
+            parent_type = parent_types[index] if index < len(parent_types) else parent_types[0]
+            paired.append("%s:%s" % (parent, parent_type))
+        parts.append(",".join(paired))
+    elif parents:
+        parts.append(",".join(parents))
+    elif parent_types:
+        parts.append(",".join(parent_types))
+    if strides:
+        parts.append("stride=%s" % ",".join(strides))
+    if offsets:
+        parts.append("offsets=%s" % ",".join(offsets))
+    if risks:
+        parts.append("risk=%s" % ",".join(risks))
+    return " ".join(parts)
 
 
 def _body_offset_residue_next_goal_source_stability_requirement(item: dict[str, Any]) -> str:
