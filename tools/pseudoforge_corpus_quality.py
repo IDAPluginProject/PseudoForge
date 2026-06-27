@@ -296,6 +296,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     ),
 }
 _PROTOTYPE_CORRECTION_QUEUE_DESCRIPTIONS = {
+    "report_only_identity_type_preview_candidates": (
+        "Exact report-only function identities with build-bound source context and preview-only parameter corrections."
+    ),
     "low_confidence_type_corrections": (
         "Exact prototype candidates blocked only by conservative profile type confidence."
     ),
@@ -313,6 +316,9 @@ _PROTOTYPE_CORRECTION_QUEUE_DESCRIPTIONS = {
     ),
 }
 _PROTOTYPE_CORRECTION_QUEUE_NEXT_STEPS = {
+    "report_only_identity_type_preview_candidates": (
+        "Use type-assisted decompile preview only; keep body rewrite and IDB mutation closed until exact private layout source identity is proven."
+    ),
     "low_confidence_type_corrections": (
         "Reread the profile source and cleaned signature; raise profile confidence only when exact function/build evidence supports the canonical type."
     ),
@@ -966,6 +972,7 @@ def analyze_corpus(
     prototype_function_profiles: Counter[str] = Counter()
     prototype_canonical_types: Counter[str] = Counter()
     prototype_body_rewrite_sources: Counter[str] = Counter()
+    prototype_report_only_preview_profiles: Counter[str] = Counter()
     totals = Counter()
     text_totals = Counter()
     body_text_totals = Counter()
@@ -1045,6 +1052,7 @@ def analyze_corpus(
             prototype_function_profiles,
             prototype_canonical_types,
             prototype_body_rewrite_sources,
+            prototype_report_only_preview_profiles,
         )
         if bool(prototype_metrics.get("has_correction_evidence")):
             top_prototype_correction_functions.append(
@@ -1693,6 +1701,7 @@ def analyze_corpus(
     top_prototype_correction_functions.sort(
         key=lambda item: (
             -int(item["applied_parameter_type_corrections"]),
+            -int(item["report_only_identity_preview_parameter_corrections"]),
             -int(item["blocked_parameter_type_corrections"]),
             -int(item["generic_parameter_survivors"]),
             -int(item["offset_deref_survivors"]),
@@ -2018,6 +2027,9 @@ def analyze_corpus(
             "body_rewrite_source_provenance": _counter_to_dict(
                 Counter(dict(prototype_body_rewrite_sources.most_common(top)))
             ),
+            "report_only_identity_preview_profiles": _counter_to_dict(
+                Counter(dict(prototype_report_only_preview_profiles.most_common(top)))
+            ),
             "top_functions": top_prototype_correction_functions[:top],
             "review_queues": _prototype_correction_review_queues(
                 top_prototype_correction_functions,
@@ -2208,6 +2220,21 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             ),
             "- Corrected parameter map entries: `%s`"
             % prototype_correction_totals.get("corrected_parameter_map_entries", 0),
+            "- Type-assisted preview candidates: `%s` functions, `%s` parameter corrections"
+            % (
+                prototype_correction_totals.get("type_assisted_preview_candidates", 0),
+                prototype_correction_totals.get("type_assisted_preview_parameter_corrections", 0),
+            ),
+            "- Report-only identity preview candidates: `%s` functions, `%s` parameter corrections"
+            % (
+                prototype_correction_totals.get("report_only_identity_preview_candidates", 0),
+                prototype_correction_totals.get("report_only_identity_preview_parameter_corrections", 0),
+            ),
+            "- Source-bound report-only identities: `%s` of `%s` exact report-only identities"
+            % (
+                prototype_correction_totals.get("source_bound_report_only_identity_candidates", 0),
+                prototype_correction_totals.get("exact_report_only_identity_candidates", 0),
+            ),
             "- Generic parameter survivors: `%s`"
             % prototype_correction_totals.get("generic_parameter_survivors", 0),
             "- Offset-deref survivors: `%s`"
@@ -2258,6 +2285,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Report-Only Identity Preview Profiles",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("report_only_identity_preview_profiles", {})),
+            "Profile",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Prototype Canonical Types",
             "",
         ]
@@ -2294,8 +2334,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     else:
         lines.extend(
             [
-                "| Queue | Functions | Blocked | Generic survivors | Offset derefs | Profiles | Blockers | Next step |",
-                "| --- | ---: | ---: | ---: | ---: | --- | --- | --- |",
+                "| Queue | Functions | Blocked | Preview params | Generic survivors | Offset derefs | Profiles | Blockers | Next step |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
             ]
         )
         for queue_name, queue in prototype_review_queues.items():
@@ -2310,11 +2350,12 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 for key, value in _coerce_dict(queue.get("blockers", {})).items()
             )
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     queue_name,
                     int(queue.get("function_count", 0) or 0),
                     int(queue.get("blocked_parameter_type_corrections", 0) or 0),
+                    int(queue.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                     int(queue.get("generic_parameter_survivors", 0) or 0),
                     int(queue.get("offset_deref_survivors", 0) or 0),
                     _markdown_table_cell(profile_text),
@@ -2325,8 +2366,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         lines.extend(
             [
                 "",
-                "| Queue | Function | EA | Blocked | Generic survivors | Offset derefs | Profiles | Blockers |",
-                "| --- | --- | --- | ---: | ---: | ---: | --- | --- |",
+                "| Queue | Function | EA | Blocked | Preview params | Generic survivors | Offset derefs | Profiles | Blockers |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
             ]
         )
         for queue_name, queue in prototype_review_queues.items():
@@ -2344,12 +2385,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     for key, value in _coerce_dict(item.get("blockers", {})).items()
                 )
                 lines.append(
-                    "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s |"
+                    "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
                     % (
                         queue_name,
                         str(item.get("name", "")),
                         str(item.get("ea", "")),
                         int(item.get("blocked_parameter_type_corrections", 0) or 0),
+                        int(item.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                         int(item.get("generic_parameter_survivors", 0) or 0),
                         int(item.get("offset_deref_survivors", 0) or 0),
                         _markdown_table_cell(profile_text),
@@ -2361,8 +2403,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Prototype Correction Functions",
             "",
-            "| Function | EA | Identities | Corrections | Applied | Blocked | Map | Body ready | Generic survivors | Offset derefs | Profiles | Types | Blockers |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Identities | Corrections | Applied | Blocked | RO preview params | Map | Body ready | Generic survivors | Offset derefs | Profiles | Types | Blockers |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in prototype_correction_stats.get("top_functions", []) or []:
@@ -2381,7 +2423,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(item.get("blockers", {})).items()
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -2389,6 +2431,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("parameter_type_corrections", 0) or 0),
                 int(item.get("applied_parameter_type_corrections", 0) or 0),
                 int(item.get("blocked_parameter_type_corrections", 0) or 0),
+                int(item.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                 int(item.get("corrected_parameter_map_entries", 0) or 0),
                 int(item.get("body_rewrite_ready", 0) or 0),
                 int(item.get("generic_parameter_survivors", 0) or 0),
@@ -3232,8 +3275,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Body Offset Residue Functions",
             "",
-            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Cause tags | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | Offset samples | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
+            "| Function | Summary | Lane | EA | Goal | Subsystem | Focus | Gate | Family | Safety | Maturity | Pressure | Primary reasons | Notes | Cause tags | Factors | Class | Next action | Details | Score | Offset derefs | Direct-base derefs | RO preview params | Offset samples | Field pressure | Ready | Blockers | Evidence | Promotion hints | Bases | Reasons |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | --- | --- | --- |",
         ]
     )
     for item in (body_offset_residue_stats.get("top_functions", []) or [])[:_BODY_OFFSET_RESIDUE_MARKDOWN_ITEM_LIMIT]:
@@ -3256,7 +3299,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         promotion_lane = str(item.get("promotion_lane", "") or "")
         offset_samples = _body_offset_offset_deref_sample_summary(item)
         lines.append(
-            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | %s | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s | %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 _markdown_table_cell(str(item.get("review_summary", "") or "")),
@@ -3280,6 +3323,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("priority_score", 0) or 0),
                 int(item.get("offset_deref_survivors", 0) or 0),
                 int(item.get("direct_base_deref_survivors", 0) or 0),
+                int(item.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                 _markdown_table_cell(offset_samples),
                 int(item.get("field_access_pressure", 0) or 0),
                 int(item.get("body_rewrite_ready", 0) or 0),
@@ -6124,6 +6168,104 @@ def _pointer_indexed_element_size(type_name: str, pointer_stars: str) -> int:
     return 0
 
 
+_REPORT_ONLY_IDENTITY_BLOCKERS = {"report_only_profile", "profile_report_only"}
+_TYPE_ASSISTED_PREVIEW_MODES = {
+    "",
+    "preview",
+    "preview_rewrite",
+    "rewrite_preview",
+    "report_only",
+}
+_EXACT_FUNCTION_IDENTITY_EVIDENCE = {
+    "function_name",
+    "demangled_name",
+    "exact_function_name",
+    "exact_demangled_name",
+}
+
+
+def _normalized_identity_token(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _has_build_bound_source_context(summary: dict[str, Any]) -> bool:
+    source_context = _coerce_dict(summary.get("source_context", {}))
+    profile_context = _coerce_dict(source_context.get("profile_context", {}))
+    return bool(source_context.get("source_path")) and bool(
+        profile_context.get("image")
+    ) and bool(profile_context.get("build"))
+
+
+def _is_body_only_weak_identity_dict(item: dict[str, Any]) -> bool:
+    match_kind = _normalized_identity_token(item.get("match_kind"))
+    if "body" in match_kind and "weak" in match_kind:
+        return True
+    evidence = " ".join(
+        _normalized_identity_token(value)
+        for value in _string_list(item.get("evidence"))
+    )
+    return "body_only_weak" in evidence or ("body_only" in evidence and "weak" in evidence)
+
+
+def _is_exact_report_only_identity_dict(item: dict[str, Any]) -> bool:
+    profile_id = str(item.get("profile_id", "") or "")
+    if not profile_id or profile_id == "ambiguous":
+        return False
+    if _string_list(item.get("ambiguous_profile_ids")):
+        return False
+    if _is_body_only_weak_identity_dict(item):
+        return False
+    blockers = {
+        _normalized_identity_token(blocker)
+        for blocker in _string_list(item.get("blockers"))
+        if str(blocker or "")
+    }
+    effective_mode = _normalized_identity_token(item.get("effective_mode"))
+    is_report_only = bool(blockers & _REPORT_ONLY_IDENTITY_BLOCKERS) or effective_mode == "report_only"
+    if not is_report_only:
+        return False
+    if blockers - _REPORT_ONLY_IDENTITY_BLOCKERS:
+        return False
+    match_kind = _normalized_identity_token(item.get("match_kind"))
+    evidence = {
+        _normalized_identity_token(value)
+        for value in _string_list(item.get("evidence"))
+        if str(value or "")
+    }
+    return match_kind in {"function_name", "demangled_name"} or bool(
+        evidence & _EXACT_FUNCTION_IDENTITY_EVIDENCE
+    )
+
+
+def _report_only_identity_preview_corrections(
+    parameter_type_corrections: list[dict[str, Any]],
+    exact_report_only_profile_ids: set[str],
+) -> list[dict[str, Any]]:
+    corrections = []
+    for item in parameter_type_corrections:
+        profile_id = str(item.get("profile_id", "") or "")
+        if profile_id not in exact_report_only_profile_ids:
+            continue
+        if _string_list(item.get("blockers")):
+            continue
+        if not bool(item.get("apply_to_preview", True)):
+            continue
+        if bool(item.get("apply_to_idb", False)):
+            continue
+        if not str(item.get("new_name", "") or "").strip():
+            continue
+        if not (
+            str(item.get("canonical_type", "") or "").strip()
+            or str(item.get("display_type", "") or "").strip()
+        ):
+            continue
+        effective_mode = _normalized_identity_token(item.get("effective_mode"))
+        if effective_mode not in _TYPE_ASSISTED_PREVIEW_MODES:
+            continue
+        corrections.append(item)
+    return corrections
+
+
 def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path: Path) -> dict[str, Any]:
     function_identity_candidates = _dict_list(summary.get("function_identity_candidates"))
     domain_identity_summary = _coerce_dict(summary.get("domain_identity_summary", {}))
@@ -6160,6 +6302,22 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         for item in blocked_corrections
         for blocker in (_string_list(item.get("blockers")) or ["preview_disabled"])
     )
+    exact_report_only_identities = [
+        item
+        for item in function_identity_candidates
+        if _is_exact_report_only_identity_dict(item)
+    ]
+    has_build_bound_source_context = _has_build_bound_source_context(summary)
+    source_bound_report_only_identities = exact_report_only_identities if has_build_bound_source_context else []
+    source_bound_report_only_profile_ids = {
+        str(item.get("profile_id", "") or "")
+        for item in source_bound_report_only_identities
+        if str(item.get("profile_id", "") or "")
+    }
+    report_only_preview_corrections = _report_only_identity_preview_corrections(
+        parameter_type_corrections,
+        source_bound_report_only_profile_ids,
+    )
     body_blockers = Counter(
         {
             str(key): _int_value(value, 0)
@@ -6195,6 +6353,13 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         "blocked_parameter_type_corrections": len(blocked_corrections),
         "correction_blockers": _counter_to_dict(correction_blockers),
         "corrected_parameter_map_entries": len(corrected_parameter_map),
+        "exact_report_only_identity_candidates": len(exact_report_only_identities),
+        "source_bound_report_only_identity_candidates": len(source_bound_report_only_identities),
+        "type_assisted_preview_candidates": 1 if report_only_preview_corrections else 0,
+        "type_assisted_preview_parameter_corrections": len(report_only_preview_corrections),
+        "report_only_identity_preview_candidates": 1 if report_only_preview_corrections else 0,
+        "report_only_identity_preview_parameter_corrections": len(report_only_preview_corrections),
+        "report_only_identity_preview_profiles": _profile_counter(report_only_preview_corrections),
         "body_rewrite_ready": body_rewrite_ready,
         "body_rewrite_preview": body_rewrite_preview,
         "body_rewrite_blockers": body_rewrite_blockers,
@@ -6219,6 +6384,7 @@ def _update_prototype_correction_metrics(
     function_profiles: Counter[str],
     canonical_types: Counter[str],
     body_rewrite_sources: Counter[str],
+    report_only_preview_profiles: Counter[str],
 ) -> None:
     totals["function_identity_candidates"] += _int_value(metrics.get("function_identity_candidates"), 0)
     totals["parameter_type_corrections"] += _int_value(metrics.get("parameter_type_corrections"), 0)
@@ -6231,6 +6397,30 @@ def _update_prototype_correction_metrics(
         0,
     )
     totals["corrected_parameter_map_entries"] += _int_value(metrics.get("corrected_parameter_map_entries"), 0)
+    totals["exact_report_only_identity_candidates"] += _int_value(
+        metrics.get("exact_report_only_identity_candidates"),
+        0,
+    )
+    totals["source_bound_report_only_identity_candidates"] += _int_value(
+        metrics.get("source_bound_report_only_identity_candidates"),
+        0,
+    )
+    totals["type_assisted_preview_candidates"] += _int_value(
+        metrics.get("type_assisted_preview_candidates"),
+        0,
+    )
+    totals["type_assisted_preview_parameter_corrections"] += _int_value(
+        metrics.get("type_assisted_preview_parameter_corrections"),
+        0,
+    )
+    totals["report_only_identity_preview_candidates"] += _int_value(
+        metrics.get("report_only_identity_preview_candidates"),
+        0,
+    )
+    totals["report_only_identity_preview_parameter_corrections"] += _int_value(
+        metrics.get("report_only_identity_preview_parameter_corrections"),
+        0,
+    )
     totals["body_rewrite_ready"] += _int_value(metrics.get("body_rewrite_ready"), 0)
     totals["body_rewrite_preview"] += _int_value(metrics.get("body_rewrite_preview"), 0)
     totals["body_rewrite_blockers"] += _int_value(metrics.get("body_rewrite_blockers"), 0)
@@ -6256,6 +6446,8 @@ def _update_prototype_correction_metrics(
         canonical_types[str(key)] += _int_value(value, 0)
     for key, value in _coerce_dict(metrics.get("body_rewrite_source_provenance", {})).items():
         body_rewrite_sources[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(metrics.get("report_only_identity_preview_profiles", {})).items():
+        report_only_preview_profiles[str(key)] += _int_value(value, 0)
 
 
 def _prototype_correction_function_summary(
@@ -6272,6 +6464,30 @@ def _prototype_correction_function_summary(
         "applied_parameter_type_corrections": _int_value(metrics.get("applied_parameter_type_corrections"), 0),
         "blocked_parameter_type_corrections": _int_value(metrics.get("blocked_parameter_type_corrections"), 0),
         "corrected_parameter_map_entries": _int_value(metrics.get("corrected_parameter_map_entries"), 0),
+        "exact_report_only_identity_candidates": _int_value(
+            metrics.get("exact_report_only_identity_candidates"),
+            0,
+        ),
+        "source_bound_report_only_identity_candidates": _int_value(
+            metrics.get("source_bound_report_only_identity_candidates"),
+            0,
+        ),
+        "type_assisted_preview_candidates": _int_value(metrics.get("type_assisted_preview_candidates"), 0),
+        "type_assisted_preview_parameter_corrections": _int_value(
+            metrics.get("type_assisted_preview_parameter_corrections"),
+            0,
+        ),
+        "report_only_identity_preview_candidates": _int_value(
+            metrics.get("report_only_identity_preview_candidates"),
+            0,
+        ),
+        "report_only_identity_preview_parameter_corrections": _int_value(
+            metrics.get("report_only_identity_preview_parameter_corrections"),
+            0,
+        ),
+        "report_only_identity_preview_profiles": _coerce_dict(
+            metrics.get("report_only_identity_preview_profiles", {})
+        ),
         "body_rewrite_ready": _int_value(metrics.get("body_rewrite_ready"), 0),
         "body_rewrite_blockers": _int_value(metrics.get("body_rewrite_blockers"), 0),
         "generic_parameter_survivors": _int_value(metrics.get("generic_parameter_survivors"), 0),
@@ -6288,6 +6504,7 @@ def _prototype_correction_review_queues(
     functions: list[dict[str, Any]],
     top: int,
 ) -> dict[str, dict[str, Any]]:
+    report_only_preview_queue = "report_only_identity_type_preview_candidates"
     queue_blockers = {
         "low_confidence_type_corrections": {"low_confidence"},
         "build_mismatch_type_corrections": {"build_mismatch"},
@@ -6298,8 +6515,16 @@ def _prototype_correction_review_queues(
         },
         "preview_disabled_type_corrections": {"preview_disabled"},
     }
-    raw_queues: dict[str, list[dict[str, Any]]] = {name: [] for name in queue_blockers}
+    raw_queues: dict[str, list[dict[str, Any]]] = {report_only_preview_queue: []}
+    raw_queues.update({name: [] for name in queue_blockers})
     for item in functions:
+        if _int_value(item.get("report_only_identity_preview_candidates"), 0) > 0:
+            raw_queues[report_only_preview_queue].append(
+                _prototype_correction_queue_item(
+                    item,
+                    report_only_preview_queue,
+                )
+            )
         blockers = _coerce_dict(item.get("blockers", {}))
         blocked_count = _int_value(item.get("blocked_parameter_type_corrections"), 0)
         if blocked_count <= 0 or not blockers:
@@ -6320,6 +6545,7 @@ def _prototype_correction_review_queues(
             continue
         items.sort(
             key=lambda item: (
+                -int(item["report_only_identity_preview_parameter_corrections"]),
                 -int(item["blocked_parameter_type_corrections"]),
                 -int(item["generic_parameter_survivors"]),
                 -int(item["offset_deref_survivors"]),
@@ -6345,10 +6571,34 @@ def _prototype_correction_queue_item(
         "parameter_type_corrections": _int_value(item.get("parameter_type_corrections"), 0),
         "applied_parameter_type_corrections": _int_value(item.get("applied_parameter_type_corrections"), 0),
         "blocked_parameter_type_corrections": _int_value(item.get("blocked_parameter_type_corrections"), 0),
+        "exact_report_only_identity_candidates": _int_value(
+            item.get("exact_report_only_identity_candidates"),
+            0,
+        ),
+        "source_bound_report_only_identity_candidates": _int_value(
+            item.get("source_bound_report_only_identity_candidates"),
+            0,
+        ),
+        "type_assisted_preview_candidates": _int_value(item.get("type_assisted_preview_candidates"), 0),
+        "type_assisted_preview_parameter_corrections": _int_value(
+            item.get("type_assisted_preview_parameter_corrections"),
+            0,
+        ),
+        "report_only_identity_preview_candidates": _int_value(
+            item.get("report_only_identity_preview_candidates"),
+            0,
+        ),
+        "report_only_identity_preview_parameter_corrections": _int_value(
+            item.get("report_only_identity_preview_parameter_corrections"),
+            0,
+        ),
         "generic_parameter_survivors": _int_value(item.get("generic_parameter_survivors"), 0),
         "offset_deref_survivors": _int_value(item.get("offset_deref_survivors"), 0),
         "direct_base_deref_survivors": _int_value(item.get("direct_base_deref_survivors"), 0),
         "profiles": _coerce_dict(item.get("profiles", {})),
+        "report_only_identity_preview_profiles": _coerce_dict(
+            item.get("report_only_identity_preview_profiles", {})
+        ),
         "canonical_types": _coerce_dict(item.get("canonical_types", {})),
         "blockers": _coerce_dict(item.get("blockers", {})),
         "review_hint": _PROTOTYPE_CORRECTION_QUEUE_NEXT_STEPS.get(queue_name, ""),
@@ -6362,11 +6612,14 @@ def _prototype_correction_queue_summary(
     top: int,
 ) -> dict[str, Any]:
     profiles = Counter()
+    report_only_preview_profiles = Counter()
     canonical_types = Counter()
     blockers = Counter()
     for item in items:
         for key, value in _coerce_dict(item.get("profiles", {})).items():
             profiles[str(key)] += _int_value(value, 0)
+        for key, value in _coerce_dict(item.get("report_only_identity_preview_profiles", {})).items():
+            report_only_preview_profiles[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("canonical_types", {})).items():
             canonical_types[str(key)] += _int_value(value, 0)
         for key, value in _coerce_dict(item.get("blockers", {})).items():
@@ -6377,6 +6630,30 @@ def _prototype_correction_queue_summary(
         "function_count": len(items),
         "blocked_parameter_type_corrections": sum(
             _int_value(item.get("blocked_parameter_type_corrections"), 0)
+            for item in items
+        ),
+        "exact_report_only_identity_candidates": sum(
+            _int_value(item.get("exact_report_only_identity_candidates"), 0)
+            for item in items
+        ),
+        "source_bound_report_only_identity_candidates": sum(
+            _int_value(item.get("source_bound_report_only_identity_candidates"), 0)
+            for item in items
+        ),
+        "type_assisted_preview_candidates": sum(
+            _int_value(item.get("type_assisted_preview_candidates"), 0)
+            for item in items
+        ),
+        "type_assisted_preview_parameter_corrections": sum(
+            _int_value(item.get("type_assisted_preview_parameter_corrections"), 0)
+            for item in items
+        ),
+        "report_only_identity_preview_candidates": sum(
+            _int_value(item.get("report_only_identity_preview_candidates"), 0)
+            for item in items
+        ),
+        "report_only_identity_preview_parameter_corrections": sum(
+            _int_value(item.get("report_only_identity_preview_parameter_corrections"), 0)
             for item in items
         ),
         "generic_parameter_survivors": sum(
@@ -6392,6 +6669,9 @@ def _prototype_correction_queue_summary(
             for item in items
         ),
         "profiles": _counter_to_dict(Counter(dict(profiles.most_common(8)))),
+        "report_only_identity_preview_profiles": _counter_to_dict(
+            Counter(dict(report_only_preview_profiles.most_common(8)))
+        ),
         "canonical_types": _counter_to_dict(Counter(dict(canonical_types.most_common(8)))),
         "blockers": _counter_to_dict(Counter(dict(blockers.most_common(8)))),
         "items": items[:top],
@@ -6405,6 +6685,12 @@ def _prototype_correction_totals_dict(counter: Counter[str]) -> dict[str, int]:
         "applied_parameter_type_corrections",
         "blocked_parameter_type_corrections",
         "corrected_parameter_map_entries",
+        "exact_report_only_identity_candidates",
+        "source_bound_report_only_identity_candidates",
+        "type_assisted_preview_candidates",
+        "type_assisted_preview_parameter_corrections",
+        "report_only_identity_preview_candidates",
+        "report_only_identity_preview_parameter_corrections",
         "body_rewrite_ready",
         "body_rewrite_preview",
         "body_rewrite_blockers",
@@ -6448,6 +6734,14 @@ def _body_offset_residue_function_summary(
         return {}
     direct_base_deref_survivors = _int_value(
         prototype_metrics.get("direct_base_deref_survivors"),
+        0,
+    )
+    report_only_preview_parameter_corrections = _int_value(
+        prototype_metrics.get("report_only_identity_preview_parameter_corrections"),
+        0,
+    )
+    source_bound_report_only_identity_candidates = _int_value(
+        prototype_metrics.get("source_bound_report_only_identity_candidates"),
         0,
     )
     blocker_reasons = Counter(
@@ -6534,6 +6828,9 @@ def _body_offset_residue_function_summary(
     if callee_arity_residue_count > 0:
         review_evidence.append("callee_arity_residue")
         review_evidence = list(dict.fromkeys(review_evidence))
+    if report_only_preview_parameter_corrections > 0:
+        review_evidence.append("report_only_identity_type_preview_available")
+        review_evidence = list(dict.fromkeys(review_evidence))
     named_target_group = _body_offset_named_goal_target_group(name)
     promotion_hints = _body_offset_residue_promotion_hints(
         review_class,
@@ -6570,6 +6867,9 @@ def _body_offset_residue_function_summary(
         next_action_details = list(dict.fromkeys(next_action_details))
     if callee_arity_residue_count > 0:
         next_action_details.append("review_callee_contract_before_caller_parameter_correction")
+        next_action_details = list(dict.fromkeys(next_action_details))
+    if report_only_preview_parameter_corrections > 0:
+        next_action_details.append("use_type_assisted_preview_keep_body_rewrite_closed")
         next_action_details = list(dict.fromkeys(next_action_details))
     fail_closed_gate = _body_offset_residue_fail_closed_gate(
         review_class,
@@ -6627,6 +6927,9 @@ def _body_offset_residue_function_summary(
     if callee_arity_residue_count > 0:
         residue_review_notes.append("callee_arity_residue_candidate")
         residue_review_notes = list(dict.fromkeys(residue_review_notes))
+    if report_only_preview_parameter_corrections > 0:
+        residue_review_notes.append("type_assisted_preview_candidate_body_rewrite_closed")
+        residue_review_notes = list(dict.fromkeys(residue_review_notes))
     priority_factors = _body_offset_residue_priority_factors(
         subsystem,
         review_class,
@@ -6648,6 +6951,9 @@ def _body_offset_residue_function_summary(
         priority_factors = list(dict.fromkeys(priority_factors))
     if callee_arity_residue_count > 0:
         priority_factors.append("callee_arity_residue")
+        priority_factors = list(dict.fromkeys(priority_factors))
+    if report_only_preview_parameter_corrections > 0:
+        priority_factors.append("report_only_identity_type_preview_available")
         priority_factors = list(dict.fromkeys(priority_factors))
     review_focus = _body_offset_residue_review_focus(subsystem, fail_closed_gate, priority_factors)
     priority_score = offset_deref_survivors
@@ -6671,6 +6977,8 @@ def _body_offset_residue_function_summary(
         priority_score += min(18, 6 * live_in_parameter_gap_count)
     if callee_arity_residue_count > 0:
         priority_score += min(15, 5 * callee_arity_residue_count)
+    if report_only_preview_parameter_corrections > 0:
+        priority_score += min(18, 4 + report_only_preview_parameter_corrections)
     priority_score += _body_offset_residue_priority_bonus(priority_factors)
     result = {
         "ea": ea,
@@ -6809,6 +7117,19 @@ def _body_offset_residue_function_summary(
             if str(sample)
         ][:5],
         "generic_parameter_survivors": _int_value(prototype_metrics.get("generic_parameter_survivors"), 0),
+        "exact_report_only_identity_candidates": _int_value(
+            prototype_metrics.get("exact_report_only_identity_candidates"),
+            0,
+        ),
+        "source_bound_report_only_identity_candidates": source_bound_report_only_identity_candidates,
+        "report_only_identity_preview_candidates": _int_value(
+            prototype_metrics.get("report_only_identity_preview_candidates"),
+            0,
+        ),
+        "report_only_identity_preview_parameter_corrections": report_only_preview_parameter_corrections,
+        "report_only_identity_preview_profiles": _coerce_dict(
+            prototype_metrics.get("report_only_identity_preview_profiles", {})
+        ),
         "body_rewrite_ready": _int_value(prototype_metrics.get("body_rewrite_ready"), 0),
         "body_rewrite_blockers": _int_value(prototype_metrics.get("body_rewrite_blockers"), 0),
         "layout_hint_count": len(layout_hints),

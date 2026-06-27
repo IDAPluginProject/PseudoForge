@@ -2189,6 +2189,12 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, prototype_stats["totals"]["applied_parameter_type_corrections"])
             self.assertEqual(1, prototype_stats["totals"]["blocked_parameter_type_corrections"])
             self.assertEqual(1, prototype_stats["totals"]["corrected_parameter_map_entries"])
+            self.assertEqual(1, prototype_stats["totals"]["exact_report_only_identity_candidates"])
+            self.assertEqual(1, prototype_stats["totals"]["source_bound_report_only_identity_candidates"])
+            self.assertEqual(1, prototype_stats["totals"]["type_assisted_preview_candidates"])
+            self.assertEqual(1, prototype_stats["totals"]["type_assisted_preview_parameter_corrections"])
+            self.assertEqual(1, prototype_stats["totals"]["report_only_identity_preview_candidates"])
+            self.assertEqual(1, prototype_stats["totals"]["report_only_identity_preview_parameter_corrections"])
             self.assertEqual(1, prototype_stats["totals"]["body_rewrite_ready"])
             self.assertEqual(1, prototype_stats["totals"]["body_rewrite_blockers"])
             self.assertEqual(1, prototype_stats["totals"]["generic_parameter_survivors"])
@@ -2202,10 +2208,29 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, prototype_stats["profile_counts"]["windows.io_manager.delete_device"])
             self.assertEqual(1, prototype_stats["profile_counts"]["windows.io_manager.call_driver"])
             self.assertEqual(1, prototype_stats["function_identity_profiles"]["windows.io_manager.delete_device"])
+            self.assertEqual(
+                1,
+                prototype_stats["report_only_identity_preview_profiles"][
+                    "windows.io_manager.delete_device"
+                ],
+            )
             self.assertEqual(1, prototype_stats["canonical_types"]["PDEVICE_OBJECT"])
             self.assertEqual(2, prototype_stats["body_rewrite_source_provenance"]["corrected_parameter_map"])
             self.assertEqual("Sample", prototype_stats["top_functions"][0]["name"])
             self.assertEqual(1, prototype_stats["top_functions"][0]["applied_parameter_type_corrections"])
+            self.assertEqual(
+                1,
+                prototype_stats["top_functions"][0][
+                    "report_only_identity_preview_parameter_corrections"
+                ],
+            )
+            preview_queue = prototype_stats["review_queues"][
+                "report_only_identity_type_preview_candidates"
+            ]
+            self.assertEqual(1, preview_queue["function_count"])
+            self.assertEqual(1, preview_queue["report_only_identity_preview_candidates"])
+            self.assertEqual(1, preview_queue["report_only_identity_preview_parameter_corrections"])
+            self.assertEqual("Sample", preview_queue["items"][0]["name"])
             type_conflict_queue = prototype_stats["review_queues"]["type_conflict_type_corrections"]
             self.assertEqual(1, type_conflict_queue["function_count"])
             self.assertEqual(1, type_conflict_queue["blocked_parameter_type_corrections"])
@@ -2228,10 +2253,26 @@ __int64 __fastcall ExpressionSource(__int64 context)
             self.assertEqual(1, body_offset_stats["review_classes"]["rewrite_ready_residue"])
             self.assertEqual("Sample", body_offset_stats["top_functions"][0]["name"])
             self.assertEqual("rewrite_ready_residue", body_offset_stats["top_functions"][0]["review_class"])
+            self.assertEqual(
+                1,
+                body_offset_stats["top_functions"][0][
+                    "report_only_identity_preview_parameter_corrections"
+                ],
+            )
+            self.assertIn(
+                "report_only_identity_type_preview_available",
+                body_offset_stats["top_functions"][0]["priority_factors"],
+            )
             self.assertIn("sessionSpace", body_offset_stats["top_functions"][0]["top_bases"])
             self.assertEqual(
                 1,
                 body_offset_stats["review_evidence"]["validated_rewrite_still_has_residue"],
+            )
+            self.assertEqual(
+                1,
+                body_offset_stats["review_evidence"][
+                    "report_only_identity_type_preview_available"
+                ],
             )
             self.assertEqual(
                 1,
@@ -5102,6 +5143,82 @@ __int64 __fastcall PrototypeAlias(__int64 a1, char a2, unsigned __int64 a3)
             self.assertEqual(2, prototype_stats["blocker_counts"]["profile_report_only"])
             self.assertEqual(2, prototype_stats["function_identity_profiles"]["windows.io_manager.delete_device"])
 
+    def test_report_only_preview_queue_requires_exact_source_and_no_build_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            function_dir = root / "functions" / "0000000140003000_BuildMismatch"
+            function_dir.mkdir(parents=True)
+            (function_dir / "BuildMismatch.cleaned.cpp").write_text(
+                "\n".join(
+                    [
+                        "void __fastcall BuildMismatch(PVOID argument0)",
+                        "{",
+                        "  return;",
+                        "}",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (function_dir / "BuildMismatch.ida-batch-summary.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "BuildMismatch",
+                        "function_ea": "0x140003000",
+                        "function_identity_candidates": [
+                            {
+                                "profile_id": "windows.memory_manager.sample",
+                                "effective_mode": "report-only",
+                                "match_kind": "function_name",
+                                "evidence": ["function_name"],
+                                "blockers": ["report_only_profile", "build_mismatch"],
+                            }
+                        ],
+                        "parameter_type_corrections": [
+                            {
+                                "parameter_index": 0,
+                                "old_name": "a1",
+                                "new_name": "memoryDescriptor",
+                                "old_type": "__int64",
+                                "canonical_type": "PMMPTE",
+                                "profile_id": "windows.memory_manager.sample",
+                                "effective_mode": "preview-rewrite",
+                                "apply_to_preview": True,
+                                "apply_to_idb": False,
+                                "blockers": [],
+                            }
+                        ],
+                        "source_context": {
+                            "source_path": "D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64",
+                            "profile_context": {
+                                "image": "ntoskrnl.exe",
+                                "build": "26200.8457",
+                                "arch": "x64",
+                            },
+                        },
+                        "artifacts": {
+                            "cleaned_pseudocode": "BuildMismatch.cleaned.cpp",
+                            "summary": "BuildMismatch.ida-batch-summary.json",
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            prototype_stats = report["prototype_correction_stats"]
+
+            self.assertEqual(1, prototype_stats["totals"]["function_identity_candidates"])
+            self.assertEqual(1, prototype_stats["blocker_counts"]["build_mismatch"])
+            self.assertEqual(0, prototype_stats["totals"]["exact_report_only_identity_candidates"])
+            self.assertEqual(0, prototype_stats["totals"]["report_only_identity_preview_candidates"])
+            self.assertNotIn(
+                "report_only_identity_type_preview_candidates",
+                prototype_stats["review_queues"],
+            )
+
     def test_prototype_correction_review_queues_surface_low_confidence_followups(self) -> None:
         queues = _prototype_correction_review_queues(
             [
@@ -5345,6 +5462,8 @@ def _write_quality_fixture(root: Path) -> None:
                     {
                         "profile_id": "windows.io_manager.delete_device",
                         "effective_mode": "report-only",
+                        "match_kind": "function_name",
+                        "evidence": ["function_name", "callee_hints"],
                         "blockers": ["report_only_profile"],
                     }
                 ],
@@ -5397,6 +5516,12 @@ def _write_quality_fixture(root: Path) -> None:
                     "bases": ["deviceObject"],
                 },
                 "source_context": {
+                    "source_path": "D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64",
+                    "profile_context": {
+                        "image": "ntoskrnl.exe",
+                        "build": "26200.8457",
+                        "arch": "x64",
+                    },
                     "parameter_count": 1,
                     "raw_signature": "__int64 __fastcall Sample(__int64 a1)",
                 },
