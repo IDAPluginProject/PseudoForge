@@ -10,6 +10,7 @@ COMPATIBLE_26100_PROFILE_IDS = {
     "windows.alpc_port.allocate_message_internal",
     "windows.alpc_port.nt_create_port_section",
     "windows.alpc_port.nt_impersonate_client_of_port",
+    "windows.compression_xpress.xp10_read_and_decode_huffman_tables",
     "windows.etw_wmi_telemetry.cov_samp_stack_hash_check",
     "windows.hal_dma_iommu.dma_map_scatter_transfer_v3",
     "windows.hal_dma_iommu.iommu_domain_get_logical_address_range",

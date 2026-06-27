@@ -4112,6 +4112,22 @@ __int64 __fastcall IndexedElement(PMEMORY_RANGE_ENTRY memoryRanges, ULONG_PTR in
 
     def test_body_offset_subsystem_keeps_hive_and_hypervisor_prefixes_separate(self) -> None:
         self.assertEqual(
+            "compression",
+            _body_offset_residue_subsystem(
+                "Xp10ReadAndDecodeHuffmanTables",
+                {"function_identity_profiles": {"windows.compression_xpress.xp10_read_and_decode_huffman_tables": 1}},
+                [],
+            ),
+        )
+        self.assertEqual(
+            "compression",
+            _body_offset_residue_subsystem("Xp10ReadAndDecodeHuffmanTables", {}, []),
+        )
+        self.assertEqual(
+            "compression",
+            _body_offset_residue_subsystem("LZ4_compress_fast_extState", {}, []),
+        )
+        self.assertEqual(
             "registry",
             _body_offset_residue_subsystem("HvReallocateCell", {}, []),
         )

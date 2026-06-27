@@ -118,9 +118,9 @@
       "source": "PseudoForge curated packaged subsystem identity index",
       "schema": "subsystem_identity_index_v1",
       "source_version": "10.0.26200.8457",
-      "sha256": "5CDEFE5F3F61EC9D82E0722D72401B3631785AB00448113C75F94FA2A0A03C80",
+      "sha256": "20B1B1678D6ACA0156CD1117D9EC5092FA539908D93FA38732D7D891000831B1",
       "counts": {
-        "entries": 22
+        "entries": 23
       }
     },
     "domain_identity/object_manager.json": {
@@ -141,6 +141,16 @@
       "sha256": "7125FAB661AD5B095F411007D9CC6207C8B566E89399C9C7029A34C38BD00162",
       "counts": {
         "profiles": 27
+      }
+    },
+    "domain_identity/compression_xpress.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated ntoskrnl Xpress compression role-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "3207D5BB6CEEE3D024DA1EEDC8C4DA3F642F271C1B9B985B49196519E0564BB0",
+      "counts": {
+        "profiles": 1
       }
     },
     "domain_identity/etw_wmi_telemetry.json": {

@@ -1,0 +1,190 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "compression-xpress-v1",
+  "metadata": {
+    "image": "ntoskrnl.exe",
+    "arch": "x64",
+    "build": "26200.8457"
+  },
+  "source": "Reviewed Xp10ReadAndDecodeHuffmanTables ntoskrnl 26200.8457 Xpress10 Huffman table decode flow through Xp10ScatteredReadBytes, Xp10SortHuffmanSymbols, and Xp10BuildHuffmanDecodeTable. Preview-only prototype identity; bit-reader private fields remain report-only.",
+  "profiles": [
+    {
+      "id": "windows.compression_xpress.xp10_read_and_decode_huffman_tables",
+      "subsystem": "Compression/Xpress",
+      "target": {
+        "build": [
+          "26200.8457",
+          "26100.8457"
+        ]
+      },
+      "source": "Reviewed Xp10ReadAndDecodeHuffmanTables ntoskrnl 26200.8457 Xpress10 Huffman table decode flow. Exact function name and required Xp10 helper calls are required before preview type correction.",
+      "function_names": [
+        "Xp10ReadAndDecodeHuffmanTables"
+      ],
+      "parameter_count": 8,
+      "required_calls": [
+        "Xp10ScatteredReadBytes",
+        "Xp10SortHuffmanSymbols",
+        "Xp10BuildHuffmanDecodeTable"
+      ],
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": false,
+        "apply_to_idb_default": false
+      },
+      "prototype": {
+        "return_type": "NTSTATUS",
+        "calling_convention": "__fastcall",
+        "parameters": [
+          {
+            "index": 0,
+            "canonical_name": "decodeContext",
+            "canonical_type": "PXP10_DECODE_CONTEXT",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "ULONG_PTR",
+              "PXP10_DECODE_CONTEXT"
+            ],
+            "semantic_role": "decodeContext",
+            "type_confidence": 0.82,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 1,
+            "canonical_name": "symbolCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "int",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "symbolCount",
+            "type_confidence": 0.78,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 4,
+            "canonical_name": "bitReader",
+            "canonical_type": "PXP10_BIT_READER",
+            "accepted_types": [
+              "__int64",
+              "PVOID",
+              "ULONG_PTR",
+              "PXP10_BIT_READER"
+            ],
+            "semantic_role": "bitReader",
+            "type_confidence": 0.84,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 6,
+            "canonical_name": "rootBitCount",
+            "canonical_type": "ULONG",
+            "accepted_types": [
+              "unsigned int",
+              "ULONG",
+              "int",
+              "ULONG_PTR"
+            ],
+            "semantic_role": "rootBitCount",
+            "type_confidence": 0.76,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          },
+          {
+            "index": 7,
+            "canonical_name": "decodeTableOutput",
+            "canonical_type": "PVOID *",
+            "accepted_types": [
+              "__int64 *",
+              "PVOID *",
+              "_QWORD *",
+              "ULONG_PTR *"
+            ],
+            "semantic_role": "decodeTableOutput",
+            "type_confidence": 0.8,
+            "apply_to_preview": true,
+            "apply_to_idb": false
+          }
+        ]
+      },
+      "parameters": [
+        {
+          "parameter_index": 0,
+          "role": "decodeContext",
+          "rename_to": "decodeContext",
+          "rename_confidence": 0.86,
+          "structure": "XP10_DECODE_CONTEXT",
+          "mode": "report-only",
+          "confidence": 0.82,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "ULONG_PTR",
+            "PXP10_DECODE_CONTEXT"
+          ],
+          "source": "Context receives Huffman code lengths and decode tables at function-local offsets; private fields remain report-only"
+        },
+        {
+          "parameter_index": 1,
+          "role": "symbolCount",
+          "rename_to": "symbolCount",
+          "rename_confidence": 0.82,
+          "structure": "XP10_SYMBOL_COUNT",
+          "mode": "report-only",
+          "confidence": 0.78,
+          "accepted_types": [
+            "unsigned int",
+            "ULONG",
+            "int",
+            "ULONG_PTR"
+          ],
+          "source": "Loop bound for decoded Huffman symbol code lengths"
+        },
+        {
+          "parameter_index": 4,
+          "role": "bitReader",
+          "rename_to": "bitReader",
+          "rename_confidence": 0.88,
+          "structure": "XP10_BIT_READER",
+          "mode": "report-only",
+          "confidence": 0.84,
+          "accepted_types": [
+            "__int64",
+            "PVOID",
+            "ULONG_PTR",
+            "PXP10_BIT_READER"
+          ],
+          "source": "Parameter is copied to a local and repeatedly consumed as bit-count, bit-buffer, cached-bit-count, and scattered-reader state",
+          "fields": [
+            {"offset": "0x0", "name": "remainingBits", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed remaining bit budget updates"},
+            {"offset": "0x8", "name": "bitBuffer", "type": "ULONG_PTR", "size": 8, "confidence": 0.78, "note": "observed shift/extract bit buffer updates"},
+            {"offset": "0x10", "name": "cachedBitCount", "type": "ULONG", "size": 4, "confidence": 0.78, "note": "observed cached-bit-count updates"},
+            {"offset": "0x18", "name": "scatteredReader", "type": "XP10_SCATTERED_READER", "size": 0, "confidence": 0.72, "note": "passed to Xp10ScatteredReadBytes as reader state"}
+          ]
+        },
+        {
+          "parameter_index": 7,
+          "role": "decodeTableOutput",
+          "rename_to": "decodeTableOutput",
+          "rename_confidence": 0.82,
+          "structure": "XP10_DECODE_TABLE_OUTPUT",
+          "mode": "report-only",
+          "confidence": 0.8,
+          "accepted_types": [
+            "__int64 *",
+            "PVOID *",
+            "_QWORD *",
+            "ULONG_PTR *"
+          ],
+          "source": "Receives the final table pointer returned from Xp10BuildHuffmanDecodeTable"
+        }
+      ]
+    }
+  ]
+}

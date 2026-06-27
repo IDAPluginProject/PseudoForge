@@ -11,6 +11,13 @@
       "description": "ALPC port, message, resource, view, and security context identity hints."
     },
     {
+      "profile_id_prefix": "windows.compression_xpress.",
+      "subsystem": "Compression/Xpress",
+      "role_group": "Xpress bitstream, Huffman table, and decode context roles",
+      "source_version": "10.0.26200.8457",
+      "description": "Xpress compression bit-reader and Huffman decode identity hints."
+    },
+    {
       "profile_id_prefix": "windows.dispatcher_synchronization.",
       "subsystem": "Dispatcher/Synchronization",
       "role_group": "dispatcher object, wait, lock, resource, rundown, and spin lock roles",

@@ -6173,6 +6173,7 @@ def _body_offset_residue_subsystem(
         "memory_manager": "memory",
         "object_manager": "object",
         "token_security": "security",
+        "compression_xpress": "compression",
         "alpc_port": "alpc",
         "hal_dma_iommu": "hal",
         "pnp_power": "pnp",
@@ -6200,6 +6201,9 @@ def _body_offset_residue_subsystem(
         ("Pop", "power"),
         ("Etw", "etw"),
         ("Etwp", "etw"),
+        ("Xp", "compression"),
+        ("Xpress", "compression"),
+        ("LZ4", "compression"),
     )
     for prefix, subsystem in prefix_map:
         if name.startswith(prefix):
