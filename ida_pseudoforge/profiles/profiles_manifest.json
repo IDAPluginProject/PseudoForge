@@ -323,6 +323,16 @@
         "profiles": 23
       }
     },
+    "domain_identity/subsystem_prefix.json": {
+      "profile_kind": "domain_identity",
+      "source": "PseudoForge curated Windows kernel subsystem prefix report-only identity profiles",
+      "schema": "domain_identity_profiles_v1",
+      "source_version": "10.0.26200.8457",
+      "sha256": "6CF51F5472F925FC7C212DA162484F0BE83FAF303B31CE79C180BCC1E24FE6D6",
+      "counts": {
+        "profiles": 18
+      }
+    },
     "registry_domain.json": {
       "profile_kind": "registry_domain",
       "source": "PseudoForge curated report-only registry domain triage profiles",

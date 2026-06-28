@@ -50,6 +50,7 @@ from ida_pseudoforge.core.llm_candidate_cache import (
     llm_candidate_cache_path,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.normalize import extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.render_warnings import export_warnings
@@ -87,6 +88,18 @@ except Exception:
 
 
 _DIRECT_HELPER_ALIAS_MAX_CALLEES = 8
+_PRIMARY_GENERIC_PARAMETER_RE = re.compile(r"^(?:a\d+|argument\d+|param\d+)$", re.IGNORECASE)
+_PRIMARY_GENERIC_IDENTIFIER_RE = re.compile(r"\b(?:v\d+|a\d+|argument\d+|param\d+)\b", re.IGNORECASE)
+_PRIMARY_OFFSET_DEREF_RE = re.compile(
+    r"\*\s*\(\s*(?:[^()\n]|\([^)]*\))*\+\s*(?:0x[0-9A-Fa-f]+|\d+)"
+)
+_PRIMARY_POINTER_INDEXED_OFFSET_RE = re.compile(
+    r"\*\s*\(\s*\(\s*[A-Za-z_][A-Za-z0-9_:\s]*?\s*\*+\s*\)\s*"
+    r"[A-Za-z_][A-Za-z0-9_]*\s*\+\s*(?:0x[0-9A-Fa-f]+|\d+)"
+)
+_PRIMARY_FIELD_REWRITE_RE = re.compile(
+    r"->(?:field_[0-9A-Fa-f]+|[A-Za-z_][A-Za-z0-9_]*)\s*/\*\s*[^*]*\+0x[0-9A-Fa-f]+"
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +107,20 @@ class _BatchRenderResult:
     cleaned: str
     plan: CleanPlan
     aliases: dict[str, RuntimeHelperAlias]
+
+
+@dataclass(frozen=True)
+class _BatchTypeAssistedPreview:
+    status: str
+    proposal: dict[str, Any]
+    original_type: str = ""
+    restored_type: str = ""
+    restore_succeeded: bool = False
+    restore_error: str = ""
+    improved_pseudocode: str = ""
+    cleaned_pseudocode: str = ""
+    cleanup_error: str = ""
+    error: str = ""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -280,6 +307,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Rewrite exported canonical cleaned artifacts with validated layout field aliases.",
     )
+    parser.add_argument(
+        "--type-assisted-preview",
+        action="store_true",
+        help=(
+            "Opt in to temporary profile-backed prototype application, re-decompile preview, "
+            "and verified type restoration. Writes separate artifacts when --export-dir is set."
+        ),
+    )
     parser.add_argument("--report", default="", help="JSONL progress report path.")
     parser.add_argument("--cancel-file", default="", help="Stop before the next function when this file exists.")
     parser.add_argument("--max-functions", type=int, default=0, help="Maximum functions to process. 0 means all.")
@@ -377,6 +412,12 @@ def _analyze_function(
         render_result = _render_cleaned_with_ida_postprocess(capture, plan)
         plan = render_result.plan
         cleaned = render_result.cleaned
+        type_assisted_preview = _run_batch_type_assisted_preview(
+            capture,
+            plan,
+            enabled=bool(args.type_assisted_preview),
+            apply_validated_layout_rewrites=bool(args.apply_validated_layout_rewrites),
+        )
         section = render_forge_function_section(capture, plan, cleaned)
         if forge_writer is not None:
             forge_writer.write_section(section)
@@ -396,6 +437,8 @@ def _analyze_function(
             "llm_status": llm_status,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
+        if type_assisted_preview is not None:
+            result["type_assisted_preview"] = _type_assisted_preview_report_payload(type_assisted_preview)
         profile_warnings = profile_load_warnings()
         if profile_warnings:
             result["profile_warnings"] = profile_warnings
@@ -435,6 +478,7 @@ def _analyze_function(
                 llm_info,
                 llm_candidate_artifacts,
                 apply_validated_layout_rewrites=args.apply_validated_layout_rewrites,
+                type_assisted_preview=type_assisted_preview,
             )
         return result
     except Exception as exc:
@@ -659,6 +703,201 @@ def _render_cleaned_with_ida_postprocess(
     return _BatchRenderResult(cleaned=cleaned, plan=render_plan, aliases=aliases)
 
 
+def _run_batch_type_assisted_preview(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+    enabled: bool,
+    apply_validated_layout_rewrites: bool = False,
+) -> _BatchTypeAssistedPreview | None:
+    if not enabled:
+        return None
+    try:
+        from ida_pseudoforge.ida import actions as actions_module
+    except Exception as exc:
+        return _BatchTypeAssistedPreview(
+            status="unavailable",
+            proposal={},
+            error="type-assisted preview helpers unavailable: %s" % exc,
+        )
+
+    try:
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+    except Exception as exc:
+        return _BatchTypeAssistedPreview(
+            status="error",
+            proposal={},
+            error="prototype proposal failed: %s" % exc,
+        )
+
+    proposal_payload = _type_assisted_proposal_payload(proposal)
+    if proposal.blockers or not proposal.corrections:
+        return _BatchTypeAssistedPreview(
+            status="blocked",
+            proposal=proposal_payload,
+            error="prototype proposal has blockers or no eligible corrections",
+        )
+
+    original_type = ""
+    restored_type = ""
+    restore_error = ""
+    restore_succeeded = False
+    improved_pseudocode = ""
+    cleaned_pseudocode = ""
+    cleanup_error = ""
+    operation_error = ""
+    temporary_type_applied = False
+    try:
+        original_type = actions_module.run_on_main_thread(
+            lambda: actions_module._get_ida_function_type(capture.ea),
+            write=False,
+        )
+        restore_blockers = actions_module._type_assisted_original_type_restore_blockers(original_type)
+        if restore_blockers:
+            return _BatchTypeAssistedPreview(
+                status="blocked",
+                proposal=_type_assisted_proposal_with_blockers(
+                    proposal_payload,
+                    [
+                        "original_type_restore_blocked:%s" % blocker
+                        for blocker in restore_blockers
+                    ],
+                ),
+                original_type=original_type,
+                restored_type=original_type,
+                restore_succeeded=True,
+                error="original IDB type is not stable enough for temporary preview restore: %s"
+                % ", ".join(restore_blockers),
+            )
+        actions_module.run_on_main_thread(
+            lambda: actions_module._apply_ida_function_type(capture.ea, proposal.prototype),
+            write=True,
+        )
+        temporary_type_applied = True
+        actions_module.run_on_main_thread(
+            lambda: actions_module._refresh_function_type_state(capture.ea),
+            write=True,
+        )
+        improved_pseudocode = actions_module.run_on_main_thread(
+            lambda: actions_module._decompile_function_pseudocode(capture.ea),
+            write=False,
+        )
+        if not actions_module._type_assisted_pseudocode_realizes_proposal(improved_pseudocode, proposal):
+            raise RuntimeError("temporary prototype was not reflected in decompiler output")
+    except Exception as exc:
+        operation_error = str(exc)
+    finally:
+        if temporary_type_applied:
+            try:
+                actions_module.run_on_main_thread(
+                    lambda: actions_module._restore_ida_function_type(capture.ea, original_type),
+                    write=True,
+                )
+                actions_module.run_on_main_thread(
+                    lambda: actions_module._refresh_function_type_state(capture.ea),
+                    write=True,
+                )
+                restored_type = actions_module.run_on_main_thread(
+                    lambda: actions_module._get_ida_function_type(capture.ea),
+                    write=False,
+                )
+                restore_succeeded = actions_module._ida_type_text_equal(restored_type, original_type)
+                if not restore_succeeded:
+                    restore_error = "restored type mismatch"
+            except Exception as exc:
+                restore_error = str(exc)
+                restore_succeeded = False
+
+    if operation_error:
+        status = "error" if restore_succeeded else "restore_failed"
+        report_proposal_payload = proposal_payload
+        if restore_succeeded and operation_error == "temporary prototype was not reflected in decompiler output":
+            status = "blocked"
+            report_proposal_payload = _type_assisted_proposal_with_blockers(
+                proposal_payload,
+                ["temporary_prototype_not_reflected"],
+            )
+        return _BatchTypeAssistedPreview(
+            status=status,
+            proposal=report_proposal_payload,
+            original_type=original_type,
+            restored_type=restored_type,
+            restore_succeeded=restore_succeeded,
+            restore_error=restore_error,
+            improved_pseudocode=improved_pseudocode,
+            error=operation_error,
+        )
+    if not restore_succeeded:
+        return _BatchTypeAssistedPreview(
+            status="restore_failed",
+            proposal=proposal_payload,
+            original_type=original_type,
+            restored_type=restored_type,
+            restore_succeeded=False,
+            restore_error=restore_error or "restore verification failed",
+            improved_pseudocode=improved_pseudocode,
+        )
+    if improved_pseudocode.strip():
+        try:
+            improved_capture = capture_from_pseudocode(
+                improved_pseudocode,
+                name=capture.name,
+                ea=capture.ea,
+                source_path=capture.source_path,
+                profile_context=dict(capture.profile_context or {}),
+            )
+            improved_plan = build_clean_plan(improved_capture)
+            cleaned_pseudocode = render_cleaned_pseudocode(
+                improved_capture,
+                improved_plan,
+                apply_validated_layout_rewrites=apply_validated_layout_rewrites,
+            )
+        except Exception as exc:
+            cleanup_error = str(exc)
+    return _BatchTypeAssistedPreview(
+        status="ok",
+        proposal=proposal_payload,
+        original_type=original_type,
+        restored_type=restored_type,
+        restore_succeeded=True,
+        restore_error=restore_error,
+        improved_pseudocode=improved_pseudocode,
+        cleaned_pseudocode=cleaned_pseudocode,
+        cleanup_error=cleanup_error,
+    )
+
+
+def _type_assisted_proposal_payload(proposal: Any) -> dict[str, Any]:
+    return {
+        "prototype": str(getattr(proposal, "prototype", "") or ""),
+        "profile_ids": list(getattr(proposal, "profile_ids", ()) or ()),
+        "evidence": list(getattr(proposal, "evidence", ()) or ()),
+        "blockers": list(getattr(proposal, "blockers", ()) or ()),
+        "corrections": list(getattr(proposal, "corrections", ()) or ()),
+    }
+
+
+def _type_assisted_proposal_with_blockers(
+    proposal: dict[str, Any],
+    blockers: list[str],
+) -> dict[str, Any]:
+    payload = dict(proposal)
+    payload["blockers"] = list(payload.get("blockers", []) or []) + list(blockers)
+    return payload
+
+
+def _type_assisted_preview_report_payload(preview: _BatchTypeAssistedPreview) -> dict[str, Any]:
+    return {
+        "status": preview.status,
+        "restore_succeeded": bool(preview.restore_succeeded),
+        "restore_error": preview.restore_error,
+        "cleanup_error": preview.cleanup_error,
+        "error": preview.error,
+        "proposal": preview.proposal,
+        "improved_pseudocode_chars": len(preview.improved_pseudocode),
+        "cleaned_pseudocode_chars": len(preview.cleaned_pseudocode),
+    }
+
+
 def _plan_without_runtime_helper_alias_warnings(plan: CleanPlan, aliases: dict[str, RuntimeHelperAlias]) -> CleanPlan:
     if not aliases or not plan.warnings:
         return plan
@@ -858,11 +1097,20 @@ def _write_export_artifacts(
     llm_info: dict[str, Any],
     llm_candidate_artifacts: dict[str, str] | None = None,
     apply_validated_layout_rewrites: bool = False,
+    type_assisted_preview: _BatchTypeAssistedPreview | None = None,
 ) -> dict[str, Any]:
     function_dir = export_dir / _function_file_stem(capture.ea, capture.name)
+    type_assisted_primary_decision = _type_assisted_primary_decision(cleaned_text, type_assisted_preview)
+    primary_cleaned_text = _primary_export_cleaned_text(
+        cleaned_text,
+        type_assisted_preview,
+        type_assisted_primary_decision,
+    )
+    primary_cleaned_source = _primary_export_cleaned_source(type_assisted_primary_decision)
     extra_summary: dict[str, object] = {
         "llm_status": llm_status,
         "helper_aliases": runtime_helper_alias_summary(aliases),
+        "primary_cleaned_source": primary_cleaned_source,
     }
     if llm_info.get("enabled"):
         extra_summary["llm_provider"] = str(llm_info.get("provider", ""))
@@ -876,6 +1124,15 @@ def _write_export_artifacts(
         extra_summary["llm_error_summary"] = llm_error_summary
     if llm_candidate_artifacts:
         extra_summary["llm_candidate_artifacts"] = dict(llm_candidate_artifacts)
+    type_assisted_artifacts = _write_type_assisted_preview_artifacts(function_dir, type_assisted_preview)
+    deterministic_artifacts = _write_deterministic_cleaned_artifact(
+        function_dir,
+        cleaned_text,
+        enabled=primary_cleaned_source == "type-assisted-preview",
+    )
+    if type_assisted_preview is not None:
+        extra_summary["type_assisted_preview"] = _type_assisted_preview_report_payload(type_assisted_preview)
+        extra_summary["type_assisted_primary_decision"] = type_assisted_primary_decision
 
     artifacts = write_export_bundle(
         function_dir,
@@ -883,9 +1140,13 @@ def _write_export_artifacts(
         plan,
         entrypoint="ida_batch_export",
         summary_suffix="ida-batch-summary",
-        cleaned_text=cleaned_text.rstrip() + "\n",
+        cleaned_text=primary_cleaned_text.rstrip() + "\n",
         extra_summary=extra_summary,
-        extra_artifacts=llm_candidate_artifacts,
+        extra_artifacts={
+            **(llm_candidate_artifacts or {}),
+            **type_assisted_artifacts,
+            **deterministic_artifacts,
+        },
         file_stem="function",
         apply_validated_layout_rewrites=apply_validated_layout_rewrites,
     )
@@ -895,6 +1156,179 @@ def _write_export_artifacts(
         "directory": str(function_dir),
         "artifacts": artifacts,
     }
+
+
+def _primary_export_cleaned_text(
+    cleaned_text: str,
+    preview: _BatchTypeAssistedPreview | None,
+    decision: dict[str, Any],
+) -> str:
+    if bool(decision.get("selected")):
+        assert preview is not None
+        return preview.cleaned_pseudocode
+    return cleaned_text
+
+
+def _primary_export_cleaned_source(decision: dict[str, Any]) -> str:
+    if bool(decision.get("selected")):
+        return "type-assisted-preview"
+    return "deterministic"
+
+
+def _type_assisted_preview_can_be_primary(preview: _BatchTypeAssistedPreview | None) -> bool:
+    if preview is None:
+        return False
+    return (
+        preview.status == "ok"
+        and bool(preview.restore_succeeded)
+        and not preview.restore_error
+        and not preview.cleanup_error
+        and not preview.error
+        and bool(preview.cleaned_pseudocode.strip())
+    )
+
+
+def _type_assisted_primary_decision(
+    deterministic_cleaned_text: str,
+    preview: _BatchTypeAssistedPreview | None,
+) -> dict[str, Any]:
+    if not _type_assisted_preview_can_be_primary(preview):
+        return {
+            "selected": False,
+            "reason": "preview_not_safe",
+            "deterministic_metrics": _primary_export_quality_metrics(deterministic_cleaned_text),
+            "preview_metrics": {},
+        }
+    assert preview is not None
+    deterministic_metrics = _primary_export_quality_metrics(deterministic_cleaned_text)
+    preview_metrics = _primary_export_quality_metrics(preview.cleaned_pseudocode)
+    regressions = _type_assisted_primary_regressions(deterministic_metrics, preview_metrics)
+    if regressions:
+        return {
+            "selected": False,
+            "reason": "quality_regression",
+            "regressions": regressions,
+            "deterministic_metrics": deterministic_metrics,
+            "preview_metrics": preview_metrics,
+        }
+    return {
+        "selected": True,
+        "reason": "quality_gate_passed",
+        "regressions": [],
+        "deterministic_metrics": deterministic_metrics,
+        "preview_metrics": preview_metrics,
+    }
+
+
+def _type_assisted_primary_regressions(
+    deterministic_metrics: dict[str, int],
+    preview_metrics: dict[str, int],
+) -> list[str]:
+    regressions: list[str] = []
+    deterministic_field_rewrites = deterministic_metrics.get("field_rewrites", 0)
+    preview_field_rewrites = preview_metrics.get("field_rewrites", 0)
+    field_rewrite_gain = preview_field_rewrites > deterministic_field_rewrites
+    if preview_metrics.get("generic_parameters", 0) > deterministic_metrics.get("generic_parameters", 0):
+        regressions.append("generic_parameter_name_regression")
+    if preview_metrics.get("pointer_indexed_offsets", 0) > deterministic_metrics.get("pointer_indexed_offsets", 0):
+        if not field_rewrite_gain:
+            regressions.append("pointer_indexed_offset_regression")
+    if preview_metrics.get("offset_derefs", 0) > deterministic_metrics.get("offset_derefs", 0):
+        if not field_rewrite_gain:
+            regressions.append("offset_deref_regression")
+    if preview_metrics.get("generic_identifiers", 0) > deterministic_metrics.get("generic_identifiers", 0):
+        if not field_rewrite_gain:
+            regressions.append("generic_identifier_regression")
+    return regressions
+
+
+def _primary_export_quality_metrics(cleaned_text: str) -> dict[str, int]:
+    body_text = _strip_primary_export_header(cleaned_text)
+    signature = _primary_export_signature(cleaned_text)
+    generic_parameters = 0
+    for name, _type_text in extract_parameters_from_signature(signature):
+        if _PRIMARY_GENERIC_PARAMETER_RE.fullmatch(name or ""):
+            generic_parameters += 1
+    return {
+        "generic_parameters": generic_parameters,
+        "generic_identifiers": len(_PRIMARY_GENERIC_IDENTIFIER_RE.findall(body_text)),
+        "offset_derefs": len(_PRIMARY_OFFSET_DEREF_RE.findall(body_text)),
+        "pointer_indexed_offsets": len(_PRIMARY_POINTER_INDEXED_OFFSET_RE.findall(body_text)),
+        "field_rewrites": len(_PRIMARY_FIELD_REWRITE_RE.findall(body_text)),
+    }
+
+
+def _primary_export_signature(cleaned_text: str) -> str:
+    body_text = _strip_primary_export_header(cleaned_text)
+    lines = body_text.splitlines()
+    for index, line in enumerate(lines):
+        if "{" not in line:
+            continue
+        start = index
+        while start > 0:
+            previous = lines[start - 1].strip()
+            if not previous or previous.startswith("#") or previous.startswith("//") or previous.endswith(";"):
+                break
+            start -= 1
+        signature = " ".join(item.strip() for item in lines[start:index + 1] if item.strip())
+        signature = signature.split("{", 1)[0].strip()
+        if "(" in signature and ")" in signature:
+            return signature
+    return ""
+
+
+def _strip_primary_export_header(cleaned_text: str) -> str:
+    text = str(cleaned_text or "").lstrip()
+    if text.startswith("/*"):
+        end = text.find("*/")
+        if end >= 0:
+            return text[end + 2 :].lstrip()
+    return text
+
+
+def _write_deterministic_cleaned_artifact(
+    function_dir: Path,
+    cleaned_text: str,
+    enabled: bool,
+) -> dict[str, str]:
+    if not enabled:
+        return {}
+    function_dir.mkdir(parents=True, exist_ok=True)
+    path = function_dir / "function.deterministic-cleaned.cpp"
+    path.write_text(cleaned_text.rstrip() + "\n", encoding="utf-8")
+    return {"deterministic_cleaned_pseudocode": str(path)}
+
+
+def _write_type_assisted_preview_artifacts(
+    function_dir: Path,
+    preview: _BatchTypeAssistedPreview | None,
+) -> dict[str, str]:
+    if preview is None:
+        return {}
+    function_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = function_dir / "function.type-assisted-summary.json"
+    raw_path = function_dir / "function.type-assisted-raw.cpp"
+    cleaned_path = function_dir / "function.type-assisted-cleaned.cpp"
+    summary_payload = _type_assisted_preview_report_payload(preview)
+    summary_payload.update(
+        {
+            "schema": "ida_batch_type_assisted_preview_v1",
+            "original_type": preview.original_type,
+            "restored_type": preview.restored_type,
+        }
+    )
+    summary_path.write_text(
+        json.dumps(summary_payload, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    artifacts = {"type_assisted_preview_summary": str(summary_path)}
+    if preview.improved_pseudocode:
+        raw_path.write_text(preview.improved_pseudocode.rstrip() + "\n", encoding="utf-8")
+        artifacts["type_assisted_raw_pseudocode"] = str(raw_path)
+    if preview.cleaned_pseudocode:
+        cleaned_path.write_text(preview.cleaned_pseudocode.rstrip() + "\n", encoding="utf-8")
+        artifacts["type_assisted_cleaned_pseudocode"] = str(cleaned_path)
+    return artifacts
 
 
 def _write_corpus_metadata(

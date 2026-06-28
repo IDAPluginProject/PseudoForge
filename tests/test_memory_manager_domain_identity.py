@@ -721,6 +721,7 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
             "windows.memory_manager.vmp_fill_slat": "NTSTATUS __fastcall VmpFillSlat(",
         }
         corrected_parameter_expectations = {
+            "windows.memory_manager.free_pages_from_mdl": ("mdl", "MDL", 9),
             "windows.memory_manager.store_work_item_process": ("store", "ST_STORE_SM_TRAITS", 9),
                 "windows.memory_manager.create_shared_zero_pages": (
                     "sharedZeroPageContext",
@@ -750,6 +751,9 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                     self.assertEqual(expected_name, plan.corrected_parameter_map[0].new_name)
                     self.assertEqual(expected_structure, plan.corrected_parameter_map[0].structure)
                     self.assertEqual(expected_field_count, len(plan.corrected_parameter_map[0].fields))
+                    if profile_id == "windows.memory_manager.free_pages_from_mdl":
+                        field_names = {field.name for field in plan.corrected_parameter_map[0].fields}
+                        self.assertTrue({"MdlFlags", "MappedSystemVa", "ByteCount"}.issubset(field_names))
                 else:
                     self.assertEqual([], plan.corrected_parameter_map)
                 identities = self._profile_identities(plan, profile_id)
@@ -774,9 +778,16 @@ __int64 __fastcall VmpFillSlat(__int64 a1, int a2, __int64 a3, _QWORD *a4, _QWOR
                         and item.get("base") == "mdl"
                     ]
                     self.assertEqual("MDL", mdl["structure_name"])
-                    self.assertEqual({0xA, 0x18, 0x20, 0x28, 0x2C}, self._field_offsets(mdl))
-                    self.assertTrue(all(item["effective_mode"] == "report-only" for item in identities))
-                    self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
+                    self.assertEqual(
+                        {0xA, 0x18, 0x20, 0x28, 0x2C},
+                        self._field_offsets(mdl),
+                    )
+                    self.assertTrue(
+                        any(item["effective_mode"] == "canonical-rewrite-eligible" for item in identities)
+                    )
+                    self.assertFalse(
+                        any("domain identity profile is report-only" in item["blockers"] for item in blockers)
+                    )
                 if profile_id == "windows.memory_manager.create_slab_entry":
                     slab_context = self._single_identity(plan, profile_id, "slabContext")
                     slab_entry = self._single_identity(plan, profile_id, "slabEntry")
@@ -948,6 +959,83 @@ __int64 __fastcall MiPfAllocateMdls(__int64 a1, unsigned int a2, _SLIST_ENTRY *a
                 self.assertIn("%s->%s" % (base, last_field), preview)
                 if base == "sharedZeroPageContext":
                     self.assertNotIn("*(_DWORD *)sharedZeroPageContext", preview)
+
+    def test_public_mdl_layout_names_feed_validated_body_rewrite(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+char __fastcall MiFreePagesFromMdl(ULONG_PTR a1, unsigned int a2, char a3, int a4)
+{
+  ULONG_PTR total;
+
+  total = *(unsigned __int16 *)(a1 + 8)
+        + *(signed __int16 *)(a1 + 10)
+        + *(_QWORD *)(a1 + 16)
+        + *(PVOID *)(a1 + 24)
+        + *(PVOID *)(a1 + 32)
+        + *(unsigned int *)(a1 + 40)
+        + *(unsigned int *)(a1 + 44)
+        + *(_QWORD *)(a1 + 48);
+  total += *(PVOID *)(a1 + 24)
+        + *(PVOID *)(a1 + 32)
+        + *(unsigned int *)(a1 + 40)
+        + *(_QWORD *)(a1 + 48);
+  MmUnmapLockedPages(*(PVOID *)(a1 + 24), (PMDL)a1);
+  MiFreeMdlPageRun(*(_QWORD *)(a1 + 48), total, a2, a3, 0);
+  MiZeroAndReleasePages(0, a2, a3);
+  return a4 != 0;
+}
+""",
+            source_path=SOURCE_PATH,
+        )
+        plan = build_clean_plan(capture)
+
+        self.assertEqual(1, len(plan.corrected_parameter_map))
+        self.assertEqual("mdl", plan.corrected_parameter_map[0].new_name)
+        self.assertEqual("MDL", plan.corrected_parameter_map[0].structure)
+        previews = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_preview"
+            and item.get("base") == "mdl"
+        ]
+        blockers = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_blockers"
+            and item.get("base") == "mdl"
+        ]
+
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(previews))
+        self.assertIn("MappedSystemVa@+0x18", previews[0]["text"])
+        self.assertIn("ByteCount@+0x28", previews[0]["text"])
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                apply_validated_layout_rewrites=True,
+            )
+            preview = Path(artifacts["layout_rewrite_preview"]).read_text(encoding="utf-8")
+            metadata = json.loads(
+                Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8")
+            )
+            cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+
+        self.assertEqual("applied", metadata["canonical_rewrite_status"])
+        self.assertEqual(["mdl"], metadata["rewritten_bases"])
+        self.assertGreaterEqual(metadata["rewritten_accesses"], 12)
+        self.assertEqual(
+            "MappedSystemVa",
+            metadata["rewrite_results"]["mdl"]["field_names_by_offset"]["0x18"],
+        )
+        self.assertIn("mdl->MappedSystemVa /* PVOID +0x18 */", preview)
+        self.assertIn("mdl->ByteCount /* unsigned int +0x28 */", preview)
+        self.assertIn("mdl->PfnArray /* _QWORD +0x30 */", preview)
+        self.assertIn("mdl->MappedSystemVa /* PVOID +0x18 */", cleaned)
+        self.assertNotIn("mdl->field_18", cleaned)
 
     def test_report_only_function_identity_blocks_source_less_local_layout_rewrite(self) -> None:
         capture = capture_from_pseudocode(

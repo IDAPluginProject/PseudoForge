@@ -311,19 +311,49 @@ class ExportBundleTests(unittest.TestCase):
 
                 self.assertEqual("D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", summary["source_context"]["source_path"])
                 self.assertEqual("26200.8457", summary["source_context"]["profile_context"]["build"])
-                self.assertEqual(1, len(summary["function_identity_candidates"]))
+                candidates = {
+                    item["profile_id"]: item
+                    for item in summary["function_identity_candidates"]
+                }
+                self.assertIn("windows.io_manager.delete_device", candidates)
+                self.assertIn("windows.subsystem_prefix.io_manager", candidates)
+                self.assertEqual([], candidates["windows.io_manager.delete_device"]["blockers"])
                 self.assertEqual(
-                    "windows.io_manager.delete_device",
-                    summary["function_identity_candidates"][0]["profile_id"],
+                    "canonical-rewrite-eligible",
+                    candidates["windows.io_manager.delete_device"]["effective_mode"],
                 )
-                self.assertIn("report_only_profile", summary["function_identity_candidates"][0]["blockers"])
+                self.assertEqual(
+                    ["generic_subsystem_prefix", "report_only_profile"],
+                    candidates["windows.subsystem_prefix.io_manager"]["blockers"],
+                )
                 self.assertEqual(1, len(summary["parameter_type_corrections"]))
                 self.assertEqual("PDEVICE_OBJECT", summary["parameter_type_corrections"][0]["canonical_type"])
                 self.assertFalse(summary["parameter_type_corrections"][0]["apply_to_idb"])
-                self.assertEqual([], summary["corrected_parameter_map"])
+                self.assertEqual(1, len(summary["corrected_parameter_map"]))
+                self.assertEqual("deviceObject", summary["corrected_parameter_map"][0]["new_name"])
+                self.assertEqual("DEVICE_OBJECT", summary["corrected_parameter_map"][0]["structure"])
+                self.assertTrue(
+                    {"NextDevice", "Flags", "DeviceExtension"}.issubset(
+                        {field["name"] for field in summary["corrected_parameter_map"][0]["fields"]}
+                    )
+                )
                 self.assertEqual(0, summary["body_canonical_rewrite_summary"]["rewrite_ready"])
+                evidence_graph = summary["evidence_graph"]
+                self.assertGreaterEqual(evidence_graph["summary"]["trusted_rewrite_edges"], 1)
+                self.assertEqual(0, evidence_graph["summary"]["report_only_edges"])
+                self.assertFalse(
+                    any(
+                        edge["promotion_lane"] == "report-only" and edge["rewrite_eligible"]
+                        for edge in evidence_graph["edges"]
+                    )
+                )
+                self.assertTrue(any(edge["promotion_lane"] == "trusted-rewrite" for edge in evidence_graph["edges"]))
                 self.assertEqual(1, len(rename_payload["type_corrections"]))
-                self.assertIn("Function identities: 1 candidate(s)", cleaned)
+                self.assertIn("Function identities: 2 candidate(s)", cleaned)
+                self.assertIn(
+                    "Top function profiles: windows.io_manager.delete_device, windows.subsystem_prefix.io_manager.",
+                    cleaned,
+                )
                 self.assertIn("Applied corrections: a1->deviceObject __int64->PDEVICE_OBJECT", cleaned)
                 self.assertIn("IoDeleteDevice(PDEVICE_OBJECT deviceObject)", cleaned)
         finally:
@@ -410,6 +440,31 @@ __int64 __fastcall BodyRewriteEvidence(__int64 context)
         self.assertEqual({"build_mismatch": 1, "overlay": 1}, body_summary["blocker_counts"])
         self.assertEqual({"corrected_parameter_map": 2}, body_summary["source_provenance_counts"])
         self.assertEqual(["blockedContext", "context"], body_summary["bases"])
+        evidence_graph = summary["evidence_graph"]
+        self.assertEqual("pseudoforge_evidence_graph_v1", evidence_graph["schema"])
+        self.assertGreaterEqual(evidence_graph["summary"]["nodes"], 4)
+        self.assertGreaterEqual(evidence_graph["summary"]["edges"], 3)
+        self.assertGreaterEqual(evidence_graph["summary"]["trusted_rewrite_edges"], 1)
+        self.assertGreaterEqual(evidence_graph["summary"]["blocked_edges"], 1)
+        self.assertIn("trusted-rewrite", evidence_graph["summary"]["promotion_lanes"])
+        self.assertIn("blocked", evidence_graph["summary"]["promotion_lanes"])
+        self.assertEqual(1, evidence_graph["summary"]["blockers"]["build_mismatch"])
+        self.assertTrue(
+            any(
+                node["kind"] == "field_layout"
+                and node["label"] == "Flags"
+                and node["attributes"]["offset"] == 0x10
+                for node in evidence_graph["nodes"]
+            )
+        )
+        self.assertTrue(
+            any(
+                edge["kind"] == "field_layout"
+                and edge["promotion_lane"] == "trusted-rewrite"
+                and edge["rewrite_eligible"]
+                for edge in evidence_graph["edges"]
+            )
+        )
 
     def test_write_export_bundle_includes_layout_rewrite_preview_artifacts(self) -> None:
         cleaned_text = """

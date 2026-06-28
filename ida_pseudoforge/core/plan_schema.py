@@ -113,6 +113,39 @@ class FunctionIdentityCandidate:
 
 
 @dataclass(slots=True)
+class EvidenceGraphNode:
+    id: str
+    kind: str
+    label: str
+    confidence: float = 0.0
+    profile_id: str = ""
+    effective_mode: str = ""
+    role: str = ""
+    structure: str = ""
+    source: str = ""
+    blockers: list[str] = field(default_factory=list)
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class EvidenceGraphEdge:
+    source: str
+    target: str
+    kind: str
+    confidence: float = 0.0
+    promotion_lane: str = ""
+    rewrite_eligible: bool = False
+    blockers: list[str] = field(default_factory=list)
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class EvidenceGraph:
+    nodes: list[EvidenceGraphNode] = field(default_factory=list)
+    edges: list[EvidenceGraphEdge] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class WarningDiagnostic:
     kind: str
     message: str

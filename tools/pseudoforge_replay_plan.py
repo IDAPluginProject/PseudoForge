@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -200,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
         args.corpus_root,
         limit=max(1, args.limit),
         top=max(1, args.top),
+        selection=args.selection,
+        seed=args.seed,
     )
     if args.out:
         output_dir = Path(args.out)
@@ -222,6 +225,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=500, help="Number of EAs to include in the replay set.")
     parser.add_argument("--top", type=int, default=25, help="Number of top functions to show in Markdown.")
     parser.add_argument(
+        "--selection",
+        choices=("ranked", "random"),
+        default="ranked",
+        help="Select highest-scoring functions or a deterministic random EA set.",
+    )
+    parser.add_argument(
+        "--seed",
+        default="pseudoforge-structure-quality",
+        help="Seed used when --selection random is requested.",
+    )
+    parser.add_argument(
         "--format",
         choices=("json", "markdown"),
         default="json",
@@ -230,7 +244,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 25) -> dict[str, Any]:
+def build_replay_plan(
+    corpus_root: str | Path,
+    *,
+    limit: int = 500,
+    top: int = 25,
+    selection: str = "ranked",
+    seed: str = "pseudoforge-structure-quality",
+) -> dict[str, Any]:
     root = Path(corpus_root)
     functions_root = root / "functions" if (root / "functions").exists() else root
     items = []
@@ -247,7 +268,10 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
             str(item["ea"]),
         )
     )
-    selected = items[:limit]
+    selection_mode = str(selection or "ranked").strip().lower()
+    if selection_mode not in {"ranked", "random"}:
+        selection_mode = "ranked"
+    selected = _select_replay_items(items, limit, selection_mode, seed)
     reason_counts: Counter[str] = Counter()
     for item in selected:
         for reason in item.get("reasons", []) or []:
@@ -260,6 +284,8 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
         "corpus_root": str(root),
         "functions_root": str(functions_root),
         "limit": int(limit),
+        "selection": selection_mode,
+        "seed": str(seed or ""),
         "selected_count": len(selected),
         "candidate_count": len(items),
         "reason_counts": dict(sorted(reason_counts.items())),
@@ -274,6 +300,37 @@ def build_replay_plan(corpus_root: str | Path, *, limit: int = 500, top: int = 2
     }
 
 
+def _select_replay_items(
+    items: list[dict[str, Any]],
+    limit: int,
+    selection: str,
+    seed: str,
+) -> list[dict[str, Any]]:
+    count = max(1, int(limit))
+    if selection != "random":
+        return items[:count]
+    ranked_order = {id(item): index for index, item in enumerate(items)}
+    shuffled = sorted(
+        items,
+        key=lambda item: (
+            _stable_replay_random_key(item, seed),
+            ranked_order.get(id(item), 0),
+        ),
+    )
+    selected = shuffled[:count]
+    selected.sort(key=lambda item: ranked_order.get(id(item), 0))
+    return selected
+
+
+def _stable_replay_random_key(item: dict[str, Any], seed: str) -> str:
+    material = "%s|%s|%s" % (
+        str(seed or ""),
+        str(item.get("ea", "") or ""),
+        str(item.get("name", "") or ""),
+    )
+    return hashlib.sha256(material.encode("utf-8", errors="replace")).hexdigest()
+
+
 def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
     lines = [
         "# PseudoForge Replay Plan",
@@ -281,6 +338,8 @@ def render_replay_plan_markdown(plan: dict[str, Any]) -> str:
         "- Corpus root: `%s`" % plan.get("corpus_root", ""),
         "- Selected functions: `%s` / `%s`" % (plan.get("selected_count", 0), plan.get("candidate_count", 0)),
         "- Limit: `%s`" % plan.get("limit", 0),
+        "- Selection: `%s`" % plan.get("selection", "ranked"),
+        "- Seed: `%s`" % plan.get("seed", ""),
         "",
         "## Reason Counts",
         "",

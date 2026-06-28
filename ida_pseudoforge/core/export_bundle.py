@@ -6,6 +6,7 @@ import json
 from collections import Counter
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from ida_pseudoforge.core.buffer_contracts import (
     buffer_contracts_json_payload,
@@ -13,7 +14,13 @@ from ida_pseudoforge.core.buffer_contracts import (
     render_buffer_struct_header,
 )
 from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
-from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.plan_schema import (
+    CleanPlan,
+    EvidenceGraph,
+    EvidenceGraphEdge,
+    EvidenceGraphNode,
+    FunctionCapture,
+)
 from ida_pseudoforge.core.domain_identity_summary import domain_identity_summary_payload
 from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
@@ -217,6 +224,7 @@ def _export_summary_payload(
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),
         "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
         "domain_identity_summary": domain_identity_summary_payload(plan),
+        "evidence_graph": _evidence_graph_payload(capture, plan),
         "function_identity_candidates": [asdict(item) for item in plan.function_identity_candidates],
         "parameter_type_corrections": [asdict(item) for item in plan.type_corrections],
         "corrected_parameter_map": [asdict(item) for item in plan.corrected_parameter_map],
@@ -228,6 +236,340 @@ def _export_summary_payload(
         "profile_manifests": active_profile_manifests(),
         "artifacts": dict(artifacts),
     }
+
+
+def _evidence_graph_payload(capture: FunctionCapture, plan: CleanPlan) -> dict[str, object]:
+    graph = EvidenceGraph()
+    nodes: dict[str, EvidenceGraphNode] = {}
+    edges: list[EvidenceGraphEdge] = []
+    function_id = _evidence_node_id("function", capture.name or plan.function_name or "function")
+    _add_evidence_node(
+        nodes,
+        EvidenceGraphNode(
+            id=function_id,
+            kind="function",
+            label=capture.name or plan.function_name,
+            confidence=1.0,
+            attributes={
+                "ea": "0x%X" % capture.ea,
+                "input_fingerprint": plan.input_fingerprint,
+            },
+        ),
+    )
+    for candidate in plan.function_identity_candidates:
+        identity_id = _evidence_node_id("function_identity", candidate.profile_id or candidate.function_name)
+        lane = _promotion_lane(candidate.effective_mode, candidate.blockers, False)
+        _add_evidence_node(
+            nodes,
+            EvidenceGraphNode(
+                id=identity_id,
+                kind="function_identity",
+                label=candidate.profile_id or candidate.function_name,
+                confidence=float(candidate.confidence or 0.0),
+                profile_id=candidate.profile_id,
+                effective_mode=candidate.effective_mode,
+                source=candidate.profile_source,
+                blockers=list(candidate.blockers),
+                attributes={
+                    "subsystem": candidate.subsystem,
+                    "match_kind": candidate.match_kind,
+                    "evidence": list(candidate.evidence),
+                    "profile_version": candidate.profile_version,
+                    "ambiguous_profile_ids": list(candidate.ambiguous_profile_ids),
+                },
+            ),
+        )
+        edges.append(
+            EvidenceGraphEdge(
+                source=function_id,
+                target=identity_id,
+                kind="matched_function_identity",
+                confidence=float(candidate.confidence or 0.0),
+                promotion_lane=lane,
+                rewrite_eligible=lane == "trusted-rewrite",
+                blockers=list(candidate.blockers),
+            )
+    )
+    for correction in plan.type_corrections:
+        parameter_id = _evidence_node_id("parameter", "%d:%s" % (correction.parameter_index, correction.new_name))
+        lane = _type_correction_promotion_lane(
+            correction.effective_mode,
+            correction.blockers,
+            correction.apply_to_preview,
+        )
+        _add_evidence_node(
+            nodes,
+            EvidenceGraphNode(
+                id=parameter_id,
+                kind="parameter_correction",
+                label=correction.new_name or correction.old_name,
+                confidence=float(correction.confidence or 0.0),
+                profile_id=correction.profile_id,
+                effective_mode=correction.effective_mode,
+                source=correction.source,
+                blockers=list(correction.blockers),
+                attributes={
+                    "parameter_index": correction.parameter_index,
+                    "old_name": correction.old_name,
+                    "old_type": correction.old_type,
+                    "canonical_type": correction.canonical_type,
+                    "display_type": correction.display_type,
+                    "apply_to_preview": bool(correction.apply_to_preview),
+                    "apply_to_idb": bool(correction.apply_to_idb),
+                    "provenance": correction.provenance,
+                },
+            ),
+        )
+        target = _profile_identity_node_id(correction.profile_id, nodes) or function_id
+        edges.append(
+            EvidenceGraphEdge(
+                source=target,
+                target=parameter_id,
+                kind="corrected_parameter",
+                confidence=float(correction.confidence or 0.0),
+                promotion_lane=lane,
+                rewrite_eligible=bool(correction.apply_to_preview) and not correction.blockers,
+                blockers=list(correction.blockers),
+            )
+        )
+    for entry in plan.corrected_parameter_map:
+        parameter_id = _evidence_node_id("corrected_parameter", "%d:%s" % (entry.parameter_index, entry.new_name))
+        structure_id = _evidence_node_id("structure_identity", "%s:%s" % (entry.profile_id, entry.structure))
+        lane = _promotion_lane(entry.effective_mode, [], entry.body_canonical_rewrite)
+        _add_evidence_node(
+            nodes,
+            EvidenceGraphNode(
+                id=parameter_id,
+                kind="corrected_parameter_map",
+                label=entry.new_name or entry.old_name,
+                confidence=float(entry.confidence or 0.0),
+                profile_id=entry.profile_id,
+                effective_mode=entry.effective_mode,
+                role=entry.role,
+                structure=entry.structure,
+                source=entry.source,
+                attributes={
+                    "parameter_index": entry.parameter_index,
+                    "old_type": entry.old_type,
+                    "canonical_type": entry.canonical_type,
+                    "display_type": entry.display_type,
+                    "base_names": list(entry.base_names),
+                    "apply_to_preview": bool(entry.apply_to_preview),
+                    "apply_to_idb": bool(entry.apply_to_idb),
+                    "body_canonical_rewrite": bool(entry.body_canonical_rewrite),
+                    "provenance": entry.provenance,
+                },
+            ),
+        )
+        _add_evidence_node(
+            nodes,
+            EvidenceGraphNode(
+                id=structure_id,
+                kind="structure_identity",
+                label=entry.structure,
+                confidence=float(entry.confidence or 0.0),
+                profile_id=entry.profile_id,
+                effective_mode=entry.effective_mode,
+                role=entry.role,
+                structure=entry.structure,
+                source=entry.source,
+            ),
+        )
+        edges.append(
+            EvidenceGraphEdge(
+                source=parameter_id,
+                target=structure_id,
+                kind="structure_identity",
+                confidence=float(entry.confidence or 0.0),
+                promotion_lane=lane,
+                rewrite_eligible=lane == "trusted-rewrite",
+            )
+        )
+        for field in entry.fields:
+            field_id = _evidence_node_id(
+                "field_layout",
+                "%s:%s:%X" % (entry.profile_id, entry.structure, field.offset),
+            )
+            _add_evidence_node(
+                nodes,
+                EvidenceGraphNode(
+                    id=field_id,
+                    kind="field_layout",
+                    label=field.name,
+                    confidence=float(field.confidence or 0.0),
+                    profile_id=entry.profile_id,
+                    role=entry.role,
+                    structure=entry.structure,
+                    source=field.source,
+                    attributes={
+                        "offset": field.offset,
+                        "type": field.type_text,
+                        "size": field.size,
+                        "provenance": field.provenance,
+                        "note": field.note,
+                    },
+                ),
+            )
+            edges.append(
+                EvidenceGraphEdge(
+                    source=structure_id,
+                    target=field_id,
+                    kind="field_layout",
+                    confidence=float(field.confidence or 0.0),
+                    promotion_lane=lane,
+                    rewrite_eligible=lane == "trusted-rewrite",
+                )
+            )
+    for comment in plan.comments:
+        if not isinstance(comment, dict):
+            continue
+        kind = str(comment.get("kind", "") or "")
+        if kind not in {
+            "domain_structure_identity",
+            "inferred_offset_rewrite_ready",
+            "inferred_offset_rewrite_preview",
+            "inferred_offset_rewrite_blockers",
+            "inferred_offset_rewrite_partial_opportunity",
+        }:
+            continue
+        node_id = _evidence_node_id(
+            "comment",
+            "%s:%s:%s" % (kind, comment.get("base", ""), comment.get("domain_profile_id", "")),
+        )
+        blockers = _string_list(comment.get("blockers"))
+        mode = str(comment.get("effective_mode", "") or comment.get("mode", "") or "")
+        lane = _comment_promotion_lane(kind, mode, blockers)
+        _add_evidence_node(
+            nodes,
+            EvidenceGraphNode(
+                id=node_id,
+                kind=kind,
+                label=str(comment.get("base", "") or kind),
+                confidence=_float_value(comment.get("confidence"), 0.0),
+                profile_id=str(comment.get("domain_profile_id", "") or comment.get("profile_id", "") or ""),
+                effective_mode=mode,
+                role=str(comment.get("role", "") or ""),
+                structure=str(comment.get("structure", "") or ""),
+                source=str(comment.get("source_provenance", "") or ""),
+                blockers=blockers,
+                attributes=_jsonable_mapping(comment),
+            ),
+        )
+        edges.append(
+            EvidenceGraphEdge(
+                source=function_id,
+                target=node_id,
+                kind="comment_evidence",
+                confidence=_float_value(comment.get("confidence"), 0.0),
+                promotion_lane=lane,
+                rewrite_eligible=lane == "trusted-rewrite",
+                blockers=blockers,
+            )
+        )
+    graph.nodes = sorted(nodes.values(), key=lambda item: (item.kind, item.id))
+    graph.edges = edges
+    lane_counts = Counter(edge.promotion_lane or "blocked" for edge in graph.edges)
+    blocker_counts = Counter(blocker for edge in graph.edges for blocker in edge.blockers)
+    return {
+        "schema": "pseudoforge_evidence_graph_v1",
+        "nodes": [asdict(node) for node in graph.nodes],
+        "edges": [asdict(edge) for edge in graph.edges],
+        "summary": {
+            "nodes": len(graph.nodes),
+            "edges": len(graph.edges),
+            "promotion_lanes": dict(sorted(lane_counts.items())),
+            "blockers": dict(sorted(blocker_counts.items())),
+            "trusted_rewrite_edges": int(lane_counts.get("trusted-rewrite", 0)),
+            "report_only_edges": int(lane_counts.get("report-only", 0)),
+            "blocked_edges": int(lane_counts.get("blocked", 0)),
+        },
+    }
+
+
+def _add_evidence_node(nodes: dict[str, EvidenceGraphNode], node: EvidenceGraphNode) -> None:
+    current = nodes.get(node.id)
+    if current is None or _float_value(node.confidence, 0.0) > _float_value(current.confidence, 0.0):
+        nodes[node.id] = node
+
+
+def _evidence_node_id(kind: str, value: str) -> str:
+    digest = hashlib.sha256(("%s:%s" % (kind, value)).encode("utf-8", errors="replace")).hexdigest()[:12]
+    return "%s:%s" % (kind, digest)
+
+
+def _profile_identity_node_id(profile_id: str, nodes: dict[str, EvidenceGraphNode]) -> str:
+    profile = str(profile_id or "")
+    if not profile:
+        return ""
+    for node in nodes.values():
+        if node.kind == "function_identity" and node.profile_id == profile:
+            return node.id
+    return ""
+
+
+def _promotion_lane(effective_mode: str, blockers: list[str], body_rewrite: bool) -> str:
+    mode = str(effective_mode or "")
+    if blockers and mode == "report-only" and _only_report_only_profile_blockers(blockers):
+        return "report-only"
+    if blockers:
+        return "blocked"
+    if mode == "canonical-rewrite-eligible" and body_rewrite:
+        return "trusted-rewrite"
+    if mode == "canonical-rewrite-eligible":
+        return "trusted-preview"
+    if mode == "preview-rewrite":
+        return "trusted-preview"
+    if mode == "report-only":
+        return "report-only"
+    return "blocked"
+
+
+def _type_correction_promotion_lane(
+    effective_mode: str,
+    blockers: list[str],
+    apply_to_preview: bool,
+) -> str:
+    if blockers:
+        return _promotion_lane(effective_mode, blockers, False)
+    if bool(apply_to_preview):
+        return "trusted-preview"
+    return _promotion_lane(effective_mode, blockers, False)
+
+
+def _only_report_only_profile_blockers(blockers: list[str]) -> bool:
+    normalized = {str(blocker or "").strip() for blocker in blockers if str(blocker or "").strip()}
+    return bool(normalized) and normalized.issubset({"profile_report_only", "report_only_profile"})
+
+
+def _comment_promotion_lane(kind: str, effective_mode: str, blockers: list[str]) -> str:
+    if blockers:
+        return "blocked"
+    if kind == "inferred_offset_rewrite_ready":
+        return "trusted-preview"
+    if kind == "inferred_offset_rewrite_preview":
+        return "trusted-preview"
+    if kind == "inferred_offset_rewrite_partial_opportunity":
+        return "trusted-preview"
+    if kind == "domain_structure_identity":
+        return _promotion_lane(effective_mode, blockers, False)
+    return "blocked"
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, tuple):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str) and value:
+        return [value]
+    return []
+
+
+def _float_value(value: object, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _source_context_payload(capture: FunctionCapture) -> dict[str, object]:

@@ -48,6 +48,7 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
                     "1",
                     "--no-pdb",
                     "--apply-validated-layout-rewrites",
+                    "--type-assisted-preview",
                 ]
             )
 
@@ -62,6 +63,7 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertIn("--require-configured-llm", run.batch_args)
             self.assertIn("--overwrite-forge", run.batch_args)
             self.assertIn("--apply-validated-layout-rewrites", run.batch_args)
+            self.assertIn("--type-assisted-preview", run.batch_args)
             self.assertIn("-Opdb:off", run.ida_args)
             self.assertTrue(any(item.startswith("-S") for item in run.ida_args))
             self.assertEqual(resolved_output_dir / "pseudoforge-ida-cancel.txt", run.cancel_file)
@@ -424,6 +426,32 @@ class PseudoForgeIdaCliTests(unittest.TestCase):
             self.assertFalse(manifest["llm"]["required"])
             self.assertNotIn("--llm-renames-auto", manifest["batch_args"])
             self.assertIn("LLM: disabled", stdout.getvalue())
+
+    def test_ida_cli_dry_run_records_type_assisted_preview_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            ida_path = temp_path / "ida64.exe"
+            idb_path = temp_path / "target.i64"
+            output_dir = temp_path / "out"
+            ida_path.write_text("", encoding="utf-8")
+            idb_path.write_text("", encoding="utf-8")
+
+            exit_code = pseudoforge_ida_cli.main(
+                [
+                    str(ida_path),
+                    str(idb_path),
+                    str(output_dir),
+                    "--dry-run",
+                    "--no-llm-renames",
+                    "--type-assisted-preview",
+                ]
+            )
+
+            manifest = json.loads((output_dir / "pseudoforge-ida-run.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(0, exit_code)
+            self.assertTrue(manifest["type_assisted_preview"]["enabled"])
+            self.assertIn("--type-assisted-preview", manifest["batch_args"])
 
     def test_ida_cli_progress_monitor_prints_current_function(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

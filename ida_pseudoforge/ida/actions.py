@@ -36,13 +36,15 @@ from ida_pseudoforge.core.llm_failures import (
     summarize_llm_failure,
 )
 from ida_pseudoforge.core.normalize import (
+    extract_parameters_from_signature,
     extract_function_signature,
     find_matching_paren,
     split_parameters_with_spans,
 )
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.kernel_api import kernel_function_metadata
+from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, ParameterTypeCorrection
 from ida_pseudoforge.core.capture import capture_from_pseudocode, profile_context_from_source_path
 from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
 from ida_pseudoforge.core.render_header import (
@@ -1470,7 +1472,7 @@ def _format_warning(item: object) -> str:
 
 
 def _format_type_assisted_availability_hint(capture: FunctionCapture, plan: CleanPlan) -> str:
-    if not plan.type_corrections:
+    if not plan.type_corrections and not _public_kernel_api_metadata(capture):
         return ""
     try:
         proposal = _build_type_assisted_prototype_proposal(capture, plan)
@@ -1498,6 +1500,15 @@ def _build_type_assisted_prototype_proposal(
     signature = (capture.prototype or extract_function_signature(capture.pseudocode)).strip()
     if not signature:
         blockers.append("missing_function_signature")
+    public_api_override = _public_kernel_api_full_prototype_override(capture, signature) if not plan.type_corrections else None
+    public_api_corrections = _public_kernel_api_type_assisted_corrections(capture, signature)
+    if plan.type_corrections and public_api_corrections:
+        owned_indices = {correction.parameter_index for correction in plan.type_corrections}
+        public_api_corrections = [
+            correction
+            for correction in public_api_corrections
+            if correction.parameter_index not in owned_indices
+        ]
 
     identity_by_profile = {
         candidate.profile_id: candidate
@@ -1516,15 +1527,18 @@ def _build_type_assisted_prototype_proposal(
                 % (profile_id, ",".join(candidate.ambiguous_profile_ids))
             )
         for blocker in candidate.blockers:
+            if _type_assisted_ignorable_identity_blocker(candidate, blocker):
+                continue
             if blocker == "report_only_profile" and _type_assisted_report_only_identity_allowed(candidate):
                 continue
             blockers.append("function_identity_blocked:%s:%s" % (profile_id, blocker))
 
-    if not plan.type_corrections:
+    all_type_corrections = list(plan.type_corrections) + public_api_corrections
+    if not all_type_corrections and not public_api_override:
         blockers.append("no_profile_parameter_type_corrections")
 
     parameter_owner: dict[int, str] = {}
-    for correction in plan.type_corrections:
+    for correction in all_type_corrections:
         correction_blockers: list[str] = []
         profile_id = correction.profile_id or "unknown_profile"
         parameter_tag = "%s:param%d" % (profile_id, correction.parameter_index)
@@ -1564,7 +1578,12 @@ def _build_type_assisted_prototype_proposal(
 
         identity = identity_by_profile.get(correction.profile_id)
         if identity is None:
-            correction_blockers.append("missing_function_identity_candidate:%s" % profile_id)
+            if not _type_assisted_public_kernel_api_profile(profile_id):
+                correction_blockers.append("missing_function_identity_candidate:%s" % profile_id)
+            else:
+                evidence.append(
+                    "function_identity:%s:public_kernel_api_exact_name" % profile_id
+                )
         else:
             identity_report_only_preview_allowed = _type_assisted_report_only_identity_allowed(identity)
             if (
@@ -1578,10 +1597,10 @@ def _build_type_assisted_prototype_proposal(
                         "function_identity_mode_not_allowed:%s:%s"
                         % (profile_id, identity.effective_mode or "missing")
                     )
-            if identity.evidence:
-                evidence.append(
-                    "function_identity:%s:%s"
-                    % (profile_id, ",".join(_ascii_for_log(item) for item in identity.evidence))
+        if identity is not None and identity.evidence:
+            evidence.append(
+                "function_identity:%s:%s"
+                % (profile_id, ",".join(_ascii_for_log(item) for item in identity.evidence))
                 )
 
         if correction_blockers:
@@ -1621,6 +1640,12 @@ def _build_type_assisted_prototype_proposal(
     if signature and eligible_corrections:
         prototype, prototype_blockers = _apply_type_assisted_signature_corrections(signature, eligible_corrections)
         blockers.extend(prototype_blockers)
+    elif signature and public_api_override:
+        prototype = public_api_override["prototype"]
+        if public_api_override["profile_id"] not in profile_ids:
+            profile_ids.append(public_api_override["profile_id"])
+        evidence.extend(public_api_override["evidence"])
+        corrections.extend(public_api_override["corrections"])
     elif signature and not eligible_corrections and not blockers:
         blockers.append("no_eligible_profile_parameter_type_corrections")
 
@@ -1631,6 +1656,271 @@ def _build_type_assisted_prototype_proposal(
         blockers=tuple(_dedupe_text(blockers)),
         corrections=tuple(corrections),
     )
+
+
+def _public_kernel_api_metadata(capture: FunctionCapture) -> dict:
+    name = str(getattr(capture, "name", "") or "").strip()
+    if not name or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+        return {}
+    metadata = kernel_function_metadata(name)
+    if not isinstance(metadata, dict):
+        return {}
+    if metadata.get("profile_alias_kind") or metadata.get("profile_alias_of"):
+        return {}
+    params = metadata.get("params", [])
+    if not isinstance(params, list) or not params:
+        return {}
+    return metadata
+
+
+def _public_kernel_api_profile_id(capture: FunctionCapture) -> str:
+    name = str(getattr(capture, "name", "") or "").strip()
+    normalized = re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_").lower()
+    return "windows.public_kernel_api.%s" % (normalized or "unknown")
+
+
+def _type_assisted_public_kernel_api_profile(profile_id: str) -> bool:
+    return str(profile_id or "").startswith("windows.public_kernel_api.")
+
+
+def _public_kernel_api_type_assisted_corrections(
+    capture: FunctionCapture,
+    signature: str,
+) -> list[ParameterTypeCorrection]:
+    metadata = _public_kernel_api_metadata(capture)
+    if not metadata or not signature:
+        return []
+    params = extract_parameters_from_signature(signature)
+    metadata_params = metadata.get("params", [])
+    if len(params) != len(metadata_params):
+        return []
+    profile_id = _public_kernel_api_profile_id(capture)
+    corrections: list[ParameterTypeCorrection] = []
+    for index, ((old_name, old_type), metadata_param) in enumerate(zip(params, metadata_params)):
+        if not isinstance(metadata_param, dict):
+            continue
+        new_name = _public_kernel_api_parameter_name(metadata_param)
+        new_type = _public_kernel_api_parameter_type(metadata_param)
+        if not new_name or not new_type:
+            continue
+        if _type_assisted_public_parameter_matches(old_name, old_type, new_name, new_type):
+            continue
+        corrections.append(
+            ParameterTypeCorrection(
+                parameter_index=index,
+                old_name=old_name,
+                new_name=new_name,
+                old_type=old_type,
+                canonical_type=new_type,
+                display_type=new_type,
+                profile_id=profile_id,
+                source="public-kernel-api",
+                provenance=str(metadata.get("source_header", "") or metadata.get("header", "")),
+                confidence=0.94,
+                effective_mode="canonical-rewrite-eligible",
+            )
+        )
+    return corrections
+
+
+def _public_kernel_api_full_prototype_override(
+    capture: FunctionCapture,
+    signature: str,
+) -> dict[str, object] | None:
+    metadata = _public_kernel_api_metadata(capture)
+    if not metadata or not signature:
+        return None
+    params = extract_parameters_from_signature(signature)
+    metadata_params = metadata.get("params", [])
+    if len(params) == len(metadata_params):
+        return None
+    prototype = _public_kernel_api_prototype(capture, signature, metadata)
+    if not prototype:
+        return None
+    profile_id = _public_kernel_api_profile_id(capture)
+    corrections = [
+        "public_signature_arity %d->%d" % (len(params), len(metadata_params)),
+    ]
+    for index, metadata_param in enumerate(metadata_params):
+        if not isinstance(metadata_param, dict):
+            continue
+        new_name = _public_kernel_api_parameter_name(metadata_param)
+        new_type = _public_kernel_api_parameter_type(metadata_param)
+        if not new_name or not new_type:
+            continue
+        old_name = params[index][0] if index < len(params) else "missing"
+        old_type = params[index][1] if index < len(params) else "missing"
+        corrections.append("param%d %s->%s %s->%s" % (index, old_name, new_name, old_type, new_type))
+    return {
+        "prototype": prototype,
+        "profile_id": profile_id,
+        "evidence": (
+            "function_identity:%s:public_kernel_api_exact_name" % profile_id,
+            "public_kernel_api_signature:%s:%d->%d"
+            % (capture.name, len(params), len(metadata_params)),
+        ),
+        "corrections": tuple(corrections),
+    }
+
+
+def _public_kernel_api_prototype(
+    capture: FunctionCapture,
+    signature: str,
+    metadata: dict,
+) -> str:
+    function_name = str(getattr(capture, "name", "") or "").strip()
+    if not function_name:
+        return ""
+    return_type = _public_kernel_api_return_type(metadata) or _type_assisted_signature_return_type(signature)
+    if not return_type:
+        return ""
+    calling_convention = _type_assisted_signature_calling_convention(signature)
+    params = []
+    for metadata_param in metadata.get("params", []) or []:
+        if not isinstance(metadata_param, dict):
+            return ""
+        new_name = _public_kernel_api_parameter_name(metadata_param)
+        new_type = _public_kernel_api_parameter_type(metadata_param)
+        if not new_name or not new_type:
+            return ""
+        params.append(_format_type_assisted_parameter(new_type, new_name))
+    convention = (" " + calling_convention) if calling_convention else ""
+    return "%s%s %s(%s)" % (return_type, convention, function_name, ", ".join(params))
+
+
+def _public_kernel_api_return_type(metadata: dict) -> str:
+    return _normalize_public_kernel_api_type(str(metadata.get("return_type", "") or ""))
+
+
+def _public_kernel_api_parameter_name(metadata_param: dict) -> str:
+    return _lower_camel_from_pascal(str(metadata_param.get("name", "") or ""))
+
+
+def _public_kernel_api_parameter_type(metadata_param: dict) -> str:
+    return _normalize_public_kernel_api_type(str(metadata_param.get("type", "") or ""))
+
+
+def _normalize_public_kernel_api_type(type_text: str) -> str:
+    text = re.sub(r"\s+", " ", str(type_text or "").strip())
+    text = re.sub(r"\s*\*\s*", " *", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _type_assisted_public_parameter_matches(
+    old_name: str,
+    old_type: str,
+    new_name: str,
+    new_type: str,
+) -> bool:
+    old_name_normalized = _lower_camel_from_pascal(str(old_name or ""))
+    return (
+        old_name_normalized == str(new_name or "")
+        and _normalized_type_assisted_type(old_type) == _normalized_type_assisted_type(new_type)
+    )
+
+
+def _normalized_type_assisted_type(type_text: str) -> str:
+    text = _normalize_public_kernel_api_type(type_text)
+    text = re.sub(r"\b(?:const|volatile|struct|enum)\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text
+
+
+def _type_assisted_signature_return_type(signature: str) -> str:
+    prefix = str(signature or "").split("(", 1)[0]
+    prefix = re.sub(r"\b__(?:fastcall|stdcall|cdecl|thiscall|vectorcall)\b", "", prefix)
+    function_name = _type_assisted_signature_function_name(signature)
+    if function_name:
+        prefix = re.sub(r"\b%s\b\s*$" % re.escape(function_name), "", prefix)
+    return re.sub(r"\s+", " ", prefix).strip()
+
+
+def _type_assisted_signature_calling_convention(signature: str) -> str:
+    prefix = str(signature or "").split("(", 1)[0]
+    match = re.search(r"\b__(?:fastcall|stdcall|cdecl|thiscall|vectorcall)\b", prefix)
+    return match.group(0) if match else ""
+
+
+def _type_assisted_signature_function_name(signature: str) -> str:
+    prefix = str(signature or "").split("(", 1)[0].strip()
+    match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*$", prefix)
+    return match.group(1) if match else ""
+
+
+def _type_assisted_pseudocode_realizes_proposal(
+    pseudocode: str,
+    proposal: TypeAssistedPrototypeProposal,
+) -> bool:
+    signature = extract_function_signature(str(pseudocode or ""))
+    if not signature:
+        return False
+    params = extract_parameters_from_signature(signature)
+    expected_arity = _type_assisted_expected_arity(proposal)
+    if expected_arity is not None and len(params) != expected_arity:
+        return False
+    expected_params = _type_assisted_expected_parameters(proposal)
+    if not expected_params:
+        return True
+    realized = 0
+    for index, expected_name, expected_type in expected_params:
+        if index < 0 or index >= len(params):
+            continue
+        actual_name, actual_type = params[index]
+        if _lower_camel_from_pascal(actual_name) != expected_name:
+            continue
+        if _normalized_type_assisted_type(actual_type) != _normalized_type_assisted_type(expected_type):
+            continue
+        realized += 1
+    return realized > 0
+
+
+def _type_assisted_expected_arity(proposal: TypeAssistedPrototypeProposal) -> int | None:
+    for correction in proposal.corrections:
+        match = re.match(r"public_signature_arity\s+\d+->(?P<arity>\d+)$", str(correction or ""))
+        if match:
+            return int(match.group("arity"))
+    return None
+
+
+def _type_assisted_expected_parameters(
+    proposal: TypeAssistedPrototypeProposal,
+) -> list[tuple[int, str, str]]:
+    result: list[tuple[int, str, str]] = []
+    for correction in proposal.corrections:
+        match = re.match(
+            r"param(?P<index>\d+)\s+\S+->(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s+.+?->(?P<type>.+)$",
+            str(correction or ""),
+        )
+        if not match:
+            continue
+        result.append(
+            (
+                int(match.group("index")),
+                str(match.group("name")),
+                str(match.group("type")).strip(),
+            )
+        )
+    return result
+
+
+def _lower_camel_from_pascal(name: str) -> str:
+    value = str(name or "").strip()
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", value):
+        return ""
+    if not value or value.startswith("_"):
+        return ""
+    if value.upper() == value:
+        return value.lower()
+    if not value[0].isupper():
+        return value
+    prefix_len = 1
+    while prefix_len < len(value) and value[prefix_len].isupper():
+        next_index = prefix_len + 1
+        if next_index < len(value) and value[next_index].islower():
+            break
+        prefix_len += 1
+    return value[:prefix_len].lower() + value[prefix_len:]
 
 
 def _type_assisted_report_only_correction_allowed(correction, identity) -> bool:
@@ -1645,6 +1935,13 @@ def _type_assisted_report_only_correction_allowed(correction, identity) -> bool:
     if not correction.new_name:
         return False
     return _type_assisted_report_only_identity_allowed(identity)
+
+
+def _type_assisted_ignorable_identity_blocker(identity, blocker: str) -> bool:
+    profile_id = str(getattr(identity, "profile_id", "") or "")
+    if not profile_id.startswith("windows.subsystem_prefix."):
+        return False
+    return str(blocker or "") in {"generic_subsystem_prefix", "report_only_profile"}
 
 
 def _type_assisted_report_only_identity_allowed(identity) -> bool:
@@ -1784,6 +2081,7 @@ def _run_type_assisted_recompile_preview(
     proposal = proposal or _build_type_assisted_prototype_proposal(capture, plan)
     _ensure_type_assisted_prototype_allowed(proposal)
     original_type = run_on_main_thread(lambda: _get_ida_function_type(capture.ea), write=False)
+    _ensure_type_assisted_original_type_restore_allowed(original_type)
     improved_pseudocode = ""
     cleaned_pseudocode = ""
     cleanup_error = ""
@@ -1795,6 +2093,8 @@ def _run_type_assisted_recompile_preview(
         run_on_main_thread(lambda: _apply_ida_function_type(capture.ea, proposal.prototype), write=True)
         run_on_main_thread(lambda: _refresh_function_type_state(capture.ea), write=True)
         improved_pseudocode = run_on_main_thread(lambda: _decompile_function_pseudocode(capture.ea), write=False)
+        if not _type_assisted_pseudocode_realizes_proposal(improved_pseudocode, proposal):
+            raise RuntimeError("temporary prototype was not reflected in decompiler output")
     except Exception as exc:
         operation_error = exc
     finally:
@@ -1872,6 +2172,25 @@ def _ensure_type_assisted_prototype_allowed(proposal: TypeAssistedPrototypePropo
         raise RuntimeError("type-assisted preview refused: missing proposed prototype")
 
 
+def _ensure_type_assisted_original_type_restore_allowed(original_type: str) -> None:
+    blockers = _type_assisted_original_type_restore_blockers(original_type)
+    if blockers:
+        raise RuntimeError(
+            "type-assisted preview refused by original IDB type restore blockers: %s"
+            % ", ".join(blockers)
+        )
+
+
+def _type_assisted_original_type_restore_blockers(original_type: str) -> tuple[str, ...]:
+    text = _normalize_ida_type_text(original_type)
+    if not text:
+        return ()
+    blockers = []
+    if re.search(r"\b_UNKNOWN\b", text):
+        blockers.append("unstable_original_type_unknown")
+    return tuple(blockers)
+
+
 def _format_type_assisted_recompile_summary(result: TypeAssistedRedecompileResult) -> str:
     lines = [
         "PseudoForge type-assisted re-decompile preview 0x%X" % result.capture.ea,
@@ -1920,7 +2239,7 @@ def _get_ida_function_type(ea: int) -> str:
 def _apply_ida_function_type(ea: int, type_text: str) -> None:
     if idc is None:
         raise RuntimeError("IDA type API is unavailable")
-    declaration = _ida_function_type_declaration(type_text)
+    declaration = _ida_function_type_declaration(ea, type_text)
     for setter_name in ("SetType", "set_type"):
         setter = getattr(idc, setter_name, None)
         if not callable(setter):
@@ -1949,11 +2268,51 @@ def _restore_ida_function_type(ea: int, original_type: str) -> None:
     _apply_ida_function_type(ea, "")
 
 
-def _ida_function_type_declaration(type_text: str) -> str:
+def _ida_function_type_declaration(ea: int, type_text: str) -> str:
     declaration = str(type_text or "").strip()
+    declaration = _named_ida_function_type_declaration(ea, declaration)
     if declaration and not declaration.endswith(";"):
         declaration += ";"
     return declaration
+
+
+def _named_ida_function_type_declaration(ea: int, type_text: str) -> str:
+    text = str(type_text or "").strip()
+    open_index = text.find("(")
+    if open_index <= 0:
+        return text
+    prefix = text[:open_index].rstrip()
+    if not _ida_function_type_prefix_needs_name(prefix):
+        return text
+    function_name = _ida_function_name_for_type(ea)
+    return "%s %s%s" % (prefix, function_name, text[open_index:])
+
+
+def _ida_function_type_prefix_needs_name(prefix: str) -> bool:
+    text = str(prefix or "").strip()
+    if not text:
+        return False
+    calling_convention_re = re.compile(
+        r"(?:^|\s)(__fastcall|__stdcall|__cdecl|__thiscall|__vectorcall|__usercall|__spoils<[^>]+>)$"
+    )
+    return bool(calling_convention_re.search(text))
+
+
+def _ida_function_name_for_type(ea: int) -> str:
+    for provider in (idc, ida_funcs):
+        if provider is None:
+            continue
+        for getter_name in ("get_func_name", "get_name"):
+            getter = getattr(provider, getter_name, None)
+            if not callable(getter):
+                continue
+            try:
+                name = str(getter(ea) or "")
+            except Exception:
+                continue
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                return name
+    return "sub_%X" % int(ea or 0)
 
 
 def _ida_type_text_equal(left: str, right: str) -> bool:
@@ -1961,7 +2320,24 @@ def _ida_type_text_equal(left: str, right: str) -> bool:
 
 
 def _normalize_ida_type_text(type_text: str) -> str:
-    return re.sub(r"\s+", " ", str(type_text or "").strip()).rstrip(";")
+    text = re.sub(r"\s+", " ", str(type_text or "").strip()).rstrip(";")
+    return _strip_function_name_from_ida_type_text(text)
+
+
+def _strip_function_name_from_ida_type_text(type_text: str) -> str:
+    text = str(type_text or "").strip()
+    open_index = text.find("(")
+    if open_index <= 0:
+        return text
+    prefix = text[:open_index].rstrip()
+    match = re.match(
+        r"^(?P<head>.*(?:__fastcall|__stdcall|__cdecl|__thiscall|__vectorcall|__usercall|__spoils<[^>]+>))\s+"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)$",
+        prefix,
+    )
+    if not match:
+        return text
+    return match.group("head").rstrip() + text[open_index:]
 
 
 def _refresh_function_type_state(ea: int) -> None:

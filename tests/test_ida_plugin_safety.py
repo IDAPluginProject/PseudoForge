@@ -189,18 +189,34 @@ class FakeContextMenuHooks:
 
 
 class FakeIdcTypeApi:
-    def __init__(self, original_type: str, fail_on_restore: bool = False) -> None:
+    def __init__(
+        self,
+        original_type: str,
+        fail_on_restore: bool = False,
+        function_name: str = "IoDeleteDevice",
+        ignore_first_apply: bool = False,
+    ) -> None:
         self.current_type = original_type
         self.fail_on_restore = fail_on_restore
+        self.function_name = function_name
+        self.ignore_first_apply = ignore_first_apply
         self.calls = []
 
     def get_type(self, ea):
         return self.current_type
 
+    def get_func_name(self, ea):
+        return self.function_name
+
+    def get_name(self, ea):
+        return self.function_name
+
     def SetType(self, ea, type_text):
         self.calls.append((ea, type_text))
         if self.fail_on_restore and len(self.calls) > 1:
             raise RuntimeError("restore failed")
+        if self.ignore_first_apply and len(self.calls) == 1:
+            return True
         self.current_type = type_text
         return True
 
@@ -1858,6 +1874,27 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertTrue(any("exact_function_name" in item for item in proposal.evidence))
         self.assertEqual(proposal.corrections, ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",))
 
+    def test_type_assisted_prototype_ignores_generic_subsystem_prefix_blockers(self):
+        capture, plan = _type_assisted_capture_plan()
+        plan.function_identity_candidates.append(
+            FunctionIdentityCandidate(
+                profile_id="windows.subsystem_prefix.io_manager",
+                subsystem="I/O Manager",
+                function_name="IoDeleteDevice",
+                match_kind="function_regex",
+                confidence=0.74,
+                evidence=["function_regex"],
+                blockers=["generic_subsystem_prefix", "report_only_profile"],
+                effective_mode="report-only",
+            )
+        )
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertFalse(proposal.blockers)
+        self.assertIn("PDEVICE_OBJECT deviceObject", proposal.prototype)
+        self.assertEqual(proposal.corrections, ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",))
+
     def test_type_assisted_prototype_allows_exact_report_only_signature_preview(self):
         capture, plan = _type_assisted_capture_plan()
         plan.function_identity_candidates[0].effective_mode = "report-only"
@@ -1873,6 +1910,114 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             proposal.evidence,
         )
         self.assertEqual(proposal.corrections, ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",))
+
+    def test_type_assisted_prototype_uses_public_kernel_api_signature_metadata(self):
+        capture = FunctionCapture(
+            ea=0x140003000,
+            name="RtlFindLastBackwardRunClear",
+            prototype="__int64 __fastcall RtlFindLastBackwardRunClear(__int64 a1, int a2, __int64 a3)",
+            pseudocode=(
+                "__int64 __fastcall RtlFindLastBackwardRunClear(__int64 a1, int a2, __int64 a3)\n"
+                "{\n"
+                "  return a1 + a2 + a3;\n"
+                "}"
+            ),
+            lvars=[
+                LocalVariable("a1", "__int64", True, 0),
+                LocalVariable("a2", "int", True, 1),
+                LocalVariable("a3", "__int64", True, 2),
+            ],
+            source_path=r"F:\target\ntoskrnl.exe",
+        )
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+        )
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertFalse(proposal.blockers)
+        self.assertIn("windows.public_kernel_api.rtlfindlastbackwardrunclear", proposal.profile_ids)
+        self.assertIn("PRTL_BITMAP bitMapHeader", proposal.prototype)
+        self.assertIn("ULONG fromIndex", proposal.prototype)
+        self.assertIn("PULONG startingRunIndex", proposal.prototype)
+        self.assertIn(
+            "param0 a1->bitMapHeader __int64->PRTL_BITMAP",
+            proposal.corrections,
+        )
+        self.assertTrue(any("public_kernel_api_exact_name" in item for item in proposal.evidence))
+
+    def test_type_assisted_prototype_recovers_public_kernel_api_arity_preview(self):
+        capture = FunctionCapture(
+            ea=0x140004000,
+            name="ZwMapViewOfSectionEx",
+            prototype="__int64 __fastcall ZwMapViewOfSectionEx(__int64 a1, __int64 a2)",
+            pseudocode=(
+                "__int64 __fastcall ZwMapViewOfSectionEx(__int64 a1, __int64 a2)\n"
+                "{\n"
+                "  return a1 + a2;\n"
+                "}"
+            ),
+            lvars=[
+                LocalVariable("a1", "__int64", True, 0),
+                LocalVariable("a2", "__int64", True, 1),
+            ],
+            source_path=r"F:\target\ntoskrnl.exe",
+        )
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+        )
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertFalse(proposal.blockers)
+        self.assertIn("windows.public_kernel_api.zwmapviewofsectionex", proposal.profile_ids)
+        self.assertIn("NTSTATUS __fastcall ZwMapViewOfSectionEx", proposal.prototype)
+        self.assertIn("HANDLE sectionHandle", proposal.prototype)
+        self.assertIn("HANDLE processHandle", proposal.prototype)
+        self.assertIn("PVOID *baseAddress", proposal.prototype)
+        self.assertIn("PMEM_EXTENDED_PARAMETER extendedParameters", proposal.prototype)
+        self.assertIn("ULONG extendedParameterCount", proposal.prototype)
+        self.assertIn("public_signature_arity 2->9", proposal.corrections)
+
+    def test_type_assisted_prototype_refuses_public_kernel_api_prefix_alias(self):
+        capture = FunctionCapture(
+            ea=0x140005000,
+            name="IopAllocateMdl",
+            prototype=(
+                "__int64 __fastcall IopAllocateMdl("
+                "__int64 a1, unsigned int a2, char a3, __int64 a4, __int64 a5, int a6)"
+            ),
+            pseudocode=(
+                "__int64 __fastcall IopAllocateMdl("
+                "__int64 a1, unsigned int a2, char a3, __int64 a4, __int64 a5, int a6)\n"
+                "{\n"
+                "  return a1 + a2 + a3 + a4 + a5 + a6;\n"
+                "}"
+            ),
+            lvars=[
+                LocalVariable("a1", "__int64", True, 0),
+                LocalVariable("a2", "unsigned int", True, 1),
+                LocalVariable("a3", "char", True, 2),
+                LocalVariable("a4", "__int64", True, 3),
+                LocalVariable("a5", "__int64", True, 4),
+                LocalVariable("a6", "int", True, 5),
+            ],
+            source_path=r"F:\target\ntoskrnl.exe",
+        )
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+        )
+
+        proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+
+        self.assertIn("no_profile_parameter_type_corrections", proposal.blockers)
+        self.assertFalse(proposal.corrections)
 
     def test_type_assisted_prototype_refuses_report_only_build_mismatch(self):
         capture, plan = _type_assisted_capture_plan()
@@ -1994,6 +2139,84 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
                 (capture.ea, "__int64 __fastcall IoDeleteDevice(__int64 a1);"),
             ],
         )
+
+    def test_type_assisted_recompile_rejects_ignored_temporary_type_apply(self):
+        capture, plan = _type_assisted_capture_plan()
+        original_type = "__int64 __fastcall IoDeleteDevice(__int64 a1)"
+        fake_idc = FakeIdcTypeApi(original_type, ignore_first_apply=True)
+        old_idc = actions_module.idc
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_refresh = actions_module._refresh_function_type_state
+        actions_module.idc = fake_idc
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: "__int64 __fastcall IoDeleteDevice(__int64 a1)\n{\n  return a1;\n}"
+        )
+        actions_module._refresh_function_type_state = lambda ea: None
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            with self.assertRaisesRegex(RuntimeError, "temporary prototype was not reflected"):
+                actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._refresh_function_type_state = old_refresh
+
+        self.assertEqual(
+            fake_idc.calls,
+            [
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject);"),
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(__int64 a1);"),
+            ],
+        )
+        self.assertEqual(fake_idc.current_type, "__int64 __fastcall IoDeleteDevice(__int64 a1);")
+
+    def test_type_assisted_recompile_restores_ida_nameless_original_type(self):
+        capture, plan = _type_assisted_capture_plan()
+        original_type = "__int64 __fastcall(__int64 a1)"
+        fake_idc = FakeIdcTypeApi(original_type)
+        old_idc = actions_module.idc
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_refresh = actions_module._refresh_function_type_state
+        old_clean = actions_module._render_type_assisted_cleaned_pseudocode
+        actions_module.idc = fake_idc
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: "void __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)\n{\n  IopCompleteUnloadOrDelete((ULONG_PTR)deviceObject);\n}"
+        )
+        actions_module._refresh_function_type_state = lambda ea: None
+        actions_module._render_type_assisted_cleaned_pseudocode = lambda captured, improved: "cleaned"
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            result = actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._refresh_function_type_state = old_refresh
+            actions_module._render_type_assisted_cleaned_pseudocode = old_clean
+
+        self.assertTrue(result.restore_succeeded)
+        self.assertEqual(
+            fake_idc.calls,
+            [
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject);"),
+                (capture.ea, "__int64 __fastcall IoDeleteDevice(__int64 a1);"),
+            ],
+        )
+
+    def test_type_assisted_recompile_refuses_unstable_unknown_original_type(self):
+        capture, plan = _type_assisted_capture_plan()
+        original_type = "_UNKNOWN **__fastcall(int, __int64, __int64)"
+        fake_idc = FakeIdcTypeApi(original_type)
+        old_idc = actions_module.idc
+        actions_module.idc = fake_idc
+        try:
+            proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
+            with self.assertRaisesRegex(RuntimeError, "unstable_original_type_unknown"):
+                actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
+        finally:
+            actions_module.idc = old_idc
+
+        self.assertEqual([], fake_idc.calls)
+        self.assertEqual(original_type, fake_idc.current_type)
 
     def test_type_assisted_recompile_restores_original_type_after_decompile_failure(self):
         capture, plan = _type_assisted_capture_plan()

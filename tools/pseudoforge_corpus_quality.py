@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -79,6 +80,12 @@ NESTED_FIELD_POINTER_DEREF_RE = re.compile(
     r"\(\s*(?P<parent>[A-Za-z_][A-Za-z0-9_]*)->(?P<field>field_[0-9A-Fa-f]+)"
     r"(?:\s*/\*[^*]*\*/)?\s*\+\s*"
     r"(?P<offset>0x[0-9A-Fa-f]+|\d+)(?:i64|LL|ULL|uLL|UL|U|L)?\s*\)"
+)
+EMBEDDED_FIELD_REWRITE_RE = re.compile(
+    r"\b(?P<base>[A-Za-z_][A-Za-z0-9_]*)->"
+    r"(?P<field>[A-Za-z_][A-Za-z0-9_]*)"
+    r"\s*/\*\s*(?P<type>[^+*]*?)\s+\+"
+    r"(?P<offset>0x[0-9A-Fa-f]+|\d+)\s*\*/"
 )
 DIRECT_BASE_DEREF_RE = re.compile(
     r"\*\s*\(\s*[^()]*?\*\s*\)\s*"
@@ -217,6 +224,32 @@ _BODY_OFFSET_CORE_SUBSYSTEMS = {
     "object",
     "security",
 }
+_STRUCTURE_QUALITY_COMPONENT_ORDER = (
+    "prototype_correctness",
+    "call_argument_cleanup",
+    "structure_identity_evidence",
+    "offset_residue",
+    "pointer_indexed_residue",
+    "generic_identifier_residue",
+    "rewrite_safety_blockers",
+    "ida_plugin_packaging_boundary",
+)
+_STRUCTURE_QUALITY_COMPONENT_WEIGHTS = {
+    "prototype_correctness": 1.2,
+    "call_argument_cleanup": 1.0,
+    "structure_identity_evidence": 1.4,
+    "offset_residue": 1.5,
+    "pointer_indexed_residue": 1.0,
+    "generic_identifier_residue": 1.0,
+    "rewrite_safety_blockers": 1.1,
+    "ida_plugin_packaging_boundary": 0.8,
+}
+_STRUCTURE_QUALITY_FORBIDDEN_IMPORT_ROOTS = {
+    "docs",
+    "pseudoforge_out",
+    "tests",
+    "tools",
+}
 _BODY_OFFSET_NAMED_GOAL_TARGETS = {
     "CmpSetSecurityDescriptorInfo": "registry",
     "CmpInsertSecurityCellList": "registry",
@@ -300,6 +333,9 @@ _BODY_OFFSET_QUEUE_DESCRIPTIONS = {
     ),
 }
 _PROTOTYPE_CORRECTION_QUEUE_DESCRIPTIONS = {
+    "type_assisted_preview_restore_failures": (
+        "IDA type-assisted preview attempts that could not prove the original IDB type was restored."
+    ),
     "report_only_identity_type_preview_candidates": (
         "Exact report-only function identities with build-bound source context and preview-only parameter corrections."
     ),
@@ -320,6 +356,9 @@ _PROTOTYPE_CORRECTION_QUEUE_DESCRIPTIONS = {
     ),
 }
 _PROTOTYPE_CORRECTION_QUEUE_NEXT_STEPS = {
+    "type_assisted_preview_restore_failures": (
+        "Fix temporary type restoration before trusting this preview path; do not use the cleaned preview as evidence."
+    ),
     "report_only_identity_type_preview_candidates": (
         "Use type-assisted decompile preview only; keep body rewrite and IDB mutation closed until exact private layout source identity is proven."
     ),
@@ -771,12 +810,17 @@ ARTIFACT_SUFFIXES = {
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    try:
+        manual_reread = _load_manual_reread(args.manual_reread)
+    except (FileNotFoundError, ValueError) as exc:
+        parser.error(str(exc))
     report = analyze_corpus(
         args.corpus_root,
         sample_limit=max(0, args.sample_limit),
         text_scan=not args.no_text_scan,
         top=max(1, args.top),
         ea_filter=_load_ea_filter(args.ea, args.ea_file),
+        manual_reread=manual_reread,
     )
     outputs = []
     if args.out:
@@ -822,6 +866,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-text-scan", action="store_true", help="Skip cleaned pseudocode text pattern scan.")
     parser.add_argument("--top", type=int, default=20, help="Number of top warning functions/classes to include.")
+    parser.add_argument(
+        "--manual-reread",
+        default="",
+        help="Optional JSON evidence file for the manual reread hard gate.",
+    )
     return parser
 
 
@@ -832,6 +881,7 @@ def analyze_corpus(
     text_scan: bool = True,
     top: int = 20,
     ea_filter: set[int] | None = None,
+    manual_reread: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(corpus_root)
     functions_root = root / "functions" if (root / "functions").exists() else root
@@ -941,6 +991,11 @@ def analyze_corpus(
     rewrite_blocker_review_queues: dict[str, list[dict[str, Any]]] = {}
     rewrite_blocker_totals = Counter()
     body_offset_residue_totals = Counter()
+    evidence_graph_totals = Counter()
+    evidence_graph_node_kinds: Counter[str] = Counter()
+    evidence_graph_edge_kinds: Counter[str] = Counter()
+    evidence_graph_promotion_lanes: Counter[str] = Counter()
+    evidence_graph_blockers: Counter[str] = Counter()
     body_offset_residue_subsystems: Counter[str] = Counter()
     body_offset_residue_next_actions: Counter[str] = Counter()
     body_offset_residue_review_classes: Counter[str] = Counter()
@@ -983,6 +1038,7 @@ def analyze_corpus(
     prototype_canonical_types: Counter[str] = Counter()
     prototype_body_rewrite_sources: Counter[str] = Counter()
     prototype_report_only_preview_profiles: Counter[str] = Counter()
+    prototype_type_assisted_preview_statuses: Counter[str] = Counter()
     totals = Counter()
     text_totals = Counter()
     body_text_totals = Counter()
@@ -1012,6 +1068,7 @@ def analyze_corpus(
     top_rewrite_partial_opportunity_functions = []
     top_rewrite_blocker_functions = []
     top_body_offset_residue_functions = []
+    top_evidence_graph_functions = []
     top_decimal_status_residue_functions = []
     top_nested_status_store_functions = []
     top_ntstatus_body_unprofiled_functions = []
@@ -1028,6 +1085,7 @@ def analyze_corpus(
         warning_diagnostics = _read_warning_diagnostics(_artifact_path(summary_path, artifacts, "warning_diagnostics"))
         rename_items = _read_rename_items(_artifact_path(summary_path, artifacts, "rename_map"))
         rule_report = _coerce_dict(_read_json(_artifact_path(summary_path, artifacts, "rule_report")))
+        evidence_graph = _coerce_dict(summary.get("evidence_graph", {}))
         buffer_contracts = _read_list(_artifact_path(summary_path, artifacts, "buffer_contracts"))
         cleaned_path = _artifact_path(summary_path, artifacts, "cleaned_pseudocode")
         raw_path = _artifact_path(summary_path, artifacts, "raw_pseudocode")
@@ -1050,6 +1108,11 @@ def analyze_corpus(
         rewrite_preview_metadata = _coerce_dict(
             _read_json(_artifact_path(summary_path, artifacts, "layout_rewrite_preview_metadata"))
         )
+        if not rewrite_preview_metadata:
+            rewrite_preview_metadata = _embedded_primary_layout_rewrite_metadata(
+                summary,
+                cleaned_path,
+            )
         prototype_metrics = _prototype_correction_function_metrics(
             summary,
             cleaned_path if text_scan else Path(),
@@ -1063,6 +1126,7 @@ def analyze_corpus(
             prototype_canonical_types,
             prototype_body_rewrite_sources,
             prototype_report_only_preview_profiles,
+            prototype_type_assisted_preview_statuses,
         )
         if bool(prototype_metrics.get("has_correction_evidence")):
             top_prototype_correction_functions.append(
@@ -1078,6 +1142,17 @@ def analyze_corpus(
                     "summary_path": str(summary_path),
                 }
             )
+        if evidence_graph:
+            evidence_graph_item = _evidence_graph_function_summary(name, ea, summary_path, evidence_graph)
+            _update_evidence_graph_metrics(
+                evidence_graph_item,
+                evidence_graph_totals,
+                evidence_graph_node_kinds,
+                evidence_graph_edge_kinds,
+                evidence_graph_promotion_lanes,
+                evidence_graph_blockers,
+            )
+            top_evidence_graph_functions.append(evidence_graph_item)
 
         rename_candidate_count = _int_value(summary.get("rename_candidates"), len(rename_items))
         applied_rename_count = _int_value(
@@ -1689,6 +1764,15 @@ def analyze_corpus(
             str(item["name"]),
         )
     )
+    top_evidence_graph_functions.sort(
+        key=lambda item: (
+            -int(item["trusted_rewrite_edges"]),
+            -int(item["rewrite_eligible_edges"]),
+            -int(item["blocked_edges"]),
+            -int(item["edges"]),
+            str(item["name"]),
+        )
+    )
     top_decimal_status_residue_functions.sort(
         key=lambda item: (
             -int(item["literal_count"]),
@@ -2030,6 +2114,16 @@ def analyze_corpus(
             ),
             "top_functions": top_body_offset_residue_functions[:top],
         },
+        "evidence_graph_stats": {
+            "totals": _evidence_graph_totals_dict(evidence_graph_totals),
+            "node_kinds": _counter_to_dict(Counter(dict(evidence_graph_node_kinds.most_common(top)))),
+            "edge_kinds": _counter_to_dict(Counter(dict(evidence_graph_edge_kinds.most_common(top)))),
+            "promotion_lanes": _counter_to_dict(
+                Counter(dict(evidence_graph_promotion_lanes.most_common(top)))
+            ),
+            "blockers": _counter_to_dict(Counter(dict(evidence_graph_blockers.most_common(top)))),
+            "top_functions": top_evidence_graph_functions[:top],
+        },
         "prototype_correction_stats": {
             "totals": _prototype_correction_totals_dict(prototype_totals),
             "blocker_counts": _counter_to_dict(Counter(dict(prototype_blockers.most_common(top)))),
@@ -2043,6 +2137,9 @@ def analyze_corpus(
             ),
             "report_only_identity_preview_profiles": _counter_to_dict(
                 Counter(dict(prototype_report_only_preview_profiles.most_common(top)))
+            ),
+            "type_assisted_preview_statuses": _counter_to_dict(
+                Counter(dict(prototype_type_assisted_preview_statuses.most_common(top)))
             ),
             "top_functions": top_prototype_correction_functions[:top],
             "review_queues": _prototype_correction_review_queues(
@@ -2095,11 +2192,796 @@ def analyze_corpus(
         "body_text_stats": _counter_to_dict(body_text_totals),
         "top_warning_functions": top_warning_functions[:top],
     }
+    normalized_manual_reread = _normalize_manual_reread(manual_reread or {})
+    if normalized_manual_reread:
+        result["manual_reread"] = normalized_manual_reread
+    result["structure_quality_score"] = _structure_quality_scorecard(result)
     return result
+
+
+def _structure_quality_scorecard(report: dict[str, Any]) -> dict[str, Any]:
+    totals = _coerce_dict(report.get("totals", {}))
+    functions = max(1, _int_value(totals.get("summaries"), 0))
+    prototype_totals = _coerce_dict(_coerce_dict(report.get("prototype_correction_stats", {})).get("totals", {}))
+    api_semantic_stats = _coerce_dict(report.get("api_semantic_stats", {}))
+    layout_hint_totals = _coerce_dict(_coerce_dict(report.get("layout_hint_stats", {})).get("totals", {}))
+    stable_source_totals = _coerce_dict(
+        _coerce_dict(report.get("layout_stable_base_source_stats", {})).get("totals", {})
+    )
+    rewrite_ready_totals = _coerce_dict(
+        _coerce_dict(report.get("layout_rewrite_ready_stats", {})).get("totals", {})
+    )
+    rewrite_preview_totals = _coerce_dict(
+        _coerce_dict(report.get("layout_rewrite_preview_stats", {})).get("totals", {})
+    )
+    rewrite_preview_artifact_totals = _coerce_dict(
+        _coerce_dict(report.get("layout_rewrite_preview_artifact_stats", {})).get("totals", {})
+    )
+    pointer_indexed_totals = _coerce_dict(
+        _coerce_dict(report.get("pointer_indexed_offset_stats", {})).get("totals", {})
+    )
+    body_offset_stats = _coerce_dict(report.get("body_offset_residue_review_stats", {}))
+    body_offset_totals = _coerce_dict(body_offset_stats.get("totals", {}))
+    body_offset_review_classes = _coerce_dict(body_offset_stats.get("review_classes", {}))
+    evidence_graph_totals = _coerce_dict(
+        _coerce_dict(report.get("evidence_graph_stats", {})).get("totals", {})
+    )
+    body_text_stats = _coerce_dict(report.get("body_text_stats", {}))
+    rule_stats = _coerce_dict(report.get("rule_stats", {}))
+    runtime_boundary = _runtime_boundary_status()
+
+    components = {
+        "prototype_correctness": _structure_quality_component(
+            "prototype_correctness",
+            _prototype_correctness_score(prototype_totals, functions),
+            {
+                "function_identity_candidates": _int_value(
+                    prototype_totals.get("function_identity_candidates"),
+                    0,
+                ),
+                "applied_parameter_type_corrections": _int_value(
+                    prototype_totals.get("applied_parameter_type_corrections"),
+                    0,
+                ),
+                "blocked_parameter_type_corrections": _int_value(
+                    prototype_totals.get("blocked_parameter_type_corrections"),
+                    0,
+                ),
+                "corrected_parameter_map_entries": _int_value(
+                    prototype_totals.get("corrected_parameter_map_entries"),
+                    0,
+                ),
+                "type_assisted_preview_parameter_corrections": _int_value(
+                    prototype_totals.get("type_assisted_preview_parameter_corrections"),
+                    0,
+                ),
+                "report_only_identity_preview_parameter_corrections": _int_value(
+                    prototype_totals.get("report_only_identity_preview_parameter_corrections"),
+                    0,
+                ),
+                "functions_with_correction_evidence": _int_value(
+                    prototype_totals.get("functions_with_correction_evidence"),
+                    0,
+                ),
+                "type_assisted_preview_restore_failures": _int_value(
+                    prototype_totals.get("type_assisted_preview_restore_failures"),
+                    0,
+                ),
+                "idb_apply_parameter_type_corrections": _int_value(
+                    prototype_totals.get("idb_apply_parameter_type_corrections"),
+                    0,
+                ),
+            },
+        ),
+        "call_argument_cleanup": _structure_quality_component(
+            "call_argument_cleanup",
+            _call_argument_cleanup_score(prototype_totals, api_semantic_stats, functions),
+            {
+                "applied_parameter_type_corrections": _int_value(
+                    prototype_totals.get("applied_parameter_type_corrections"),
+                    0,
+                ),
+                "blocked_parameter_type_corrections": _int_value(
+                    prototype_totals.get("blocked_parameter_type_corrections"),
+                    0,
+                ),
+                "api_semantic_rejections": _int_value(api_semantic_stats.get("rejections"), 0),
+            },
+        ),
+        "structure_identity_evidence": _structure_quality_component(
+            "structure_identity_evidence",
+            _structure_identity_evidence_score(
+                prototype_totals,
+                layout_hint_totals,
+                stable_source_totals,
+                rewrite_ready_totals,
+                rewrite_preview_totals,
+                rewrite_preview_artifact_totals,
+                evidence_graph_totals,
+                functions,
+            ),
+            {
+                "function_identity_candidates": _int_value(
+                    prototype_totals.get("function_identity_candidates"),
+                    0,
+                ),
+                "layout_hint_functions": _int_value(layout_hint_totals.get("functions_with_hints"), 0),
+                "stable_source_functions": _int_value(
+                    stable_source_totals.get("functions_with_source_comments"),
+                    0,
+                ),
+                "canonical_layout_rewrite_applied": _int_value(
+                    rewrite_preview_artifact_totals.get("canonical_rewrite_applied"),
+                    0,
+                ),
+                "evidence_graph_functions": _int_value(
+                    evidence_graph_totals.get("functions_with_evidence_graph"),
+                    0,
+                ),
+                "trusted_preview_edges": _int_value(evidence_graph_totals.get("trusted_preview_edges"), 0),
+                "report_only_edges": _int_value(evidence_graph_totals.get("report_only_edges"), 0),
+                "blocked_edges": _int_value(evidence_graph_totals.get("blocked_edges"), 0),
+                "rewrite_eligible_edges": _int_value(
+                    evidence_graph_totals.get("rewrite_eligible_edges"),
+                    0,
+                ),
+            },
+        ),
+        "offset_residue": _structure_quality_component(
+            "offset_residue",
+            _offset_residue_score(
+                body_offset_totals,
+                body_text_stats,
+                body_offset_review_classes,
+                functions,
+            ),
+            {
+                "functions_with_offset_residue": _int_value(
+                    body_offset_totals.get("functions_with_offset_residue"),
+                    0,
+                ),
+                "offset_deref_survivors": _int_value(body_offset_totals.get("offset_deref_survivors"), 0),
+                "body_offset_deref_patterns": _int_value(body_text_stats.get("offset_deref_patterns"), 0),
+                "unclassified_offset_residue": _int_value(
+                    body_offset_review_classes.get("unclassified_offset_residue"),
+                    0,
+                ),
+            },
+        ),
+        "pointer_indexed_residue": _structure_quality_component(
+            "pointer_indexed_residue",
+            _pointer_indexed_residue_score(pointer_indexed_totals, body_text_stats, functions),
+            {
+                "body_pointer_indexed_offset_deref_patterns": _int_value(
+                    body_text_stats.get("pointer_indexed_offset_deref_patterns"),
+                    0,
+                ),
+                "pointer_indexed_layout_rewrite_candidates": _int_value(
+                    pointer_indexed_totals.get("pointer_indexed_layout_rewrite_candidates"),
+                    0,
+                ),
+                "pointer_indexed_rewrite_applied": _int_value(
+                    pointer_indexed_totals.get("pointer_indexed_rewrite_applied"),
+                    0,
+                ),
+            },
+        ),
+        "generic_identifier_residue": _structure_quality_component(
+            "generic_identifier_residue",
+            _generic_identifier_residue_score(body_text_stats, prototype_totals, functions),
+            {
+                "body_generic_identifier_tokens": _int_value(
+                    body_text_stats.get("generic_identifier_tokens"),
+                    0,
+                ),
+                "prototype_generic_parameter_survivors": _int_value(
+                    prototype_totals.get("generic_parameter_survivors"),
+                    0,
+                ),
+            },
+        ),
+        "rewrite_safety_blockers": _structure_quality_component(
+            "rewrite_safety_blockers",
+            _rewrite_safety_blockers_score(
+                rewrite_preview_artifact_totals,
+                rule_stats,
+                body_offset_review_classes,
+                functions,
+            ),
+            {
+                "layout_preview_validation_errors": _int_value(
+                    rewrite_preview_artifact_totals.get("validation_errors"),
+                    0,
+                ),
+                "canonical_rewrite_errors": _int_value(
+                    rewrite_preview_artifact_totals.get("canonical_rewrite_errors"),
+                    0,
+                ),
+                "rule_load_errors": _int_value(rule_stats.get("load_errors"), 0),
+                "rule_validation_errors": _int_value(rule_stats.get("validation_errors"), 0),
+                "unclassified_offset_residue": _int_value(
+                    body_offset_review_classes.get("unclassified_offset_residue"),
+                    0,
+                ),
+            },
+        ),
+        "ida_plugin_packaging_boundary": _structure_quality_component(
+            "ida_plugin_packaging_boundary",
+            10.0 if bool(runtime_boundary.get("passed")) else 0.0,
+            {
+                "forbidden_imports": _int_value(runtime_boundary.get("forbidden_imports"), 0),
+                "scanned_python_files": _int_value(runtime_boundary.get("scanned_python_files"), 0),
+            },
+        ),
+    }
+    weighted_score = 0.0
+    weight_total = 0.0
+    for name in _STRUCTURE_QUALITY_COMPONENT_ORDER:
+        component = _coerce_dict(components.get(name, {}))
+        weight = _float_value(component.get("weight"), 0.0)
+        weighted_score += _float_value(component.get("score"), 0.0) * weight
+        weight_total += weight
+    score = round(weighted_score / weight_total, 2) if weight_total > 0.0 else 0.0
+    hard_gates = _structure_quality_hard_gates(
+        report,
+        runtime_boundary,
+        rewrite_preview_artifact_totals,
+        rule_stats,
+        prototype_totals,
+    )
+    manual_reread = _structure_quality_manual_reread(report)
+    positive_gates = _structure_quality_positive_gates(
+        components,
+        prototype_totals,
+        body_offset_totals,
+        body_offset_review_classes,
+        pointer_indexed_totals,
+        body_text_stats,
+        rewrite_preview_artifact_totals,
+        functions,
+    )
+    hard_gates_all_pass = all(
+        str(item.get("status", "") or "") == "pass"
+        for item in hard_gates.values()
+        if isinstance(item, dict)
+    )
+    positive_gates_all_pass = all(
+        str(item.get("status", "") or "") == "pass"
+        for item in positive_gates.values()
+        if isinstance(item, dict)
+    )
+    manual_reread_passed = str(manual_reread.get("status", "") or "") == "pass"
+    claim = (
+        "meets_9_internal_bar"
+        if score >= 9.0 and hard_gates_all_pass and positive_gates_all_pass and manual_reread_passed
+        else "not_9_yet"
+    )
+    return {
+        "schema": "pseudoforge_structure_quality_score_v1",
+        "score": score,
+        "claim": claim,
+        "component_order": list(_STRUCTURE_QUALITY_COMPONENT_ORDER),
+        "components": components,
+        "hard_gates": hard_gates,
+        "hard_gates_all_pass": hard_gates_all_pass,
+        "positive_gates": positive_gates,
+        "positive_gates_all_pass": positive_gates_all_pass,
+        "manual_reread": manual_reread,
+        "runtime_boundary": runtime_boundary,
+        "blockers": _structure_quality_blockers(components, hard_gates, positive_gates, manual_reread),
+    }
+
+
+def _structure_quality_component(name: str, score: float, metrics: dict[str, Any]) -> dict[str, Any]:
+    bounded = _clamp_score(score)
+    return {
+        "score": bounded,
+        "weight": _float_value(_STRUCTURE_QUALITY_COMPONENT_WEIGHTS.get(name), 1.0),
+        "status": _structure_quality_component_status(bounded),
+        "metrics": metrics,
+    }
+
+
+def _prototype_correctness_score(totals: dict[str, Any], functions: int) -> float:
+    identity_hits = _int_value(totals.get("function_identity_candidates"), 0)
+    applied = _int_value(totals.get("applied_parameter_type_corrections"), 0)
+    corrected_map = _int_value(totals.get("corrected_parameter_map_entries"), 0)
+    type_assisted = _int_value(totals.get("type_assisted_preview_parameter_corrections"), 0)
+    report_only_preview = _int_value(
+        totals.get("report_only_identity_preview_parameter_corrections"),
+        0,
+    )
+    evidence_functions = _int_value(totals.get("functions_with_correction_evidence"), 0)
+    if evidence_functions <= 0:
+        evidence_functions = min(functions, identity_hits)
+    blocked = _int_value(totals.get("blocked_parameter_type_corrections"), 0)
+    idb_apply = _int_value(totals.get("idb_apply_parameter_type_corrections"), 0)
+    restore_failures = _int_value(totals.get("type_assisted_preview_restore_failures"), 0)
+    generic_parameter_survivors = _int_value(totals.get("generic_parameter_survivors"), 0)
+    corrected_parameters = applied + corrected_map + type_assisted + report_only_preview
+    identity_coverage = min(1.0, _density(identity_hits, functions))
+    correction_density = min(
+        1.0,
+        float(corrected_parameters) / max(1.0, float(evidence_functions) * 0.8),
+    )
+    preview_density = min(
+        1.0,
+        float(type_assisted + report_only_preview) / max(1.0, float(functions) * 0.25),
+    )
+    parameter_residue_score = _inverse_density_score(
+        generic_parameter_survivors,
+        functions,
+        1.0,
+        10.0,
+    ) / 10.0
+    score = (
+        (identity_coverage * 2.5)
+        + (correction_density * 4.0)
+        + (preview_density * 1.0)
+        + (parameter_residue_score * 2.5)
+    )
+    score -= min(4.0, _density(blocked, functions) * 2.0)
+    score -= min(4.0, _density(restore_failures, functions) * 4.0)
+    score -= 10.0 if idb_apply > 0 else 0.0
+    return score
+
+
+def _call_argument_cleanup_score(
+    prototype_totals: dict[str, Any],
+    api_semantic_stats: dict[str, Any],
+    functions: int,
+) -> float:
+    applied = _int_value(prototype_totals.get("applied_parameter_type_corrections"), 0)
+    blocked = _int_value(prototype_totals.get("blocked_parameter_type_corrections"), 0)
+    total = applied + blocked
+    correction_ratio = float(applied) / float(total) if total > 0 else 0.5
+    score = 4.0 + (correction_ratio * 5.0)
+    score += min(1.0, _density(applied, functions))
+    if applied <= 0 and _int_value(api_semantic_stats.get("rejections"), 0) > 0:
+        score -= min(1.0, _density(_int_value(api_semantic_stats.get("rejections"), 0), functions) * 0.1)
+    return score
+
+
+def _structure_identity_evidence_score(
+    prototype_totals: dict[str, Any],
+    layout_hint_totals: dict[str, Any],
+    stable_source_totals: dict[str, Any],
+    rewrite_ready_totals: dict[str, Any],
+    rewrite_preview_totals: dict[str, Any],
+    rewrite_preview_artifact_totals: dict[str, Any],
+    evidence_graph_totals: dict[str, Any],
+    functions: int,
+) -> float:
+    identity_coverage = min(
+        1.0,
+        _density(_int_value(prototype_totals.get("function_identity_candidates"), 0), functions),
+    )
+    graph_coverage = min(
+        1.0,
+        _density(_int_value(evidence_graph_totals.get("functions_with_evidence_graph"), 0), functions),
+    )
+    graph_density = min(
+        1.0,
+        float(_int_value(evidence_graph_totals.get("edges"), 0))
+        / max(1.0, float(functions) * 1.5),
+    )
+    promotion_signal = (
+        (_int_value(evidence_graph_totals.get("trusted_rewrite_edges"), 0) * 2)
+        + _int_value(evidence_graph_totals.get("trusted_preview_edges"), 0)
+        + _int_value(evidence_graph_totals.get("report_only_edges"), 0)
+        + _int_value(evidence_graph_totals.get("rewrite_eligible_edges"), 0)
+    )
+    promotion_density = min(
+        1.0,
+        float(promotion_signal) / max(1.0, float(functions) * 0.6),
+    )
+    layout_signal = (
+        _int_value(layout_hint_totals.get("functions_with_hints"), 0)
+        + _int_value(stable_source_totals.get("functions_with_source_comments"), 0)
+        + _int_value(rewrite_ready_totals.get("ready_candidates"), 0)
+        + _int_value(rewrite_preview_totals.get("preview_plans"), 0)
+        + (_int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0) * 3)
+    )
+    layout_density = min(1.0, float(layout_signal) / max(1.0, float(functions) * 0.3))
+    classified_graph_functions = (
+        _int_value(evidence_graph_totals.get("functions_with_trusted_rewrite_edges"), 0)
+        + _int_value(evidence_graph_totals.get("functions_with_trusted_preview_edges"), 0)
+        + _int_value(evidence_graph_totals.get("functions_with_report_only_edges"), 0)
+        + _int_value(evidence_graph_totals.get("functions_with_blocked_edges"), 0)
+    )
+    graph_classification = min(1.0, _density(classified_graph_functions, functions))
+    score = (
+        (identity_coverage * 2.0)
+        + (graph_coverage * 2.0)
+        + (graph_density * 1.0)
+        + (promotion_density * 2.0)
+        + (layout_density * 2.0)
+        + (graph_classification * 1.0)
+    )
+    source_none = _int_value(
+        _coerce_dict(_coerce_dict(rewrite_ready_totals).get("source_provenance", {})).get("none"),
+        0,
+    )
+    score -= min(2.0, _density(source_none, functions))
+    return score
+
+
+def _offset_residue_score(
+    body_offset_totals: dict[str, Any],
+    body_text_stats: dict[str, Any],
+    body_offset_review_classes: dict[str, Any],
+    functions: int,
+) -> float:
+    residue = max(
+        _int_value(body_offset_totals.get("offset_deref_survivors"), 0),
+        _int_value(body_text_stats.get("offset_deref_patterns"), 0),
+    )
+    functions_with_residue = _int_value(body_offset_totals.get("functions_with_offset_residue"), 0)
+    score = _inverse_density_score(residue, functions, 0.25, 24.0)
+    score -= min(2.0, _density(functions_with_residue, functions) * 2.0)
+    if functions_with_residue > 0:
+        unclassified = _int_value(body_offset_review_classes.get("unclassified_offset_residue"), 0)
+        classified_ratio = max(
+            0.0,
+            float(functions_with_residue - unclassified) / float(functions_with_residue),
+        )
+        if classified_ratio >= 0.85:
+            score += min(1.75, 0.75 + classified_ratio)
+    return score
+
+
+def _pointer_indexed_residue_score(
+    pointer_indexed_totals: dict[str, Any],
+    body_text_stats: dict[str, Any],
+    functions: int,
+) -> float:
+    residue = _int_value(body_text_stats.get("pointer_indexed_offset_deref_patterns"), 0)
+    candidates = _int_value(pointer_indexed_totals.get("pointer_indexed_layout_rewrite_candidates"), 0)
+    applied = _int_value(pointer_indexed_totals.get("pointer_indexed_rewrite_applied"), 0)
+    score = _inverse_density_score(residue, functions, 0.1, 12.0)
+    if candidates > 0:
+        score += min(2.0, (float(applied) / float(candidates)) * 2.0)
+    return score
+
+
+def _generic_identifier_residue_score(
+    body_text_stats: dict[str, Any],
+    prototype_totals: dict[str, Any],
+    functions: int,
+) -> float:
+    body_score = _inverse_density_score(
+        _int_value(body_text_stats.get("generic_identifier_tokens"), 0),
+        functions,
+        20.0,
+        240.0,
+    )
+    parameter_score = _inverse_density_score(
+        _int_value(prototype_totals.get("generic_parameter_survivors"), 0),
+        functions,
+        1.0,
+        10.0,
+    )
+    return (body_score * 0.4) + (parameter_score * 0.6)
+
+
+def _rewrite_safety_blockers_score(
+    rewrite_preview_artifact_totals: dict[str, Any],
+    rule_stats: dict[str, Any],
+    body_offset_review_classes: dict[str, Any],
+    functions: int,
+) -> float:
+    validation_errors = _int_value(rewrite_preview_artifact_totals.get("validation_errors"), 0)
+    canonical_errors = _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_errors"), 0)
+    rule_errors = _int_value(rule_stats.get("load_errors"), 0) + _int_value(rule_stats.get("validation_errors"), 0)
+    unclassified = _int_value(body_offset_review_classes.get("unclassified_offset_residue"), 0)
+    score = 10.0
+    score -= min(6.0, float(validation_errors + canonical_errors) * 3.0)
+    score -= min(3.0, float(rule_errors) * 1.5)
+    score -= min(2.0, _density(unclassified, functions) * 2.0)
+    return score
+
+
+def _coverage_score(count: int, functions: int, target_per_function: float) -> float:
+    target = max(1.0, float(functions) * float(target_per_function))
+    return min(10.0, (float(max(0, count)) * 10.0) / target)
+
+
+def _inverse_density_score(
+    count: int,
+    functions: int,
+    excellent_per_function: float,
+    poor_per_function: float,
+) -> float:
+    rate = _density(count, functions)
+    if rate <= excellent_per_function:
+        return 10.0
+    if rate >= poor_per_function:
+        return 0.0
+    span = poor_per_function - excellent_per_function
+    if span <= 0.0:
+        return 0.0
+    return 10.0 - ((rate - excellent_per_function) * 10.0 / span)
+
+
+def _density(count: int, functions: int) -> float:
+    return float(max(0, count)) / float(max(1, functions))
+
+
+def _clamp_score(score: float) -> float:
+    return round(max(0.0, min(10.0, float(score))), 2)
+
+
+def _structure_quality_component_status(score: float) -> str:
+    if score >= 9.0:
+        return "target"
+    if score >= 7.0:
+        return "near"
+    if score >= 5.0:
+        return "weak"
+    return "blocked"
+
+
+def _structure_quality_hard_gates(
+    report: dict[str, Any],
+    runtime_boundary: dict[str, Any],
+    rewrite_preview_artifact_totals: dict[str, Any],
+    rule_stats: dict[str, Any],
+    prototype_totals: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    manual_reread = _structure_quality_manual_reread(report)
+    return {
+        "layout_rewrite_validation": _structure_quality_gate(
+            _int_value(rewrite_preview_artifact_totals.get("validation_errors"), 0) == 0,
+            "layout preview artifact validation has no errors",
+            _int_value(rewrite_preview_artifact_totals.get("validation_errors"), 0),
+        ),
+        "canonical_rewrite_validation": _structure_quality_gate(
+            _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_errors"), 0) == 0,
+            "canonical layout rewrite metadata has no errors",
+            _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_errors"), 0),
+        ),
+        "rule_validation": _structure_quality_gate(
+            _int_value(rule_stats.get("load_errors"), 0) == 0
+            and _int_value(rule_stats.get("validation_errors"), 0) == 0,
+            "deterministic rule reports have no load or validation errors",
+            {
+                "load_errors": _int_value(rule_stats.get("load_errors"), 0),
+                "validation_errors": _int_value(rule_stats.get("validation_errors"), 0),
+            },
+        ),
+        "runtime_boundary": _structure_quality_gate(
+            bool(runtime_boundary.get("passed")),
+            "IDA plugin runtime has no forbidden developer-tool imports",
+            runtime_boundary,
+        ),
+        "idb_mutation_default": _structure_quality_gate(
+            _int_value(prototype_totals.get("idb_apply_parameter_type_corrections"), 0) == 0,
+            "parameter type corrections do not request default IDB mutation",
+            _int_value(prototype_totals.get("idb_apply_parameter_type_corrections"), 0),
+        ),
+        "type_assisted_preview_restore": _structure_quality_gate(
+            _int_value(prototype_totals.get("type_assisted_preview_restore_failures"), 0) == 0,
+            "type-assisted preview restores the original IDB type after temporary redecompile",
+            _int_value(prototype_totals.get("type_assisted_preview_restore_failures"), 0),
+        ),
+        "manual_reread": {
+            "status": str(manual_reread.get("status", "") or "missing"),
+            "description": "manual reread requires at least 80 inspected functions and 0 misleading rewrites",
+            "value": manual_reread,
+        },
+    }
+
+
+def _structure_quality_gate(passed: bool, description: str, value: Any) -> dict[str, Any]:
+    return {
+        "status": "pass" if passed else "fail",
+        "description": description,
+        "value": value,
+    }
+
+
+def _offset_residue_under_control(
+    body_offset_totals: dict[str, Any],
+    body_offset_review_classes: dict[str, Any],
+    functions: int,
+) -> bool:
+    residue = _int_value(body_offset_totals.get("offset_deref_survivors"), 0)
+    if _density(residue, functions) <= 2.0:
+        return True
+    functions_with_residue = _int_value(body_offset_totals.get("functions_with_offset_residue"), 0)
+    if functions_with_residue <= 0:
+        return False
+    unclassified = _int_value(body_offset_review_classes.get("unclassified_offset_residue"), 0)
+    classified_ratio = max(
+        0.0,
+        float(functions_with_residue - unclassified) / float(functions_with_residue),
+    )
+    return unclassified <= max(5, functions // 20) and classified_ratio >= 0.85
+
+
+def _structure_quality_positive_gates(
+    components: dict[str, dict[str, Any]],
+    prototype_totals: dict[str, Any],
+    body_offset_totals: dict[str, Any],
+    body_offset_review_classes: dict[str, Any],
+    pointer_indexed_totals: dict[str, Any],
+    body_text_stats: dict[str, Any],
+    rewrite_preview_artifact_totals: dict[str, Any],
+    functions: int,
+) -> dict[str, dict[str, Any]]:
+    return {
+        "prototype_corrections_visible": _structure_quality_gate(
+            _int_value(prototype_totals.get("applied_parameter_type_corrections"), 0) >= max(1, functions // 10),
+            "profile-backed parameter type corrections are visible in the corpus",
+            _int_value(prototype_totals.get("applied_parameter_type_corrections"), 0),
+        ),
+        "function_identity_visible": _structure_quality_gate(
+            _int_value(prototype_totals.get("function_identity_candidates"), 0) >= max(1, functions // 5),
+            "function identity evidence is present at corpus scale",
+            _int_value(prototype_totals.get("function_identity_candidates"), 0),
+        ),
+        "offset_residue_under_control": _structure_quality_gate(
+            _offset_residue_under_control(
+                body_offset_totals,
+                body_offset_review_classes,
+                functions,
+            ),
+            "body offset-deref survivors are low or classified with fail-closed evidence",
+            {
+                "offset_deref_survivors": _int_value(
+                    body_offset_totals.get("offset_deref_survivors"),
+                    0,
+                ),
+                "unclassified_offset_residue": _int_value(
+                    body_offset_review_classes.get("unclassified_offset_residue"),
+                    0,
+                ),
+            },
+        ),
+        "pointer_indexed_residue_under_control": _structure_quality_gate(
+            _density(_int_value(body_text_stats.get("pointer_indexed_offset_deref_patterns"), 0), functions) <= 1.5,
+            "pointer-indexed offset residue is either low or modelled separately",
+            _int_value(body_text_stats.get("pointer_indexed_offset_deref_patterns"), 0),
+        ),
+        "canonical_layout_rewrites_visible": _structure_quality_gate(
+            _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0) > 0,
+            "validated canonical layout rewrites are visible in artifacts",
+            _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0),
+        ),
+        "all_components_near_or_target": _structure_quality_gate(
+            all(
+                _float_value(_coerce_dict(components.get(name, {})).get("score"), 0.0) >= 7.0
+                for name in _STRUCTURE_QUALITY_COMPONENT_ORDER
+            ),
+            "all structure score components are at least near the 9/10 bar",
+            {
+                name: _float_value(_coerce_dict(components.get(name, {})).get("score"), 0.0)
+                for name in _STRUCTURE_QUALITY_COMPONENT_ORDER
+            },
+        ),
+    }
+
+
+def _structure_quality_manual_reread(report: dict[str, Any]) -> dict[str, Any]:
+    manual = _coerce_dict(report.get("manual_reread", {}))
+    inspected = _int_value(manual.get("inspected_functions"), 0)
+    misleading = _int_value(manual.get("misleading_rewrites"), 0)
+    improved = _int_value(manual.get("improved_functions"), 0)
+    honest_blocked = _int_value(manual.get("honest_blocked_functions"), 0)
+    passed = inspected >= 80 and misleading == 0
+    return {
+        "status": "pass" if passed else "missing",
+        "inspected_functions": inspected,
+        "required_inspected_functions": 80,
+        "misleading_rewrites": misleading,
+        "improved_functions": improved,
+        "honest_blocked_functions": honest_blocked,
+    }
+
+
+def _structure_quality_blockers(
+    components: dict[str, dict[str, Any]],
+    hard_gates: dict[str, dict[str, Any]],
+    positive_gates: dict[str, dict[str, Any]],
+    manual_reread: dict[str, Any],
+) -> list[dict[str, Any]]:
+    blockers = []
+    for name in _STRUCTURE_QUALITY_COMPONENT_ORDER:
+        component = _coerce_dict(components.get(name, {}))
+        score = _float_value(component.get("score"), 0.0)
+        if score < 9.0:
+            blockers.append(
+                {
+                    "kind": "component_below_9",
+                    "name": name,
+                    "score": score,
+                    "status": str(component.get("status", "") or ""),
+                }
+            )
+    for group_name, gates in (("hard_gate", hard_gates), ("positive_gate", positive_gates)):
+        for name, gate in gates.items():
+            if not isinstance(gate, dict):
+                continue
+            if str(gate.get("status", "") or "") != "pass":
+                blockers.append(
+                    {
+                        "kind": group_name,
+                        "name": name,
+                        "status": str(gate.get("status", "") or ""),
+                    }
+                )
+    if str(manual_reread.get("status", "") or "") != "pass":
+        blockers.append(
+            {
+                "kind": "manual_reread",
+                "name": "manual_reread",
+                "status": str(manual_reread.get("status", "") or ""),
+            }
+        )
+    return blockers
+
+
+@lru_cache(maxsize=1)
+def _runtime_boundary_status() -> dict[str, Any]:
+    roots = [ROOT / "pseudoforge.py", ROOT / "ida_pseudoforge"]
+    forbidden = []
+    scanned = 0
+    for root in roots:
+        if not root.exists():
+            continue
+        paths = [root] if root.is_file() else sorted(root.rglob("*.py"))
+        for path in paths:
+            scanned += 1
+            for item in _forbidden_runtime_imports(path):
+                forbidden.append(item)
+    return {
+        "passed": not forbidden,
+        "forbidden_imports": len(forbidden),
+        "scanned_python_files": scanned,
+        "items": forbidden[:20],
+    }
+
+
+def _forbidden_runtime_imports(path: Path) -> list[dict[str, str]]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"), filename=str(path))
+    except SyntaxError as exc:
+        return [
+            {
+                "path": str(path),
+                "line": str(getattr(exc, "lineno", 0) or 0),
+                "module": "syntax_error",
+            }
+        ]
+    results = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = str(alias.name or "").split(".", 1)[0]
+                if root in _STRUCTURE_QUALITY_FORBIDDEN_IMPORT_ROOTS:
+                    results.append(
+                        {
+                            "path": str(path),
+                            "line": str(getattr(node, "lineno", 0) or 0),
+                            "module": str(alias.name or ""),
+                        }
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            root = str(node.module or "").split(".", 1)[0]
+            if root in _STRUCTURE_QUALITY_FORBIDDEN_IMPORT_ROOTS:
+                results.append(
+                    {
+                        "path": str(path),
+                        "line": str(getattr(node, "lineno", 0) or 0),
+                        "module": str(node.module or ""),
+                    }
+                )
+    return results
 
 
 def render_quality_markdown(report: dict[str, Any]) -> str:
     totals = _coerce_dict(report.get("totals", {}))
+    structure_quality_score = _coerce_dict(report.get("structure_quality_score", {}))
     rename_stats = _coerce_dict(report.get("rename_stats", {}))
     warning_stats = _coerce_dict(report.get("warning_stats", {}))
     existing_parameter_alias_stats = _coerce_dict(report.get("existing_parameter_alias_stats", {}))
@@ -2129,8 +3011,10 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     decimal_status_residue_stats = _coerce_dict(report.get("decimal_status_residue_stats", {}))
     status_store_residue_stats = _coerce_dict(report.get("status_store_residue_stats", {}))
     prototype_correction_stats = _coerce_dict(report.get("prototype_correction_stats", {}))
+    evidence_graph_stats = _coerce_dict(report.get("evidence_graph_stats", {}))
     body_offset_residue_stats = _coerce_dict(report.get("body_offset_residue_review_stats", {}))
     prototype_correction_totals = _coerce_dict(prototype_correction_stats.get("totals", {}))
+    evidence_graph_totals = _coerce_dict(evidence_graph_stats.get("totals", {}))
     body_offset_residue_totals = _coerce_dict(body_offset_residue_stats.get("totals", {}))
     ntstatus_review_queues = _coerce_dict(ntstatus_body_residue_stats.get("review_queues", {}))
     layout_totals = _coerce_dict(layout_hint_stats.get("totals", {}))
@@ -2166,9 +3050,84 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         "- Rename apply rate: `%s`" % rename_stats.get("apply_rate", 0),
         "- LLM apply rate: `%s`" % rename_stats.get("llm_apply_rate", 0),
         "",
-        "## Warning Classes",
+        "## Structure Quality Scorecard",
         "",
+        "- Overall score: `%s`" % structure_quality_score.get("score", 0),
+        "- Claim: `%s`" % structure_quality_score.get("claim", "not_9_yet"),
+        "- Hard gates all pass: `%s`"
+        % str(bool(structure_quality_score.get("hard_gates_all_pass", False))).lower(),
+        "",
+        "### Components",
+        "",
+        "| Component | Score | Weight | Status | Key metrics |",
+        "| --- | ---: | ---: | --- | --- |",
     ]
+    score_components = _coerce_dict(structure_quality_score.get("components", {}))
+    for component_name in structure_quality_score.get("component_order", []) or []:
+        component = _coerce_dict(score_components.get(str(component_name), {}))
+        metrics = _coerce_dict(component.get("metrics", {}))
+        metric_text = ", ".join("%s=%s" % (key, value) for key, value in metrics.items())
+        lines.append(
+            "| `%s` | %s | %s | `%s` | %s |"
+            % (
+                str(component_name),
+                component.get("score", 0),
+                component.get("weight", 0),
+                str(component.get("status", "") or ""),
+                _markdown_table_cell(metric_text),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "### Hard Gates",
+            "",
+            "| Gate | Status | Value |",
+            "| --- | --- | --- |",
+        ]
+    )
+    for gate_name, gate in _coerce_dict(structure_quality_score.get("hard_gates", {})).items():
+        gate_dict = _coerce_dict(gate)
+        lines.append(
+            "| `%s` | `%s` | %s |"
+            % (
+                str(gate_name),
+                str(gate_dict.get("status", "") or ""),
+                _markdown_table_cell(gate_dict.get("value", "")),
+            )
+        )
+    blockers = structure_quality_score.get("blockers", []) or []
+    lines.extend(
+        [
+            "",
+            "### 9/10 Blockers",
+            "",
+            "| Kind | Name | Status | Score |",
+            "| --- | --- | --- | ---: |",
+        ]
+    )
+    if blockers:
+        for blocker in blockers[:20]:
+            if not isinstance(blocker, dict):
+                continue
+            lines.append(
+                "| `%s` | `%s` | `%s` | %s |"
+                % (
+                    str(blocker.get("kind", "") or ""),
+                    str(blocker.get("name", "") or ""),
+                    str(blocker.get("status", "") or ""),
+                    blocker.get("score", ""),
+                )
+            )
+    else:
+        lines.append("| `none` | `none` | `pass` | 10 |")
+    lines.extend(
+        [
+            "",
+            "## Warning Classes",
+            "",
+        ]
+    )
     lines.extend(_markdown_counter_table(_coerce_dict(warning_stats.get("top_classes", {})), "Class"))
     lines.extend(
         [
@@ -2222,6 +3181,100 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## Evidence Graph",
+            "",
+            "- Functions with graph: `%s`"
+            % evidence_graph_totals.get("functions_with_evidence_graph", 0),
+            "- Nodes / edges: `%s` / `%s`"
+            % (
+                evidence_graph_totals.get("nodes", 0),
+                evidence_graph_totals.get("edges", 0),
+            ),
+            "- Trusted rewrite edges: `%s` across `%s` functions"
+            % (
+                evidence_graph_totals.get("trusted_rewrite_edges", 0),
+                evidence_graph_totals.get("functions_with_trusted_rewrite_edges", 0),
+            ),
+            "- Trusted preview edges: `%s` across `%s` functions"
+            % (
+                evidence_graph_totals.get("trusted_preview_edges", 0),
+                evidence_graph_totals.get("functions_with_trusted_preview_edges", 0),
+            ),
+            "- Report-only edges: `%s` across `%s` functions"
+            % (
+                evidence_graph_totals.get("report_only_edges", 0),
+                evidence_graph_totals.get("functions_with_report_only_edges", 0),
+            ),
+            "- Blocked edges: `%s` across `%s` functions"
+            % (
+                evidence_graph_totals.get("blocked_edges", 0),
+                evidence_graph_totals.get("functions_with_blocked_edges", 0),
+            ),
+            "- Rewrite-eligible graph edges: `%s`"
+            % evidence_graph_totals.get("rewrite_eligible_edges", 0),
+            "",
+            "### Evidence Graph Promotion Lanes",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(evidence_graph_stats.get("promotion_lanes", {})),
+            "Lane",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Evidence Graph Blockers",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(evidence_graph_stats.get("blockers", {})),
+            "Blocker",
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "### Highest Evidence Graph Functions",
+            "",
+            "| Function | EA | Nodes | Edges | Rewrite | Preview | Report-only | Blocked | Eligible | Lanes | Blockers |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for item in evidence_graph_stats.get("top_functions", []) or []:
+        if not isinstance(item, dict):
+            continue
+        lane_text = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("promotion_lanes", {})).items()
+        )
+        blocker_text = ", ".join(
+            "%s=%s" % (key, value)
+            for key, value in _coerce_dict(item.get("blockers", {})).items()
+        )
+        lines.append(
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            % (
+                str(item.get("name", "")),
+                str(item.get("ea", "")),
+                int(item.get("nodes", 0) or 0),
+                int(item.get("edges", 0) or 0),
+                int(item.get("trusted_rewrite_edges", 0) or 0),
+                int(item.get("trusted_preview_edges", 0) or 0),
+                int(item.get("report_only_edges", 0) or 0),
+                int(item.get("blocked_edges", 0) or 0),
+                int(item.get("rewrite_eligible_edges", 0) or 0),
+                _markdown_table_cell(lane_text),
+                _markdown_table_cell(blocker_text),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "## Prototype Correction Evidence",
             "",
             "- Function identity hits: `%s`"
@@ -2238,6 +3291,11 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             % (
                 prototype_correction_totals.get("type_assisted_preview_candidates", 0),
                 prototype_correction_totals.get("type_assisted_preview_parameter_corrections", 0),
+            ),
+            "- Type-assisted restore: `%s` succeeded, `%s` failed"
+            % (
+                prototype_correction_totals.get("type_assisted_preview_restore_succeeded", 0),
+                prototype_correction_totals.get("type_assisted_preview_restore_failures", 0),
             ),
             "- Report-only identity preview candidates: `%s` functions, `%s` parameter corrections"
             % (
@@ -2312,6 +3370,19 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "### Type-Assisted Preview Statuses",
+            "",
+        ]
+    )
+    lines.extend(
+        _markdown_counter_table(
+            _coerce_dict(prototype_correction_stats.get("type_assisted_preview_statuses", {})),
+            "Status",
+        )
+    )
+    lines.extend(
+        [
+            "",
             "### Prototype Canonical Types",
             "",
         ]
@@ -2348,8 +3419,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
     else:
         lines.extend(
             [
-                "| Queue | Functions | Blocked | Preview params | Generic survivors | Offset derefs | Profiles | Blockers | Next step |",
-                "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+                "| Queue | Functions | Blocked | TA preview params | TA restore failures | RO preview params | Generic survivors | Offset derefs | Profiles | Blockers | Next step |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
             ]
         )
         for queue_name, queue in prototype_review_queues.items():
@@ -2364,11 +3435,13 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 for key, value in _coerce_dict(queue.get("blockers", {})).items()
             )
             lines.append(
-                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
+                "| `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
                 % (
                     queue_name,
                     int(queue.get("function_count", 0) or 0),
                     int(queue.get("blocked_parameter_type_corrections", 0) or 0),
+                    int(queue.get("type_assisted_preview_parameter_corrections", 0) or 0),
+                    int(queue.get("type_assisted_preview_restore_failures", 0) or 0),
                     int(queue.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                     int(queue.get("generic_parameter_survivors", 0) or 0),
                     int(queue.get("offset_deref_survivors", 0) or 0),
@@ -2380,8 +3453,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
         lines.extend(
             [
                 "",
-                "| Queue | Function | EA | Blocked | Preview params | Generic survivors | Offset derefs | Profiles | Blockers |",
-                "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
+                "| Queue | Function | EA | Blocked | TA preview params | TA restore failures | RO preview params | Generic survivors | Offset derefs | Profiles | Blockers |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
             ]
         )
         for queue_name, queue in prototype_review_queues.items():
@@ -2399,12 +3472,14 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                     for key, value in _coerce_dict(item.get("blockers", {})).items()
                 )
                 lines.append(
-                    "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s |"
+                    "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s |"
                     % (
                         queue_name,
                         str(item.get("name", "")),
                         str(item.get("ea", "")),
                         int(item.get("blocked_parameter_type_corrections", 0) or 0),
+                        int(item.get("type_assisted_preview_parameter_corrections", 0) or 0),
+                        int(item.get("type_assisted_preview_restore_failures", 0) or 0),
                         int(item.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                         int(item.get("generic_parameter_survivors", 0) or 0),
                         int(item.get("offset_deref_survivors", 0) or 0),
@@ -2417,8 +3492,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             "",
             "### Highest Prototype Correction Functions",
             "",
-            "| Function | EA | Identities | Corrections | Applied | Blocked | RO preview params | Map | Body ready | Generic survivors | Offset derefs | Profiles | Types | Blockers |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+            "| Function | EA | Identities | Corrections | Applied | Blocked | TA preview params | TA restore failures | RO preview params | Map | Body ready | Generic survivors | Offset derefs | Profiles | Types | Blockers |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
         ]
     )
     for item in prototype_correction_stats.get("top_functions", []) or []:
@@ -2437,7 +3512,7 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
             for key, value in _coerce_dict(item.get("blockers", {})).items()
         )
         lines.append(
-            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+            "| `%s` | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
             % (
                 str(item.get("name", "")),
                 str(item.get("ea", "")),
@@ -2445,6 +3520,8 @@ def render_quality_markdown(report: dict[str, Any]) -> str:
                 int(item.get("parameter_type_corrections", 0) or 0),
                 int(item.get("applied_parameter_type_corrections", 0) or 0),
                 int(item.get("blocked_parameter_type_corrections", 0) or 0),
+                int(item.get("type_assisted_preview_parameter_corrections", 0) or 0),
+                int(item.get("type_assisted_preview_restore_failures", 0) or 0),
                 int(item.get("report_only_identity_preview_parameter_corrections", 0) or 0),
                 int(item.get("corrected_parameter_map_entries", 0) or 0),
                 int(item.get("body_rewrite_ready", 0) or 0),
@@ -5809,6 +6886,65 @@ def _load_ea_filter(ea_values: list[str], ea_file: str) -> set[int] | None:
     return result if result else None
 
 
+def _load_manual_reread(manual_reread_path: str) -> dict[str, Any]:
+    path_text = str(manual_reread_path or "").strip()
+    if not path_text:
+        return {}
+    path = Path(path_text)
+    if not path.exists():
+        raise FileNotFoundError(path)
+    payload = _read_json(path)
+    normalized = _normalize_manual_reread(payload)
+    if not normalized:
+        raise ValueError("manual reread JSON must be an object with manual reread evidence")
+    normalized.setdefault("evidence_path", str(path))
+    return normalized
+
+
+def _normalize_manual_reread(value: Any) -> dict[str, Any]:
+    payload = _coerce_dict(value)
+    if not payload:
+        return {}
+    if isinstance(payload.get("manual_reread"), dict):
+        payload = dict(payload.get("manual_reread") or {})
+    else:
+        payload = dict(payload)
+
+    items = _manual_reread_items(payload)
+    if "inspected_functions" not in payload and items:
+        payload["inspected_functions"] = len(items)
+    if "misleading_rewrites" not in payload and items:
+        payload["misleading_rewrites"] = _count_manual_reread_items(items, ("misleading", "incorrect", "unsafe"))
+    if "improved_functions" not in payload and items:
+        payload["improved_functions"] = _count_manual_reread_items(items, ("improved", "better", "primary"))
+    if "honest_blocked_functions" not in payload and items:
+        payload["honest_blocked_functions"] = _count_manual_reread_items(items, ("honest_blocked", "blocked", "report_only"))
+
+    return payload
+
+
+def _manual_reread_items(payload: dict[str, Any]) -> list[Any]:
+    for key in ("items", "functions", "reviews", "samples"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _count_manual_reread_items(items: list[Any], tokens: tuple[str, ...]) -> int:
+    count = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(
+            str(item.get(key, "") or "").lower()
+            for key in ("classification", "status", "outcome", "verdict", "notes")
+        )
+        if any(token in text for token in tokens):
+            count += 1
+    return count
+
+
 def _parse_ea_value(value: Any) -> int | None:
     text = str(value or "").strip()
     if not text:
@@ -5853,6 +6989,66 @@ def _read_text(path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+def _embedded_primary_layout_rewrite_metadata(
+    summary: dict[str, Any],
+    cleaned_path: Path,
+) -> dict[str, Any]:
+    if str(summary.get("primary_cleaned_source", "") or "") != "type-assisted-preview":
+        return {}
+    text = _read_text(cleaned_path)
+    if not text:
+        return {}
+    body_text = _strip_pseudoforge_header(text)
+    matches = list(EMBEDDED_FIELD_REWRITE_RE.finditer(body_text))
+    if not matches:
+        return {}
+    by_base: dict[str, Counter[str]] = {}
+    for match in matches:
+        base = str(match.group("base") or "")
+        offset = str(match.group("offset") or "")
+        if not base or not offset:
+            continue
+        by_base.setdefault(base, Counter())[offset] += 1
+    if not by_base:
+        return {}
+    rewrite_results: dict[str, dict[str, Any]] = {}
+    preview_plans: list[dict[str, Any]] = []
+    rewritten_accesses = 0
+    rewritten_fields = 0
+    for base, offsets in sorted(by_base.items()):
+        access_count = sum(offsets.values())
+        field_count = len(offsets)
+        rewritten_accesses += access_count
+        rewritten_fields += field_count
+        rewrite_results[base] = {
+            "rewritten_accesses": access_count,
+            "rewritten_fields": field_count,
+            "offset_accesses": dict(sorted(offsets.items())),
+        }
+        preview_plans.append(
+            {
+                "base": base,
+                "plan_kind": "embedded-primary",
+                "advertised_access_count": access_count,
+                "advertised_offsets": sorted(offsets.keys()),
+            }
+        )
+    return {
+        "schema": "pseudoforge_embedded_primary_layout_rewrite_v1",
+        "source": "type-assisted-primary-cleaned",
+        "validation": {"status": "passed_embedded_primary", "errors": [], "checks": {}},
+        "canonical_rewrite_status": "applied_embedded_primary",
+        "canonical_rewrite_requested": True,
+        "canonical_cleaned_output_modified": True,
+        "canonical_rewrite_errors": [],
+        "rewritten_accesses": rewritten_accesses,
+        "rewritten_fields": rewritten_fields,
+        "rewritten_bases": sorted(by_base),
+        "rewrite_results": rewrite_results,
+        "preview_plans": preview_plans,
+    }
 
 
 def _read_warnings(path: Path) -> list[str]:
@@ -6506,6 +7702,166 @@ def _report_only_identity_preview_corrections(
     return corrections
 
 
+def _type_assisted_preview_metrics(summary: dict[str, Any]) -> dict[str, Any]:
+    preview = _coerce_dict(summary.get("type_assisted_preview", {}))
+    if not preview:
+        return {
+            "candidates": 0,
+            "parameter_corrections": 0,
+            "restore_succeeded": 0,
+            "restore_failures": 0,
+            "status": "",
+            "statuses": {},
+            "profiles": {},
+            "blockers": {},
+        }
+    status = _normalized_identity_token(preview.get("status")) or "unknown"
+    proposal = _coerce_dict(preview.get("proposal", {}))
+    corrections = _string_list(proposal.get("corrections"))
+    blockers = _string_list(proposal.get("blockers"))
+    applied_statuses = {"ok", "error", "restore_failed"}
+    attempted_temporary_type = status in applied_statuses or bool(
+        str(preview.get("original_type", "") or "").strip()
+    )
+    restore_succeeded = bool(preview.get("restore_succeeded", False))
+    restore_failure = attempted_temporary_type and not restore_succeeded
+    profile_counter = Counter(str(profile) for profile in _string_list(proposal.get("profile_ids")))
+    blocker_counter = Counter(str(blocker) for blocker in blockers if str(blocker))
+    if restore_failure:
+        blocker_counter["type_assisted_restore_failed"] += 1
+    if status == "error":
+        blocker_counter["type_assisted_preview_error"] += 1
+    realized_corrections = corrections if status == "ok" and restore_succeeded else []
+    return {
+        "candidates": 1 if attempted_temporary_type or corrections else 0,
+        "parameter_corrections": len(realized_corrections),
+        "restore_succeeded": 1 if attempted_temporary_type and restore_succeeded else 0,
+        "restore_failures": 1 if restore_failure else 0,
+        "status": status,
+        "statuses": {status: 1},
+        "profiles": _counter_to_dict(profile_counter),
+        "blockers": _counter_to_dict(blocker_counter),
+    }
+
+
+def _evidence_graph_function_summary(
+    name: str,
+    ea: str,
+    summary_path: Path,
+    evidence_graph: dict[str, Any],
+) -> dict[str, Any]:
+    graph_summary = _coerce_dict(evidence_graph.get("summary", {}))
+    raw_nodes = evidence_graph.get("nodes", [])
+    raw_edges = evidence_graph.get("edges", [])
+    nodes = [node for node in raw_nodes if isinstance(node, dict)] if isinstance(raw_nodes, list) else []
+    edges = [edge for edge in raw_edges if isinstance(edge, dict)] if isinstance(raw_edges, list) else []
+    node_kinds: Counter[str] = Counter()
+    edge_kinds: Counter[str] = Counter()
+    promotion_lanes: Counter[str] = Counter()
+    blockers: Counter[str] = Counter()
+    rewrite_eligible_edges = 0
+    for node in nodes:
+        node_kinds[str(node.get("kind", "") or "unknown")] += 1
+    for edge in edges:
+        edge_kinds[str(edge.get("kind", "") or "unknown")] += 1
+        lane = str(edge.get("promotion_lane", "") or "blocked")
+        promotion_lanes[lane] += 1
+        if bool(edge.get("rewrite_eligible", False)):
+            rewrite_eligible_edges += 1
+        for blocker in _string_list(edge.get("blockers")):
+            blockers[blocker] += 1
+    if not promotion_lanes:
+        for key, value in _coerce_dict(graph_summary.get("promotion_lanes", {})).items():
+            promotion_lanes[str(key)] += _int_value(value, 0)
+    if not blockers:
+        for key, value in _coerce_dict(graph_summary.get("blockers", {})).items():
+            blockers[str(key)] += _int_value(value, 0)
+    return {
+        "ea": ea,
+        "name": name,
+        "schema": str(evidence_graph.get("schema", "")),
+        "nodes": len(nodes) if nodes else _int_value(graph_summary.get("nodes"), 0),
+        "edges": len(edges) if edges else _int_value(graph_summary.get("edges"), 0),
+        "trusted_rewrite_edges": _int_value(
+            promotion_lanes.get("trusted-rewrite"),
+            _int_value(graph_summary.get("trusted_rewrite_edges"), 0),
+        ),
+        "trusted_preview_edges": _int_value(promotion_lanes.get("trusted-preview"), 0),
+        "report_only_edges": _int_value(
+            promotion_lanes.get("report-only"),
+            _int_value(graph_summary.get("report_only_edges"), 0),
+        ),
+        "blocked_edges": _int_value(
+            promotion_lanes.get("blocked"),
+            _int_value(graph_summary.get("blocked_edges"), 0),
+        ),
+        "rewrite_eligible_edges": rewrite_eligible_edges,
+        "node_kinds": _counter_to_dict(node_kinds),
+        "edge_kinds": _counter_to_dict(edge_kinds),
+        "promotion_lanes": _counter_to_dict(promotion_lanes),
+        "blockers": _counter_to_dict(blockers),
+        "summary_path": str(summary_path),
+    }
+
+
+def _update_evidence_graph_metrics(
+    item: dict[str, Any],
+    totals: Counter[str],
+    node_kinds: Counter[str],
+    edge_kinds: Counter[str],
+    promotion_lanes: Counter[str],
+    blockers: Counter[str],
+) -> None:
+    totals["functions_with_evidence_graph"] += 1
+    for key in (
+        "nodes",
+        "edges",
+        "trusted_rewrite_edges",
+        "trusted_preview_edges",
+        "report_only_edges",
+        "blocked_edges",
+        "rewrite_eligible_edges",
+    ):
+        totals[key] += _int_value(item.get(key), 0)
+    if _int_value(item.get("trusted_rewrite_edges"), 0) > 0:
+        totals["functions_with_trusted_rewrite_edges"] += 1
+    if _int_value(item.get("trusted_preview_edges"), 0) > 0:
+        totals["functions_with_trusted_preview_edges"] += 1
+    if _int_value(item.get("report_only_edges"), 0) > 0:
+        totals["functions_with_report_only_edges"] += 1
+    if _int_value(item.get("blocked_edges"), 0) > 0:
+        totals["functions_with_blocked_edges"] += 1
+    for key, value in _coerce_dict(item.get("node_kinds", {})).items():
+        node_kinds[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(item.get("edge_kinds", {})).items():
+        edge_kinds[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(item.get("promotion_lanes", {})).items():
+        promotion_lanes[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(item.get("blockers", {})).items():
+        blockers[str(key)] += _int_value(value, 0)
+
+
+def _evidence_graph_totals_dict(counter: Counter[str]) -> dict[str, int]:
+    required_keys = [
+        "functions_with_evidence_graph",
+        "nodes",
+        "edges",
+        "trusted_rewrite_edges",
+        "trusted_preview_edges",
+        "report_only_edges",
+        "blocked_edges",
+        "rewrite_eligible_edges",
+        "functions_with_trusted_rewrite_edges",
+        "functions_with_trusted_preview_edges",
+        "functions_with_report_only_edges",
+        "functions_with_blocked_edges",
+    ]
+    result = {key: int(counter.get(key, 0)) for key in required_keys}
+    for key, value in counter.items():
+        result.setdefault(str(key), int(value))
+    return result
+
+
 def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path: Path) -> dict[str, Any]:
     function_identity_candidates = _dict_list(summary.get("function_identity_candidates"))
     domain_identity_summary = _coerce_dict(summary.get("domain_identity_summary", {}))
@@ -6524,6 +7880,9 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         item
         for item in parameter_type_corrections
         if _string_list(item.get("blockers")) or not bool(item.get("apply_to_preview", True))
+    ]
+    idb_apply_corrections = [
+        item for item in parameter_type_corrections if bool(item.get("apply_to_idb", False))
     ]
     function_identity_blockers = Counter(
         blocker
@@ -6562,6 +7921,15 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         parameter_type_corrections,
         source_bound_report_only_profile_ids,
     )
+    type_assisted_preview = _type_assisted_preview_metrics(summary)
+    type_assisted_candidates = _int_value(type_assisted_preview.get("candidates"), 0)
+    type_assisted_parameter_corrections = _int_value(
+        type_assisted_preview.get("parameter_corrections"),
+        0,
+    )
+    if type_assisted_candidates <= 0 and report_only_preview_corrections:
+        type_assisted_candidates = 1
+        type_assisted_parameter_corrections = len(report_only_preview_corrections)
     body_blockers = Counter(
         {
             str(key): _int_value(value, 0)
@@ -6581,6 +7949,7 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         function_identity_hits
         or parameter_type_corrections
         or corrected_parameter_map
+        or type_assisted_candidates
         or body_rewrite_ready
         or body_rewrite_preview
         or body_rewrite_blockers
@@ -6595,14 +7964,32 @@ def _prototype_correction_function_metrics(summary: dict[str, Any], cleaned_path
         "parameter_type_corrections": len(parameter_type_corrections),
         "applied_parameter_type_corrections": len(applied_corrections),
         "blocked_parameter_type_corrections": len(blocked_corrections),
+        "idb_apply_parameter_type_corrections": len(idb_apply_corrections),
         "correction_blockers": _counter_to_dict(correction_blockers),
         "corrected_parameter_map_entries": len(corrected_parameter_map),
         "exact_report_only_identity_candidates": len(exact_report_only_identities),
         "source_bound_report_only_identity_candidates": len(source_bound_report_only_identities),
         "function_identity_source_context": function_identity_source_context,
         "source_bound_identity_sources": source_bound_identity_sources,
-        "type_assisted_preview_candidates": 1 if report_only_preview_corrections else 0,
-        "type_assisted_preview_parameter_corrections": len(report_only_preview_corrections),
+        "type_assisted_preview_candidates": type_assisted_candidates,
+        "type_assisted_preview_parameter_corrections": type_assisted_parameter_corrections,
+        "type_assisted_preview_restore_succeeded": _int_value(
+            type_assisted_preview.get("restore_succeeded"),
+            0,
+        ),
+        "type_assisted_preview_restore_failures": _int_value(
+            type_assisted_preview.get("restore_failures"),
+            0,
+        ),
+        "type_assisted_preview_statuses": _coerce_dict(
+            type_assisted_preview.get("statuses", {})
+        ),
+        "type_assisted_preview_profiles": _coerce_dict(
+            type_assisted_preview.get("profiles", {})
+        ),
+        "type_assisted_preview_blockers": _coerce_dict(
+            type_assisted_preview.get("blockers", {})
+        ),
         "report_only_identity_preview_candidates": 1 if report_only_preview_corrections else 0,
         "report_only_identity_preview_parameter_corrections": len(report_only_preview_corrections),
         "report_only_identity_preview_profiles": _profile_counter(report_only_preview_corrections),
@@ -6631,6 +8018,7 @@ def _update_prototype_correction_metrics(
     canonical_types: Counter[str],
     body_rewrite_sources: Counter[str],
     report_only_preview_profiles: Counter[str],
+    type_assisted_preview_statuses: Counter[str],
 ) -> None:
     totals["function_identity_candidates"] += _int_value(metrics.get("function_identity_candidates"), 0)
     totals["parameter_type_corrections"] += _int_value(metrics.get("parameter_type_corrections"), 0)
@@ -6640,6 +8028,10 @@ def _update_prototype_correction_metrics(
     )
     totals["blocked_parameter_type_corrections"] += _int_value(
         metrics.get("blocked_parameter_type_corrections"),
+        0,
+    )
+    totals["idb_apply_parameter_type_corrections"] += _int_value(
+        metrics.get("idb_apply_parameter_type_corrections"),
         0,
     )
     totals["corrected_parameter_map_entries"] += _int_value(metrics.get("corrected_parameter_map_entries"), 0)
@@ -6657,6 +8049,14 @@ def _update_prototype_correction_metrics(
     )
     totals["type_assisted_preview_parameter_corrections"] += _int_value(
         metrics.get("type_assisted_preview_parameter_corrections"),
+        0,
+    )
+    totals["type_assisted_preview_restore_succeeded"] += _int_value(
+        metrics.get("type_assisted_preview_restore_succeeded"),
+        0,
+    )
+    totals["type_assisted_preview_restore_failures"] += _int_value(
+        metrics.get("type_assisted_preview_restore_failures"),
         0,
     )
     totals["report_only_identity_preview_candidates"] += _int_value(
@@ -6681,7 +8081,12 @@ def _update_prototype_correction_metrics(
         totals["functions_with_correction_evidence"] += 1
     else:
         totals["negative_control_functions"] += 1
-    for counter_name in ("function_identity_blockers", "correction_blockers", "body_rewrite_blocker_counts"):
+    for counter_name in (
+        "function_identity_blockers",
+        "correction_blockers",
+        "body_rewrite_blocker_counts",
+        "type_assisted_preview_blockers",
+    ):
         for key, value in _coerce_dict(metrics.get(counter_name, {})).items():
             blockers[str(key)] += _int_value(value, 0)
     for key, value in _coerce_dict(metrics.get("profiles", {})).items():
@@ -6694,6 +8099,8 @@ def _update_prototype_correction_metrics(
         body_rewrite_sources[str(key)] += _int_value(value, 0)
     for key, value in _coerce_dict(metrics.get("report_only_identity_preview_profiles", {})).items():
         report_only_preview_profiles[str(key)] += _int_value(value, 0)
+    for key, value in _coerce_dict(metrics.get("type_assisted_preview_statuses", {})).items():
+        type_assisted_preview_statuses[str(key)] += _int_value(value, 0)
 
 
 def _prototype_correction_function_summary(
@@ -6709,6 +8116,10 @@ def _prototype_correction_function_summary(
         "parameter_type_corrections": _int_value(metrics.get("parameter_type_corrections"), 0),
         "applied_parameter_type_corrections": _int_value(metrics.get("applied_parameter_type_corrections"), 0),
         "blocked_parameter_type_corrections": _int_value(metrics.get("blocked_parameter_type_corrections"), 0),
+        "idb_apply_parameter_type_corrections": _int_value(
+            metrics.get("idb_apply_parameter_type_corrections"),
+            0,
+        ),
         "corrected_parameter_map_entries": _int_value(metrics.get("corrected_parameter_map_entries"), 0),
         "exact_report_only_identity_candidates": _int_value(
             metrics.get("exact_report_only_identity_candidates"),
@@ -6722,6 +8133,17 @@ def _prototype_correction_function_summary(
         "type_assisted_preview_parameter_corrections": _int_value(
             metrics.get("type_assisted_preview_parameter_corrections"),
             0,
+        ),
+        "type_assisted_preview_restore_succeeded": _int_value(
+            metrics.get("type_assisted_preview_restore_succeeded"),
+            0,
+        ),
+        "type_assisted_preview_restore_failures": _int_value(
+            metrics.get("type_assisted_preview_restore_failures"),
+            0,
+        ),
+        "type_assisted_preview_statuses": _coerce_dict(
+            metrics.get("type_assisted_preview_statuses", {})
         ),
         "report_only_identity_preview_candidates": _int_value(
             metrics.get("report_only_identity_preview_candidates"),
@@ -6750,6 +8172,7 @@ def _prototype_correction_review_queues(
     functions: list[dict[str, Any]],
     top: int,
 ) -> dict[str, dict[str, Any]]:
+    type_assisted_restore_failure_queue = "type_assisted_preview_restore_failures"
     report_only_preview_queue = "report_only_identity_type_preview_candidates"
     queue_blockers = {
         "low_confidence_type_corrections": {"low_confidence"},
@@ -6761,9 +8184,19 @@ def _prototype_correction_review_queues(
         },
         "preview_disabled_type_corrections": {"preview_disabled"},
     }
-    raw_queues: dict[str, list[dict[str, Any]]] = {report_only_preview_queue: []}
+    raw_queues: dict[str, list[dict[str, Any]]] = {
+        type_assisted_restore_failure_queue: [],
+        report_only_preview_queue: [],
+    }
     raw_queues.update({name: [] for name in queue_blockers})
     for item in functions:
+        if _int_value(item.get("type_assisted_preview_restore_failures"), 0) > 0:
+            raw_queues[type_assisted_restore_failure_queue].append(
+                _prototype_correction_queue_item(
+                    item,
+                    type_assisted_restore_failure_queue,
+                )
+            )
         if _int_value(item.get("report_only_identity_preview_candidates"), 0) > 0:
             raw_queues[report_only_preview_queue].append(
                 _prototype_correction_queue_item(
@@ -6791,6 +8224,8 @@ def _prototype_correction_review_queues(
             continue
         items.sort(
             key=lambda item: (
+                -int(item["type_assisted_preview_restore_failures"]),
+                -int(item["type_assisted_preview_parameter_corrections"]),
                 -int(item["report_only_identity_preview_parameter_corrections"]),
                 -int(item["blocked_parameter_type_corrections"]),
                 -int(item["generic_parameter_survivors"]),
@@ -6829,6 +8264,17 @@ def _prototype_correction_queue_item(
         "type_assisted_preview_parameter_corrections": _int_value(
             item.get("type_assisted_preview_parameter_corrections"),
             0,
+        ),
+        "type_assisted_preview_restore_succeeded": _int_value(
+            item.get("type_assisted_preview_restore_succeeded"),
+            0,
+        ),
+        "type_assisted_preview_restore_failures": _int_value(
+            item.get("type_assisted_preview_restore_failures"),
+            0,
+        ),
+        "type_assisted_preview_statuses": _coerce_dict(
+            item.get("type_assisted_preview_statuses", {})
         ),
         "report_only_identity_preview_candidates": _int_value(
             item.get("report_only_identity_preview_candidates"),
@@ -6894,6 +8340,14 @@ def _prototype_correction_queue_summary(
             _int_value(item.get("type_assisted_preview_parameter_corrections"), 0)
             for item in items
         ),
+        "type_assisted_preview_restore_succeeded": sum(
+            _int_value(item.get("type_assisted_preview_restore_succeeded"), 0)
+            for item in items
+        ),
+        "type_assisted_preview_restore_failures": sum(
+            _int_value(item.get("type_assisted_preview_restore_failures"), 0)
+            for item in items
+        ),
         "report_only_identity_preview_candidates": sum(
             _int_value(item.get("report_only_identity_preview_candidates"), 0)
             for item in items
@@ -6930,11 +8384,14 @@ def _prototype_correction_totals_dict(counter: Counter[str]) -> dict[str, int]:
         "parameter_type_corrections",
         "applied_parameter_type_corrections",
         "blocked_parameter_type_corrections",
+        "idb_apply_parameter_type_corrections",
         "corrected_parameter_map_entries",
         "exact_report_only_identity_candidates",
         "source_bound_report_only_identity_candidates",
         "type_assisted_preview_candidates",
         "type_assisted_preview_parameter_corrections",
+        "type_assisted_preview_restore_succeeded",
+        "type_assisted_preview_restore_failures",
         "report_only_identity_preview_candidates",
         "report_only_identity_preview_parameter_corrections",
         "body_rewrite_ready",

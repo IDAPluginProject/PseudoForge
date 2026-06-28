@@ -7,6 +7,23 @@
     "arch": "x64",
     "build": "26200.8457"
   },
+  "structure_layouts": {
+    "public.MDL": {
+      "structure": "MDL",
+      "source": "WDK public MDL layout on x64; used only for source-bound Memory Manager MDL identities.",
+      "fields": [
+        {"offset": "0x0", "name": "Next", "type": "PMDL", "size": 8, "confidence": 0.88, "note": "WDK public MDL.Next"},
+        {"offset": "0x8", "name": "Size", "type": "CSHORT", "size": 2, "confidence": 0.88, "note": "WDK public MDL.Size"},
+        {"offset": "0xA", "name": "MdlFlags", "type": "CSHORT", "size": 2, "confidence": 0.90, "note": "WDK public MDL.MdlFlags"},
+        {"offset": "0x10", "name": "Process", "type": "PEPROCESS", "size": 8, "confidence": 0.88, "note": "WDK public MDL.Process"},
+        {"offset": "0x18", "name": "MappedSystemVa", "type": "PVOID", "size": 8, "confidence": 0.90, "note": "WDK public MDL.MappedSystemVa"},
+        {"offset": "0x20", "name": "StartVa", "type": "PVOID", "size": 8, "confidence": 0.90, "note": "WDK public MDL.StartVa"},
+        {"offset": "0x28", "name": "ByteCount", "type": "ULONG", "size": 4, "confidence": 0.90, "note": "WDK public MDL.ByteCount"},
+        {"offset": "0x2C", "name": "ByteOffset", "type": "ULONG", "size": 4, "confidence": 0.90, "note": "WDK public MDL.ByteOffset"},
+        {"offset": "0x30", "name": "PfnArray", "type": "PFN_NUMBER", "size": 8, "confidence": 0.86, "note": "WDK public MDL PFN array begins after the fixed MDL header"}
+      ]
+    }
+  },
   "profiles": [
     {
       "id": "windows.memory_manager.resolve_page_file_fault",
@@ -178,10 +195,15 @@
           "26100.8457"
         ]
       },
-      "source": "Reviewed MiFreePagesFromMdl ntoskrnl 26200.8457 MDL page-run release path through MmUnmapLockedPages, MiRetardMdl, MiFreeMdlPageRun, and MiZeroAndReleasePages; preview-only PMDL signature correction with report-only MDL field aliases.",
+      "source": "Reviewed MiFreePagesFromMdl ntoskrnl 26200.8457 MDL page-run release path through MmUnmapLockedPages, MiRetardMdl, MiFreeMdlPageRun, and MiZeroAndReleasePages; PMDL signature correction with WDK public MDL field aliases.",
       "function_names": [
         "MiFreePagesFromMdl"
       ],
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": true,
+        "apply_to_idb_default": false
+      },
       "parameter_count": 4,
       "required_calls": [
         "MmUnmapLockedPages",
@@ -218,8 +240,9 @@
           "rename_to": "mdl",
           "rename_confidence": 0.9,
           "structure": "MDL",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.88,
+          "field_layout_ref": "public.MDL",
           "accepted_types": [
             "ULONG_PTR",
             "__int64",
@@ -229,57 +252,7 @@
             "_MDL *",
             "struct _MDL *"
           ],
-          "source": "MiFreePagesFromMdl reads MDL flags, mapped VA, start VA, byte count, byte offset, and PFN array from the first parameter",
-          "fields": [
-            {
-              "offset": "0xA",
-              "name": "MdlFlags",
-              "type": "USHORT",
-              "size": 2,
-              "confidence": 0.86,
-              "note": "observed MDL flag tests and clear; report-only"
-            },
-            {
-              "offset": "0x18",
-              "name": "MappedSystemVa",
-              "type": "PVOID",
-              "size": 8,
-              "confidence": 0.84,
-              "note": "observed MmUnmapLockedPages mapped-system-VA input; report-only"
-            },
-            {
-              "offset": "0x20",
-              "name": "StartVa",
-              "type": "PVOID",
-              "size": 8,
-              "confidence": 0.84,
-              "note": "observed page count calculation using MDL start VA; report-only"
-            },
-            {
-              "offset": "0x28",
-              "name": "ByteCount",
-              "type": "ULONG",
-              "size": 4,
-              "confidence": 0.84,
-              "note": "observed MDL byte-count page span calculation; report-only"
-            },
-            {
-              "offset": "0x2C",
-              "name": "ByteOffset",
-              "type": "ULONG",
-              "size": 4,
-              "confidence": 0.84,
-              "note": "observed MDL byte-offset page span calculation; report-only"
-            },
-            {
-              "offset": "0x30",
-              "name": "PfnArray",
-              "type": "PFN_NUMBER",
-              "size": 8,
-              "confidence": 0.84,
-              "note": "observed MDL PFN array walk; report-only"
-            }
-          ]
+          "source": "MiFreePagesFromMdl reads MDL flags, mapped VA, start VA, byte count, byte offset, and PFN array from the first parameter"
         }
       ]
     },

@@ -207,6 +207,12 @@ def build_layout_rewrite_preview_bundle(
 def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
     plans = []
     for match in _REWRITE_PREVIEW_RE.finditer(text or ""):
+        fields_text = match.group("fields")
+        field_names_by_offset = _parse_field_alias_names_by_offset(fields_text)
+        advertised_offsets = _parse_field_alias_offsets(fields_text)
+        for offset in sorted(field_names_by_offset):
+            if offset not in advertised_offsets:
+                advertised_offsets.append(offset)
         plans.append(
             {
                 "plan_kind": "full",
@@ -215,7 +221,8 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
                 "source_provenance": match.groupdict().get("source_provenance") or "none",
                 "advertised_access_count": _int_value(match.group("access_count")),
                 "advertised_field_count": _int_value(match.group("field_count")),
-                "advertised_offsets": _parse_field_alias_offsets(match.group("fields")),
+                "advertised_offsets": advertised_offsets,
+                "field_names_by_offset": field_names_by_offset,
                 "confidence": _float_value(match.group("confidence")),
             }
         )
@@ -224,6 +231,7 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
             continue
         allowed_offsets = _parse_offset_list(match.group("safe_offsets"))
         excluded_offsets = _parse_offset_list(match.group("excluded_offsets"))
+        field_names_by_offset = _parse_field_alias_names_by_offset(match.group("safe_fields"))
         if not allowed_offsets or not excluded_offsets:
             continue
         plans.append(
@@ -239,6 +247,7 @@ def _layout_rewrite_preview_plans(text: str) -> list[dict[str, Any]]:
                 "allowed_offsets": allowed_offsets,
                 "excluded_offsets": excluded_offsets,
                 "excluded_reasons": _split_semicolon_list(match.group("reasons")),
+                "field_names_by_offset": field_names_by_offset,
                 "confidence": _float_value(match.group("confidence")),
             }
         )
@@ -271,7 +280,7 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
 
     def record_rewrite(base: str, rule: dict[str, Any], offset: int) -> str:
         nonlocal rewritten_accesses
-        field_name = "field_%X" % offset
+        field_name = _field_name_for_offset(rule, offset)
         result_base = str(rule.get("result_base", "") or base)
         rewritten_accesses += 1
         rewritten_fields.add("%s.%s" % (base, field_name))
@@ -406,6 +415,10 @@ def _rewrite_layout_offset_dereferences(text: str, plans: list[dict[str, Any]]) 
                 "rewritten_fields": len(result["rewritten_fields"]),
                 "field_aliases": sorted(result["rewritten_fields"], key=_field_alias_sort_key),
                 "offset_accesses": dict(sorted(result["offset_accesses"].items())),
+                "field_names_by_offset": _field_names_by_offset_for_metadata(
+                    result["offset_accesses"],
+                    rewrite_rules.get(base, {}),
+                ),
             }
             for base, result in sorted(rewrite_results.items())
         },
@@ -429,8 +442,10 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
                 "address_offsets": set(),
                 "direct_offsets": set(),
                 "has_full_plan": False,
+                "field_names_by_offset": {},
             },
         )
+        current["field_names_by_offset"].update(_plan_field_names_by_offset(plan))
         if _plan_kind(plan) == "full":
             advertised_offsets = _plan_advertised_offsets(plan)
             current["has_full_plan"] = True
@@ -454,6 +469,7 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
                 "allowed_offsets": None,
                 "address_offsets": set(rule.get("address_offsets") or set()),
                 "direct_offsets": set(rule.get("direct_offsets") or set()),
+                "field_names_by_offset": dict(rule.get("field_names_by_offset") or {}),
                 "result_base": base,
             }
             continue
@@ -463,6 +479,7 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
                 "allowed_offsets": allowed_offsets,
                 "address_offsets": set(rule.get("address_offsets") or set()),
                 "direct_offsets": set(rule.get("direct_offsets") or set()),
+                "field_names_by_offset": dict(rule.get("field_names_by_offset") or {}),
                 "result_base": base,
             }
     for plan in plans:
@@ -479,6 +496,7 @@ def _layout_rewrite_rules_by_base(plans: list[dict[str, Any]]) -> dict[str, dict
             "allowed_offsets": advertised_offsets,
             "address_offsets": advertised_offsets,
             "direct_offsets": {offset for offset in advertised_offsets if offset == 0},
+            "field_names_by_offset": _plan_field_names_by_offset(plan),
             "result_base": base,
             "source_alias_for": base,
         }
@@ -782,7 +800,7 @@ def _validate_layout_rewrite_preview(
         "all_plans_rewritten": True,
         "advertised_access_counts_match": True,
         "advertised_field_counts_match": True,
-        "preview_contains_field_rewrites": "->field_" in str(preview_text or ""),
+        "preview_contains_field_rewrites": _preview_contains_field_rewrite(preview_text),
         "preview_has_no_raw_offset_derefs_for_rewritten_bases": True,
         "preview_has_no_raw_offset_derefs_for_rewrite_scope": True,
     }
@@ -824,6 +842,10 @@ def _validate_layout_rewrite_preview(
         "checks": checks,
         "errors": errors,
     }
+
+
+def _preview_contains_field_rewrite(text: str) -> bool:
+    return bool(re.search(r"->[A-Za-z_][A-Za-z0-9_]*\s*/\*", str(text or "")))
 
 
 def _plan_actual_rewrite_counts(plan: dict[str, Any], result: dict[str, Any]) -> tuple[int, int]:
@@ -1003,6 +1025,50 @@ def _plan_advertised_offsets(plan: dict[str, Any]) -> set[int]:
         if parsed >= 0:
             offsets.add(parsed)
     return offsets
+
+
+def _plan_field_names_by_offset(plan: dict[str, Any]) -> dict[int, str]:
+    result: dict[int, str] = {}
+    values = plan.get("field_names_by_offset", {}) or {}
+    if not isinstance(values, dict):
+        return result
+    for key, value in values.items():
+        try:
+            offset = int(key)
+        except (TypeError, ValueError):
+            offset = _parse_offset(str(key))
+        if offset is None or offset < 0:
+            continue
+        name = str(value or "")
+        if not _safe_layout_identifier(name):
+            continue
+        result[offset] = name
+    return result
+
+
+def _field_name_for_offset(rule: dict[str, Any], offset: int) -> str:
+    names_by_offset = rule.get("field_names_by_offset", {}) or {}
+    name = ""
+    if isinstance(names_by_offset, dict):
+        name = str(names_by_offset.get(offset) or names_by_offset.get(str(offset)) or "")
+    if _safe_layout_identifier(name):
+        return name
+    return "field_%X" % offset
+
+
+def _field_names_by_offset_for_metadata(
+    offset_accesses: dict[str, int],
+    rule: dict[str, Any],
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for offset_key, count in sorted(offset_accesses.items()):
+        if int(count or 0) <= 0:
+            continue
+        offset = _parse_offset(str(offset_key))
+        if offset is None:
+            continue
+        result["0x%X" % offset] = _field_name_for_offset(rule, offset)
+    return result
 
 
 def _plan_address_offsets(plan: dict[str, Any]) -> set[int]:
@@ -1237,7 +1303,7 @@ def _identifier_is_arrow_field_base(text: str, span: tuple[int, int]) -> bool:
     index = span[1]
     while index < len(text) and text[index].isspace():
         index += 1
-    return text.startswith("->field_", index)
+    return bool(re.match(r"->[A-Za-z_][A-Za-z0-9_]*\b", text[index:]))
 
 
 def _safe_layout_identifier(value: str) -> bool:
@@ -1381,7 +1447,33 @@ def _parse_field_alias_offsets(value: str) -> list[int]:
         if offset is None or offset < 0 or offset in offsets:
             continue
         offsets.append(offset)
+    for offset in sorted(_parse_field_alias_names_by_offset(value)):
+        if offset not in offsets:
+            offsets.append(offset)
     return offsets
+
+
+def _parse_field_alias_names_by_offset(value: str) -> dict[int, str]:
+    result: dict[int, str] = {}
+    text = str(value or "")
+    for match in re.finditer(r"\bfield_([0-9A-Fa-f]+)\b", text):
+        offset = _parse_offset("0x%s" % match.group(1))
+        if offset is None or offset < 0:
+            continue
+        result.setdefault(offset, "field_%X" % offset)
+    named_pattern = re.compile(
+        r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)@(?P<offset>\+?0x[0-9A-Fa-f]+|\+?\d+)\b"
+    )
+    for match in named_pattern.finditer(text):
+        name = str(match.group("name") or "")
+        offset_text = str(match.group("offset") or "")
+        if offset_text.startswith("+"):
+            offset_text = offset_text[1:]
+        offset = _parse_offset(offset_text)
+        if offset is None or offset < 0 or not _safe_layout_identifier(name):
+            continue
+        result[offset] = name
+    return result
 
 
 def _split_semicolon_list(value: str) -> list[str]:

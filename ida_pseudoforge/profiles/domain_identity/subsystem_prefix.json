@@ -1,0 +1,151 @@
+{
+  "schema": "domain_identity_profiles_v1",
+  "profile_version": "subsystem-prefix-v1",
+  "source": "PseudoForge Windows kernel subsystem prefix identity pack. These profiles provide report-only subsystem evidence from stable ntoskrnl naming conventions; they do not infer parameter types, private layouts, or body rewrites.",
+  "profiles": [
+    {
+      "id": "windows.subsystem_prefix.memory_manager",
+      "subsystem": "Memory Manager",
+      "source": "Windows kernel internal Memory Manager routines commonly use Mi*/Mm* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Mi|Mm)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.registry_config",
+      "subsystem": "Registry/Configuration Manager",
+      "source": "Windows kernel Configuration Manager and hive routines commonly use Cm*/Cmp*/Hvp* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Cm|Cmp|Hvp)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.hal",
+      "subsystem": "HAL",
+      "source": "HAL-private routines commonly use the Halp* prefix. Report-only subsystem identity only.",
+      "function_regex": ["^Halp[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.pnp_power",
+      "subsystem": "PnP/Power",
+      "source": "Plug and Play and power manager routines commonly use Pi*/Pip*/Pnp*/Pop*/Ppm*/PdcPo* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Pi|Pip|Pnp|Pop|Ppm|PdcPo)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.scheduler_interrupt",
+      "subsystem": "Scheduler/Interrupt",
+      "source": "Kernel scheduler, interrupt, and low-level execution routines commonly use Ki*/Ke*/Kx* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Ki|Ke|Kx)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.io_manager",
+      "subsystem": "I/O Manager",
+      "source": "I/O manager and verifier I/O helper routines commonly use Io*/Iop*/Iov* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Io|Iop|Iov)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.rtl",
+      "subsystem": "Runtime Library",
+      "source": "Kernel RTL routines commonly use Rtl*/Rtlp* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^Rtlp?[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.executive",
+      "subsystem": "Executive",
+      "source": "Executive routines commonly use Ex*/Exp* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Ex|Exp)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.process_thread",
+      "subsystem": "Process/Thread",
+      "source": "Process and thread manager routines commonly use Ps*/Psp* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Ps|Psp)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.etw_wmi",
+      "subsystem": "ETW/WMI Telemetry",
+      "source": "ETW and WMI telemetry routines commonly use Etw*/Etwp*/Wmi*/Wmip* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Etw|Etwp|Wmi|Wmip)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.verifier",
+      "subsystem": "Driver Verifier",
+      "source": "Driver Verifier routines commonly use Vf*/Vi*/Verifier* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Vf|Vi|Verifier)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.security",
+      "subsystem": "Security",
+      "source": "Security, KSE, and authorization routines commonly use Se*/Sep*/Kse*/Ksep*/Authz* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Se|Sep|Kse|Ksep|Authz)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.hypervisor",
+      "subsystem": "Hypervisor/VTL",
+      "source": "Hypervisor and VTL routines commonly use Hvl*/Vsl*/Vmp* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Hvl|Vsl|Vmp)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.system_service",
+      "subsystem": "System Service",
+      "source": "Nt*/Zw* system service entry points use stable Windows syscall naming. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Nt|Zw)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.alpc",
+      "subsystem": "ALPC",
+      "source": "ALPC private routines commonly use the Alpcp* prefix. Report-only subsystem identity only.",
+      "function_regex": ["^Alpcp[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.cache_filesystem",
+      "subsystem": "Cache/File System Runtime",
+      "source": "Cache manager and file-system runtime routines commonly use Cc*/FsRtl* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Cc|FsRtl)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.boot_background",
+      "subsystem": "Boot/Graphics",
+      "source": "Boot, boot-application, and boot graphics routines commonly use Bi*/Bapd*/Bg*/Bgp* prefixes. Report-only subsystem identity only.",
+      "function_regex": ["^(?:Bi|Bapd|Bapdp|Bg|Bgk|Bgp)[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    },
+    {
+      "id": "windows.subsystem_prefix.symcrypt",
+      "subsystem": "SymCrypt",
+      "source": "SymCrypt routines use the SymCrypt* prefix. Report-only subsystem identity only.",
+      "function_regex": ["^SymCrypt[A-Za-z0-9_?$@].*"],
+      "rewrite_policy": {"signature_preview": false, "body_canonical_rewrite": false, "apply_to_idb_default": false},
+      "identity_blockers": ["generic_subsystem_prefix"]
+    }
+  ]
+}

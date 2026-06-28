@@ -21,11 +21,13 @@ from tools.pseudoforge_ida_batch import (
     _function_file_stem,
     _llm_candidate_artifacts,
     _render_cleaned_with_ida_postprocess,
+    _run_batch_type_assisted_preview,
     _write_compare_artifacts,
     _write_export_artifacts,
 )
 from tools import pseudoforge_ida_batch as ida_batch_module
 from tools.summarize_pseudoforge_ida_batch import summarize_records
+from ida_pseudoforge.ida import actions as actions_module
 
 
 BATCH_BOOLEAN_SAMPLE = r"""
@@ -611,6 +613,305 @@ __int64 __fastcall TimeoutCandidate(int a1)
             self.assertEqual(summary["llm_provider"], "ollama")
             self.assertEqual(summary["artifacts"]["llm_candidate_cache"], str(Path(temp_dir) / "cache.json"))
             self.assertEqual(summary["artifacts"]["warning_diagnostics"], artifacts["warning_diagnostics"])
+
+    def test_ida_batch_type_assisted_preview_writes_separate_artifacts(self) -> None:
+        class FakeProposal:
+            prototype = "void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)"
+            profile_ids = ("windows.io_manager.delete_device",)
+            evidence = ("function_identity:windows.io_manager.delete_device:exact_function_name",)
+            blockers = ()
+            corrections = ("param0 a1->deviceObject __int64->PDEVICE_OBJECT",)
+
+        capture = capture_from_pseudocode(
+            "__int64 __fastcall IoDeleteDevice(__int64 a1)\n{\n  return a1;\n}\n",
+            name="IoDeleteDevice",
+            ea=0x140002000,
+            source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe",
+        )
+        plan = build_clean_plan(capture)
+        current_type = {"value": "__int64 __fastcall IoDeleteDevice(__int64 a1);"}
+        calls: list[tuple[str, str]] = []
+
+        old_build = actions_module._build_type_assisted_prototype_proposal
+        old_get = actions_module._get_ida_function_type
+        old_apply = actions_module._apply_ida_function_type
+        old_restore = actions_module._restore_ida_function_type
+        old_refresh = actions_module._refresh_function_type_state
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_equal = actions_module._ida_type_text_equal
+        old_runner = actions_module.run_on_main_thread
+
+        def fake_apply(ea: int, type_text: str) -> None:
+            calls.append(("apply", type_text))
+            current_type["value"] = type_text.rstrip(";") + ";"
+
+        def fake_restore(ea: int, original_type: str) -> None:
+            calls.append(("restore", original_type))
+            current_type["value"] = original_type.rstrip(";") + ";"
+
+        actions_module._build_type_assisted_prototype_proposal = lambda captured, built_plan: FakeProposal()
+        actions_module._get_ida_function_type = lambda ea: current_type["value"]
+        actions_module._apply_ida_function_type = fake_apply
+        actions_module._restore_ida_function_type = fake_restore
+        actions_module._refresh_function_type_state = lambda ea: None
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: "void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)\n{\n  IopCompleteUnloadOrDelete((ULONG_PTR)deviceObject);\n}\n"
+        )
+        actions_module._ida_type_text_equal = (
+            lambda left, right: left.rstrip(";") == right.rstrip(";")
+        )
+        actions_module.run_on_main_thread = lambda func, write=False: func()
+        try:
+            preview = _run_batch_type_assisted_preview(
+                capture,
+                plan,
+                enabled=True,
+                apply_validated_layout_rewrites=True,
+            )
+        finally:
+            actions_module._build_type_assisted_prototype_proposal = old_build
+            actions_module._get_ida_function_type = old_get
+            actions_module._apply_ida_function_type = old_apply
+            actions_module._restore_ida_function_type = old_restore
+            actions_module._refresh_function_type_state = old_refresh
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._ida_type_text_equal = old_equal
+            actions_module.run_on_main_thread = old_runner
+
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertEqual("ok", preview.status)
+        self.assertTrue(preview.restore_succeeded)
+        self.assertIn("PDEVICE_OBJECT deviceObject", preview.improved_pseudocode)
+        self.assertIn("IoDeleteDevice", preview.cleaned_pseudocode)
+        self.assertEqual(
+            [
+                ("apply", "void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)"),
+                ("restore", "__int64 __fastcall IoDeleteDevice(__int64 a1);"),
+            ],
+            calls,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            export = _write_export_artifacts(
+                Path(temp_dir),
+                capture,
+                plan,
+                render_cleaned_pseudocode(capture, plan),
+                aliases={},
+                llm_status="disabled",
+                llm_error="",
+                llm_error_class="",
+                llm_error_summary="",
+                llm_info={"enabled": False},
+                type_assisted_preview=preview,
+            )
+            artifacts = export["artifacts"]
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            primary_cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            deterministic_cleaned = Path(artifacts["deterministic_cleaned_pseudocode"]).read_text(
+                encoding="utf-8"
+            )
+
+        self.assertIn("type_assisted_preview_summary", artifacts)
+        self.assertIn("type_assisted_raw_pseudocode", artifacts)
+        self.assertIn("type_assisted_cleaned_pseudocode", artifacts)
+        self.assertIn("deterministic_cleaned_pseudocode", artifacts)
+        self.assertIn("PDEVICE_OBJECT deviceObject", primary_cleaned)
+        self.assertIn("__int64 __fastcall IoDeleteDevice(__int64 deviceObject)", deterministic_cleaned)
+        self.assertEqual("type-assisted-preview", summary["primary_cleaned_source"])
+        self.assertEqual("ok", summary["type_assisted_preview"]["status"])
+        self.assertTrue(summary["type_assisted_preview"]["restore_succeeded"])
+
+    def test_ida_batch_rejects_type_assisted_primary_quality_regression(self) -> None:
+        deterministic_text = """
+NTSTATUS __fastcall SeQuerySecurityAttributesToken(
+        PACCESS_TOKEN token,
+        PUNICODE_STRING attributeNames,
+        ULONG attributeCount,
+        PVOID attributeBuffer,
+        SIZE_T inputLength,
+        PULONG returnLength)
+{
+  ExAcquireResourceSharedLite(*(PERESOURCE *)(token + 48), TRUE);
+  return SepInternalQuerySecurityAttributesTokenEx(token, attributeNames, attributeCount, attributeBuffer, inputLength, returnLength);
+}
+"""
+        preview_text = """
+NTSTATUS __fastcall SeQuerySecurityAttributesToken(
+        PACCESS_TOKEN token,
+        PUNICODE_STRING argument1,
+        ULONG inputLength,
+        PVOID argument3,
+        SIZE_T attributeBufferLength,
+        PULONG returnLength)
+{
+  ExAcquireResourceSharedLite(*((PERESOURCE *)token + 6), TRUE);
+  return SepInternalQuerySecurityAttributesTokenEx(token, argument1, inputLength, argument3, attributeBufferLength, returnLength);
+}
+"""
+        capture = capture_from_pseudocode(deterministic_text, name="SeQuerySecurityAttributesToken", ea=0x1409E0E90)
+        plan = build_clean_plan(capture, rename_provider=None)
+        preview = ida_batch_module._BatchTypeAssistedPreview(
+            status="ok",
+            proposal={"prototype": "NTSTATUS __fastcall SeQuerySecurityAttributesToken(PACCESS_TOKEN token)"},
+            original_type="NTSTATUS __fastcall(PACCESS_TOKEN token)",
+            restored_type="NTSTATUS __fastcall(PACCESS_TOKEN token)",
+            restore_succeeded=True,
+            improved_pseudocode=preview_text,
+            cleaned_pseudocode=preview_text,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            export = _write_export_artifacts(
+                Path(temp_dir),
+                capture,
+                plan,
+                deterministic_text,
+                aliases={},
+                llm_status="disabled",
+                llm_error="",
+                llm_error_class="",
+                llm_error_summary="",
+                llm_info={"enabled": False},
+                type_assisted_preview=preview,
+            )
+            artifacts = export["artifacts"]
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            primary_cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+
+        self.assertIn("type_assisted_cleaned_pseudocode", artifacts)
+        self.assertNotIn("deterministic_cleaned_pseudocode", artifacts)
+        self.assertEqual("deterministic", summary["primary_cleaned_source"])
+        self.assertFalse(summary["type_assisted_primary_decision"]["selected"])
+        self.assertEqual("quality_regression", summary["type_assisted_primary_decision"]["reason"])
+        self.assertIn(
+            "generic_parameter_name_regression",
+            summary["type_assisted_primary_decision"]["regressions"],
+        )
+        self.assertIn(
+            "pointer_indexed_offset_regression",
+            summary["type_assisted_primary_decision"]["regressions"],
+        )
+        self.assertIn("attributeNames", primary_cleaned)
+        self.assertNotIn("argument1", primary_cleaned)
+
+    def test_ida_batch_type_assisted_preview_blocks_unrealized_temporary_type(self) -> None:
+        class FakeProposal:
+            prototype = "void __fastcall MiLockPageListAndLastPage(PMMPFN lastPage)"
+            profile_ids = ("windows.memory_manager.lock_page_list_and_last_page",)
+            evidence = ("function_identity:windows.memory_manager.lock_page_list_and_last_page:function_name",)
+            blockers = ()
+            corrections = ("param0 a1->lastPage __int64->PMMPFN",)
+
+        capture = capture_from_pseudocode(
+            "void __fastcall MiLockPageListAndLastPage(__int64 a1)\n{\n  *(_BYTE *)(a1 + 24) = 0;\n}\n",
+            name="MiLockPageListAndLastPage",
+            ea=0x1400219C30,
+            source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe",
+        )
+        plan = build_clean_plan(capture)
+        current_type = {"value": "void __fastcall(__int64)"}
+
+        old_build = actions_module._build_type_assisted_prototype_proposal
+        old_get = actions_module._get_ida_function_type
+        old_apply = actions_module._apply_ida_function_type
+        old_restore = actions_module._restore_ida_function_type
+        old_refresh = actions_module._refresh_function_type_state
+        old_decompile = actions_module._decompile_function_pseudocode
+        old_equal = actions_module._ida_type_text_equal
+        old_runner = actions_module.run_on_main_thread
+        actions_module._build_type_assisted_prototype_proposal = lambda captured, built_plan: FakeProposal()
+        actions_module._get_ida_function_type = lambda ea: current_type["value"]
+        actions_module._apply_ida_function_type = lambda ea, type_text: current_type.update(
+            {"value": type_text}
+        )
+        actions_module._restore_ida_function_type = lambda ea, original_type: current_type.update(
+            {"value": original_type}
+        )
+        actions_module._refresh_function_type_state = lambda ea: None
+        actions_module._decompile_function_pseudocode = (
+            lambda ea: "void __fastcall MiLockPageListAndLastPage(__int64 a1)\n{\n  *(_BYTE *)(a1 + 24) = 0;\n}\n"
+        )
+        actions_module._ida_type_text_equal = lambda left, right: left == right
+        actions_module.run_on_main_thread = lambda func, write=False: func()
+        try:
+            preview = _run_batch_type_assisted_preview(
+                capture,
+                plan,
+                enabled=True,
+                apply_validated_layout_rewrites=True,
+            )
+        finally:
+            actions_module._build_type_assisted_prototype_proposal = old_build
+            actions_module._get_ida_function_type = old_get
+            actions_module._apply_ida_function_type = old_apply
+            actions_module._restore_ida_function_type = old_restore
+            actions_module._refresh_function_type_state = old_refresh
+            actions_module._decompile_function_pseudocode = old_decompile
+            actions_module._ida_type_text_equal = old_equal
+            actions_module.run_on_main_thread = old_runner
+
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertEqual("blocked", preview.status)
+        self.assertTrue(preview.restore_succeeded)
+        self.assertIn("temporary prototype was not reflected", preview.error)
+        self.assertIn("temporary_prototype_not_reflected", preview.proposal["blockers"])
+        self.assertEqual("void __fastcall(__int64)", current_type["value"])
+
+    def test_ida_batch_type_assisted_preview_blocks_unstable_unknown_original_type(self) -> None:
+        class FakeProposal:
+            prototype = "_UNKNOWN **__fastcall VmpFillGpnRanges(ULONG partitionId)"
+            profile_ids = ("windows.memory_manager.vmp_fill_gpn_ranges",)
+            evidence = ("function_identity:windows.memory_manager.vmp_fill_gpn_ranges:function_name",)
+            blockers = ()
+            corrections = ("param0 a1->partitionId int->ULONG",)
+
+        capture = capture_from_pseudocode(
+            "_UNKNOWN **__fastcall VmpFillGpnRanges(int a1)\n{\n  return 0;\n}\n",
+            name="VmpFillGpnRanges",
+            ea=0x1403A1450,
+            source_path=r"D:\bin\os\26200.8457\ntoskrnl.exe",
+        )
+        plan = build_clean_plan(capture)
+        calls: list[str] = []
+
+        old_build = actions_module._build_type_assisted_prototype_proposal
+        old_get = actions_module._get_ida_function_type
+        old_apply = actions_module._apply_ida_function_type
+        old_runner = actions_module.run_on_main_thread
+        actions_module._build_type_assisted_prototype_proposal = lambda captured, built_plan: FakeProposal()
+        actions_module._get_ida_function_type = (
+            lambda ea: "_UNKNOWN **__fastcall(int, __int64, __int64, __int64 *, __int64, __int64)"
+        )
+        actions_module._apply_ida_function_type = (
+            lambda ea, type_text: calls.append(type_text)
+        )
+        actions_module.run_on_main_thread = lambda func, write=False: func()
+        try:
+            preview = _run_batch_type_assisted_preview(
+                capture,
+                plan,
+                enabled=True,
+                apply_validated_layout_rewrites=True,
+            )
+        finally:
+            actions_module._build_type_assisted_prototype_proposal = old_build
+            actions_module._get_ida_function_type = old_get
+            actions_module._apply_ida_function_type = old_apply
+            actions_module.run_on_main_thread = old_runner
+
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertEqual("blocked", preview.status)
+        self.assertTrue(preview.restore_succeeded)
+        self.assertIn("unstable_original_type_unknown", preview.error)
+        self.assertIn(
+            "original_type_restore_blocked:unstable_original_type_unknown",
+            preview.proposal["blockers"],
+        )
+        self.assertEqual([], calls)
 
     def test_ida_batch_export_uses_short_paths_for_long_mangled_symbols(self) -> None:
         long_name = (

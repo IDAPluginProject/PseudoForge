@@ -3797,11 +3797,12 @@ def _field_rewrite_preview_comment(
     rewrite_count = _layout_rewrite_access_count_for_offsets(text, layout, rewrite_offsets)
     if rewrite_count <= 0:
         return None
-    field_names = [str(item["name"]) for item in fields if str(item.get("name", ""))]
-    if not field_names:
+    field_tokens = [_field_rewrite_preview_field_token(item) for item in fields]
+    field_tokens = [item for item in field_tokens if item]
+    if not field_tokens:
         return None
-    field_text = ", ".join(field_names[:8])
-    if len(field_names) > 8:
+    field_text = ", ".join(field_tokens[:8])
+    if len(field_tokens) > 8:
         field_text += ", ..."
     source_provenance = str(ready.get("source_provenance", "") or "none")
     source = str(ready.get("source", "") or "")
@@ -3824,10 +3825,27 @@ def _field_rewrite_preview_comment(
         "field_count": len(fields),
         "access_count": rewrite_count,
         "source_provenance": source_provenance,
+        "fields": fields,
     }
     if source:
         comment["source"] = source
     return comment
+
+
+def _field_rewrite_preview_field_token(item: dict[str, Any]) -> str:
+    name = str(item.get("name", "") or "")
+    offset = item.get("offset")
+    if not name:
+        return ""
+    if not isinstance(offset, int):
+        return name
+    if name == "field_%X" % offset:
+        return name
+    if not _is_identifier_expression(name):
+        return "field_%X" % offset
+    if float(item.get("profile_confidence", 0.0) or 0.0) <= 0.0:
+        return name
+    return "%s@+0x%X" % (name, offset)
 
 
 def _field_rewrite_near_ready_comment(

@@ -227,6 +227,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Rewrite exported canonical cleaned artifacts with validated layout field aliases.",
     )
+    parser.add_argument(
+        "--type-assisted-preview",
+        action="store_true",
+        help=(
+            "Opt in to batch type-assisted preview artifacts. IDA temporarily applies trusted "
+            "profile prototypes, re-decompiles, and verifies restore; default is off."
+        ),
+    )
     parser.add_argument("--visible", action="store_true", help="Do not request a hidden IDA window.")
     parser.add_argument("--no-wait", action="store_true", help="Start IDA and return immediately.")
     parser.add_argument("--no-summary", action="store_true", help="Do not print a text summary after IDA exits.")
@@ -361,6 +369,8 @@ def _build_batch_args(
         result.extend(["--llm-candidate-replay-dir", str(Path(args.llm_candidate_replay_dir).expanduser().resolve())])
     if args.apply_validated_layout_rewrites:
         result.append("--apply-validated-layout-rewrites")
+    if args.type_assisted_preview:
+        result.append("--type-assisted-preview")
     result.extend(["--cancel-file", str(cancel_file)])
     _append_int_option(result, "--max-functions", args.max_functions)
     _append_int_option(result, "--max-seconds", args.max_seconds)
@@ -681,6 +691,9 @@ def _write_manifest(
         },
         "layout_rewrites": {
             "apply_validated": bool(args.apply_validated_layout_rewrites),
+        },
+        "type_assisted_preview": {
+            "enabled": bool(args.type_assisted_preview),
         },
         "ida_args": list(run.ida_args),
         "batch_args": list(run.batch_args),

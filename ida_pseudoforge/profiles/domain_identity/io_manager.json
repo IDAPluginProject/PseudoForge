@@ -7,6 +7,34 @@
     "arch": "x64",
     "build": "26200.8457"
   },
+  "structure_layouts": {
+    "public.DEVICE_OBJECT": {
+      "structure": "DEVICE_OBJECT",
+      "source": "WDK public DEVICE_OBJECT layout on x64; used only for source-bound I/O Manager device-object identities.",
+      "fields": [
+        {"offset": "0x10", "name": "NextDevice", "type": "PDEVICE_OBJECT", "size": 8, "confidence": 0.90, "note": "WDK public DEVICE_OBJECT.NextDevice"},
+        {"offset": "0x18", "name": "AttachedDevice", "type": "PDEVICE_OBJECT", "size": 8, "confidence": 0.90, "note": "WDK public DEVICE_OBJECT.AttachedDevice"},
+        {"offset": "0x20", "name": "CurrentIrp", "type": "PIRP", "size": 8, "confidence": 0.90, "note": "WDK public DEVICE_OBJECT.CurrentIrp"},
+        {"offset": "0x28", "name": "Timer", "type": "PIO_TIMER", "size": 8, "confidence": 0.90, "note": "WDK public DEVICE_OBJECT.Timer"},
+        {"offset": "0x30", "name": "Flags", "type": "ULONG", "size": 4, "confidence": 0.88, "note": "WDK public DEVICE_OBJECT.Flags"},
+        {"offset": "0x34", "name": "Characteristics", "type": "ULONG", "size": 4, "confidence": 0.88, "note": "WDK public DEVICE_OBJECT.Characteristics"},
+        {"offset": "0x38", "name": "Vpb", "type": "PVPB", "size": 8, "confidence": 0.90, "note": "WDK public DEVICE_OBJECT.Vpb"},
+        {"offset": "0x40", "name": "DeviceExtension", "type": "PVOID", "size": 8, "confidence": 0.90, "note": "WDK public DEVICE_OBJECT.DeviceExtension"},
+        {"offset": "0x48", "name": "DeviceType", "type": "DEVICE_TYPE", "size": 4, "confidence": 0.88, "note": "WDK public DEVICE_OBJECT.DeviceType"},
+        {"offset": "0x4C", "name": "StackSize", "type": "CCHAR", "size": 1, "confidence": 0.86, "note": "WDK public DEVICE_OBJECT.StackSize"},
+        {"offset": "0x50", "name": "Queue", "type": "DEVICE_OBJECT_QUEUE", "size": 40, "confidence": 0.84, "note": "WDK public DEVICE_OBJECT.Queue union"},
+        {"offset": "0x78", "name": "AlignmentRequirement", "type": "ULONG", "size": 4, "confidence": 0.86, "note": "WDK public DEVICE_OBJECT.AlignmentRequirement"},
+        {"offset": "0x80", "name": "DeviceQueue", "type": "KDEVICE_QUEUE", "size": 40, "confidence": 0.84, "note": "WDK public DEVICE_OBJECT.DeviceQueue"},
+        {"offset": "0xB0", "name": "Dpc", "type": "KDPC", "size": 64, "confidence": 0.84, "note": "WDK public DEVICE_OBJECT.Dpc"},
+        {"offset": "0xF0", "name": "ActiveThreadCount", "type": "ULONG", "size": 4, "confidence": 0.84, "note": "WDK public DEVICE_OBJECT.ActiveThreadCount"},
+        {"offset": "0xF8", "name": "SecurityDescriptor", "type": "PSECURITY_DESCRIPTOR", "size": 8, "confidence": 0.84, "note": "WDK public DEVICE_OBJECT.SecurityDescriptor"},
+        {"offset": "0x100", "name": "DeviceLock", "type": "KEVENT", "size": 24, "confidence": 0.82, "note": "WDK public DEVICE_OBJECT.DeviceLock"},
+        {"offset": "0x118", "name": "SectorSize", "type": "USHORT", "size": 2, "confidence": 0.82, "note": "WDK public DEVICE_OBJECT.SectorSize"},
+        {"offset": "0x120", "name": "DeviceObjectExtension", "type": "PDEVOBJ_EXTENSION", "size": 8, "confidence": 0.84, "note": "WDK public DEVICE_OBJECT.DeviceObjectExtension"},
+        {"offset": "0x128", "name": "Reserved", "type": "PVOID", "size": 8, "confidence": 0.80, "note": "WDK public DEVICE_OBJECT.Reserved"}
+      ]
+    }
+  },
   "profiles": [
     {
       "id": "windows.io_manager.create_device",
@@ -284,10 +312,15 @@
     },
     {
       "id": "windows.io_manager.delete_device",
-      "source": "Reviewed IoDeleteDevice timer, shutdown notification, and delete/unload completion flow.",
+      "source": "Reviewed IoDeleteDevice timer, shutdown notification, and delete/unload completion flow; DEVICE_OBJECT uses WDK public x64 field layout when source identity and build gates pass.",
       "function_names": [
         "IoDeleteDevice"
       ],
+      "rewrite_policy": {
+        "signature_preview": true,
+        "body_canonical_rewrite": true,
+        "apply_to_idb_default": false
+      },
       "prototype": {
         "return_type": "void",
         "calling_convention": "__stdcall",
@@ -308,8 +341,9 @@
           "rename_to": "deviceObject",
           "role": "deviceObject",
           "structure": "DEVICE_OBJECT",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.92,
+          "field_layout_ref": "public.DEVICE_OBJECT",
           "canonical_type": "PDEVICE_OBJECT",
           "canonical_name": "deviceObject",
           "type_source": "IoDeleteDevice WDK prototype and reviewed I/O Manager profile",
@@ -321,7 +355,7 @@
             "struct _DEVICE_OBJECT *",
             "__int64"
           ],
-          "source": "IoDeleteDevice target device object argument"
+          "source": "IoDeleteDevice target device object argument with WDK public DEVICE_OBJECT layout"
         },
         {
           "local_names": [
@@ -511,8 +545,9 @@
           "parameter_index": 1,
           "role": "targetDeviceObject",
           "structure": "DEVICE_OBJECT",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.90,
+          "field_layout_ref": "public.DEVICE_OBJECT",
           "accepted_types": [
             "PDEVICE_OBJECT",
             "struct _DEVICE_OBJECT *",
@@ -826,7 +861,7 @@
             "struct _DEVICE_OBJECT *",
             "__int64"
           ],
-          "source": "IofCallDriver target device object argument"
+          "source": "IofCallDriver target device object argument with WDK public DEVICE_OBJECT layout"
         },
         {
           "parameter_index": 1,
@@ -854,14 +889,15 @@
           "parameter_index": 0,
           "role": "targetDeviceObject",
           "structure": "DEVICE_OBJECT",
-          "mode": "report-only",
+          "mode": "canonical-rewrite-eligible",
           "confidence": 0.84,
+          "field_layout_ref": "public.DEVICE_OBJECT",
           "accepted_types": [
             "PDEVICE_OBJECT",
             "__int64",
             "ULONG_PTR"
           ],
-          "source": "IopfCallDriver device object argument despite decompiler name drift"
+          "source": "IopfCallDriver device object argument despite decompiler name drift; WDK public DEVICE_OBJECT layout"
         },
         {
           "parameter_index": 1,

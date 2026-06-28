@@ -16,6 +16,47 @@ from ida_pseudoforge.version import VERSION, plugin_title
 
 METRIC_SPECS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("summaries", ("totals", "summaries"), "same"),
+    ("structure_quality_score", ("structure_quality_score", "score"), "higher"),
+    (
+        "structure_quality_prototype_correctness",
+        ("structure_quality_score", "components", "prototype_correctness", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_call_argument_cleanup",
+        ("structure_quality_score", "components", "call_argument_cleanup", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_structure_identity_evidence",
+        ("structure_quality_score", "components", "structure_identity_evidence", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_offset_residue",
+        ("structure_quality_score", "components", "offset_residue", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_pointer_indexed_residue",
+        ("structure_quality_score", "components", "pointer_indexed_residue", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_generic_identifier_residue",
+        ("structure_quality_score", "components", "generic_identifier_residue", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_rewrite_safety_blockers",
+        ("structure_quality_score", "components", "rewrite_safety_blockers", "score"),
+        "higher",
+    ),
+    (
+        "structure_quality_ida_plugin_packaging_boundary",
+        ("structure_quality_score", "components", "ida_plugin_packaging_boundary", "score"),
+        "higher",
+    ),
     ("warnings", ("totals", "warnings"), "lower"),
     ("functions_with_warnings", ("totals", "functions_with_warnings"), "lower"),
     ("rename_candidates", ("totals", "rename_candidates"), "neutral"),

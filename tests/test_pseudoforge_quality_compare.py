@@ -22,6 +22,19 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "warnings": 10,
                             "applied_renames": 3,
                         },
+                        "structure_quality_score": {
+                            "score": 5.5,
+                            "components": {
+                                "prototype_correctness": {"score": 4.0},
+                                "call_argument_cleanup": {"score": 5.0},
+                                "structure_identity_evidence": {"score": 3.0},
+                                "offset_residue": {"score": 4.5},
+                                "pointer_indexed_residue": {"score": 4.0},
+                                "generic_identifier_residue": {"score": 6.0},
+                                "rewrite_safety_blockers": {"score": 7.0},
+                                "ida_plugin_packaging_boundary": {"score": 10.0},
+                            },
+                        },
                         "rename_stats": {"apply_rate": 30.0},
                         "body_text_stats": {
                             "generic_identifier_tokens": 100,
@@ -78,6 +91,19 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
                             "warnings": 4,
                             "applied_renames": 8,
                         },
+                        "structure_quality_score": {
+                            "score": 7.25,
+                            "components": {
+                                "prototype_correctness": {"score": 7.0},
+                                "call_argument_cleanup": {"score": 8.0},
+                                "structure_identity_evidence": {"score": 7.5},
+                                "offset_residue": {"score": 8.5},
+                                "pointer_indexed_residue": {"score": 8.0},
+                                "generic_identifier_residue": {"score": 5.0},
+                                "rewrite_safety_blockers": {"score": 8.0},
+                                "ida_plugin_packaging_boundary": {"score": 10.0},
+                            },
+                        },
                         "rename_stats": {"apply_rate": 80.0},
                         "body_text_stats": {
                             "generic_identifier_tokens": 120,
@@ -130,6 +156,12 @@ class PseudoForgeQualityCompareTests(unittest.TestCase):
             metrics = {item["name"]: item for item in report["metrics"]}
 
             self.assertTrue(report["same_function_count"])
+            self.assertEqual(1.75, metrics["structure_quality_score"]["delta"])
+            self.assertEqual("improved", metrics["structure_quality_score"]["status"])
+            self.assertEqual(4.0, metrics["structure_quality_offset_residue"]["delta"])
+            self.assertEqual("improved", metrics["structure_quality_offset_residue"]["status"])
+            self.assertEqual(-1.0, metrics["structure_quality_generic_identifier_residue"]["delta"])
+            self.assertEqual("regressed", metrics["structure_quality_generic_identifier_residue"]["status"])
             self.assertEqual(-6, metrics["warnings"]["delta"])
             self.assertEqual("improved", metrics["warnings"]["status"])
             self.assertEqual(5, metrics["applied_renames"]["delta"])

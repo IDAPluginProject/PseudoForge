@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -101,6 +102,51 @@ __int64 __fastcall Quiet(__int64 status)
                 payload["outputs"]["opaque_target_ea_file"],
             )
             self.assertIn(str(out_dir / "replay-eas.txt"), payload["recommended_commands"][0])
+
+    def test_replay_plan_supports_seeded_random_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "corpus"
+            functions = [
+                ("0x140001000", "HotA", 6),
+                ("0x140002000", "HotB", 5),
+                ("0x140003000", "HotC", 4),
+                ("0x140004000", "HotD", 3),
+                ("0x140005000", "HotE", 2),
+            ]
+            for ea, name, warnings in functions:
+                _write_function(
+                    root,
+                    ea=ea,
+                    name=name,
+                    warnings=warnings,
+                    rename_candidates=10,
+                    renames=1,
+                    cleaned_body=(
+                        "__int64 __fastcall %s(__int64 a1) { return *(_QWORD *)(a1 + 16); }"
+                        % name
+                    ),
+                )
+
+            plan = build_replay_plan(root, limit=3, selection="random", seed="seed-a")
+            repeat = build_replay_plan(root, limit=3, selection="random", seed="seed-a")
+            expected_random_order = sorted(
+                [(ea, name) for ea, name, _warnings in functions],
+                key=lambda item: hashlib.sha256(
+                    ("seed-a|%s|%s" % (item[0], item[1])).encode("utf-8")
+                ).hexdigest(),
+            )[:3]
+            expected_eas = {ea for ea, _name in expected_random_order}
+
+            self.assertEqual("random", plan["selection"])
+            self.assertEqual("seed-a", plan["seed"])
+            self.assertEqual(
+                [item["ea"] for item in plan["items"]],
+                [item["ea"] for item in repeat["items"]],
+            )
+            self.assertEqual(expected_eas, {item["ea"] for item in plan["items"]})
+            markdown = render_replay_plan_markdown(plan)
+            self.assertIn("Selection: `random`", markdown)
+            self.assertIn("Seed: `seed-a`", markdown)
 
     def test_replay_plan_exposes_registry_domain_profile_hits(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -506,6 +506,46 @@ __int64 __fastcall IopExample(PFILE_OBJECT a1, __int64 a2)
         self.assertFalse(any(item.get("kind") == "domain_structure_identity" for item in missing_body_comments))
         self.assertEqual("test.domain_profile", self._single_identity(matched_comments)["profile_id"])
 
+    def test_default_subsystem_prefix_profiles_are_report_only_identity(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+        candidates = domain_identity_function_identity_candidates(
+            "__int64 __fastcall MiFlushComplete(__int64 a1)\n{\n  return a1;\n}\n",
+            profile_context=_matching_context(),
+        )
+
+        prefix = [
+            item
+            for item in candidates
+            if item.profile_id == "windows.subsystem_prefix.memory_manager"
+        ]
+
+        self.assertEqual(1, len(prefix))
+        self.assertEqual("Memory Manager", prefix[0].subsystem)
+        self.assertEqual("report-only", prefix[0].effective_mode)
+        self.assertIn("generic_subsystem_prefix", prefix[0].blockers)
+        self.assertIn("report_only_profile", prefix[0].blockers)
+
+    def test_subsystem_prefix_profile_does_not_make_exact_profile_ambiguous(self) -> None:
+        profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+        text = (
+            "char __fastcall MiFreePagesFromMdl(__int64 a1, unsigned int a2, char a3, int a4)\n"
+            "{\n"
+            "  MmUnmapLockedPages(a1, a1);\n"
+            "  MiFreeMdlPageRun(a1);\n"
+            "  MiZeroAndReleasePages(a1);\n"
+            "  return 0;\n"
+            "}\n"
+        )
+        candidates = domain_identity_function_identity_candidates(
+            text,
+            profile_context=_matching_context(),
+        )
+        profile_ids = {item.profile_id for item in candidates}
+
+        self.assertIn("windows.memory_manager.free_pages_from_mdl", profile_ids)
+        self.assertIn("windows.subsystem_prefix.memory_manager", profile_ids)
+        self.assertNotIn("ambiguous", profile_ids)
+
     def test_local_name_hint_can_match_non_parameter_base(self) -> None:
         profile = _pack_payload(function_names=["DomainLocalHintTarget"])
         profile["profiles"][0]["parameters"][0].pop("parameter_index")

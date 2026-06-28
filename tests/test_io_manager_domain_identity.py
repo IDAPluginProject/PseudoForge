@@ -148,6 +148,14 @@ void __stdcall IoDeleteDevice(__int64 a1)
         self.assertEqual("PDEVICE_OBJECT", plan.type_corrections[0].canonical_type)
         self.assertTrue(plan.type_corrections[0].apply_to_preview)
         self.assertFalse(plan.type_corrections[0].apply_to_idb)
+        self.assertEqual(1, len(plan.corrected_parameter_map))
+        self.assertEqual("deviceObject", plan.corrected_parameter_map[0].new_name)
+        self.assertEqual("DEVICE_OBJECT", plan.corrected_parameter_map[0].structure)
+        self.assertTrue(
+            {"NextDevice", "AttachedDevice", "Vpb"}.issubset(
+                {field.name for field in plan.corrected_parameter_map[0].fields}
+            )
+        )
         self.assertIn("void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)", rendered)
         self.assertIn("IopCompleteUnloadOrDelete(deviceObject);", rendered)
         self.assertNotIn("(ULONG_PTR)deviceObject", rendered)
@@ -731,7 +739,7 @@ __int64 __fastcall sub_140506ED0(__int64 a1, __int64 a2)
         self.assertEqual(1, len(previews))
         self.assertIn("field_8", previews[0]["text"])
 
-    def test_report_only_device_identity_blocks_offset_rewrite(self) -> None:
+    def test_public_device_identity_unlocks_offset_rewrite(self) -> None:
         plan = self._plan(
             """
 void __stdcall IoDeleteDevice(__int64 deviceObject)
@@ -742,14 +750,18 @@ void __stdcall IoDeleteDevice(__int64 deviceObject)
         + *(_QWORD *)(deviceObject + 24)
         + *(_QWORD *)(deviceObject + 32)
         + *(_QWORD *)(deviceObject + 40)
-        + *(_QWORD *)(deviceObject + 48)
+        + *(unsigned int *)(deviceObject + 48)
+        + *(unsigned int *)(deviceObject + 52)
         + *(_QWORD *)(deviceObject + 56)
         + *(_QWORD *)(deviceObject + 64)
-        + *(_QWORD *)(deviceObject + 72)
+        + *(unsigned int *)(deviceObject + 72)
+        + *(unsigned __int8 *)(deviceObject + 76)
         + *(_QWORD *)(deviceObject + 16)
         + *(_QWORD *)(deviceObject + 24)
         + *(_QWORD *)(deviceObject + 32)
-        + *(_QWORD *)(deviceObject + 40);
+        + *(_QWORD *)(deviceObject + 40)
+        + *(unsigned int *)(deviceObject + 48)
+        + *(_QWORD *)(deviceObject + 56);
   IopCompleteUnloadOrDelete((ULONG_PTR)deviceObject + probe);
 }
 """
@@ -766,20 +778,22 @@ void __stdcall IoDeleteDevice(__int64 deviceObject)
             if item.get("kind") == "inferred_offset_rewrite_blockers"
             and item.get("base") == "deviceObject"
         ]
+        ready = [
+            item
+            for item in plan.comments
+            if item.get("kind") == "inferred_offset_rewrite_ready"
+            and item.get("base") == "deviceObject"
+        ]
 
         self.assertEqual("DEVICE_OBJECT", identity["structure_name"])
         self.assertEqual("deviceObject", identity["trusted_role"])
-        self.assertEqual("report-only", identity["effective_mode"])
-        self.assertIn("profile_report_only", identity["blockers"])
-        self.assertEqual([], identity["fields"])
-        self.assertTrue(any("domain identity profile is report-only" in item["blockers"] for item in blockers))
-        self.assertFalse(
-            any(
-                item.get("kind") == "inferred_offset_rewrite_ready"
-                and item.get("base") == "deviceObject"
-                for item in plan.comments
-            )
-        )
+        self.assertEqual("canonical-rewrite-eligible", identity["effective_mode"])
+        self.assertNotIn("profile_report_only", identity["blockers"])
+        self.assertTrue(any(field.get("name") == "NextDevice" for field in identity["fields"]))
+        self.assertTrue(any(field.get("name") == "Vpb" for field in identity["fields"]))
+        self.assertEqual([], blockers)
+        self.assertEqual(1, len(ready))
+        self.assertEqual("domain_identity", ready[0]["source_provenance"])
 
     def test_build_mismatch_fails_closed(self) -> None:
         plan = self._plan(

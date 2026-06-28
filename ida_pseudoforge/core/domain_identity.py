@@ -464,6 +464,7 @@ def _profiles_from_payload(payload: Any, profile_name: str) -> list[dict[str, An
     if not isinstance(payload, dict):
         return []
     pack_metadata = _pack_metadata(payload, profile_name)
+    pack_structure_layouts = _pack_structure_layouts(payload)
     profiles = payload.get("profiles", [])
     if not isinstance(profiles, list) and _looks_like_profile(payload):
         profiles = [payload]
@@ -475,9 +476,39 @@ def _profiles_from_payload(payload: Any, profile_name: str) -> list[dict[str, An
             continue
         profile = dict(item)
         profile["_pack_metadata"] = dict(pack_metadata)
+        profile["_pack_structure_layouts"] = dict(pack_structure_layouts)
         profile["_pack_name"] = profile_name
         result.append(profile)
     return result
+
+
+def _pack_structure_layouts(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    layouts = payload.get("structure_layouts", {})
+    result: dict[str, list[dict[str, Any]]] = {}
+    if isinstance(layouts, dict):
+        for key, value in layouts.items():
+            fields = _layout_fields(value)
+            if fields:
+                result[str(key)] = fields
+    elif isinstance(layouts, list):
+        for item in layouts:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("id", item.get("name", item.get("structure", ""))) or "").strip()
+            fields = _layout_fields(item)
+            if name and fields:
+                result[name] = fields
+    return result
+
+
+def _layout_fields(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        fields = value.get("fields", [])
+    else:
+        fields = value
+    if not isinstance(fields, list):
+        return []
+    return [item for item in fields if isinstance(item, dict)]
 
 
 def _looks_like_profile(payload: dict[str, Any]) -> bool:
@@ -557,6 +588,7 @@ def _function_identity_candidate(
     if not match_kind:
         return None
     blockers = list(match_blockers)
+    blockers.extend(_profile_identity_blockers(profile))
     blockers.extend(_profile_context_blockers(profile, profile_context))
     profile_report_only = _profile_is_report_only(profile)
     if profile_report_only and "report_only_profile" not in blockers:
@@ -650,7 +682,13 @@ def _profile_is_report_only(profile: dict[str, Any]) -> bool:
     prototype_parameters = _prototype_parameter_dicts(profile)
     if prototype_parameters and not policy["signature_preview"] and not policy["body_canonical_rewrite"]:
         return True
+    if not modes and not prototype_parameters:
+        return not policy["signature_preview"] and not policy["body_canonical_rewrite"]
     return False
+
+
+def _profile_identity_blockers(profile: dict[str, Any]) -> list[str]:
+    return list(dict.fromkeys(_string_list(profile.get("identity_blockers"))))
 
 
 def _profile_active_identity_mode(profile: dict[str, Any]) -> str:
@@ -1380,6 +1418,17 @@ def _parameter_match(
 
 
 def _profile_fields(value: Any, profile: dict[str, Any], parameter: dict[str, Any]) -> list[DomainIdentityField]:
+    if not isinstance(value, list) or not value:
+        ref = str(
+            parameter.get(
+                "field_layout_ref",
+                parameter.get("structure_layout_ref", parameter.get("layout_ref", "")),
+            )
+            or ""
+        ).strip()
+        layouts = profile.get("_pack_structure_layouts", {})
+        if ref and isinstance(layouts, dict):
+            value = layouts.get(ref, [])
     if not isinstance(value, list):
         return []
     result: list[DomainIdentityField] = []
