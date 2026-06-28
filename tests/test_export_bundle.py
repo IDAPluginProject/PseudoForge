@@ -560,8 +560,10 @@ __int64 __fastcall LayoutPreviewApply(__int64 argument2)
             cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
             preview_text = Path(artifacts["layout_rewrite_preview"]).read_text(encoding="utf-8")
             preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
-            self.assertIn("v4->field_10 /* _DWORD +0x10 */", cleaned_output)
-            self.assertIn("v4->field_18 /* _QWORD +0x18 */", cleaned_output)
+            self.assertIn("argument2->field_10 /* _DWORD +0x10 */", cleaned_output)
+            self.assertIn("argument2->field_18 /* _QWORD +0x18 */", cleaned_output)
+            self.assertNotIn("__int64 v4;", cleaned_output)
+            self.assertNotIn("v4 = argument2;", cleaned_output)
             self.assertNotIn("*(_DWORD *)(v4 + 16)", cleaned_output)
             self.assertIn("Validated layout rewrite applied to canonical cleaned output.", cleaned_output)
             self.assertNotIn("Audit only; body rewrite was not applied.", cleaned_output)
@@ -571,6 +573,17 @@ __int64 __fastcall LayoutPreviewApply(__int64 argument2)
             self.assertTrue(preview_metadata["canonical_cleaned_output_modified"])
             self.assertEqual("applied", preview_metadata["canonical_rewrite_status"])
             self.assertEqual([], preview_metadata["canonical_rewrite_errors"])
+            self.assertEqual(
+                [
+                    {
+                        "base": "v4",
+                        "source": "argument2",
+                        "field_accesses": 2,
+                        "source_provenance": "direct_argument_alias",
+                    }
+                ],
+                preview_metadata["canonical_source_alias_folds"],
+            )
             self.assertEqual("passed", preview_metadata["validation"]["status"])
 
     def test_render_cleaned_pseudocode_can_apply_validated_layout_rewrite(self) -> None:
@@ -619,8 +632,10 @@ __int64 __fastcall LayoutRenderApply(__int64 argument2)
 
         self.assertIn("*(_DWORD *)(v4 + 16)", default_rendered)
         self.assertIn("Audit only; body rewrite was not applied.", default_rendered)
-        self.assertIn("v4->field_10 /* _DWORD +0x10 */", rewritten)
-        self.assertIn("v4->field_18 /* _QWORD +0x18 */", rewritten)
+        self.assertIn("argument0->field_10 /* _DWORD +0x10 */", rewritten)
+        self.assertIn("argument0->field_18 /* _QWORD +0x18 */", rewritten)
+        self.assertNotIn("__int64 v4;", rewritten)
+        self.assertNotIn("v4 = argument0;", rewritten)
         self.assertIn("Validated layout rewrite applied to canonical cleaned output.", rewritten)
         self.assertNotIn("*(_DWORD *)(v4 + 16)", rewritten)
         self.assertNotIn("Audit only; body rewrite was not applied.", rewritten)
@@ -685,8 +700,8 @@ __int64 __fastcall HeaderLimitLayout(__int64 argument2)
             preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
 
         self.assertIn("layout_rewrite_preview", artifacts)
-        self.assertIn("v4->field_10 /* _DWORD +0x10 */", cleaned_output)
-        self.assertIn("v4->field_18 /* _QWORD +0x18 */", cleaned_output)
+        self.assertIn("argument0->field_10 /* _DWORD +0x10 */", cleaned_output)
+        self.assertIn("argument0->field_18 /* _QWORD +0x18 */", cleaned_output)
         self.assertEqual("applied", preview_metadata["canonical_rewrite_status"])
 
     def test_validated_layout_rewrite_handles_advertised_address_casts(self) -> None:
@@ -1120,7 +1135,21 @@ unsigned __int64 __fastcall SourceAliasLayout(ULONG_PTR context)
         self.assertIn("context->field_B0 /* _QWORD +0xB0 */", canonical_text)
         self.assertIn("context->field_240 /* _QWORD +0x240 */", canonical_text)
         self.assertIn("context->field_25C /* _DWORD +0x25C */", canonical_text)
-        self.assertIn("v6->field_7C /* _DWORD +0x7C */", canonical_text)
+        self.assertIn("context->field_7C /* _DWORD +0x7C */", canonical_text)
+        self.assertNotIn("ULONG_PTR v6;", canonical_text)
+        self.assertNotIn("v6 = context;", canonical_text)
+        self.assertNotIn("v6->field_", canonical_text)
+        self.assertEqual(
+            [
+                {
+                    "base": "v6",
+                    "source": "context",
+                    "field_accesses": 8,
+                    "source_provenance": "parameter_direct_alias",
+                }
+            ],
+            bundle.metadata["canonical_source_alias_folds"],
+        )
         self.assertNotIn("*(_QWORD *)(context + 176)", canonical_text)
         self.assertNotIn("*(_DWORD *)(context + 604)", canonical_text)
 
@@ -1188,8 +1217,76 @@ unsigned __int64 __fastcall SourceAliasResidualLayout(ULONG_PTR context)
         self.assertIn("context->field_168 /* _QWORD +0x168 */", canonical_text)
         self.assertIn("context->field_2B0 /* _BYTE +0x2B0 */", canonical_text)
         self.assertIn("*(_OWORD *)(context + 8)", canonical_text)
+        self.assertNotIn("ULONG_PTR v6;", canonical_text)
+        self.assertNotIn("v6 = context;", canonical_text)
+        self.assertNotIn("v6->field_", canonical_text)
+        self.assertEqual(
+            [
+                {
+                    "base": "v6",
+                    "source": "context",
+                    "field_accesses": 8,
+                    "source_provenance": "parameter_direct_alias",
+                }
+            ],
+            bundle.metadata["canonical_source_alias_folds"],
+        )
         self.assertNotIn("*(_QWORD *)(context + 184)", canonical_text)
         self.assertNotIn("*(_BYTE *)(context + 688)", canonical_text)
+
+    def test_validated_layout_rewrite_folds_casted_direct_source_alias_fields(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v6: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance parameter_direct_alias from context. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v6: 12 dereference(s) can map to 8 field alias(es) field_7C, field_88, field_8C, field_B0, field_240, field_248, field_25C, field_264. Source provenance parameter_direct_alias from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+unsigned __int64 __fastcall CastedSourceAliasLayout(PDEVICE_OBJECT context)
+{
+  __int64 v6;
+
+  v6 = (__int64)context;
+  return *(_DWORD *)(v6 + 124)
+       + *(_DWORD *)(v6 + 136)
+       + *(unsigned __int16 *)(v6 + 140)
+       + *(_QWORD *)(v6 + 176)
+       + *(_QWORD *)(v6 + 576)
+       + *(_QWORD *)(v6 + 584)
+       + *(_DWORD *)(v6 + 604)
+       + *(_DWORD *)(v6 + 612)
+       + *(_DWORD *)(v6 + 124)
+       + *(_DWORD *)(v6 + 136)
+       + *(unsigned __int16 *)(v6 + 140)
+       + *(_QWORD *)(v6 + 176);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "CastedSourceAliasLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        self.assertEqual("applied", bundle.metadata["canonical_rewrite_status"])
+        self.assertEqual("passed", bundle.metadata["validation"]["status"])
+        self.assertIn("context->field_7C /* _DWORD +0x7C */", canonical_text)
+        self.assertIn("context->field_240 /* _QWORD +0x240 */", canonical_text)
+        self.assertNotIn("__int64 v6;", canonical_text)
+        self.assertNotIn("v6 = (__int64)context;", canonical_text)
+        self.assertNotIn("v6->field_", canonical_text)
+        self.assertEqual(
+            [
+                {
+                    "base": "v6",
+                    "source": "context",
+                    "field_accesses": 12,
+                    "source_provenance": "parameter_direct_alias",
+                }
+            ],
+            bundle.metadata["canonical_source_alias_folds"],
+        )
 
     def test_source_alias_residue_extension_ignores_comment_only_offsets(self) -> None:
         cleaned_text = """
@@ -1235,6 +1332,7 @@ unsigned __int64 __fastcall CommentOnlySourceAliasResidualLayout(ULONG_PTR conte
         self.assertNotIn(0x998, bundle.metadata["preview_plans"][0]["advertised_offsets"])
         self.assertNotIn("field_998", canonical_text)
         self.assertIn("*(_QWORD *)(context + 2456)", canonical_text)
+        self.assertNotIn("v6->field_", canonical_text)
 
     def test_validated_layout_rewrite_keeps_field_pointer_source_alias_raw(self) -> None:
         cleaned_text = """

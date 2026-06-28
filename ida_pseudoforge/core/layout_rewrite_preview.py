@@ -99,6 +99,17 @@ _SOURCE_ALIAS_RESIDUAL_EXTENSION_PROVENANCES = {
     "parameter_direct_alias",
 }
 _SOURCE_ALIAS_RESIDUAL_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\r\n]*", re.DOTALL)
+_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\r\n]*", re.DOTALL)
+_DIRECT_SOURCE_ALIAS_DECLARATION_TYPE_PATTERN = (
+    r"(?:unsigned\s+)?__int64|ULONG_PTR|LONG_PTR|UINT_PTR|DWORD_PTR|"
+    r"ULONG64|LONG64|_QWORD|P[A-Za-z0-9_]+|(?:const\s+)?void\s*\*|"
+    r"(?:unsigned\s+)?char\s*\*|[A-Za-z_][A-Za-z0-9_:]*\s*\*"
+)
+_DIRECT_SOURCE_ALIAS_DECLARATION_RE = re.compile(
+    r"(?m)^(?P<indent>\s*)(?P<type>(?:%s))\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;\s*(?://[^\n]*)?$"
+    % _DIRECT_SOURCE_ALIAS_DECLARATION_TYPE_PATTERN
+)
 
 
 @dataclass(slots=True)
@@ -136,6 +147,7 @@ def build_layout_rewrite_preview_bundle(
     validation_text = _preview_header(artifact_name, rewrite_stats) + rewritten.rstrip() + "\n"
     validation = _validate_layout_rewrite_preview(plans, rewrite_stats, validation_text)
     canonical_text = None
+    canonical_source_alias_folds: list[dict[str, Any]] = []
     canonical_rewrite_status = "not_requested"
     canonical_rewrite_errors: list[str] = []
     if apply_validated_body_rewrite:
@@ -146,6 +158,10 @@ def build_layout_rewrite_preview_bundle(
             else:
                 canonical_text = _canonical_layout_rewrite_text(rewritten, plans)
                 canonical_rewrite_status = "applied"
+            canonical_text, canonical_source_alias_folds = _fold_canonical_source_alias_fields(
+                canonical_text,
+                plans,
+            )
         else:
             canonical_rewrite_status = "blocked_by_validation"
             canonical_rewrite_errors = [
@@ -169,6 +185,7 @@ def build_layout_rewrite_preview_bundle(
         "canonical_cleaned_output_modified": canonical_text is not None,
         "canonical_rewrite_status": canonical_rewrite_status,
         "canonical_rewrite_errors": canonical_rewrite_errors,
+        "canonical_source_alias_folds": canonical_source_alias_folds,
         "preview_plans": plans,
         "rewritten_accesses": rewrite_stats["rewritten_accesses"],
         "rewritten_fields": rewrite_stats["rewritten_fields"],
@@ -1089,6 +1106,168 @@ def _outer_value_deref_prefix(outer_stars: str) -> str:
     if outer_depth <= 1:
         return ""
     return "*" * (outer_depth - 1)
+
+
+def _fold_canonical_source_alias_fields(
+    text: str,
+    plans: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    result = str(text or "")
+    folds: list[dict[str, Any]] = []
+    for plan in plans:
+        if not _source_alias_rewrite_allowed(plan):
+            continue
+        alias = str(plan.get("base", "") or "")
+        source = str(plan.get("source", "") or "")
+        result, fold = _fold_one_canonical_source_alias_field_base(result, alias, source)
+        if fold:
+            fold["source_provenance"] = str(plan.get("source_provenance", "") or "")
+            folds.append(fold)
+    return result, folds
+
+
+def _fold_one_canonical_source_alias_field_base(
+    text: str,
+    alias: str,
+    source: str,
+) -> tuple[str, dict[str, Any] | None]:
+    if not _safe_layout_identifier(alias) or not _safe_layout_identifier(source):
+        return text, None
+    if alias == source:
+        return text, None
+    declaration_match = _single_direct_source_alias_declaration(text, alias)
+    if declaration_match is None:
+        return text, None
+    assignment_match = _single_direct_source_alias_assignment(text, alias, source)
+    effective_source = source
+    if assignment_match is None:
+        assignment_match = _single_any_direct_source_alias_assignment(text, alias)
+        if assignment_match is None:
+            return text, None
+        if _identifier_has_non_comment_occurrence(text, source):
+            return text, None
+        effective_source = assignment_match.group("source")
+        if not _safe_layout_identifier(effective_source) or effective_source == alias:
+            return text, None
+    if assignment_match.start() < declaration_match.end():
+        return text, None
+
+    excluded_spans = [
+        _whole_line_span(text, *declaration_match.span()),
+        _whole_line_span(text, *assignment_match.span()),
+    ]
+    masked_text = _mask_spans(text, _comment_spans(text))
+    field_access_spans: list[tuple[int, int]] = []
+    for match in re.finditer(r"\b%s\b" % re.escape(alias), masked_text):
+        occurrence = match.span()
+        if _span_is_within_any(occurrence, excluded_spans):
+            continue
+        if not _identifier_is_arrow_field_base(masked_text, occurrence):
+            return text, None
+        field_access_spans.append(occurrence)
+    if not field_access_spans:
+        return text, None
+
+    edits: list[tuple[int, int, str]] = [
+        (start, end, effective_source)
+        for start, end in field_access_spans
+    ]
+    for start, end in excluded_spans:
+        edits.append((start, end, ""))
+
+    result = text
+    for start, end, replacement in sorted(edits, reverse=True):
+        result = result[:start] + replacement + result[end:]
+    return result, {
+        "base": alias,
+        "source": effective_source,
+        "field_accesses": len(field_access_spans),
+    }
+
+
+def _single_direct_source_alias_declaration(text: str, alias: str) -> re.Match[str] | None:
+    matches = [
+        match
+        for match in _DIRECT_SOURCE_ALIAS_DECLARATION_RE.finditer(text or "")
+        if match.group("name") == alias
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _single_direct_source_alias_assignment(
+    text: str,
+    alias: str,
+    source: str,
+) -> re.Match[str] | None:
+    assignment_re = re.compile(
+        r"(?m)^(?P<indent>\s*)%s\s*=\s*"
+        r"(?:(?:\(\s*[^()\r\n;]+?\s*\))\s*)?"
+        r"(?P<source>%s)\s*;\s*(?://[^\n]*)?$"
+        % (re.escape(alias), re.escape(source))
+    )
+    matches = list(assignment_re.finditer(text or ""))
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _single_any_direct_source_alias_assignment(text: str, alias: str) -> re.Match[str] | None:
+    assignment_re = re.compile(
+        r"(?m)^(?P<indent>\s*)%s\s*=\s*"
+        r"(?:(?:\(\s*[^()\r\n;]+?\s*\))\s*)?"
+        r"(?P<source>[A-Za-z_][A-Za-z0-9_]*)\s*;\s*(?://[^\n]*)?$"
+        % re.escape(alias)
+    )
+    matches = list(assignment_re.finditer(text or ""))
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _identifier_has_non_comment_occurrence(text: str, identifier: str) -> bool:
+    if not _safe_layout_identifier(identifier):
+        return False
+    masked_text = _mask_spans(text, _comment_spans(text))
+    return bool(re.search(r"\b%s\b" % re.escape(identifier), masked_text))
+
+
+def _identifier_is_arrow_field_base(text: str, span: tuple[int, int]) -> bool:
+    index = span[1]
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return text.startswith("->field_", index)
+
+
+def _safe_layout_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(value or "")))
+
+
+def _comment_spans(text: str) -> list[tuple[int, int]]:
+    return [match.span() for match in _COMMENT_RE.finditer(text or "")]
+
+
+def _mask_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    if not spans:
+        return str(text or "")
+    chars = list(str(text or ""))
+    for start, end in spans:
+        for index in range(max(0, start), min(len(chars), end)):
+            chars[index] = " "
+    return "".join(chars)
+
+
+def _span_is_within_any(span: tuple[int, int], containers: list[tuple[int, int]]) -> bool:
+    return any(start <= span[0] and span[1] <= end for start, end in containers)
+
+
+def _whole_line_span(text: str, start: int, end: int) -> tuple[int, int]:
+    line_start = text.rfind("\n", 0, start) + 1
+    newline_index = text.find("\n", end)
+    if newline_index < 0:
+        return (line_start, len(text))
+    return (line_start, newline_index + 1)
 
 
 def _canonical_layout_rewrite_text(
