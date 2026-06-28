@@ -30,6 +30,65 @@ _CUSTOM_FLAG_ENUMS: dict[str, dict[str, str]] = {
     },
 }
 
+_POINTER_WIDTH_ARGUMENT_CAST_RE = re.compile(
+    r"^\(\s*(?:"
+    r"__int64|unsigned\s+__int64|ULONG_PTR|LONG_PTR|UINT_PTR|DWORD_PTR|"
+    r"ULONG64|LONG64|_QWORD"
+    r")\s*\)\s*(?P<expr>.+)$"
+)
+_TYPED_ADDRESS_ARGUMENT_CAST_RE = re.compile(
+    r"^\(\s*(?P<type>[A-Za-z_][A-Za-z0-9_:]*)\s*"
+    r"(?P<stars>\*+)\s*\)\s*&\s*"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)$"
+)
+
+_SCALAR_PARAMETER_TYPES = {
+    "ACCESS_MASK",
+    "BOOLEAN",
+    "CCHAR",
+    "CHAR",
+    "DWORD",
+    "DWORD32",
+    "DWORD64",
+    "DWORD_PTR",
+    "HANDLE",
+    "INT",
+    "INT32",
+    "INT64",
+    "KPROCESSOR_MODE",
+    "LONG",
+    "LONG32",
+    "LONG64",
+    "LONG_PTR",
+    "NTSTATUS",
+    "OBJECT_INFORMATION_CLASS",
+    "PFN_NUMBER",
+    "PHYSICAL_ADDRESS",
+    "POOL_TYPE",
+    "POOL_FLAGS",
+    "POWER_ACTION",
+    "POWER_INFORMATION_LEVEL",
+    "POWER_REQUEST_TYPE",
+    "POWER_STATE",
+    "POWER_STATE_TYPE",
+    "PROCESSINFOCLASS",
+    "PROCESSOR_NUMBER",
+    "PROCESSTRACE_HANDLE",
+    "SIZE_T",
+    "SSIZE_T",
+    "THREADINFOCLASS",
+    "UCHAR",
+    "UINT",
+    "UINT32",
+    "UINT64",
+    "UINT_PTR",
+    "ULONG",
+    "ULONG32",
+    "ULONG64",
+    "ULONG_PTR",
+    "USHORT",
+}
+
 
 @dataclass(frozen=True)
 class _ResolvedIndirectCall:
@@ -214,6 +273,10 @@ def _function_metadata_for_name(functions: dict[str, Any], name: str) -> dict[st
     if isinstance(direct, dict):
         return _apply_function_metadata_overrides(name, direct)
 
+    manual = _manual_function_metadata(name)
+    if manual:
+        return _apply_function_metadata_overrides(name, manual)
+
     alias = _resolve_function_alias(name, functions)
     if alias is None:
         return {}
@@ -222,6 +285,14 @@ def _function_metadata_for_name(functions: dict[str, Any], name: str) -> dict[st
     if not isinstance(target, dict):
         return {}
     return _apply_function_metadata_overrides(target_name, target, name, alias_kind)
+
+
+def _manual_function_metadata(name: str) -> dict[str, Any]:
+    overrides = _kernel_api_overrides().get("function_overrides", {})
+    if not isinstance(overrides, dict):
+        return {}
+    metadata = overrides.get(name, {})
+    return dict(metadata) if isinstance(metadata, dict) else {}
 
 
 def _resolve_function_alias(name: str, functions: dict[str, Any]) -> tuple[str, str] | None:
@@ -562,6 +633,15 @@ def _has_rewrite_semantics(metadata: dict[str, Any]) -> bool:
     return False
 
 
+def _has_call_argument_cleanup_semantics(metadata: dict[str, Any]) -> bool:
+    if _has_rewrite_semantics(metadata):
+        return True
+    params = metadata.get("params", [])
+    if not isinstance(params, list):
+        return False
+    return any(isinstance(param, dict) and _parameter_accepts_pointer(param) for param in params)
+
+
 def _rewrite_function_names(profile: dict[str, Any], functions: dict[str, Any], text: str) -> list[str]:
     names = []
     indices = profile.get("indices", {})
@@ -577,7 +657,7 @@ def _rewrite_function_names(profile: dict[str, Any], functions: dict[str, Any], 
     names.extend(
         name
         for name in _find_call_names(text)
-        if _has_rewrite_semantics(_function_metadata_for_name(functions, name))
+        if _has_call_argument_cleanup_semantics(_function_metadata_for_name(functions, name))
     )
     return _dedupe_names(names)
 
@@ -615,6 +695,12 @@ def _rewrite_arguments(argument_text: str, metadata: dict[str, Any], profile: di
 
 
 def _rewrite_argument(argument: str, param: dict[str, Any], profile: dict[str, Any]) -> str:
+    uncast_argument = _remove_pointer_width_cast_for_pointer_parameter(argument, param)
+    if uncast_argument != argument:
+        argument = uncast_argument
+    uncast_argument = _remove_typed_address_cast_for_matching_pointer_parameter(argument, param)
+    if uncast_argument != argument:
+        argument = uncast_argument
     kind = str(param.get("kind", ""))
     if kind == "flags":
         enum_name = str(param.get("enum", ""))
@@ -625,6 +711,95 @@ def _rewrite_argument(argument: str, param: dict[str, Any], profile: dict[str, A
         enum_name = str(param.get("enum", "BOOLEAN"))
         return _format_enum_literal(argument, enum_name, profile) or argument
     return argument
+
+
+def _remove_pointer_width_cast_for_pointer_parameter(argument: str, param: dict[str, Any]) -> str:
+    if not _parameter_accepts_pointer(param):
+        return argument
+    stripped = str(argument or "").strip()
+    match = _POINTER_WIDTH_ARGUMENT_CAST_RE.fullmatch(stripped)
+    if match is None:
+        return argument
+    expression = match.group("expr").strip()
+    if not _safe_pointer_uncast_expression(expression):
+        return argument
+    return expression
+
+
+def _remove_typed_address_cast_for_matching_pointer_parameter(argument: str, param: dict[str, Any]) -> str:
+    stripped = str(argument or "").strip()
+    match = _TYPED_ADDRESS_ARGUMENT_CAST_RE.fullmatch(stripped)
+    if match is None:
+        return argument
+    cast_type = _canonical_pointer_type(match.group("type") + match.group("stars"))
+    param_type = _canonical_pointer_type(str(param.get("type", "") or ""))
+    if not cast_type or not param_type or cast_type != param_type:
+        return argument
+    return "&" + match.group("name")
+
+
+def _parameter_accepts_pointer(param: dict[str, Any]) -> bool:
+    type_text = _normalized_parameter_type(str(param.get("type", "") or ""))
+    if not type_text:
+        return False
+    if "*" in type_text or "&" in type_text:
+        return True
+    upper = type_text.upper()
+    if upper in _SCALAR_PARAMETER_TYPES:
+        return False
+    alias_target = _type_alias_target(type_text)
+    if alias_target:
+        normalized_target = _normalized_parameter_type(alias_target)
+        if "*" in normalized_target or "&" in normalized_target:
+            return True
+        return False
+    if upper in {"PVOID", "PVOID64"}:
+        return True
+    if re.fullmatch(r"P[A-Z0-9_]+", upper) and not upper.endswith(("CLASS", "MODE", "STATUS")):
+        return True
+    return False
+
+
+def _type_alias_target(type_text: str) -> str:
+    normalized = _normalized_parameter_type(type_text)
+    if not normalized:
+        return ""
+    metadata = kernel_type_alias_metadata(normalized)
+    target = str(metadata.get("target", "") or "").strip()
+    return target
+
+
+def _canonical_pointer_type(type_text: str) -> str:
+    normalized = _normalized_parameter_type(type_text)
+    if not normalized or "*" not in normalized:
+        return ""
+    normalized = re.sub(r"\s*\*\s*", "*", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized.upper()
+
+
+def _normalized_parameter_type(type_text: str) -> str:
+    result = re.sub(
+        r"\b(?:IN|OUT|OPTIONAL|CONST|VOLATILE|_In_|_Out_|_Inout_|_In_opt_|_Out_opt_)\b",
+        " ",
+        str(type_text or ""),
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", result).strip()
+
+
+def _safe_pointer_uncast_expression(expression: str) -> bool:
+    text = str(expression or "").strip()
+    if not text:
+        return False
+    if re.fullmatch(
+        r"&?\s*[A-Za-z_][A-Za-z0-9_]*(?:\s*(?:->|\.)\s*[A-Za-z_][A-Za-z0-9_]*)*",
+        text,
+    ):
+        return True
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\)", text):
+        return True
+    return False
 
 
 def _format_flags(argument: str, enum_name: str, profile: dict[str, Any]) -> str:

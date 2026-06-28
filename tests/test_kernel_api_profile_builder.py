@@ -211,7 +211,7 @@ PsGetSiloContext(
             rendered,
         )
         self.assertIn(
-            "ObpReferenceObjectByHandleWithTag((ULONG_PTR)h, 512, (__int64)t, mode, POOL_TAG('P', 's', 'Q', 'y'), &o, 0LL, 0LL)",
+            "ObpReferenceObjectByHandleWithTag((ULONG_PTR)h, 512, t, mode, POOL_TAG('P', 's', 'Q', 'y'), &o, 0LL, 0LL)",
             rendered,
         )
         self.assertIn("ObfDereferenceObjectWithTag(o, POOL_TAG('P', 's', 'Q', 'y'))", rendered)
@@ -220,9 +220,67 @@ PsGetSiloContext(
         self.assertIn("FltTagFile(instance, fileObject, 0x54465241u)", rendered)
         self.assertEqual(decode_pool_tag_literal("0x54465241u"), "ARFT")
 
+    def test_kernel_api_profile_removes_profile_backed_pointer_width_casts(self):
+        text = (
+            "ObReferenceObjectByHandle(h, access, (__int64)objectType, mode, (__int64)&object, 0LL);\n"
+            "ObpReferenceObjectByHandleWithTag((ULONG_PTR)h, access, (__int64)objectType, mode, 0x79517350u, (__int64)&object, 0LL, 0LL);\n"
+            "CmObReferenceObjectByHandle(h, access, 0LL, mode, (__int64)&registryObject, 0LL);\n"
+            "ObDereferenceObject((__int64)object);\n"
+            "ObReferenceObjectSafeWithTag((__int64)object, 0x79517350u);\n"
+            "IopAttachDeviceToDeviceStackSafe((__int64)sourceDevice, targetDevice, (__int64)&attachedDevice);\n"
+            "PsLookupProcessByProcessId((__int64)processId, (__int64)&process);\n"
+            "PsLookupProcessByProcessId(processId, (PEPROCESS *)&process2);\n"
+            "PsLookupThreadByThreadId(threadId, (PETHREAD *)&thread);\n"
+            "MmMapIoSpace((__int64)physicalAddress, numberOfBytes, cacheType);\n"
+            "ExAllocatePool2((ULONG_PTR)poolFlags, numberOfBytes, 0x54465241u);\n"
+            "HalFreeCommonBuffer(dmaAdapter, length, (__int64)logicalAddress, (__int64)virtualAddress, 1u);\n"
+            "IopCompleteUnloadOrDelete((ULONG_PTR)deviceObject);\n"
+            "KeLeaveCriticalRegionThread((__int64)KeGetCurrentThread());\n"
+        )
+
+        rendered = apply_kernel_api_rewrites(text)
+
+        self.assertIn("ObReferenceObjectByHandle(h, access, objectType, mode, &object, 0LL)", rendered)
+        self.assertIn(
+            "ObpReferenceObjectByHandleWithTag((ULONG_PTR)h, access, objectType, mode, POOL_TAG('P', 's', 'Q', 'y'), &object, 0LL, 0LL)",
+            rendered,
+        )
+        self.assertIn("CmObReferenceObjectByHandle(h, access, 0LL, mode, &registryObject, 0LL)", rendered)
+        self.assertIn("ObDereferenceObject(object)", rendered)
+        self.assertIn("ObReferenceObjectSafeWithTag(object, POOL_TAG('P', 's', 'Q', 'y'))", rendered)
+        self.assertIn("IopAttachDeviceToDeviceStackSafe(sourceDevice, targetDevice, &attachedDevice)", rendered)
+        self.assertIn("PsLookupProcessByProcessId((__int64)processId, &process)", rendered)
+        self.assertIn("PsLookupProcessByProcessId(processId, &process2)", rendered)
+        self.assertIn("PsLookupThreadByThreadId(threadId, &thread)", rendered)
+        self.assertIn("MmMapIoSpace((__int64)physicalAddress, numberOfBytes, cacheType)", rendered)
+        self.assertIn(
+            "ExAllocatePool2((ULONG_PTR)poolFlags, numberOfBytes, POOL_TAG('A', 'R', 'F', 'T'))",
+            rendered,
+        )
+        self.assertIn("HalFreeCommonBuffer(dmaAdapter, length, (__int64)logicalAddress, virtualAddress, TRUE)", rendered)
+        self.assertIn("IopCompleteUnloadOrDelete(deviceObject)", rendered)
+        self.assertIn("KeLeaveCriticalRegionThread(KeGetCurrentThread())", rendered)
+        self.assertIn("(ULONG_PTR)h", rendered)
+        self.assertIn("(ULONG_PTR)poolFlags", rendered)
+        self.assertIn("(__int64)processId", rendered)
+        self.assertIn("(__int64)physicalAddress", rendered)
+        self.assertIn("(__int64)logicalAddress", rendered)
+        self.assertNotIn("(__int64)objectType", rendered)
+        self.assertNotIn("(__int64)&object", rendered)
+        self.assertNotIn("(__int64)&registryObject", rendered)
+        self.assertNotIn("(PEPROCESS *)&process2", rendered)
+        self.assertNotIn("(PETHREAD *)&thread", rendered)
+        self.assertNotIn("(__int64)virtualAddress", rendered)
+        self.assertNotIn("(ULONG_PTR)deviceObject", rendered)
+        self.assertNotIn("(__int64)KeGetCurrentThread()", rendered)
+
     def test_kernel_api_profile_resolves_private_wrapper_aliases(self):
         ob = kernel_function_metadata("ObReferenceObjectByHandleWithTag")
         obp = kernel_function_metadata("ObpReferenceObjectByHandleWithTag")
+        cmob = kernel_function_metadata("CmObReferenceObjectByHandle")
+        ob_deref = kernel_function_metadata("ObDereferenceObject")
+        iop_delete = kernel_function_metadata("IopCompleteUnloadOrDelete")
+        ke_leave = kernel_function_metadata("KeLeaveCriticalRegionThread")
         psp = kernel_function_metadata("PspSetCreateProcessNotifyRoutine")
         alias_entries = lookup_kernel_symbol("ObpReferenceObjectByHandleWithTag")
 
@@ -230,6 +288,10 @@ PsGetSiloContext(
         self.assertEqual(obp.get("profile_alias_of"), "ObReferenceObjectByHandleWithTag")
         self.assertEqual(obp.get("profile_alias_kind"), "explicit")
         self.assertEqual(obp["params"][4]["kind"], "pool_tag")
+        self.assertEqual(cmob.get("profile_alias_of"), "ObReferenceObjectByHandle")
+        self.assertEqual(ob_deref.get("profile_alias_of"), "ObfDereferenceObject")
+        self.assertEqual(iop_delete["params"][0]["type"], "PDEVICE_OBJECT")
+        self.assertEqual(ke_leave["params"][0]["type"], "PKTHREAD")
         self.assertEqual(psp.get("profile_alias_of"), "PsSetCreateProcessNotifyRoutine")
         self.assertEqual(psp["params"][1]["kind"], "bool")
         self.assertTrue(any(entry.get("kind") == "function_alias" for entry in alias_entries))

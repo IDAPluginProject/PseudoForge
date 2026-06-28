@@ -2,7 +2,33 @@
   "schema_version": 1,
   "description": "Manual kernel API metadata overlays for private wrapper names and deterministic parameter semantics.",
   "function_aliases": {
+    "CmObReferenceObjectByHandle": "ObReferenceObjectByHandle",
+    "ObDereferenceObject": "ObfDereferenceObject",
     "ObpReferenceObjectByHandleWithTag": "ObReferenceObjectByHandleWithTag"
+  },
+  "function_overrides": {
+    "IopCompleteUnloadOrDelete": {
+      "calling_convention": "__fastcall",
+      "params": [
+        {
+          "kind": "value",
+          "name": "DeviceObject",
+          "type": "PDEVICE_OBJECT"
+        }
+      ],
+      "return_type": "VOID"
+    },
+    "KeLeaveCriticalRegionThread": {
+      "calling_convention": "__fastcall",
+      "params": [
+        {
+          "kind": "value",
+          "name": "Thread",
+          "type": "PKTHREAD"
+        }
+      ],
+      "return_type": "VOID"
+    }
   },
   "prefix_alias_rules": [
     {

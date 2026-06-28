@@ -77,7 +77,7 @@ NTSTATUS __fastcall LookupProcess(__int64 a1)
 
         self.assertEqual("processId", active["a1"])
         self.assertEqual("process", active["v1"])
-        self.assertIn("PsLookupProcessByProcessId(processId, (PEPROCESS *)&process)", rendered)
+        self.assertIn("PsLookupProcessByProcessId(processId, &process)", rendered)
         self.assertIn("ObDereferenceObject(process)", rendered)
 
     def test_exact_profile_parameter_renames_pool_free_arguments(self) -> None:
