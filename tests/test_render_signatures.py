@@ -170,6 +170,45 @@ void __stdcall IoDeleteDevice(__int64 a1)
         self.assertNotIn("(ULONG_PTR)a1", rendered)
         self.assertNotIn("(__int64)a1", rendered)
 
+    def test_profile_type_correction_folds_call_only_pointer_width_alias(self) -> None:
+        text = """
+void __stdcall IoDeleteDevice(__int64 a1)
+{
+  __int64 deviceObjectAlias;
+
+  deviceObjectAlias = (__int64)a1;
+  ObDereferenceObject((__int64)deviceObjectAlias);
+  IopCompleteUnloadOrDelete(deviceObjectAlias);
+}
+""".lstrip()
+        capture = capture_from_pseudocode(text)
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="IoDeleteDevice",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="deviceObject",
+                    old_type="__int64",
+                    canonical_type="PDEVICE_OBJECT",
+                    profile_id="windows.io_manager.delete_device",
+                    confidence=0.91,
+                    effective_mode="report-only",
+                )
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn("void __stdcall IoDeleteDevice(PDEVICE_OBJECT a1)", rendered)
+        self.assertIn("ObDereferenceObject(a1);", rendered)
+        self.assertIn("IopCompleteUnloadOrDelete(a1);", rendered)
+        self.assertNotIn("__int64 deviceObjectAlias;", rendered)
+        self.assertNotIn("deviceObjectAlias =", rendered)
+        self.assertNotIn("deviceObjectAlias", rendered)
+
     def test_profile_type_correction_keeps_non_call_pointer_width_cast(self) -> None:
         text = """
 __int64 __fastcall IopReturnPointerValue(__int64 a1)
@@ -200,6 +239,42 @@ __int64 __fastcall IopReturnPointerValue(__int64 a1)
 
         self.assertIn("__int64 __fastcall IopReturnPointerValue(PDEVICE_OBJECT a1)", rendered)
         self.assertIn("return (__int64)a1;", rendered)
+
+    def test_profile_type_correction_keeps_offset_base_pointer_width_alias(self) -> None:
+        text = """
+__int64 __fastcall IopReadDeviceExtension(__int64 a1)
+{
+  __int64 deviceObjectAlias;
+
+  deviceObjectAlias = (__int64)a1;
+  return *(_QWORD *)(deviceObjectAlias + 16);
+}
+""".lstrip()
+        capture = capture_from_pseudocode(text)
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="IopReadDeviceExtension",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="deviceObject",
+                    old_type="__int64",
+                    canonical_type="PDEVICE_OBJECT",
+                    profile_id="test.type",
+                    confidence=0.91,
+                    effective_mode="report-only",
+                )
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn("__int64 __fastcall IopReadDeviceExtension(PDEVICE_OBJECT a1)", rendered)
+        self.assertIn("__int64 deviceObjectAlias;", rendered)
+        self.assertIn("deviceObjectAlias = (__int64)a1;", rendered)
+        self.assertIn("return *(_QWORD *)(deviceObjectAlias + 16);", rendered)
 
     def test_profile_type_correction_keeps_scalar_parameter_cast(self) -> None:
         text = """

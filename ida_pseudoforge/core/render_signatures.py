@@ -45,11 +45,20 @@ _CALL_ARGUMENT_CAST_KEYWORDS = {
     "while",
 }
 
-_POINTER_WIDTH_CAST_RE = re.compile(
-    r"^\(\s*(?:"
+_POINTER_WIDTH_TYPE_PATTERN = (
     r"__int64|unsigned\s+__int64|ULONG_PTR|LONG_PTR|UINT_PTR|DWORD_PTR|"
     r"ULONG64|LONG64|_QWORD"
-    r")\s*\)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)$"
+)
+
+_POINTER_WIDTH_CAST_RE = re.compile(
+    r"^\(\s*(?:%s)\s*\)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)$"
+    % _POINTER_WIDTH_TYPE_PATTERN
+)
+
+_POINTER_WIDTH_ALIAS_DECLARATION_RE = re.compile(
+    r"(?m)^(?P<indent>\s*)(?P<type>(?:%s))\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*;\s*(?://[^\n]*)?$"
+    % _POINTER_WIDTH_TYPE_PATTERN
 )
 
 _SCALAR_TYPE_NAMES = {
@@ -265,7 +274,8 @@ def _apply_profile_parameter_body_corrections(
     pointer_names = _corrected_pointer_parameter_names(corrections.values())
     if not pointer_names:
         return text
-    return _remove_pointer_width_call_argument_casts(text, pointer_names)
+    text = _remove_pointer_width_call_argument_casts(text, pointer_names)
+    return _fold_corrected_pointer_call_argument_aliases(text, pointer_names)
 
 
 def _remove_pointer_width_call_argument_casts(text: str, pointer_names: set[str]) -> str:
@@ -300,6 +310,148 @@ def _uncast_corrected_pointer_argument(argument: str, pointer_names: set[str]) -
     if name not in pointer_names:
         return None
     return name
+
+
+def _fold_corrected_pointer_call_argument_aliases(text: str, pointer_names: set[str]) -> str:
+    aliases = _corrected_pointer_call_argument_aliases(text, pointer_names)
+    if not aliases:
+        return text
+
+    edits: list[tuple[int, int, str]] = []
+    for start, end, argument in _call_argument_spans(text):
+        for alias, (target_name, _declaration_span, _assignment_span) in aliases.items():
+            replacement = _call_argument_alias_replacement(argument, alias, target_name)
+            if replacement is None:
+                continue
+            edits.append((start, end, replacement))
+            break
+
+    for _alias, (_target_name, declaration_span, assignment_span) in aliases.items():
+        edits.append((*_whole_line_span(text, *assignment_span), ""))
+        edits.append((*_whole_line_span(text, *declaration_span), ""))
+
+    if not edits:
+        return text
+    result = text
+    for start, end, replacement in sorted(edits, reverse=True):
+        result = result[:start] + replacement + result[end:]
+    return result
+
+
+def _corrected_pointer_call_argument_aliases(
+    text: str,
+    pointer_names: set[str],
+) -> dict[str, tuple[str, tuple[int, int], tuple[int, int]]]:
+    result: dict[str, tuple[str, tuple[int, int], tuple[int, int]]] = {}
+    for declaration_match in _POINTER_WIDTH_ALIAS_DECLARATION_RE.finditer(text or ""):
+        alias = declaration_match.group("name")
+        if alias in result or alias in pointer_names:
+            continue
+        assignment_match = _single_pointer_alias_assignment(text, alias, pointer_names)
+        if assignment_match is None:
+            continue
+        if assignment_match.start() < declaration_match.end():
+            continue
+        target_name = assignment_match.group("target")
+        declaration_span = declaration_match.span()
+        assignment_span = assignment_match.span()
+        if not _alias_usage_is_call_argument_only(
+            text,
+            alias,
+            [declaration_span, assignment_span],
+            assignment_match.end(),
+        ):
+            continue
+        result[alias] = (target_name, declaration_span, assignment_span)
+    return result
+
+
+def _single_pointer_alias_assignment(text: str, alias: str, pointer_names: set[str]):
+    assignment_re = re.compile(
+        r"(?m)^(?P<indent>\s*)%s\s*=\s*"
+        r"(?:(?:\(\s*(?:%s)\s*\))\s*)?"
+        r"(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*;\s*(?://[^\n]*)?$"
+        % (re.escape(alias), _POINTER_WIDTH_TYPE_PATTERN)
+    )
+    matches = [
+        match
+        for match in assignment_re.finditer(text or "")
+        if match.group("target") in pointer_names
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _alias_usage_is_call_argument_only(
+    text: str,
+    alias: str,
+    excluded_spans: list[tuple[int, int]],
+    assignment_end: int,
+) -> bool:
+    argument_spans = _call_argument_spans(text)
+    use_count = 0
+    for match in re.finditer(r"\b%s\b" % re.escape(alias), text or ""):
+        occurrence = match.span()
+        if _span_is_within_any(occurrence, excluded_spans):
+            continue
+        if occurrence[0] < assignment_end:
+            return False
+        argument = _containing_call_argument(argument_spans, occurrence)
+        if argument is None:
+            return False
+        if _call_argument_alias_replacement(argument, alias, alias) is None:
+            return False
+        use_count += 1
+    return use_count > 0
+
+
+def _call_argument_spans(text: str) -> list[tuple[int, int, str]]:
+    result: list[tuple[int, int, str]] = []
+    for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(", text or ""):
+        call_name = match.group("name")
+        if call_name in _CALL_ARGUMENT_CAST_KEYWORDS:
+            continue
+        open_index = text.find("(", match.start())
+        close_index = find_matching_paren(text, open_index)
+        if close_index < 0:
+            continue
+        parameter_text = text[open_index + 1:close_index]
+        for argument, span in split_parameters_with_spans(parameter_text):
+            result.append((open_index + 1 + span[0], open_index + 1 + span[1], argument))
+    return result
+
+
+def _call_argument_alias_replacement(argument: str, alias: str, target_name: str) -> str | None:
+    stripped = str(argument or "").strip()
+    if stripped == alias:
+        return target_name
+    match = _POINTER_WIDTH_CAST_RE.fullmatch(stripped)
+    if match is None or match.group("name") != alias:
+        return None
+    return target_name
+
+
+def _containing_call_argument(
+    argument_spans: list[tuple[int, int, str]],
+    occurrence: tuple[int, int],
+) -> str | None:
+    for start, end, argument in argument_spans:
+        if start <= occurrence[0] and occurrence[1] <= end:
+            return argument
+    return None
+
+
+def _span_is_within_any(span: tuple[int, int], containers: list[tuple[int, int]]) -> bool:
+    return any(start <= span[0] and span[1] <= end for start, end in containers)
+
+
+def _whole_line_span(text: str, start: int, end: int) -> tuple[int, int]:
+    line_start = text.rfind("\n", 0, start) + 1
+    newline_index = text.find("\n", end)
+    if newline_index < 0:
+        return (line_start, len(text))
+    return (line_start, newline_index + 1)
 
 
 def _corrected_pointer_parameter_names(corrections) -> set[str]:
