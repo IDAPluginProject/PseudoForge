@@ -21,6 +21,9 @@ from ida_pseudoforge.core.plan_schema import (
     EvidenceGraphNode,
     FunctionCapture,
 )
+from ida_pseudoforge.core.render_kernel_hints import (
+    strip_review_only_aliases_from_canonical_rewrite_lines,
+)
 from ida_pseudoforge.core.domain_identity_summary import domain_identity_summary_payload
 from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
@@ -82,7 +85,9 @@ def write_export_bundle(
         apply_validated_body_rewrite=apply_validated_layout_rewrites,
     )
     if layout_rewrite_preview is not None and layout_rewrite_preview.canonical_text is not None:
-        cleaned_text = layout_rewrite_preview.canonical_text
+        cleaned_text = strip_review_only_aliases_from_canonical_rewrite_lines(
+            layout_rewrite_preview.canonical_text
+        )
     raw_text = capture.pseudocode.rstrip() + "\n"
     switch_outline_text = render_switch_outline(capture, plan)
     flow_report_text = render_flow_report(capture, plan)

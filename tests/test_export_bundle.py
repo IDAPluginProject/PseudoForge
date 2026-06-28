@@ -641,6 +641,53 @@ __int64 __fastcall LayoutPreviewApply(__int64 argument2)
             )
             self.assertEqual("passed", preview_metadata["validation"]["status"])
 
+    def test_validated_layout_rewrite_strips_overlapped_review_only_alias_comments(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v4: 2 typed dereference(s) across 2 offset(s), no rewrite blockers found. Source provenance direct_argument_alias from argument2. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v4: 2 dereference(s) can map to 2 field alias(es) field_10, field_18. Source provenance direct_argument_alias from argument2. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+__int64 __fastcall LayoutPreviewReviewOnlyOverlap(__int64 argument2)
+{
+  __int64 v4;
+  __int64 value;
+
+  v4 = argument2;
+  value = *(_DWORD *)(v4 + 16); // PseudoForge review-only: v4.field_10 (_DWORD, +0x10); no rewrite
+  return value + *(_QWORD *)(v4 + 24);
+}
+""".lstrip()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                """
+__int64 __fastcall LayoutPreviewReviewOnlyOverlap(__int64 argument2)
+{
+  return argument2;
+}
+""",
+                name="LayoutPreviewReviewOnlyOverlap",
+                ea=0x140002280,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(
+                temp_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                cleaned_text=cleaned_text,
+                apply_validated_layout_rewrites=True,
+            )
+
+            cleaned_output = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            preview_metadata = json.loads(Path(artifacts["layout_rewrite_preview_metadata"]).read_text(encoding="utf-8"))
+            self.assertEqual("applied", preview_metadata["canonical_rewrite_status"])
+            self.assertIn("argument2->field_10 /* _DWORD +0x10 */", cleaned_output)
+            self.assertIn("argument2->field_18 /* _QWORD +0x18 */", cleaned_output)
+            self.assertNotIn("PseudoForge review-only: v4.field_10", cleaned_output)
+
     def test_render_cleaned_pseudocode_can_apply_validated_layout_rewrite(self) -> None:
         capture = capture_from_pseudocode(
             """

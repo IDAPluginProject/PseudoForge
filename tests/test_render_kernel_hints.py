@@ -10,6 +10,7 @@ from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.render_kernel_hints import (
     annotate_kernel_hints,
     rewrite_critical_region_entry,
+    strip_review_only_aliases_from_canonical_rewrite_lines,
 )
 from tests.fixtures.kernel_samples import FIRMWARE_SAMPLE
 
@@ -129,6 +130,116 @@ class RenderKernelHintTests(unittest.TestCase):
         self.assertIn("// PseudoForge: providerLink is providerRecord->Link at offset +0x18.", annotated)
         self.assertIn("// PseudoForge: validated RemoveEntryList(providerLink).", annotated)
         self.assertIn("// PseudoForge: validated InsertTailList(providerListHead, newProviderLink).", annotated)
+
+    def test_annotate_kernel_hints_adds_review_only_field_aliases(self) -> None:
+        text = "\n".join(
+            [
+                "__int64 sample()",
+                "{",
+                "  if ( *(_BYTE *)(v5 + 24) )",
+                "    return *(_QWORD *)(v5 + 16);",
+                "  return 0;",
+                "}",
+            ]
+        )
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="MiLockPageListAndLastPage",
+            input_fingerprint="fp",
+            comments=[
+                {
+                    "kind": "domain_structure_identity",
+                    "base": "v5",
+                    "role": "lastPage",
+                    "structure": "MMPFN",
+                    "effective_mode": "report-only",
+                    "fields": [
+                        {"offset": 16, "name": "field_10", "type": "_QWORD"},
+                        {"offset": 24, "name": "field_18", "type": "_BYTE"},
+                    ],
+                    "blockers": ["profile_report_only"],
+                },
+                {
+                    "kind": "inferred_offset_field_aliases",
+                    "base": "v5",
+                    "fields": [
+                        {"offset": 16, "name": "field_10", "type": "_QWORD"},
+                        {"offset": 24, "name": "field_18", "type": "_BYTE"},
+                    ],
+                },
+                {
+                    "kind": "inferred_offset_rewrite_blockers",
+                    "base": "v5",
+                    "blockers": ["profile_report_only"],
+                },
+            ],
+        )
+
+        annotated = annotate_kernel_hints(text, plan)
+
+        self.assertIn("*(_BYTE *)(v5 + 24) ) // PseudoForge review-only:", annotated)
+        self.assertIn("lastPage.field_18 (base v5, MMPFN, _BYTE, +0x18", annotated)
+        self.assertIn("lastPage.field_10 (base v5, MMPFN, _QWORD, +0x10", annotated)
+        self.assertIn("no rewrite", annotated)
+        self.assertNotIn("v5->field_18", annotated)
+
+    def test_annotate_kernel_hints_requires_review_only_evidence_for_field_aliases(self) -> None:
+        text = "  if ( *(_BYTE *)(v5 + 24) )\n    return 1;"
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="SafeCanonicalCandidate",
+            input_fingerprint="fp",
+            comments=[
+                {
+                    "kind": "inferred_offset_field_aliases",
+                    "base": "v5",
+                    "fields": [{"offset": 24, "name": "field_18", "type": "_BYTE"}],
+                },
+            ],
+        )
+
+        annotated = annotate_kernel_hints(text, plan)
+
+        self.assertEqual(text, annotated)
+
+    def test_annotate_kernel_hints_uses_hot_cluster_as_review_only_alias(self) -> None:
+        text = "  if ( *(_DWORD *)(v8 + 32) )\n    return *(_QWORD *)(v8 + 40);"
+        plan = CleanPlan(
+            function_ea=0x140001000,
+            function_name="MiWsleFree",
+            input_fingerprint="fp",
+            comments=[
+                {
+                    "kind": "inferred_offset_field_hot_cluster",
+                    "base": "v8",
+                    "fields": [
+                        {"offset": 32, "name": "field_20", "type": "_DWORD"},
+                        {"offset": 40, "name": "field_28", "type": "_QWORD"},
+                    ],
+                },
+            ],
+        )
+
+        annotated = annotate_kernel_hints(text, plan)
+
+        self.assertIn("v8.field_20 (_DWORD, +0x20)", annotated)
+        self.assertIn("v8.field_28 (_QWORD, +0x28)", annotated)
+        self.assertIn("no rewrite", annotated)
+        self.assertNotIn("v8->field_20", annotated)
+
+    def test_strip_review_only_aliases_from_canonical_rewrite_lines(self) -> None:
+        text = "\n".join(
+            [
+                "  if ( context->field_40 /* _DWORD +0x40 */ ) // PseudoForge review-only: context.field_40 (_DWORD, +0x40); no rewrite",
+                "  if ( *(_DWORD *)(v8 + 32) ) // PseudoForge review-only: v8.field_20 (_DWORD, +0x20); no rewrite",
+            ]
+        )
+
+        stripped = strip_review_only_aliases_from_canonical_rewrite_lines(text)
+
+        self.assertIn("context->field_40 /* _DWORD +0x40 */ )", stripped)
+        self.assertNotIn("context.field_40 (_DWORD, +0x40); no rewrite", stripped)
+        self.assertIn("v8.field_20 (_DWORD, +0x20); no rewrite", stripped)
 
     def test_suspicious_ps_reference_silo_context_variable_operand_is_annotated(self) -> None:
         capture = capture_from_pseudocode(

@@ -228,6 +228,7 @@ _STRUCTURE_QUALITY_COMPONENT_ORDER = (
     "prototype_correctness",
     "call_argument_cleanup",
     "structure_identity_evidence",
+    "visible_body_improvement",
     "offset_residue",
     "pointer_indexed_residue",
     "generic_identifier_residue",
@@ -238,6 +239,7 @@ _STRUCTURE_QUALITY_COMPONENT_WEIGHTS = {
     "prototype_correctness": 1.2,
     "call_argument_cleanup": 1.0,
     "structure_identity_evidence": 1.4,
+    "visible_body_improvement": 1.0,
     "offset_residue": 1.5,
     "pointer_indexed_residue": 1.0,
     "generic_identifier_residue": 1.0,
@@ -795,6 +797,10 @@ LAYOUT_HINT_RE = re.compile(
     r"(?P<offsets>[^;]*);\s+observed types:\s+"
     r"(?P<types>.*?)\.\s+Review as (?P<review>[^.]+)\.\s+"
     r"confidence=(?P<confidence>\d+(?:\.\d+)?)"
+)
+VISIBLE_REVIEW_ONLY_FIELD_ALIAS_RE = re.compile(r"//\s*PseudoForge review-only:[^\n]*\bno rewrite\b")
+VISIBLE_REVIEW_ONLY_FIELD_ALIAS_TOKEN_RE = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\s+\([^)\n]*\+0x[0-9A-Fa-f]+[^)\n]*\)"
 )
 
 ARTIFACT_SUFFIXES = {
@@ -2327,6 +2333,38 @@ def _structure_quality_scorecard(report: dict[str, Any]) -> dict[str, Any]:
                 ),
             },
         ),
+        "visible_body_improvement": _structure_quality_component(
+            "visible_body_improvement",
+            _visible_body_improvement_score(
+                body_text_stats,
+                rewrite_preview_artifact_totals,
+                body_offset_totals,
+                body_offset_review_classes,
+                functions,
+            ),
+            {
+                "visible_review_only_field_alias_annotations": _int_value(
+                    body_text_stats.get("visible_review_only_field_alias_annotations"),
+                    0,
+                ),
+                "visible_review_only_field_alias_tokens": _int_value(
+                    body_text_stats.get("visible_review_only_field_alias_tokens"),
+                    0,
+                ),
+                "functions_with_visible_review_only_field_aliases": _int_value(
+                    body_text_stats.get("functions_with_visible_review_only_field_aliases"),
+                    0,
+                ),
+                "canonical_layout_rewrite_applied": _int_value(
+                    rewrite_preview_artifact_totals.get("canonical_rewrite_applied"),
+                    0,
+                ),
+                "report_only_blocked_residue": _int_value(
+                    body_offset_review_classes.get("report_only_blocked_residue"),
+                    0,
+                ),
+            },
+        ),
         "offset_residue": _structure_quality_component(
             "offset_residue",
             _offset_residue_score(
@@ -2606,6 +2644,30 @@ def _structure_identity_evidence_score(
     return score
 
 
+def _visible_body_improvement_score(
+    body_text_stats: dict[str, Any],
+    rewrite_preview_artifact_totals: dict[str, Any],
+    body_offset_totals: dict[str, Any],
+    body_offset_review_classes: dict[str, Any],
+    functions: int,
+) -> float:
+    annotations = _int_value(body_text_stats.get("visible_review_only_field_alias_annotations"), 0)
+    alias_tokens = _int_value(body_text_stats.get("visible_review_only_field_alias_tokens"), 0)
+    annotated_functions = _int_value(body_text_stats.get("functions_with_visible_review_only_field_aliases"), 0)
+    canonical = _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0)
+    report_only = _int_value(body_offset_review_classes.get("report_only_blocked_residue"), 0)
+    residue_functions = _int_value(body_offset_totals.get("functions_with_offset_residue"), 0)
+    visible_events = annotations + (canonical * 2)
+    score = _coverage_score(visible_events, functions, 0.08)
+    if alias_tokens > annotations:
+        score += min(1.0, _density(alias_tokens - annotations, functions) * 1.5)
+    if annotated_functions > 0 and residue_functions > 0:
+        score += min(1.0, float(annotated_functions) / float(max(1, residue_functions)) * 2.0)
+    if report_only > 0 and annotations <= 0:
+        score -= min(6.0, 2.0 + _density(report_only, functions) * 4.0)
+    return score
+
+
 def _offset_residue_score(
     body_offset_totals: dict[str, Any],
     body_text_stats: dict[str, Any],
@@ -2842,6 +2904,24 @@ def _structure_quality_positive_gates(
             _density(_int_value(body_text_stats.get("pointer_indexed_offset_deref_patterns"), 0), functions) <= 1.5,
             "pointer-indexed offset residue is either low or modelled separately",
             _int_value(body_text_stats.get("pointer_indexed_offset_deref_patterns"), 0),
+        ),
+        "visible_body_improvement": _structure_quality_gate(
+            (
+                _int_value(body_text_stats.get("visible_review_only_field_alias_annotations"), 0)
+                + _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0)
+            )
+            > 0,
+            "cleaned bodies show either validated canonical rewrites or review-only field aliases",
+            {
+                "visible_review_only_field_alias_annotations": _int_value(
+                    body_text_stats.get("visible_review_only_field_alias_annotations"),
+                    0,
+                ),
+                "canonical_layout_rewrite_applied": _int_value(
+                    rewrite_preview_artifact_totals.get("canonical_rewrite_applied"),
+                    0,
+                ),
+            },
         ),
         "canonical_layout_rewrites_visible": _structure_quality_gate(
             _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0) > 0,
@@ -14320,7 +14400,10 @@ def _update_text_metrics(
         return [], [], [], [], [], [], [], [], [], [], [], {}, [], [], [], [], [], [], [], []
     _update_residue_metrics(text_totals, text)
     body_text = _strip_pseudoforge_header(text)
-    _update_residue_metrics(body_text_totals, body_text)
+    _update_visible_review_only_field_alias_metrics(text_totals, text)
+    _update_visible_review_only_field_alias_metrics(body_text_totals, body_text)
+    body_metric_text = _strip_visible_review_only_field_alias_comments(body_text)
+    _update_residue_metrics(body_text_totals, body_metric_text)
     decimal_status_body_literals = _decimal_status_like_literals(body_text)
     ntstatus_body_literals = _ntstatus_family_literals(body_text)
     layout_hints = _extract_layout_hints(text)
@@ -14613,6 +14696,22 @@ def _update_residue_metrics(text_totals: Counter[str], text: str) -> None:
     _count_pattern(text_totals, text, HEX_STATUS_RE, "hex_status_like_literals", "functions_with_hex_status_like_literals")
     _count_profiled_status_argument_literals(text_totals, text)
     _count_ntstatus_family_literals(text_totals, text)
+
+
+def _update_visible_review_only_field_alias_metrics(text_totals: Counter[str], text: str) -> None:
+    comments = list(VISIBLE_REVIEW_ONLY_FIELD_ALIAS_RE.finditer(text or ""))
+    if not comments:
+        return
+    text_totals["visible_review_only_field_alias_annotations"] += len(comments)
+    text_totals["functions_with_visible_review_only_field_aliases"] += 1
+    alias_tokens = 0
+    for comment in comments:
+        alias_tokens += len(VISIBLE_REVIEW_ONLY_FIELD_ALIAS_TOKEN_RE.findall(comment.group(0)))
+    text_totals["visible_review_only_field_alias_tokens"] += alias_tokens
+
+
+def _strip_visible_review_only_field_alias_comments(text: str) -> str:
+    return VISIBLE_REVIEW_ONLY_FIELD_ALIAS_RE.sub("", text or "")
 
 
 def _strip_pseudoforge_header(text: str) -> str:

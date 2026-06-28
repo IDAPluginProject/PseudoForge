@@ -37,6 +37,7 @@ from ida_pseudoforge.core.render_kernel_hints import (
     annotate_kernel_hints as _annotate_kernel_hints,
     has_comment_kind as _has_comment_kind,
     rewrite_critical_region_entry as _rewrite_critical_region_entry,
+    strip_review_only_aliases_from_canonical_rewrite_lines as _strip_review_only_aliases_from_canonical_rewrite_lines,
 )
 from ida_pseudoforge.core.render_labels import (
     annotate_kernel_labels as _annotate_kernel_labels,
@@ -174,7 +175,7 @@ def apply_validated_layout_rewrites_to_cleaned_text(cleaned_text: str, artifact_
     )
     if layout_rewrite_preview is None or layout_rewrite_preview.canonical_text is None:
         return cleaned_text
-    return layout_rewrite_preview.canonical_text
+    return _strip_review_only_aliases_from_canonical_rewrite_lines(layout_rewrite_preview.canonical_text)
 
 
 def write_export_bundle(
