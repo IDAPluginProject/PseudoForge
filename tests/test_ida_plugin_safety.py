@@ -281,6 +281,61 @@ class IdaPluginSafetyTests(unittest.TestCase):
         state.clear()
         self.assertIsNone(state.get())
 
+    def test_ida_render_path_requests_validated_layout_rewrites(self):
+        capture = _capture()
+        plan = _plan(capture)
+        calls = []
+        old_aliases = actions_module._direct_runtime_helper_aliases
+        old_render = actions_module.render_cleaned_pseudocode
+        actions_module._direct_runtime_helper_aliases = lambda text, capture_arg: {}
+
+        def fake_render(capture_arg, plan_arg, apply_validated_layout_rewrites=False):
+            calls.append(apply_validated_layout_rewrites)
+            return "cleaned"
+
+        actions_module.render_cleaned_pseudocode = fake_render
+        try:
+            rendered = actions_module._render_cleaned_with_direct_helper_aliases(capture, plan)
+        finally:
+            actions_module._direct_runtime_helper_aliases = old_aliases
+            actions_module.render_cleaned_pseudocode = old_render
+
+        self.assertEqual("cleaned", rendered)
+        self.assertEqual([True], calls)
+
+    def test_ida_export_requests_validated_layout_rewrites(self):
+        capture = _capture()
+        plan = _plan(capture)
+        calls = []
+        old_analyze = actions_module.analyze_current_function
+        old_run_on_main_thread = actions_module.run_on_main_thread
+        old_default_output_dir = actions_module._default_output_dir
+        old_write_export_bundle = actions_module.write_export_bundle
+        with tempfile.TemporaryDirectory() as temp_dir:
+            actions_module.analyze_current_function = lambda purpose="analyze": (capture, plan)
+            actions_module.run_on_main_thread = lambda callback, write=False: callback()
+            actions_module._default_output_dir = lambda: Path(temp_dir)
+
+            def fake_write_export_bundle(output_dir, capture_arg, plan_arg, **kwargs):
+                calls.append((Path(output_dir), capture_arg, plan_arg, kwargs))
+                return {"cleaned_pseudocode": str(Path(output_dir) / "sample.cleaned.cpp")}
+
+            actions_module.write_export_bundle = fake_write_export_bundle
+            try:
+                result = actions_module.export_current_function()
+            finally:
+                actions_module.analyze_current_function = old_analyze
+                actions_module.run_on_main_thread = old_run_on_main_thread
+                actions_module._default_output_dir = old_default_output_dir
+                actions_module.write_export_bundle = old_write_export_bundle
+
+        self.assertIn("cleaned_pseudocode", result)
+        self.assertEqual(1, len(calls))
+        self.assertIs(capture, calls[0][1])
+        self.assertIs(plan, calls[0][2])
+        self.assertEqual("ida_interactive", calls[0][3]["entrypoint"])
+        self.assertTrue(calls[0][3]["apply_validated_layout_rewrites"])
+
     def test_render_cleaned_aliases_direct_runtime_helper_without_full_batch(self):
         capture = FunctionCapture(
             ea=0x140001100,

@@ -105,6 +105,7 @@ except Exception:
 PLUGIN_STATE_GROUP = "plugin_state"
 _ANALYSIS_STATE = PluginAnalysisState()
 _DIRECT_HELPER_ALIAS_MAX_CALLEES = 8
+_IDA_APPLY_VALIDATED_LAYOUT_REWRITES = True
 _TYPE_ASSISTED_ALLOWED_MODES = {"preview-rewrite", "canonical-rewrite-eligible"}
 _TYPE_ASSISTED_REPORT_ONLY_MODE = "report-only"
 
@@ -183,7 +184,13 @@ def export_current_function() -> dict[str, str]:
             output_dir = run_on_main_thread(_default_output_dir, write=False)
         _raise_if_task_cancelled("export", "before bundle write")
         with trace_scope("export.write_bundle", function=capture.name, output_dir=str(output_dir)):
-            paths = write_export_bundle(output_dir, capture, plan, entrypoint="ida_interactive")
+            paths = write_export_bundle(
+                output_dir,
+                capture,
+                plan,
+                entrypoint="ida_interactive",
+                apply_validated_layout_rewrites=_IDA_APPLY_VALIDATED_LAYOUT_REWRITES,
+            )
         log_event("export.done function=\"%s\" output_dir=\"%s\"" % (_ascii_for_log(capture.name), output_dir))
         return paths
 
@@ -791,7 +798,11 @@ def _write_forge_snapshot(capture: FunctionCapture, plan: CleanPlan) -> tuple[Pa
 def _render_cleaned_with_direct_helper_aliases(capture: FunctionCapture, plan: CleanPlan) -> str:
     aliases = _direct_runtime_helper_aliases(capture.pseudocode, capture)
     render_plan = _plan_without_runtime_helper_alias_warnings(plan, aliases)
-    cleaned = render_cleaned_pseudocode(capture, render_plan)
+    cleaned = render_cleaned_pseudocode(
+        capture,
+        render_plan,
+        apply_validated_layout_rewrites=_IDA_APPLY_VALIDATED_LAYOUT_REWRITES,
+    )
     if not aliases:
         aliases = _direct_runtime_helper_aliases(cleaned, capture)
     if not aliases:

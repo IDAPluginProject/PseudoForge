@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ida_pseudoforge.core.kernel_api import apply_kernel_api_rewrites, kernel_api_prelude
 from ida_pseudoforge.core.kernel_rewrites import apply_kernel_rewrites, apply_known_kernel_struct_rewrites
+from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
 from ida_pseudoforge.core.normalize import safe_identifier_replace
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
 from ida_pseudoforge.core.render_call_args import (
@@ -95,7 +96,11 @@ class RenderContext:
         )
 
 
-def render_cleaned_pseudocode(capture: FunctionCapture, plan: CleanPlan) -> str:
+def render_cleaned_pseudocode(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+    apply_validated_layout_rewrites: bool = False,
+) -> str:
     context = RenderContext.from_plan(capture, plan)
     text = safe_identifier_replace(capture.pseudocode, context.rename_map)
     text = _replace_status_literals(text, capture, plan)
@@ -155,7 +160,21 @@ def render_cleaned_pseudocode(capture: FunctionCapture, plan: CleanPlan) -> str:
         )
     else:
         body_sections.append(text)
-    return _finalize_rendered_c_like_text("\n".join(header) + "\n\n" + "\n\n".join(body_sections))
+    rendered = _finalize_rendered_c_like_text("\n".join(header) + "\n\n" + "\n\n".join(body_sections))
+    if apply_validated_layout_rewrites:
+        rendered = apply_validated_layout_rewrites_to_cleaned_text(rendered, capture.name or "function")
+    return rendered
+
+
+def apply_validated_layout_rewrites_to_cleaned_text(cleaned_text: str, artifact_name: str = "function") -> str:
+    layout_rewrite_preview = build_layout_rewrite_preview_bundle(
+        cleaned_text,
+        artifact_name or "function",
+        apply_validated_body_rewrite=True,
+    )
+    if layout_rewrite_preview is None or layout_rewrite_preview.canonical_text is None:
+        return cleaned_text
+    return layout_rewrite_preview.canonical_text
 
 
 def write_export_bundle(
