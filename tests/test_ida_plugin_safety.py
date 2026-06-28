@@ -1839,6 +1839,14 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertIn("Blocked corrections: a2->irp int->PIRP", summary)
         self.assertIn("Type correction blockers: type_conflict=1.", summary)
 
+    def test_analysis_summary_flags_type_assisted_recompile_when_available(self):
+        capture, plan = _type_assisted_capture_plan()
+
+        summary = actions_module._format_analysis_summary(capture, plan)
+
+        self.assertIn("Type-assisted re-decompile available: 1 profile-backed parameter correction(s).", summary)
+        self.assertIn("PseudoForge-cleaned redecompile", summary)
+
     def test_type_assisted_prototype_proposal_uses_canonical_parameter_types(self):
         capture, plan = _type_assisted_capture_plan()
 
@@ -1949,11 +1957,19 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         old_idc = actions_module.idc
         old_decompile = actions_module._decompile_function_pseudocode
         old_refresh = actions_module._refresh_function_type_state
+        old_clean = actions_module._render_type_assisted_cleaned_pseudocode
+        clean_calls = []
         actions_module.idc = fake_idc
         actions_module._decompile_function_pseudocode = (
-            lambda ea: "void __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)\n{\n}"
+            lambda ea: "void __fastcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)\n{\n  IopCompleteUnloadOrDelete((ULONG_PTR)deviceObject);\n}"
         )
         actions_module._refresh_function_type_state = lambda ea: None
+
+        def fake_clean(captured, improved_pseudocode):
+            clean_calls.append((captured, improved_pseudocode, fake_idc.current_type))
+            return "PseudoForge cleaned type-assisted output"
+
+        actions_module._render_type_assisted_cleaned_pseudocode = fake_clean
         try:
             proposal = actions_module._build_type_assisted_prototype_proposal(capture, plan)
             result = actions_module._run_type_assisted_recompile_preview(capture, plan, proposal)
@@ -1961,9 +1977,16 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             actions_module.idc = old_idc
             actions_module._decompile_function_pseudocode = old_decompile
             actions_module._refresh_function_type_state = old_refresh
+            actions_module._render_type_assisted_cleaned_pseudocode = old_clean
 
         self.assertTrue(result.restore_succeeded)
         self.assertIn("PDEVICE_OBJECT deviceObject", result.improved_pseudocode)
+        self.assertEqual("PseudoForge cleaned type-assisted output", result.cleaned_pseudocode)
+        self.assertEqual("", result.cleanup_error)
+        self.assertEqual(1, len(clean_calls))
+        self.assertIs(capture, clean_calls[0][0])
+        self.assertIn("IopCompleteUnloadOrDelete", clean_calls[0][1])
+        self.assertEqual("__int64 __fastcall IoDeleteDevice(__int64 a1);", clean_calls[0][2])
         self.assertEqual(
             fake_idc.calls,
             [

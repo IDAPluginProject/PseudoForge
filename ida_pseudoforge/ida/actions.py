@@ -43,7 +43,7 @@ from ida_pseudoforge.core.normalize import (
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
-from ida_pseudoforge.core.capture import profile_context_from_source_path
+from ida_pseudoforge.core.capture import capture_from_pseudocode, profile_context_from_source_path
 from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
 from ida_pseudoforge.core.render_header import (
     format_function_identity_candidate_summary,
@@ -129,6 +129,8 @@ class TypeAssistedRedecompileResult:
     restored_type: str
     restore_succeeded: bool
     restore_error: str = ""
+    cleaned_pseudocode: str = ""
+    cleanup_error: str = ""
 
 
 def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture, CleanPlan]:
@@ -422,9 +424,15 @@ class TypeAssistedRedecompilePreviewHandler(idaapi.action_handler_t if idaapi el
         def on_success(result: TypeAssistedRedecompileResult):
             log_checkpoint("action.type_assisted_recompile_preview.on_success.before")
             title = "PseudoForge type-assisted preview: %s 0x%X" % (result.capture.name, result.capture.ea)
+            content_text = result.cleaned_pseudocode or result.improved_pseudocode
+            content_title = (
+                "PseudoForge type-assisted cleaned pseudocode"
+                if result.cleaned_pseudocode
+                else "Type-assisted Hex-Rays pseudocode"
+            )
             show_text_view(
                 title,
-                result.improved_pseudocode,
+                content_text,
                 suggested_filename=build_save_as_filename(
                     "pseudoforge-type-assisted",
                     result.capture.name,
@@ -433,7 +441,7 @@ class TypeAssistedRedecompilePreviewHandler(idaapi.action_handler_t if idaapi el
                 copy_from_source=False,
                 reference_text=result.capture.pseudocode,
                 reference_title="Raw Hex-Rays pseudocode",
-                content_title="Type-assisted Hex-Rays pseudocode",
+                content_title=content_title,
                 summary_text=_format_type_assisted_recompile_summary(result),
             )
             log_output(
@@ -1436,6 +1444,9 @@ def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:
     type_summary = format_parameter_type_correction_summary(plan)
     if type_summary:
         lines.extend(type_summary)
+    type_assisted_hint = _format_type_assisted_availability_hint(capture, plan)
+    if type_assisted_hint:
+        lines.append(type_assisted_hint)
     if plan.warnings:
         lines.append("")
         lines.append("Warnings:")
@@ -1456,6 +1467,23 @@ def _format_warning(item: object) -> str:
         if old and reason:
             return "Potential bad call target %s: %s" % (old, reason)
     return str(item)
+
+
+def _format_type_assisted_availability_hint(capture: FunctionCapture, plan: CleanPlan) -> str:
+    if not plan.type_corrections:
+        return ""
+    try:
+        proposal = _build_type_assisted_prototype_proposal(capture, plan)
+    except Exception as exc:
+        log_checkpoint("type_assisted.summary_hint.failed", error=str(exc))
+        return ""
+    if proposal.blockers or not proposal.corrections:
+        return ""
+    return (
+        "Type-assisted re-decompile available: %d profile-backed parameter correction(s). "
+        "Use Advanced: type-assisted re-decompile preview for a PseudoForge-cleaned redecompile."
+        % len(proposal.corrections)
+    )
 
 
 def _build_type_assisted_prototype_proposal(
@@ -1757,6 +1785,8 @@ def _run_type_assisted_recompile_preview(
     _ensure_type_assisted_prototype_allowed(proposal)
     original_type = run_on_main_thread(lambda: _get_ida_function_type(capture.ea), write=False)
     improved_pseudocode = ""
+    cleaned_pseudocode = ""
+    cleanup_error = ""
     operation_error: Exception | None = None
     restore_error = ""
     restored_type = ""
@@ -1779,6 +1809,20 @@ def _run_type_assisted_recompile_preview(
             restore_error = str(exc)
             restore_succeeded = False
 
+    if operation_error is None and restore_succeeded and improved_pseudocode.strip():
+        try:
+            cleaned_pseudocode = _render_type_assisted_cleaned_pseudocode(
+                capture,
+                improved_pseudocode,
+            )
+        except Exception as exc:
+            cleanup_error = str(exc)
+            log_checkpoint(
+                "type_assisted.cleanup.failed",
+                ea="0x%X" % capture.ea,
+                error=cleanup_error,
+            )
+
     result = TypeAssistedRedecompileResult(
         capture=capture,
         plan=plan,
@@ -1788,6 +1832,8 @@ def _run_type_assisted_recompile_preview(
         restored_type=restored_type,
         restore_succeeded=restore_succeeded,
         restore_error=restore_error,
+        cleaned_pseudocode=cleaned_pseudocode,
+        cleanup_error=cleanup_error,
     )
     if not restore_succeeded:
         run_on_main_thread(lambda: warning(_format_type_assisted_restore_warning(result)), write=False)
@@ -1802,6 +1848,18 @@ def _run_type_assisted_recompile_preview(
             % (operation_error, restore_error or "unknown")
         ) from operation_error
     return result
+
+
+def _render_type_assisted_cleaned_pseudocode(capture: FunctionCapture, improved_pseudocode: str) -> str:
+    improved_capture = capture_from_pseudocode(
+        improved_pseudocode,
+        name=capture.name,
+        ea=capture.ea,
+        source_path=capture.source_path,
+    )
+    improved_capture.profile_context = dict(capture.profile_context or {})
+    improved_plan = build_clean_plan(improved_capture)
+    return _render_cleaned_with_direct_helper_aliases(improved_capture, improved_plan)
 
 
 def _ensure_type_assisted_prototype_allowed(proposal: TypeAssistedPrototypeProposal) -> None:
@@ -1823,6 +1881,12 @@ def _format_type_assisted_recompile_summary(result: TypeAssistedRedecompileResul
     ]
     if result.restore_error:
         lines.append("Restore diagnostic: %s" % result.restore_error)
+    if result.cleaned_pseudocode:
+        lines.append("PseudoForge cleanup: applied to type-assisted Hex-Rays output")
+    elif result.cleanup_error:
+        lines.append("PseudoForge cleanup: failed: %s" % result.cleanup_error)
+    else:
+        lines.append("PseudoForge cleanup: not applied")
     lines.append("")
     lines.append(_format_type_assisted_prototype_proposal(result.proposal))
     return "\n".join(lines)
