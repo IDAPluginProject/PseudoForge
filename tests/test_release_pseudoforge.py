@@ -97,6 +97,7 @@ class ReleasePseudoForgeTests(unittest.TestCase):
         self.assertEqual(1, smoke["type_correction_count"])
         self.assertEqual("windows.io_manager.delete_device", smoke["type_correction_profile"])
         self.assertTrue(smoke["type_corrected_signature"])
+        self.assertTrue(smoke["type_corrected_body_cast_removed"])
         self.assertFalse(smoke["type_correction_apply_to_idb"])
         self.assertEqual([], smoke["tools_modules"])
 
@@ -183,6 +184,11 @@ def _run_packaged_runtime_smoke(package_root: Path) -> dict[str, object]:
                     "io_manager_subsystem": io_manager_metadata.get("subsystem", ""),
                     "profile_root": profile_loader.active_profile_root(),
                     "type_corrected_signature": "void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)" in rendered,
+                    "type_corrected_body_cast_removed": (
+                        "IopCompleteUnloadOrDelete(deviceObject);" in rendered
+                        and "(ULONG_PTR)deviceObject" not in rendered
+                        and "(ULONG_PTR)a1" not in rendered
+                    ),
                     "type_correction_apply_to_idb": bool(type_correction.apply_to_idb) if type_correction else True,
                     "type_correction_count": len(plan.type_corrections),
                     "type_correction_profile": type_correction.profile_id if type_correction else "",

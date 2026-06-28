@@ -135,6 +135,103 @@ __int64 __fastcall IopExample(__int64 a1)
         self.assertIn("__int64 __fastcall IopExample(PDEVICE_OBJECT a1)", rendered)
         self.assertIn("local = (__int64)a1;", rendered)
 
+    def test_profile_type_correction_removes_pointer_width_call_argument_cast(self) -> None:
+        text = """
+void __stdcall IoDeleteDevice(__int64 a1)
+{
+  IopCompleteUnloadOrDelete((ULONG_PTR)a1);
+  ObDereferenceObject((__int64)a1);
+}
+""".lstrip()
+        capture = capture_from_pseudocode(text)
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="IoDeleteDevice",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="deviceObject",
+                    old_type="__int64",
+                    canonical_type="PDEVICE_OBJECT",
+                    profile_id="windows.io_manager.delete_device",
+                    confidence=0.91,
+                    effective_mode="report-only",
+                )
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn("void __stdcall IoDeleteDevice(PDEVICE_OBJECT a1)", rendered)
+        self.assertIn("IopCompleteUnloadOrDelete(a1);", rendered)
+        self.assertIn("ObDereferenceObject(a1);", rendered)
+        self.assertNotIn("(ULONG_PTR)a1", rendered)
+        self.assertNotIn("(__int64)a1", rendered)
+
+    def test_profile_type_correction_keeps_non_call_pointer_width_cast(self) -> None:
+        text = """
+__int64 __fastcall IopReturnPointerValue(__int64 a1)
+{
+  return (__int64)a1;
+}
+""".lstrip()
+        capture = capture_from_pseudocode(text)
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="IopReturnPointerValue",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="a1",
+                    old_type="__int64",
+                    canonical_type="PDEVICE_OBJECT",
+                    profile_id="test.type",
+                    confidence=0.91,
+                    effective_mode="report-only",
+                )
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn("__int64 __fastcall IopReturnPointerValue(PDEVICE_OBJECT a1)", rendered)
+        self.assertIn("return (__int64)a1;", rendered)
+
+    def test_profile_type_correction_keeps_scalar_parameter_cast(self) -> None:
+        text = """
+void __fastcall StoreWorkItem(__int64 a1)
+{
+  Worker((ULONG_PTR)a1);
+}
+""".lstrip()
+        capture = capture_from_pseudocode(text)
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="StoreWorkItem",
+            input_fingerprint=capture.input_fingerprint(),
+            type_corrections=[
+                ParameterTypeCorrection(
+                    parameter_index=0,
+                    old_name="a1",
+                    new_name="workItemContext",
+                    old_type="__int64",
+                    canonical_type="ULONG_PTR",
+                    profile_id="test.scalar",
+                    confidence=0.91,
+                    effective_mode="report-only",
+                )
+            ],
+        )
+
+        rendered = apply_profile_parameter_type_corrections(text, capture, plan)
+
+        self.assertIn("void __fastcall StoreWorkItem(ULONG_PTR a1)", rendered)
+        self.assertIn("Worker((ULONG_PTR)a1);", rendered)
+
     def test_profile_type_correction_matches_demangled_prototype_when_capture_name_is_mangled(self) -> None:
         prototype = "__int64 __fastcall ST_STORE<SM_TRAITS>::StWorkItemProcess(__int64 store, unsigned __int64 workItem, unsigned __int64 workItemContext)"
         text = "\n".join(

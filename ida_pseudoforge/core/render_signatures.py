@@ -36,6 +36,59 @@ from ida_pseudoforge.core.render_ntset import (
 from ida_pseudoforge.core.render_zw import normalize_zw_api_probe_body as _normalize_zw_api_probe_body
 
 
+_CALL_ARGUMENT_CAST_KEYWORDS = {
+    "for",
+    "if",
+    "return",
+    "sizeof",
+    "switch",
+    "while",
+}
+
+_POINTER_WIDTH_CAST_RE = re.compile(
+    r"^\(\s*(?:"
+    r"__int64|unsigned\s+__int64|ULONG_PTR|LONG_PTR|UINT_PTR|DWORD_PTR|"
+    r"ULONG64|LONG64|_QWORD"
+    r")\s*\)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)$"
+)
+
+_SCALAR_TYPE_NAMES = {
+    "BOOLEAN",
+    "CCHAR",
+    "CHAR",
+    "DWORD",
+    "DWORD32",
+    "DWORD64",
+    "DWORD_PTR",
+    "HANDLE",
+    "INT",
+    "INT32",
+    "INT64",
+    "KPROCESSOR_MODE",
+    "LONG",
+    "LONG32",
+    "LONG64",
+    "LONG_PTR",
+    "NTSTATUS",
+    "OBJECT_INFORMATION_CLASS",
+    "POOL_TYPE",
+    "PROCESSINFOCLASS",
+    "SIZE_T",
+    "SSIZE_T",
+    "THREADINFOCLASS",
+    "UCHAR",
+    "UINT",
+    "UINT32",
+    "UINT64",
+    "UINT_PTR",
+    "ULONG",
+    "ULONG32",
+    "ULONG64",
+    "ULONG_PTR",
+    "USHORT",
+}
+
+
 def apply_known_function_signature(text: str, capture: FunctionCapture) -> str:
     function_name = capture.name or extract_function_name(capture.prototype)
     override = FUNCTION_SIGNATURE_OVERRIDES.get(function_name)
@@ -88,10 +141,11 @@ def apply_profile_parameter_type_corrections(
         signature = "\n".join(lines[index:end_index + 1])
         corrected = _correct_signature_prototype(signature, prototype, function_names)
         corrected = _correct_signature_parameters(corrected, corrections)
-        if corrected == signature:
-            return text
-        lines = lines[:index] + corrected.splitlines() + lines[end_index + 1:]
-        return "\n".join(lines)
+        result = text
+        if corrected != signature:
+            lines = lines[:index] + corrected.splitlines() + lines[end_index + 1:]
+            result = "\n".join(lines)
+        return _apply_profile_parameter_body_corrections(result, corrections)
     return text
 
 
@@ -202,6 +256,86 @@ def _correct_signature_parameters(
     for start, end, replacement in sorted(replacements, reverse=True):
         updated_parameters = updated_parameters[:start] + replacement + updated_parameters[end:]
     return signature[:open_index + 1] + updated_parameters + signature[close_index:]
+
+
+def _apply_profile_parameter_body_corrections(
+    text: str,
+    corrections: dict[int, ParameterTypeCorrection],
+) -> str:
+    pointer_names = _corrected_pointer_parameter_names(corrections.values())
+    if not pointer_names:
+        return text
+    return _remove_pointer_width_call_argument_casts(text, pointer_names)
+
+
+def _remove_pointer_width_call_argument_casts(text: str, pointer_names: set[str]) -> str:
+    replacements: list[tuple[int, int, str]] = []
+    for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(", text or ""):
+        call_name = match.group("name")
+        if call_name in _CALL_ARGUMENT_CAST_KEYWORDS:
+            continue
+        open_index = text.find("(", match.start())
+        close_index = find_matching_paren(text, open_index)
+        if close_index < 0:
+            continue
+        parameter_text = text[open_index + 1:close_index]
+        for argument, span in split_parameters_with_spans(parameter_text):
+            replacement = _uncast_corrected_pointer_argument(argument, pointer_names)
+            if replacement is None:
+                continue
+            replacements.append((open_index + 1 + span[0], open_index + 1 + span[1], replacement))
+    if not replacements:
+        return text
+    result = text
+    for start, end, replacement in sorted(replacements, reverse=True):
+        result = result[:start] + replacement + result[end:]
+    return result
+
+
+def _uncast_corrected_pointer_argument(argument: str, pointer_names: set[str]) -> str | None:
+    match = _POINTER_WIDTH_CAST_RE.fullmatch(str(argument or "").strip())
+    if match is None:
+        return None
+    name = match.group("name")
+    if name not in pointer_names:
+        return None
+    return name
+
+
+def _corrected_pointer_parameter_names(corrections) -> set[str]:
+    result: set[str] = set()
+    for correction in corrections:
+        if not _profile_correction_targets_pointer(correction):
+            continue
+        for name in (correction.old_name, correction.new_name):
+            if _safe_identifier_name(name):
+                result.add(str(name))
+    return result
+
+
+def _profile_correction_targets_pointer(correction: ParameterTypeCorrection) -> bool:
+    return _is_pointer_like_profile_type(correction.display_type or correction.canonical_type)
+
+
+def _is_pointer_like_profile_type(type_text: str) -> bool:
+    normalized = re.sub(r"\b(?:CONST|VOLATILE|const|volatile)\b", "", str(type_text or ""))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return False
+    if "*" in normalized or "&" in normalized:
+        return True
+    upper = normalized.upper()
+    if upper in _SCALAR_TYPE_NAMES:
+        return False
+    if upper in {"PVOID", "PVOID64", "PIRP", "PETHREAD", "PEPROCESS", "PDRIVER_OBJECT"}:
+        return True
+    if re.fullmatch(r"P[A-Z0-9_]+", upper) and not upper.endswith(("CLASS", "TYPE", "MODE", "STATUS")):
+        return True
+    return False
+
+
+def _safe_identifier_name(name: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(name or "")))
 
 
 def _correct_signature_prototype(
