@@ -98,6 +98,7 @@ _SOURCE_ALIAS_RESIDUAL_EXTENSION_PROVENANCES = {
     "named_parameter_direct_alias",
     "parameter_direct_alias",
 }
+_SOURCE_ALIAS_RESIDUAL_COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\r\n]*", re.DOTALL)
 
 
 @dataclass(slots=True)
@@ -498,7 +499,7 @@ def _safe_source_alias_residual_offsets(text: str, plan: dict[str, Any]) -> list
     source = str(plan.get("source", "") or "")
     advertised_offsets = _plan_advertised_offsets(plan)
     observations: dict[int, dict[str, Any]] = {}
-    for match in _OFFSET_DEREF_RE.finditer(text or ""):
+    for match in _OFFSET_DEREF_RE.finditer(_source_alias_residual_scan_text(text)):
         if match.group("base") != source:
             continue
         offset = _parse_offset(match.group("offset"))
@@ -528,6 +529,10 @@ def _safe_source_alias_residual_offsets(text: str, plan: dict[str, Any]) -> list
             continue
         safe_offsets.append(offset)
     return safe_offsets
+
+
+def _source_alias_residual_scan_text(text: str) -> str:
+    return _SOURCE_ALIAS_RESIDUAL_COMMENT_RE.sub(" ", str(text or ""))
 
 
 def _source_alias_residual_extension_allowed(plan: dict[str, Any]) -> bool:

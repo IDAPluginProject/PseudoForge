@@ -15884,15 +15884,18 @@ def _rewrite_preview_artifact_direct_zero_rewrite_accesses(metadata: dict[str, A
 
 
 def _rewrite_preview_artifact_offset_key(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, int):
-        return value
+        return value if value >= 0 else None
     text = str(value or "").strip()
     if not text:
         return None
     try:
-        return int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+        result = int(text, 16) if text.lower().startswith("0x") else int(text, 10)
     except ValueError:
         return None
+    return result if result >= 0 else None
 
 
 def _update_layout_rewrite_near_ready_metrics(

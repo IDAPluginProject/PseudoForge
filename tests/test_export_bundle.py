@@ -1136,6 +1136,51 @@ unsigned __int64 __fastcall SourceAliasResidualLayout(ULONG_PTR context)
         self.assertNotIn("*(_QWORD *)(context + 184)", canonical_text)
         self.assertNotIn("*(_BYTE *)(context + 688)", canonical_text)
 
+    def test_source_alias_residue_extension_ignores_comment_only_offsets(self) -> None:
+        cleaned_text = """
+/*
+    Kernel insights:
+      - diagnostic residue sample: *(_QWORD *)(context + 2456) should not drive alias extension.
+      - inferred_offset_rewrite_ready: Offset field rewrite candidate for v6: 12 typed dereference(s) across 8 offset(s), no rewrite blockers found. Source provenance parameter_direct_alias from context. Audit only; body rewrite was not applied. confidence=0.78
+      - inferred_offset_rewrite_preview: Offset field rewrite preview for v6: 12 dereference(s) can map to 8 field alias(es) field_7C, field_88, field_8C, field_B0, field_240, field_248, field_25C, field_264. Source provenance parameter_direct_alias from context. Preview artifact only; body rewrite was not applied. confidence=0.78
+*/
+unsigned __int64 __fastcall CommentOnlySourceAliasResidualLayout(ULONG_PTR context)
+{
+  ULONG_PTR v6;
+
+  v6 = context;
+  return *(_QWORD *)(context + 184)
+       + *(_QWORD *)(context + 192)
+       + *(_QWORD *)(context + 360)
+       + *(_BYTE *)(context + 688)
+       + *(_QWORD *)(context + 176)
+       + *(_QWORD *)(context + 576)
+       + *(_DWORD *)(context + 604)
+       + *(_DWORD *)(v6 + 124)
+       + *(_DWORD *)(v6 + 136)
+       + *(unsigned __int16 *)(v6 + 140)
+       + *(_QWORD *)(v6 + 176)
+       + *(_QWORD *)(v6 + 576)
+       + *(_QWORD *)(v6 + 584)
+       + *(_DWORD *)(v6 + 604)
+       + *(_DWORD *)(v6 + 612);
+}
+""".lstrip()
+        bundle = build_layout_rewrite_preview_bundle(
+            cleaned_text,
+            "CommentOnlySourceAliasResidualLayout",
+            apply_validated_body_rewrite=True,
+        )
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        canonical_text = bundle.canonical_text or ""
+        extension = bundle.metadata["source_alias_residual_extensions"][0]
+        self.assertEqual([0xB8, 0xC0, 0x168, 0x2B0], extension["extended_offsets"])
+        self.assertNotIn(0x998, bundle.metadata["preview_plans"][0]["advertised_offsets"])
+        self.assertNotIn("field_998", canonical_text)
+        self.assertIn("*(_QWORD *)(context + 2456)", canonical_text)
+
     def test_validated_layout_rewrite_keeps_field_pointer_source_alias_raw(self) -> None:
         cleaned_text = """
 /*

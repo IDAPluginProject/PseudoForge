@@ -2196,7 +2196,7 @@ __int64 __fastcall ExpressionSource(__int64 context)
                             "source": "context",
                             "source_provenance": "parameter_direct_alias",
                             "original_offsets": [0x10, 0x18, 0x20, 0x28],
-                            "extended_offsets": [0xB8, 0xC0],
+                            "extended_offsets": [0xB8, 0xC0, True, False, -1, "-2", "bogus"],
                         }
                     ],
                     "rewrite_results": {
