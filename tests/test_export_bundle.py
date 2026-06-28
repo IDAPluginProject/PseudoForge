@@ -245,12 +245,20 @@ class ExportBundleTests(unittest.TestCase):
 
             self.assertGreaterEqual(aggregate_payload["aggregate_count"], 1)
             self.assertEqual(0, aggregate_payload["canonical_rewrite_attempts"])
+            self.assertEqual("review_only", aggregate_payload["projection_policy"])
+            self.assertEqual(0, aggregate_payload["projected_aggregates"])
+            self.assertIn("confidence_tier", aggregate_payload["aggregates"][0])
+            self.assertIn("policy_decision", aggregate_payload["aggregates"][0])
+            self.assertIn("projection_applied", aggregate_payload["aggregates"][0])
             self.assertIn("PF_INFERRED_LOCAL_AGGREGATE_0", aggregate_report)
+            self.assertIn("Projection policy: `review_only`", aggregate_report)
             self.assertIn("typedef struct _PF_INFERRED_LOCAL_AGGREGATE_0", synthetic_structs)
             self.assertIn("v11 += 1; // PseudoForge review-only:", cleaned)
             self.assertIn("inferred stack aggregate", cleaned)
             self.assertNotIn("v10Aggregate->field_", cleaned)
+            self.assertEqual("review_only", summary["projection_policy"])
             self.assertGreaterEqual(summary["synthetic_aggregate_summary"]["aggregate_count"], 1)
+            self.assertIn("policy_decisions", summary["synthetic_aggregate_summary"])
 
     def test_write_export_bundle_limits_long_artifact_stems(self) -> None:
         long_name = (

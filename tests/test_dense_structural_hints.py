@@ -107,6 +107,88 @@ __int64 __fastcall EnumArraySample(int a1)
 """
 
 
+STACK_PROJECTION_SAMPLE = r"""
+__int64 __fastcall StackProjectionSample()
+{
+  int v10; // [rsp+40h] [rbp-40h] BYREF
+  int v11; // [rsp+44h] [rbp-3Ch]
+  int v12; // [rsp+48h] [rbp-38h]
+  int v13; // [rsp+4Ch] [rbp-34h]
+  int v14; // [rsp+50h] [rbp-30h]
+  int v15; // [rsp+54h] [rbp-2Ch]
+  int v16; // [rsp+58h] [rbp-28h]
+  int v17; // [rsp+5Ch] [rbp-24h]
+
+  memset_0(&v10, 0, 0x20uLL);
+  v11 += 1;
+  v12 += v11;
+  return v17 + v12;
+}
+"""
+
+
+POOL_PROJECTION_SAMPLE = r"""
+__int64 __fastcall PoolProjectionSample(unsigned int flags, PDEVICE_OBJECT DeviceObject, LIST_ENTRY *ListHead)
+{
+  void *entry;
+
+  entry = ExAllocatePool2(flags, 0x38, 'pNmM');
+  if ( entry )
+  {
+    *(_DWORD *)entry = 1;
+    *(_QWORD *)(entry + 0x18) = DeviceObject;
+    *((_LIST_ENTRY *)entry + 2) = *ListHead;
+  }
+  return (__int64)entry;
+}
+"""
+
+
+POOL_BLOCKED_NO_GUARD_SAMPLE = r"""
+__int64 __fastcall PoolBlockedNoGuardSample(unsigned int flags, PDEVICE_OBJECT DeviceObject)
+{
+  void *entry;
+
+  entry = ExAllocatePool2(flags, 0x20, 'pNmM');
+  *(_DWORD *)entry = 1;
+  *(_QWORD *)(entry + 0x18) = DeviceObject;
+  return (__int64)entry;
+}
+"""
+
+
+POOL_GENERIC_RHS_SAMPLE = r"""
+__int64 __fastcall PoolGenericRhsSample(unsigned int flags, __int64 argument0)
+{
+  void *entry;
+
+  entry = ExAllocatePool2(flags, 0x20, 'pNmM');
+  if ( entry )
+  {
+    *(_DWORD *)entry = 1;
+    *(_QWORD *)(entry + 8) = argument0;
+  }
+  return (__int64)entry;
+}
+"""
+
+
+MEDIUM_STACK_AGGREGATE_SAMPLE = r"""
+__int64 __fastcall MediumStackAggregateSample()
+{
+  int v10; // [rsp+40h] [rbp-20h] BYREF
+  int v11; // [rsp+44h] [rbp-1Ch]
+  int v12; // [rsp+48h] [rbp-18h]
+  int v13; // [rsp+4Ch] [rbp-14h]
+
+  memset_0(&v10, 0, 0x10uLL);
+  v11 += 1;
+  v12 += v11;
+  return v13 + v12;
+}
+"""
+
+
 class DenseStructuralHintTests(unittest.TestCase):
     def test_ki_synch_numa_counter_dense_accumulators_are_reported(self) -> None:
         capture = capture_from_pseudocode(KI_SYNCH_NUMA_COUNTER_BLOCK_SAMPLE)
@@ -165,6 +247,92 @@ class DenseStructuralHintTests(unittest.TestCase):
         self.assertIn("ImpersonationLevelAggregate.field_08", body)
         self.assertNotIn("ImpersonationLevelAggregate.field_01", body)
         self.assertNotIn("ImpersonationLevelAggregate.field_02", body)
+
+    def test_balanced_policy_projects_high_confidence_stack_aggregate(self) -> None:
+        capture = capture_from_pseudocode(STACK_PROJECTION_SAMPLE)
+        plan = build_clean_plan(capture, projection_policy="balanced")
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+        aggregate = next(item for item in plan.comments if item.get("kind") == "synthetic_local_aggregate")
+
+        self.assertEqual("high", aggregate["confidence_tier"])
+        self.assertEqual("project", aggregate["policy_decision"])
+        self.assertTrue(aggregate["projection_applied"])
+        self.assertIn("PF_INFERRED_LOCAL_AGGREGATE_0 v10Aggregate;", body)
+        self.assertIn("v10Aggregate.field_04 += 1;", body)
+        self.assertIn("PseudoForge projected: v10Aggregate.field_04", body)
+        self.assertNotIn("v11 += 1; // PseudoForge review-only:", body)
+
+    def test_review_only_policy_never_projects_high_confidence_stack_aggregate(self) -> None:
+        capture = capture_from_pseudocode(STACK_PROJECTION_SAMPLE)
+        plan = build_clean_plan(capture, projection_policy="review_only")
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+        aggregate = next(item for item in plan.comments if item.get("kind") == "synthetic_local_aggregate")
+
+        self.assertEqual("high", aggregate["confidence_tier"])
+        self.assertEqual("comment_only", aggregate["policy_decision"])
+        self.assertFalse(aggregate["projection_applied"])
+        self.assertIn("v11 += 1; // PseudoForge review-only:", body)
+        self.assertNotIn("v10Aggregate.field_04 += 1;", body)
+
+    def test_balanced_policy_keeps_medium_stack_aggregate_as_comment_only(self) -> None:
+        capture = capture_from_pseudocode(MEDIUM_STACK_AGGREGATE_SAMPLE)
+        plan = build_clean_plan(capture, projection_policy="balanced")
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+        stack_array = next(
+            item
+            for item in plan.comments
+            if item.get("kind") == "synthetic_local_aggregate" and item.get("aggregate_kind") == "stack_zero_region"
+        )
+
+        self.assertEqual("medium", stack_array["confidence_tier"])
+        self.assertEqual("comment_only", stack_array["policy_decision"])
+        self.assertFalse(stack_array["projection_applied"])
+        self.assertIn("v11 += 1; // PseudoForge review-only:", body)
+        self.assertNotIn("v10Aggregate.field_04 += 1;", body)
+
+    def test_balanced_policy_projects_high_confidence_pool_aggregate(self) -> None:
+        capture = capture_from_pseudocode(POOL_PROJECTION_SAMPLE)
+        plan = build_clean_plan(capture, projection_policy="balanced")
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+        aggregate = next(item for item in plan.comments if item.get("kind") == "synthetic_pool_aggregate")
+
+        self.assertEqual("pool_allocation_object", aggregate["aggregate_kind"])
+        self.assertEqual("high", aggregate["confidence_tier"])
+        self.assertEqual("project", aggregate["policy_decision"])
+        self.assertTrue(aggregate["projection_applied"])
+        self.assertEqual("pNmM", aggregate["pool_tag"])
+        self.assertIn("PF_INFERRED_POOL_pNmM_38 *newProviderRecord;", body)
+        self.assertIn("newProviderRecord = (PF_INFERRED_POOL_pNmM_38 *)ExAllocatePool2", body)
+        self.assertIn("newProviderRecord->DeviceObject = DeviceObject;", body)
+        self.assertIn("newProviderRecord->ListEntry = *ListHead;", body)
+        self.assertNotIn("*(_QWORD *)(newProviderRecord + 0x18)", body)
+
+    def test_blocked_pool_aggregate_does_not_project_without_null_guard(self) -> None:
+        capture = capture_from_pseudocode(POOL_BLOCKED_NO_GUARD_SAMPLE)
+        plan = build_clean_plan(capture, projection_policy="balanced")
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+        aggregate = next(item for item in plan.comments if item.get("kind") == "synthetic_pool_aggregate")
+
+        self.assertEqual("blocked", aggregate["confidence_tier"])
+        self.assertEqual("blocked", aggregate["policy_decision"])
+        self.assertFalse(aggregate["projection_applied"])
+        self.assertIn("dominance/null-guard unclear", aggregate["projection_blockers"])
+        self.assertIn("*(_QWORD *)(newProviderRecord + 0x18)", body)
+        self.assertNotIn("newProviderRecord->DeviceObject", body)
+
+    def test_pool_projection_does_not_promote_generic_argument_names_to_fields(self) -> None:
+        capture = capture_from_pseudocode(POOL_GENERIC_RHS_SAMPLE)
+        plan = build_clean_plan(capture, projection_policy="balanced")
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+
+        self.assertIn("newProviderRecord->field_08 = argument1;", body)
+        self.assertNotIn("newProviderRecord->argument", body)
 
 
 if __name__ == "__main__":

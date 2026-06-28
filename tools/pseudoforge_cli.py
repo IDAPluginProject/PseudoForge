@@ -13,6 +13,7 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.export_bundle import write_export_bundle
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.projection_policy import projection_policy_choices
 from ida_pseudoforge.core.render_warnings import export_warnings
 from ida_pseudoforge.profiles.loader import configure_profile_dir
 from ida_pseudoforge.config import LlmConfig
@@ -75,6 +76,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Rewrite canonical cleaned output with validated layout field aliases.",
     )
+    parser.add_argument(
+        "--projection-policy",
+        choices=projection_policy_choices(),
+        default="review_only",
+        help="Render-only aggregate projection policy for this export.",
+    )
     args = parser.parse_args(argv)
     configure_profile_dir(args.profile_dir)
 
@@ -92,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         rule_dirs=args.rules_dir,
         buffer_contract_case_values=args.buffer_contract_case or None,
         buffer_contract_helper_depth=max(0, args.buffer_contract_helper_depth),
+        projection_policy=args.projection_policy,
     )
     paths = write_export_bundle(
         args.out,
@@ -114,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Buffer contract case filter: %s" % ", ".join("0x%X" % value for value in args.buffer_contract_case))
     if args.apply_validated_layout_rewrites:
         print("Validated layout rewrites: enabled")
+    print("Projection policy: %s" % args.projection_policy)
     if warnings:
         print(f"Warnings: {len(warnings)}")
     for kind, path in paths.items():

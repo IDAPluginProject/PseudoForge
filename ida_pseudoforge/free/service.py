@@ -67,6 +67,7 @@ class FreeAnalysisOptions:
     llm_timeout: int = 60
     buffer_contract_case_values: list[int] = field(default_factory=list)
     buffer_contract_helper_depth: int = 2
+    projection_policy: str = "review_only"
 
     def effective_rule_dirs(self) -> list[str]:
         dirs = [str(item) for item in self.rule_dirs]
@@ -447,6 +448,7 @@ def _build_plan(
             rule_dirs=rule_dirs,
             buffer_contract_case_values=case_values,
             buffer_contract_helper_depth=helper_depth,
+            projection_policy=options.projection_policy,
         ), "disabled"
 
     try:
@@ -457,6 +459,7 @@ def _build_plan(
             rule_dirs=rule_dirs,
             buffer_contract_case_values=case_values,
             buffer_contract_helper_depth=helper_depth,
+            projection_policy=options.projection_policy,
         ), "ok"
     except Exception as exc:
         from ida_pseudoforge.core.llm_failures import format_llm_fallback_warning
@@ -466,6 +469,7 @@ def _build_plan(
             rule_dirs=rule_dirs,
             buffer_contract_case_values=case_values,
             buffer_contract_helper_depth=helper_depth,
+            projection_policy=options.projection_policy,
         )
         plan.warnings.insert(0, format_llm_fallback_warning(exc))
         return plan, "failed_fallback"

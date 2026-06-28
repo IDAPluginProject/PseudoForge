@@ -239,6 +239,7 @@ def _export_summary_payload(
         "function_ea": "0x%X" % capture.ea,
         "source_path": capture.source_path,
         "input_fingerprint": plan.input_fingerprint,
+        "projection_policy": str(getattr(plan, "projection_policy", "review_only") or "review_only"),
         "rename_candidates": len(plan.renames),
         "renames": len(plan.active_renames()),
         "flow_rewrites": len(plan.flow_rewrites),
@@ -651,11 +652,19 @@ def _synthetic_aggregate_summary(plan: CleanPlan) -> dict[str, object]:
     payload = synthetic_aggregate_json_payload(plan)
     aggregates = list(payload.get("aggregates", []) or [])
     return {
+        "projection_policy": str(payload.get("projection_policy", "review_only") or "review_only"),
         "aggregate_count": int(payload.get("aggregate_count", 0) or 0),
+        "projected_aggregates": int(payload.get("projected_aggregates", 0) or 0),
         "canonical_rewrite_attempts": int(payload.get("canonical_rewrite_attempts", 0) or 0),
         "misleading_rewrites": int(payload.get("misleading_rewrites", 0) or 0),
         "aggregate_kinds": dict(
             sorted(Counter(str(item.get("aggregate_kind", "") or "") for item in aggregates).items())
+        ),
+        "confidence_tiers": dict(
+            sorted(Counter(str(item.get("confidence_tier", "") or "unknown") for item in aggregates).items())
+        ),
+        "policy_decisions": dict(
+            sorted(Counter(str(item.get("policy_decision", "") or "unknown") for item in aggregates).items())
         ),
         "fields": sum(len(item.get("fields", []) or []) for item in aggregates if isinstance(item, dict)),
     }

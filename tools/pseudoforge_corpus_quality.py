@@ -804,7 +804,9 @@ VISIBLE_REVIEW_ONLY_FIELD_ALIAS_RE = re.compile(r"//\s*PseudoForge review-only:[
 VISIBLE_REVIEW_ONLY_FIELD_ALIAS_TOKEN_RE = re.compile(
     r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\s+\([^)\n]*\+0x[0-9A-Fa-f]+[^)\n]*\)"
 )
-SYNTHETIC_AGGREGATE_COMMENT_RE = re.compile(r"\bsynthetic_local_aggregate\b")
+SYNTHETIC_AGGREGATE_COMMENT_RE = re.compile(r"\bsynthetic_(?:local|pool)_aggregate\b")
+SYNTHETIC_POOL_AGGREGATE_COMMENT_RE = re.compile(r"\bsynthetic_pool_aggregate\b")
+SYNTHETIC_BLOCKED_AGGREGATE_COMMENT_RE = re.compile(r"\bsynthetic_(?:local|pool)_aggregate\b[^\n]*\bdecision=blocked\b")
 INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_RE = re.compile(
     r"//\s*PseudoForge review-only:[^\n]*\binferred (?:stack aggregate|strided record)\b[^\n]*\bno rewrite\b"
 )
@@ -812,7 +814,11 @@ INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_TOKEN_RE = re.compile(
     r"\b[A-Za-z_][A-Za-z0-9_]*\.field_[0-9A-Fa-f]+\s+\([^)\n]*\binferred (?:stack aggregate|strided record)\b[^)\n]*\)"
 )
 AGGREGATE_MISLEADING_REWRITE_RE = re.compile(
-    r"->field_[0-9A-Fa-f]+\b[^\n]*\binferred (?:stack aggregate|strided record)\b"
+    r"PseudoForge projected:[^\n]*\b(?:blocked|misleading)\b"
+)
+PROJECTED_AGGREGATE_ACCESS_RE = re.compile(r"//\s*PseudoForge projected:[^\n]*(?:->|\.)[A-Za-z_][A-Za-z0-9_]*[^\n]*")
+PROJECTED_AGGREGATE_ACCESS_TOKEN_RE = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:->|\.)[A-Za-z_][A-Za-z0-9_]*\s+\(\+0x[0-9A-Fa-f]+,\s*(?:high|medium|low),\s*(?P<policy>[A-Za-z_]+)\)"
 )
 
 ARTIFACT_SUFFIXES = {
@@ -2353,6 +2359,10 @@ def _structure_quality_scorecard(report: dict[str, Any]) -> dict[str, Any]:
                     body_text_stats.get("synthetic_local_aggregate_candidates"),
                     0,
                 ),
+                "synthetic_pool_aggregate_candidates": _int_value(
+                    body_text_stats.get("synthetic_pool_aggregate_candidates"),
+                    0,
+                ),
                 "functions_with_synthetic_local_aggregate_view": _int_value(
                     body_text_stats.get("functions_with_synthetic_local_aggregate_view"),
                     0,
@@ -2363,6 +2373,22 @@ def _structure_quality_scorecard(report: dict[str, Any]) -> dict[str, Any]:
                 ),
                 "inline_review_only_aggregate_alias_tokens": _int_value(
                     body_text_stats.get("inline_review_only_aggregate_alias_tokens"),
+                    0,
+                ),
+                "projected_aggregate_accesses": _int_value(
+                    body_text_stats.get("projected_aggregate_accesses"),
+                    0,
+                ),
+                "blocked_aggregate_candidates": _int_value(
+                    body_text_stats.get("blocked_aggregate_candidates"),
+                    0,
+                ),
+                "aggregate_projection_policy_balanced": _int_value(
+                    body_text_stats.get("aggregate_projection_policy_balanced"),
+                    0,
+                ),
+                "aggregate_projection_policy_projection_heavy": _int_value(
+                    body_text_stats.get("aggregate_projection_policy_projection_heavy"),
                     0,
                 ),
                 "aggregate_canonical_rewrite_attempts": _int_value(
@@ -2719,15 +2745,20 @@ def _synthetic_local_aggregate_view_score(
     view_functions = _int_value(body_text_stats.get("functions_with_synthetic_local_aggregate_view"), 0)
     inline_aliases = _int_value(body_text_stats.get("inline_review_only_aggregate_aliases"), 0)
     alias_tokens = _int_value(body_text_stats.get("inline_review_only_aggregate_alias_tokens"), 0)
+    projected_accesses = _int_value(body_text_stats.get("projected_aggregate_accesses"), 0)
+    projected_tokens = _int_value(body_text_stats.get("projected_aggregate_access_tokens"), 0)
     canonical_attempts = _int_value(body_text_stats.get("aggregate_canonical_rewrite_attempts"), 0)
     misleading = _int_value(body_text_stats.get("aggregate_misleading_rewrites"), 0)
     score = 9.0
     if candidates > 0:
-        score = 8.0 + min(2.0, _density(inline_aliases + view_functions, functions) * 8.0)
-        if inline_aliases <= 0:
+        visible = inline_aliases + projected_accesses + view_functions
+        score = 8.0 + min(2.0, _density(visible, functions) * 8.0)
+        if inline_aliases <= 0 and projected_accesses <= 0:
             score -= 2.0
         if alias_tokens > inline_aliases:
             score += min(0.75, _density(alias_tokens - inline_aliases, functions) * 3.0)
+        if projected_accesses:
+            score += min(0.85, _density(projected_accesses + projected_tokens, functions) * 2.0)
     if canonical_attempts > 0:
         score -= min(5.0, 2.0 + canonical_attempts)
     if misleading > 0:
@@ -2897,8 +2928,16 @@ def _structure_quality_hard_gates(
         "synthetic_aggregate_safety": _structure_quality_gate(
             _int_value(body_text_stats.get("aggregate_canonical_rewrite_attempts"), 0) == 0
             and _int_value(body_text_stats.get("aggregate_misleading_rewrites"), 0) == 0,
-            "synthetic aggregate evidence remains review-only with no misleading body rewrite",
+            "synthetic aggregate projection remains render-only with no misleading rewrite",
             {
+                "projected_aggregate_accesses": _int_value(
+                    body_text_stats.get("projected_aggregate_accesses"),
+                    0,
+                ),
+                "blocked_aggregate_candidates": _int_value(
+                    body_text_stats.get("blocked_aggregate_candidates"),
+                    0,
+                ),
                 "aggregate_canonical_rewrite_attempts": _int_value(
                     body_text_stats.get("aggregate_canonical_rewrite_attempts"),
                     0,
@@ -2992,12 +3031,17 @@ def _structure_quality_positive_gates(
             (
                 _int_value(body_text_stats.get("visible_review_only_field_alias_annotations"), 0)
                 + _int_value(rewrite_preview_artifact_totals.get("canonical_rewrite_applied"), 0)
+                + _int_value(body_text_stats.get("projected_aggregate_accesses"), 0)
             )
             > 0,
-            "cleaned bodies show either validated canonical rewrites or review-only field aliases",
+            "cleaned bodies show validated rewrites, projection, or review-only field aliases",
             {
                 "visible_review_only_field_alias_annotations": _int_value(
                     body_text_stats.get("visible_review_only_field_alias_annotations"),
+                    0,
+                ),
+                "projected_aggregate_accesses": _int_value(
+                    body_text_stats.get("projected_aggregate_accesses"),
                     0,
                 ),
                 "canonical_layout_rewrite_applied": _int_value(
@@ -3010,15 +3054,24 @@ def _structure_quality_positive_gates(
             (
                 _int_value(body_text_stats.get("synthetic_local_aggregate_candidates"), 0) == 0
                 or _int_value(body_text_stats.get("inline_review_only_aggregate_aliases"), 0) > 0
+                or _int_value(body_text_stats.get("projected_aggregate_accesses"), 0) > 0
             ),
-            "synthetic aggregate candidates are surfaced near body uses or no candidate exists",
+            "synthetic aggregate candidates are surfaced near body uses, projected, or no candidate exists",
             {
                 "synthetic_local_aggregate_candidates": _int_value(
                     body_text_stats.get("synthetic_local_aggregate_candidates"),
                     0,
                 ),
+                "synthetic_pool_aggregate_candidates": _int_value(
+                    body_text_stats.get("synthetic_pool_aggregate_candidates"),
+                    0,
+                ),
                 "inline_review_only_aggregate_aliases": _int_value(
                     body_text_stats.get("inline_review_only_aggregate_aliases"),
+                    0,
+                ),
+                "projected_aggregate_accesses": _int_value(
+                    body_text_stats.get("projected_aggregate_accesses"),
                     0,
                 ),
                 "aggregate_misleading_rewrites": _int_value(
@@ -14509,10 +14562,17 @@ def _update_text_metrics(
     _update_synthetic_aggregate_metrics(text_totals, text)
     _update_synthetic_aggregate_metrics(body_text_totals, body_text)
     full_synthetic_candidates = len(SYNTHETIC_AGGREGATE_COMMENT_RE.findall(text))
+    full_pool_candidates = len(SYNTHETIC_POOL_AGGREGATE_COMMENT_RE.findall(text))
+    full_blocked_candidates = len(SYNTHETIC_BLOCKED_AGGREGATE_COMMENT_RE.findall(text))
     body_synthetic_candidates = len(SYNTHETIC_AGGREGATE_COMMENT_RE.findall(body_text))
     body_synthetic_aliases = len(INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_RE.findall(body_text))
-    if full_synthetic_candidates and body_synthetic_aliases and not body_synthetic_candidates:
+    body_synthetic_projections = len(PROJECTED_AGGREGATE_ACCESS_RE.findall(body_text))
+    body_blocked_candidates = len(SYNTHETIC_BLOCKED_AGGREGATE_COMMENT_RE.findall(body_text))
+    if full_synthetic_candidates and (body_synthetic_aliases or body_synthetic_projections) and not body_synthetic_candidates:
         body_text_totals["synthetic_local_aggregate_candidates"] += full_synthetic_candidates
+        body_text_totals["synthetic_pool_aggregate_candidates"] += full_pool_candidates
+    if full_blocked_candidates and not body_blocked_candidates:
+        body_text_totals["blocked_aggregate_candidates"] += full_blocked_candidates
     body_metric_text = _strip_visible_review_only_field_alias_comments(body_text)
     _update_residue_metrics(body_text_totals, body_metric_text)
     decimal_status_body_literals = _decimal_status_like_literals(body_text)
@@ -14829,26 +14889,52 @@ def _update_synthetic_aggregate_metrics(text_totals: Counter[str], text: str) ->
     raw_text = text or ""
     for key in (
         "synthetic_local_aggregate_candidates",
+        "synthetic_pool_aggregate_candidates",
         "functions_with_synthetic_local_aggregate_view",
         "inline_review_only_aggregate_aliases",
         "inline_review_only_aggregate_alias_tokens",
+        "projected_aggregate_accesses",
+        "projected_aggregate_access_tokens",
+        "blocked_aggregate_candidates",
+        "aggregate_projection_policy_balanced",
+        "aggregate_projection_policy_projection_heavy",
+        "aggregate_projection_policy_review_only",
+        "aggregate_projection_policy_audit_strict",
         "aggregate_canonical_rewrite_attempts",
         "aggregate_misleading_rewrites",
     ):
         text_totals[key] += 0
     candidates = len(SYNTHETIC_AGGREGATE_COMMENT_RE.findall(raw_text))
+    pool_candidates = len(SYNTHETIC_POOL_AGGREGATE_COMMENT_RE.findall(raw_text))
+    blocked_candidates = len(SYNTHETIC_BLOCKED_AGGREGATE_COMMENT_RE.findall(raw_text))
     inline_aliases = list(INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_RE.finditer(raw_text))
+    projected_accesses = list(PROJECTED_AGGREGATE_ACCESS_RE.finditer(raw_text))
     misleading = len(AGGREGATE_MISLEADING_REWRITE_RE.findall(raw_text))
     canonical_attempts = len(re.findall(r"\bcanonical aggregate rewrite (?:applied|attempted)\b", raw_text))
     if candidates:
         text_totals["synthetic_local_aggregate_candidates"] += candidates
+    if pool_candidates:
+        text_totals["synthetic_pool_aggregate_candidates"] += pool_candidates
+    if blocked_candidates:
+        text_totals["blocked_aggregate_candidates"] += blocked_candidates
     if inline_aliases:
         text_totals["inline_review_only_aggregate_aliases"] += len(inline_aliases)
         tokens = 0
         for alias in inline_aliases:
             tokens += len(INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_TOKEN_RE.findall(alias.group(0)))
         text_totals["inline_review_only_aggregate_alias_tokens"] += tokens
-    if candidates or inline_aliases:
+    if projected_accesses:
+        text_totals["projected_aggregate_accesses"] += len(projected_accesses)
+        projected_tokens = 0
+        for projected in projected_accesses:
+            for token in PROJECTED_AGGREGATE_ACCESS_TOKEN_RE.finditer(projected.group(0)):
+                projected_tokens += 1
+                policy = str(token.group("policy") or "").lower()
+                key = "aggregate_projection_policy_%s" % policy
+                if key in text_totals:
+                    text_totals[key] += 1
+        text_totals["projected_aggregate_access_tokens"] += projected_tokens
+    if candidates or inline_aliases or projected_accesses:
         text_totals["functions_with_synthetic_local_aggregate_view"] += 1
     if canonical_attempts:
         text_totals["aggregate_canonical_rewrite_attempts"] += canonical_attempts

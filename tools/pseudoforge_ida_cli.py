@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ida_pseudoforge.core.projection_policy import projection_policy_choices
 from ida_pseudoforge.models.subprocess_utils import hidden_subprocess_kwargs
 from ida_pseudoforge.version import VERSION, plugin_title
 from tools.summarize_pseudoforge_ida_batch import (
@@ -235,6 +236,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "profile prototypes, re-decompiles, and verifies restore; default is off."
         ),
     )
+    parser.add_argument(
+        "--projection-policy",
+        choices=projection_policy_choices(),
+        default="review_only",
+        help="Render-only aggregate projection policy for batch analysis.",
+    )
     parser.add_argument("--visible", action="store_true", help="Do not request a hidden IDA window.")
     parser.add_argument("--no-wait", action="store_true", help="Start IDA and return immediately.")
     parser.add_argument("--no-summary", action="store_true", help="Do not print a text summary after IDA exits.")
@@ -371,6 +378,7 @@ def _build_batch_args(
         result.append("--apply-validated-layout-rewrites")
     if args.type_assisted_preview:
         result.append("--type-assisted-preview")
+    result.extend(["--projection-policy", args.projection_policy])
     result.extend(["--cancel-file", str(cancel_file)])
     _append_int_option(result, "--max-functions", args.max_functions)
     _append_int_option(result, "--max-seconds", args.max_seconds)

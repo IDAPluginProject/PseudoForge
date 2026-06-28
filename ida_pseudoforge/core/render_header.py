@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.projection_policy import projection_policy_label
 from ida_pseudoforge.core.domain_identity_summary import format_domain_identity_summary
 from ida_pseudoforge.core.render_comments import (
     sanitize_generated_block_comment_lines,
@@ -29,6 +30,7 @@ CRITICAL_KERNEL_INSIGHT_KINDS = {
     "inferred_offset_rewrite_ready",
     "review_only_struct_candidate",
     "synthetic_local_aggregate",
+    "synthetic_pool_aggregate",
 }
 
 
@@ -52,6 +54,9 @@ def render_header_lines(
         f"    Kernel semantic rewrites: {kernel_semantic_rewrite_count(plan)}",
         f"    Warnings: {len(display_warnings)}",
     ]
+    projection_policy = str(getattr(plan, "projection_policy", "review_only") or "review_only")
+    if projection_policy != "review_only":
+        header.insert(-1, f"    Projection policy: {projection_policy_label(projection_policy)}")
 
     if plan.flow_rewrites:
         for flow in plan.flow_rewrites:
@@ -87,7 +92,8 @@ def render_header_lines(
             kind = _ascii_comment_text(str(comment.get("kind", "kernel")))
             confidence = float(comment.get("confidence", 0.0))
             text_value = _ascii_comment_text(str(comment.get("text", "")))
-            header.append(f"      - {kind}: {text_value} confidence={confidence:.2f}")
+            projection_suffix = _kernel_insight_projection_suffix(comment)
+            header.append(f"      - {kind}: {text_value} confidence={confidence:.2f}{projection_suffix}")
 
     if plan.cleanup_labels:
         header.append("    Label roles:")
@@ -135,6 +141,21 @@ def _kernel_insight_comments(plan: CleanPlan) -> list[dict[str, object]]:
         selected.append(comment)
         selected_ids.add(id(comment))
     return selected
+
+
+def _kernel_insight_projection_suffix(comment: dict[str, object]) -> str:
+    if str(comment.get("kind", "")) not in {"synthetic_local_aggregate", "synthetic_pool_aggregate"}:
+        return ""
+    tier = str(comment.get("confidence_tier", "") or "")
+    decision = str(comment.get("policy_decision", "") or "")
+    if not tier and not decision:
+        return ""
+    parts = []
+    if tier:
+        parts.append("tier=%s" % tier)
+    if decision:
+        parts.append("decision=%s" % decision)
+    return " " + " ".join(parts)
 
 
 def kernel_semantic_rewrite_count(plan: CleanPlan) -> int:

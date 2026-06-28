@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import inspect
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -66,6 +67,10 @@ from ida_pseudoforge.ida.decompiler import capture_current_function, capture_cur
 from ida_pseudoforge.ida.disasm_capture import capture_disasm_case_slice
 from ida_pseudoforge.ida.llm_config_dialog import ask_llm_config, format_llm_summary
 from ida_pseudoforge.ida.preview_config_dialog import ask_preview_config, format_preview_summary
+from ida_pseudoforge.ida.projection_policy_dialog import (
+    ask_projection_policy,
+    format_projection_policy_summary,
+)
 from ida_pseudoforge.ida.profile_config_dialog import ask_profile_dir, format_profile_summary
 from ida_pseudoforge.ida.source_context import format_source_context_summary
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
@@ -135,7 +140,10 @@ class TypeAssistedRedecompileResult:
     cleanup_error: str = ""
 
 
-def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture, CleanPlan]:
+def analyze_current_function(
+    purpose: str = "analyze",
+    projection_policy: str = "review_only",
+) -> tuple[FunctionCapture, CleanPlan]:
     with trace_scope("analysis", purpose=purpose):
         log_event("analysis.start purpose=%s" % _ascii_for_log(purpose))
         _raise_if_task_cancelled(purpose, "before capture")
@@ -148,7 +156,11 @@ def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture,
             % (_ascii_for_log(capture.name), capture.ea, len(capture.lvars), len(capture.calls))
         )
         with trace_scope("analysis.build_plan", function=capture.name, ea="0x%X" % capture.ea):
-            plan = _build_plan_with_config(capture, task_name=purpose)
+            plan = _build_plan_with_config_for_analysis(
+                capture,
+                task_name=purpose,
+                projection_policy=projection_policy,
+            )
         _raise_if_task_cancelled(purpose, "after build plan")
         forge_path: Path | None = None
         forge_text = ""
@@ -178,6 +190,24 @@ def analyze_current_function(purpose: str = "analyze") -> tuple[FunctionCapture,
             )
         )
         return capture, plan
+
+
+def _build_plan_with_config_for_analysis(
+    capture: FunctionCapture,
+    task_name: str,
+    projection_policy: str,
+) -> CleanPlan:
+    try:
+        parameters = inspect.signature(_build_plan_with_config).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    if "projection_policy" not in parameters:
+        return _build_plan_with_config(capture, task_name=task_name)
+    return _build_plan_with_config(
+        capture,
+        task_name=task_name,
+        projection_policy=projection_policy,
+    )
 
 
 def export_current_function() -> dict[str, str]:
@@ -338,6 +368,12 @@ class AnalyzeCurrentFunctionHandler(idaapi.action_handler_t if idaapi else objec
     def activate(self, ctx):
         log_checkpoint("action.analyze.activate.before")
         log_output("PseudoForge analysis is running. Please wait...")
+        projection_policy = ask_projection_policy("balanced", warning)
+        if projection_policy is None:
+            log_checkpoint("action.analyze.cancelled.policy")
+            return 1
+        log_output(format_projection_policy_summary(projection_policy))
+
         def on_success(result):
             log_checkpoint("action.analyze.on_success.before")
             capture, plan = result
@@ -350,7 +386,12 @@ class AnalyzeCurrentFunctionHandler(idaapi.action_handler_t if idaapi else objec
             _show_analysis_preview(capture, plan)
             log_checkpoint("action.analyze.on_success.after")
 
-        run_background("analyze", analyze_current_function, on_success, group_name=PLUGIN_STATE_GROUP)
+        run_background(
+            "analyze",
+            lambda: analyze_current_function(purpose="analyze", projection_policy=projection_policy),
+            on_success,
+            group_name=PLUGIN_STATE_GROUP,
+        )
         log_checkpoint("action.analyze.activate.after")
         return 1
 
@@ -1304,6 +1345,7 @@ def _build_plan_with_config(
     buffer_contract_helper_depth: int = 2,
     buffer_contract_disasm_slices: dict[int, object] | None = None,
     force_deterministic: bool = False,
+    projection_policy: str = "review_only",
 ) -> CleanPlan:
     log_checkpoint("build_plan.load_config.before", function=capture.name, ea="0x%X" % capture.ea)
     config = load_config()
@@ -1326,6 +1368,7 @@ def _build_plan_with_config(
                 buffer_contract_case_values=buffer_contract_case_values,
                 buffer_contract_helper_depth=buffer_contract_helper_depth,
                 buffer_contract_disasm_slices=buffer_contract_disasm_slices,
+                projection_policy=projection_policy,
             )
         _raise_if_task_cancelled(task_name, "after deterministic plan")
         return plan
@@ -1361,6 +1404,7 @@ def _build_plan_with_config(
                 buffer_contract_case_values=buffer_contract_case_values,
                 buffer_contract_helper_depth=buffer_contract_helper_depth,
                 buffer_contract_disasm_slices=buffer_contract_disasm_slices,
+                projection_policy=projection_policy,
             )
         _raise_if_task_cancelled(task_name, "after llm provider")
         log_event(
@@ -1410,6 +1454,7 @@ def _build_plan_with_config(
                 buffer_contract_case_values=buffer_contract_case_values,
                 buffer_contract_helper_depth=buffer_contract_helper_depth,
                 buffer_contract_disasm_slices=buffer_contract_disasm_slices,
+                projection_policy=projection_policy,
             )
         _raise_if_task_cancelled(task_name, "after fallback plan")
         plan.warnings.insert(0, fallback_warning)
@@ -1434,6 +1479,7 @@ def _format_analysis_summary(capture: FunctionCapture, plan: CleanPlan) -> str:
         "PseudoForge analyzed 0x%X: %d rename(s), %d flow rewrite(s), %d warning(s)"
         % (capture.ea, len(plan.renames), len(plan.flow_rewrites), len(plan.warnings))
     ]
+    lines.append(format_projection_policy_summary(getattr(plan, "projection_policy", "review_only")))
     rule_summary = format_rule_report_summary(plan.rule_report, include_error_details=True)
     if rule_summary:
         lines.append(rule_summary)

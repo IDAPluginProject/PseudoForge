@@ -4,6 +4,11 @@ import re
 
 from ida_pseudoforge.core.event_builder_patterns import etw_event_builder_append_counts
 from ida_pseudoforge.core.plan_schema import CleanPlan
+from ida_pseudoforge.core.projection_policy import (
+    normalize_projection_policy,
+    projection_decision,
+    should_project,
+)
 from ida_pseudoforge.core.render_comments import sanitize_generated_comment_text
 
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -23,6 +28,15 @@ _STRIDED_AGGREGATE_RE = re.compile(
     r"(?P<base_b>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
     r"(?P<stride_b>0x[0-9A-Fa-f]+|\d+)(?:LL|i64|ULL|uLL|UL|U|L)?\s*\*\s*"
     r"(?P<index_b>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\+\s*(?P<offset_b>0x[0-9A-Fa-f]+|\d+))?)"
+)
+_INDEXED_CAST_ACCESS_RE = re.compile(
+    r"\*\s*\(\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*(?P<index>\d+)\s*\)"
+)
+_POOL_ALLOCATION_CALL_RE = re.compile(
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<cast>\([^;\n]*?\)\s*)?"
+    r"(?P<call>ExAllocateFromLookasideListEx|ExAllocateFromNPagedLookasideList|"
+    r"ExAllocatePool2|ExAllocatePoolWithQuotaTag|ExAllocatePoolWithTag|MiAllocatePool)\s*\("
 )
 _LOCAL_DECLARATION_RE = re.compile(
     r"^\s*(?:const\s+)?[A-Za-z_][A-Za-z0-9_:\s\*\&<>]*\s+"
@@ -108,6 +122,9 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
         return text
     review_only_field_aliases = _review_only_field_aliases_by_base(plan)
     synthetic_aggregate_aliases = _synthetic_aggregate_aliases(plan)
+    synthetic_projection_state = _synthetic_aggregate_projection_state(plan)
+    synthetic_projection_intro = _synthetic_projection_intro_lines(synthetic_projection_state)
+    synthetic_projection_intro_emitted = False
     devpropkey_bases = _devpropkey_identity_bases(plan)
     devpropkey_intro_notes = _devpropkey_function_intro_notes(text, devpropkey_bases)
     event_builder_bases = _event_builder_identity_bases(plan)
@@ -126,6 +143,10 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
             else:
                 lines.append(indent + "// PseudoForge: InsertTailList(&ExpFirmwareTableProviderListHead, newProviderLink).")
         lines.append(line)
+        if synthetic_projection_intro and not synthetic_projection_intro_emitted and stripped == "{":
+            for note in synthetic_projection_intro:
+                lines.append(indent + "  " + note)
+            synthetic_projection_intro_emitted = True
         if intro_notes and not intro_notes_emitted and stripped == "{":
             for note in intro_notes:
                 lines.append(indent + "  // PseudoForge: " + sanitize_generated_comment_text(note))
@@ -135,6 +156,8 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
                 lines.append(indent + "// PseudoForge: providerRecord owns providerLink at Link offset +0x18.")
             else:
                 lines.append(indent + "// PseudoForge: providerLink is providerRecord->Link at offset +0x18.")
+        if synthetic_projection_state:
+            lines[-1] = _project_synthetic_aggregate_line(lines[-1], synthetic_projection_state)
         if review_only_field_aliases:
             lines[-1] = _annotate_review_only_field_alias_line(lines[-1], review_only_field_aliases)
         if synthetic_aggregate_aliases:
@@ -395,9 +418,306 @@ def _synthetic_aggregate_aliases(plan: CleanPlan) -> dict[str, object]:
     return {"by_local": by_local, "by_indexed_local": by_indexed_local, "strided": strided}
 
 
+def _synthetic_aggregate_projection_state(plan: CleanPlan) -> dict[str, object]:
+    policy = normalize_projection_policy(getattr(plan, "projection_policy", "review_only"))
+    local_by_name: dict[str, dict[str, str]] = {}
+    local_by_index: dict[tuple[str, int], dict[str, str]] = {}
+    pool_by_base: dict[str, dict[str, object]] = {}
+    declarations: list[str] = []
+    for comment in plan.comments:
+        kind = str(comment.get("kind", "") or "")
+        if kind not in {"synthetic_local_aggregate", "synthetic_pool_aggregate"}:
+            continue
+        decision = projection_decision(comment, policy)
+        if not should_project(comment, policy):
+            continue
+        synthetic_name = str(comment.get("synthetic_name", "") or "")
+        display_name = str(comment.get("display_name", "") or "")
+        aggregate_kind = str(comment.get("aggregate_kind", "") or "")
+        base = str(comment.get("base", "") or "")
+        if not _IDENTIFIER_RE.fullmatch(synthetic_name):
+            continue
+        if aggregate_kind == "pool_allocation_object":
+            field_by_offset: dict[int, dict[str, str]] = {}
+            for field in comment.get("fields", []) or []:
+                if not isinstance(field, dict):
+                    continue
+                offset = _field_offset(field.get("offset"))
+                if offset is None:
+                    continue
+                field_by_offset[offset] = {
+                    "name": _field_name(field, offset),
+                    "type": _field_type(field),
+                    "offset": str(offset),
+                    "synthetic_name": synthetic_name,
+                    "display_name": display_name,
+                    "policy": str(decision["policy"]),
+                    "tier": str(decision["confidence_tier"]),
+                }
+            if field_by_offset and _IDENTIFIER_RE.fullmatch(base):
+                pool_by_base[base] = {
+                    "synthetic_name": synthetic_name,
+                    "display_name": display_name,
+                    "field_by_offset": field_by_offset,
+                    "policy": str(decision["policy"]),
+                    "tier": str(decision["confidence_tier"]),
+                }
+            continue
+        if not _IDENTIFIER_RE.fullmatch(display_name):
+            continue
+        for field in comment.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            offset = _field_offset(field.get("offset"))
+            if offset is None:
+                continue
+            alias = {
+                "display_name": display_name,
+                "synthetic_name": synthetic_name,
+                "aggregate_kind": aggregate_kind,
+                "base": base,
+                "name": _field_name(field, offset),
+                "type": _field_type(field),
+                "offset": str(offset),
+                "source": str(field.get("source", "") or ""),
+                "source_local": str(field.get("source_local", "") or ""),
+                "policy": str(decision["policy"]),
+                "tier": str(decision["confidence_tier"]),
+            }
+            source_local = alias["source_local"]
+            if _IDENTIFIER_RE.fullmatch(source_local) and aggregate_kind == "stack_array":
+                source_index = _synthetic_array_source_index(alias["source"])
+                if source_index is not None:
+                    local_by_index[(source_local, source_index)] = alias
+            elif _IDENTIFIER_RE.fullmatch(source_local) and aggregate_kind != "strided_record":
+                local_by_name[source_local] = alias
+        if aggregate_kind in {"stack_zero_region", "stack_array"}:
+            declarations.append(
+                "%s %s; // PseudoForge projected synthetic local aggregate (%s, %s)"
+                % (synthetic_name, display_name, str(decision["confidence_tier"]), str(decision["policy"]))
+            )
+    return {
+        "local_by_name": local_by_name,
+        "local_by_index": local_by_index,
+        "pool_by_base": pool_by_base,
+        "declarations": list(dict.fromkeys(declarations)),
+    }
+
+
+def _synthetic_projection_intro_lines(projection_state: dict[str, object]) -> list[str]:
+    declarations = projection_state.get("declarations", []) if isinstance(projection_state, dict) else []
+    if not isinstance(declarations, list):
+        return []
+    return [str(item) for item in declarations if str(item)]
+
+
+def _project_synthetic_aggregate_line(line: str, projection_state: dict[str, object]) -> str:
+    if (
+        "// PseudoForge review-only:" in line
+        or "// PseudoForge projected:" in line
+        or "/*" in line
+        or "*/" in line
+    ):
+        return line
+    projected = line
+    tokens: list[str] = []
+    projected, pool_tokens = _project_pool_aggregate_line(projected, projection_state)
+    tokens.extend(pool_tokens)
+    if _LOCAL_DECLARATION_RE.match(line or "") is None:
+        projected, local_tokens = _project_local_aggregate_line(projected, projection_state)
+        tokens.extend(local_tokens)
+    if not tokens or projected == line:
+        return line
+    tokens = list(dict.fromkeys(tokens))
+    if len(tokens) > 3:
+        tokens = tokens[:3] + ["..."]
+    return "%s // PseudoForge projected: %s" % (
+        projected.rstrip(),
+        sanitize_generated_comment_text("; ".join(tokens)),
+    )
+
+
+def _project_pool_aggregate_line(line: str, projection_state: dict[str, object]) -> tuple[str, list[str]]:
+    pool_by_base = projection_state.get("pool_by_base", {}) if isinstance(projection_state, dict) else {}
+    if not isinstance(pool_by_base, dict) or not pool_by_base:
+        return line, []
+    tokens: list[str] = []
+    projected = line
+    projected, declaration_tokens = _project_pool_declaration_line(projected, pool_by_base)
+    tokens.extend(declaration_tokens)
+    projected, allocation_tokens = _project_pool_allocation_line(projected, pool_by_base)
+    tokens.extend(allocation_tokens)
+
+    def replace_indexed(match: re.Match[str]) -> str:
+        base = match.group("base")
+        pool = pool_by_base.get(base)
+        if not isinstance(pool, dict):
+            return match.group(0)
+        size = _type_size(match.group("type"))
+        try:
+            offset = int(match.group("index")) * max(1, size)
+        except ValueError:
+            return match.group(0)
+        field = _pool_field(pool, offset)
+        if field is None:
+            return match.group(0)
+        tokens.append(_projection_token(base, field, pool))
+        return "%s->%s" % (base, field["name"])
+
+    projected = _INDEXED_CAST_ACCESS_RE.sub(replace_indexed, projected)
+
+    def replace_offset(match: re.Match[str]) -> str:
+        base = match.group("base")
+        pool = pool_by_base.get(base)
+        if not isinstance(pool, dict):
+            return match.group(0)
+        offset = _field_offset(match.group("offset") or "0")
+        if offset is None:
+            return match.group(0)
+        field = _pool_field(pool, offset)
+        if field is None:
+            return match.group(0)
+        tokens.append(_projection_token(base, field, pool))
+        return "%s->%s" % (base, field["name"])
+
+    projected = _OFFSET_ACCESS_RE.sub(replace_offset, projected)
+
+    def replace_direct(match: re.Match[str]) -> str:
+        base = match.group("base")
+        pool = pool_by_base.get(base)
+        if not isinstance(pool, dict):
+            return match.group(0)
+        field = _pool_field(pool, 0)
+        if field is None:
+            return match.group(0)
+        tokens.append(_projection_token(base, field, pool))
+        return "%s->%s" % (base, field["name"])
+
+    projected = _DIRECT_BASE_ACCESS_RE.sub(replace_direct, projected)
+    return projected, tokens
+
+
+def _project_pool_declaration_line(line: str, pool_by_base: dict[str, object]) -> tuple[str, list[str]]:
+    stripped = line.strip()
+    for base, pool in pool_by_base.items():
+        if not isinstance(base, str) or not isinstance(pool, dict):
+            continue
+        synthetic_name = str(pool.get("synthetic_name", "") or "")
+        if not synthetic_name:
+            continue
+        match = re.match(
+            r"^(?P<indent>\s*)(?P<type>(?:void|__int64|_QWORD|_BYTE|char|unsigned __int64|PVOID)"
+            r"(?:\s*\*)?)\s*%s\s*;" % re.escape(base),
+            line,
+        )
+        if match is None:
+            continue
+        return (
+            "%s%s *%s;" % (match.group("indent"), synthetic_name, base),
+            ["%s typed as %s (%s, %s)" % (base, synthetic_name, pool.get("tier", ""), pool.get("policy", ""))],
+        )
+    return line, []
+
+
+def _project_pool_allocation_line(line: str, pool_by_base: dict[str, object]) -> tuple[str, list[str]]:
+    tokens: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        base = match.group("base")
+        pool = pool_by_base.get(base)
+        if not isinstance(pool, dict):
+            return match.group(0)
+        synthetic_name = str(pool.get("synthetic_name", "") or "")
+        if not synthetic_name:
+            return match.group(0)
+        tokens.append("%s allocation cast to %s (%s, %s)" % (base, synthetic_name, pool.get("tier", ""), pool.get("policy", "")))
+        return "%s = (%s *)%s(" % (base, synthetic_name, match.group("call"))
+
+    projected = _POOL_ALLOCATION_CALL_RE.sub(replace, line, count=1)
+    return projected, tokens
+
+
+def _project_local_aggregate_line(line: str, projection_state: dict[str, object]) -> tuple[str, list[str]]:
+    local_by_index = projection_state.get("local_by_index", {}) if isinstance(projection_state, dict) else {}
+    local_by_name = projection_state.get("local_by_name", {}) if isinstance(projection_state, dict) else {}
+    projected = line
+    tokens: list[str] = []
+    if isinstance(local_by_index, dict):
+        replacements: list[tuple[int, int, str, dict[str, str]]] = []
+        for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*(?P<index>\d+)\s*\]", projected):
+            alias = local_by_index.get((match.group("name"), int(match.group("index"))))
+            if not isinstance(alias, dict):
+                continue
+            replacements.append((match.start(), match.end(), "%s.%s" % (alias["display_name"], alias["name"]), alias))
+        replacements.sort(key=lambda item: item[0], reverse=True)
+        for start, end, replacement, alias in replacements[:6]:
+            projected = projected[:start] + replacement + projected[end:]
+            tokens.append(_local_projection_token(alias))
+    if isinstance(local_by_name, dict):
+        replacements: list[tuple[int, int, str, dict[str, str]]] = []
+        for local, alias in local_by_name.items():
+            if not isinstance(local, str) or not isinstance(alias, dict):
+                continue
+            for match in re.finditer(r"\b%s\b" % re.escape(local), projected):
+                replacements.append((match.start(), match.end(), "%s.%s" % (alias["display_name"], alias["name"]), alias))
+        replacements.sort(key=lambda item: item[0], reverse=True)
+        for start, end, replacement, alias in replacements[:6]:
+            projected = projected[:start] + replacement + projected[end:]
+            tokens.append(_local_projection_token(alias))
+    return projected, tokens
+
+
+def _pool_field(pool: dict[str, object], offset: int) -> dict[str, str] | None:
+    fields = pool.get("field_by_offset", {})
+    if not isinstance(fields, dict):
+        return None
+    field = fields.get(offset)
+    return field if isinstance(field, dict) else None
+
+
+def _projection_token(base: str, field: dict[str, str], pool: dict[str, object]) -> str:
+    offset = _field_offset(field.get("offset", "")) or 0
+    return "%s->%s (+0x%X, %s, %s)" % (
+        base,
+        field.get("name", ""),
+        offset,
+        pool.get("tier", ""),
+        pool.get("policy", ""),
+    )
+
+
+def _local_projection_token(alias: dict[str, str]) -> str:
+    offset = _field_offset(alias.get("offset", "")) or 0
+    return "%s.%s (+0x%X, %s, %s)" % (
+        alias.get("display_name", ""),
+        alias.get("name", ""),
+        offset,
+        alias.get("tier", ""),
+        alias.get("policy", ""),
+    )
+
+
+def _type_size(type_text: str) -> int:
+    normalized = str(type_text or "").strip()
+    if "*" in normalized:
+        return 8
+    if normalized in {"_BYTE", "BYTE", "char", "unsigned char"}:
+        return 1
+    if normalized in {"_WORD", "WORD", "short", "unsigned short"}:
+        return 2
+    if normalized in {"_DWORD", "DWORD", "int", "unsigned int", "LONG", "ULONG", "NTSTATUS"}:
+        return 4
+    if normalized in {"_QWORD", "QWORD", "__int64", "unsigned __int64", "SIZE_T", "ULONG_PTR"}:
+        return 8
+    if "LIST_ENTRY" in normalized:
+        return 16
+    return 1
+
+
 def _annotate_synthetic_aggregate_alias_line(line: str, alias_state: dict[str, object]) -> str:
     if (
         "// PseudoForge review-only:" in line
+        or "// PseudoForge projected:" in line
         or "/*" in line
         or "*/" in line
         or _LOCAL_DECLARATION_RE.match(line or "") is not None
@@ -525,7 +845,7 @@ def _annotate_review_only_field_alias_line(
     line: str,
     aliases_by_base: dict[str, dict[int, dict[str, str]]],
 ) -> str:
-    if "// PseudoForge review-only:" in line or "/*" in line or "*/" in line:
+    if "// PseudoForge review-only:" in line or "// PseudoForge projected:" in line or "/*" in line or "*/" in line:
         return line
     aliases = _review_only_aliases_for_line(line, aliases_by_base)
     if not aliases:

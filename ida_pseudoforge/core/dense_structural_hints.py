@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture
+from ida_pseudoforge.core.projection_policy import projection_decision
 
 
 _LOCAL_DECL_RE = re.compile(
@@ -35,6 +36,37 @@ _STRIDED_EXPR_RE = re.compile(
     r"(?P<stride_b>0x[0-9A-Fa-f]+|\d+)(?:LL|i64|ULL|uLL|UL|U|L)?\s*\*\s*"
     r"(?P<index_b>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\+\s*(?P<offset_b>0x[0-9A-Fa-f]+|\d+))?)"
 )
+_POOL_ALLOCATOR_NAMES = {
+    "ExAllocateFromLookasideListEx",
+    "ExAllocateFromNPagedLookasideList",
+    "ExAllocatePool2",
+    "ExAllocatePoolWithQuotaTag",
+    "ExAllocatePoolWithTag",
+    "MiAllocatePool",
+}
+_POOL_ALLOCATION_ASSIGNMENT_RE = re.compile(
+    r"(?m)^\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+    r"(?:\([^;\n]*?\)\s*)?"
+    r"(?P<allocator>ExAllocateFromLookasideListEx|ExAllocateFromNPagedLookasideList|"
+    r"ExAllocatePool2|ExAllocatePoolWithQuotaTag|ExAllocatePoolWithTag|MiAllocatePool)"
+    r"\s*\((?P<args>[^;\n]*)\)\s*;"
+)
+_OFFSET_STORE_RE = re.compile(
+    r"(?P<lhs>\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"\(\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*(?:\+\s*(?P<offset>0x[0-9A-Fa-f]+|\d+)"
+    r"(?:i64|LL|ULL|uLL|UL|U|L)?)?\s*\))\s*=\s*(?P<rhs>[^;\n]+);"
+)
+_DIRECT_STORE_RE = re.compile(
+    r"(?P<lhs>\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b)\s*=\s*(?P<rhs>[^;\n]+);"
+)
+_INDEXED_CAST_STORE_RE = re.compile(
+    r"(?P<lhs>\*\s*\(\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
+    r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*(?P<index>\d+)\s*\))\s*=\s*(?P<rhs>[^;\n]+);"
+)
+_BASE_ASSIGNMENT_RE = re.compile(r"(?m)^\s*(?P<base>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<op>[+\-*/&|^]?=)\s*(?P<rhs>[^;\n]+);")
+_POOL_FREE_RE = re.compile(r"\b(?:ExFreePool(?:WithTag)?|IoFreeMdl|MmFreeNonCachedMemory)\s*\(")
+_INTERLOCKED_OR_VOLATILE_RE = re.compile(r"\b(?:Interlocked[A-Za-z0-9_]*|volatile|READ_REGISTER|WRITE_REGISTER)\b")
 
 _TYPE_SIZES = {
     "__int8": 1,
@@ -64,6 +96,8 @@ _TYPE_SIZES = {
     "__int64": 8,
     "_QWORD": 8,
     "QWORD": 8,
+    "LIST_ENTRY": 16,
+    "_LIST_ENTRY": 16,
     "HANDLE": 8,
     "LONG_PTR": 8,
     "SIZE_T": 8,
@@ -115,6 +149,31 @@ class _StridedRecordEvidence:
     access_count: int = 0
 
 
+@dataclass(slots=True)
+class _PoolAllocation:
+    base: str
+    allocator: str
+    args: list[str]
+    size_hint: int
+    pool_tag: str
+    pool_flags: str
+    start: int
+    end: int
+    line: str
+
+
+@dataclass(slots=True)
+class _PoolFieldAccess:
+    base: str
+    offset: int
+    type_text: str
+    size: int
+    rhs: str
+    line: str
+    start: int
+    evidence: list[str]
+
+
 def dense_structural_comments(
     capture: FunctionCapture,
     text: str,
@@ -125,6 +184,7 @@ def dense_structural_comments(
     locals_ = _parse_local_declarations(source_text)
     comments: list[dict[str, Any]] = []
     comments.extend(_synthetic_local_aggregate_comments(source_text, locals_))
+    comments.extend(_synthetic_pool_aggregate_comments(source_text))
     comments.extend(_zeroed_stack_region_comments(source_text, locals_))
     comments.extend(_stack_array_region_comments(source_text, locals_))
     comments.extend(_accumulator_block_comments(source_text))
@@ -332,7 +392,7 @@ def _strided_record_comments(text: str) -> list[dict[str, Any]]:
 def synthetic_aggregate_models(plan: CleanPlan) -> list[dict[str, Any]]:
     models = []
     for comment in plan.comments:
-        if str(comment.get("kind", "") or "") != "synthetic_local_aggregate":
+        if str(comment.get("kind", "") or "") not in {"synthetic_local_aggregate", "synthetic_pool_aggregate"}:
             continue
         models.append(_jsonable_aggregate_model(comment))
     return models
@@ -341,10 +401,12 @@ def synthetic_aggregate_models(plan: CleanPlan) -> list[dict[str, Any]]:
 def synthetic_aggregate_json_payload(plan: CleanPlan) -> dict[str, Any]:
     models = synthetic_aggregate_models(plan)
     return {
-        "schema": "pseudoforge_synthetic_aggregates_v1",
+        "schema": "pseudoforge_synthetic_aggregates_v2",
+        "projection_policy": str(getattr(plan, "projection_policy", "review_only") or "review_only"),
         "aggregate_count": len(models),
         "canonical_rewrite_attempts": 0,
         "misleading_rewrites": 0,
+        "projected_aggregates": sum(1 for item in models if bool(item.get("projection_applied"))),
         "aggregates": models,
     }
 
@@ -354,9 +416,11 @@ def render_synthetic_aggregate_report(plan: CleanPlan) -> str:
     lines = [
         "# PseudoForge Inferred Aggregates",
         "",
-        "Review-only synthetic aggregate side view. PseudoForge did not apply a canonical body rewrite.",
+        "Synthetic aggregate side view. Projection decisions are render-only and never modify IDB types.",
         "",
+        "- Projection policy: `%s`" % str(payload.get("projection_policy", "review_only")),
         "- Aggregate count: `%d`" % int(payload["aggregate_count"]),
+        "- Projected aggregates: `%d`" % int(payload["projected_aggregates"]),
         "- Canonical rewrite attempts: `0`",
         "- Misleading rewrites: `0`",
     ]
@@ -370,8 +434,12 @@ def render_synthetic_aggregate_report(plan: CleanPlan) -> str:
                 "- Kind: `%s`" % model["aggregate_kind"],
                 "- Size hint: `%s`" % model["size_hint"],
                 "- Confidence: `%.2f`" % float(model["confidence"]),
+                "- Confidence tier: `%s`" % model["confidence_tier"],
+                "- Policy decision: `%s`" % model["policy_decision"],
+                "- Projection applied: `%s`" % str(bool(model["projection_applied"])).lower(),
                 "- Evidence: `%s`" % ", ".join(model["evidence"]),
                 "- Safety blockers: `%s`" % ", ".join(model["safety_blockers"]),
+                "- Score reason: `%s`" % model["score_reason"],
                 "",
                 "| Offset | Field | Type | Size | Source | Accesses |",
                 "| ---: | --- | --- | ---: | --- | ---: |",
@@ -429,6 +497,74 @@ def _synthetic_local_aggregate_comments(text: str, locals_: list[_LocalDecl]) ->
     return comments
 
 
+def _synthetic_pool_aggregate_comments(text: str) -> list[dict[str, Any]]:
+    allocations = _pool_allocations(text)
+    comments = []
+    for allocation in allocations:
+        accesses = _pool_field_accesses(text, allocation)
+        if len(accesses) < 2:
+            continue
+        fields = _pool_fields_from_accesses(accesses)
+        if len(fields) < 2:
+            continue
+        projection_blockers = _pool_projection_blockers(text, allocation, accesses, fields)
+        evidence = [
+            "kernel_pool_allocation",
+            "fixed_offset_writes",
+        ]
+        if _pool_null_guard_after_allocation(text, allocation, accesses[0].start):
+            evidence.append("null_guarded_initialization")
+        if allocation.size_hint:
+            evidence.append("constant_allocation_size")
+        if allocation.pool_tag:
+            evidence.append("pool_tag")
+        if _pool_publication_after_initialization(text, allocation, accesses):
+            evidence.append("post_init_escape_or_publication")
+        confidence = _pool_aggregate_confidence(fields, evidence, projection_blockers, allocation)
+        synthetic_name = _pool_synthetic_name(allocation, len(comments))
+        display_name = _aggregate_display_name(allocation.base, len(comments))
+        text_summary = (
+            "Synthetic pool aggregate %s for %s: %d field candidate(s), allocator %s, "
+            "size hint 0x%X, tag %s, evidence %s. Projection is policy-gated."
+            % (
+                synthetic_name,
+                display_name,
+                len(fields),
+                allocation.allocator,
+                max(0, int(allocation.size_hint)),
+                allocation.pool_tag or "unknown",
+                ", ".join(evidence),
+            )
+        )
+        comment = {
+            "kind": "synthetic_pool_aggregate",
+            "text": text_summary,
+            "confidence": round(float(confidence), 3),
+            "synthetic_name": synthetic_name,
+            "display_name": display_name,
+            "aggregate_kind": "pool_allocation_object",
+            "base": allocation.base,
+            "size_hint": int(allocation.size_hint),
+            "stride": 0,
+            "index_variables": [],
+            "fields": fields,
+            "evidence": evidence,
+            "safety_blockers": _pool_safety_blockers(projection_blockers),
+            "projection_blockers": projection_blockers,
+            "canonical_rewrite_attempted": False,
+            "misleading_rewrite": False,
+            "allocator": allocation.allocator,
+            "pool_tag": allocation.pool_tag,
+            "pool_flags": allocation.pool_flags,
+            "allocation_size": int(allocation.size_hint),
+            "allocation_line": allocation.line.strip(),
+            "aliases": [allocation.base],
+        }
+        comment.update(projection_decision(comment, "review_only"))
+        comments.append(comment)
+    return comments
+
+
 def _synthetic_zero_region_comments(text: str, locals_: list[_LocalDecl], start_index: int) -> list[dict[str, Any]]:
     by_name = {item.name: item for item in locals_}
     comments = []
@@ -458,7 +594,7 @@ def _synthetic_zero_region_comments(text: str, locals_: list[_LocalDecl], start_
                 fields=fields,
                 evidence=["zeroed_region", "stack_adjacency", "address_taken_size"],
                 safety_blockers=_aggregate_safety_blockers(fields, size),
-                confidence=0.78 if len(fields) >= 8 else 0.70,
+                confidence=0.84 if len(fields) >= 8 else 0.74,
             )
         )
     return comments
@@ -559,7 +695,7 @@ def _synthetic_aggregate_comment(
     synthetic_name = "PF_INFERRED_LOCAL_AGGREGATE_%d" % synthetic_index
     text = (
         "Synthetic local aggregate %s for %s: %d field candidate(s), size hint 0x%X, "
-        "evidence %s. Review-only; canonical aggregate rewrite was not attempted."
+        "evidence %s. Projection is policy-gated; IDB type is not modified."
         % (synthetic_name, display_name, len(fields), max(0, int(size_hint)), ", ".join(evidence))
     )
     return {
@@ -576,6 +712,7 @@ def _synthetic_aggregate_comment(
         "fields": fields,
         "evidence": evidence,
         "safety_blockers": list(dict.fromkeys(safety_blockers + ["review-only synthetic aggregate"])),
+        "projection_blockers": _aggregate_projection_blockers(safety_blockers),
         "canonical_rewrite_attempted": False,
         "misleading_rewrite": False,
     }
@@ -625,6 +762,361 @@ def _aggregate_safety_blockers(fields: list[dict[str, Any]], size_hint: int) -> 
     if size_hint and cursor > size_hint:
         blockers.append("field range exceeds size hint")
     return list(dict.fromkeys(blockers))
+
+
+def _aggregate_projection_blockers(safety_blockers: list[str]) -> list[str]:
+    blockers = []
+    for item in safety_blockers:
+        normalized = str(item or "").lower()
+        if "overlap" in normalized:
+            blockers.append("offset/width conflict")
+        elif "field range exceeds" in normalized:
+            blockers.append("allocation size overrun")
+        elif "stride" in normalized or "array may represent" in normalized:
+            blockers.append("array/strided loop pattern")
+    return list(dict.fromkeys(blockers))
+
+
+def _pool_allocations(text: str) -> list[_PoolAllocation]:
+    result = []
+    for match in _POOL_ALLOCATION_ASSIGNMENT_RE.finditer(text or ""):
+        args = _split_call_args(match.group("args") or "")
+        allocator = match.group("allocator")
+        size_hint = _pool_allocation_size(allocator, args)
+        pool_tag = _pool_allocation_tag(allocator, args)
+        pool_flags = args[0] if args else ""
+        result.append(
+            _PoolAllocation(
+                base=match.group("base"),
+                allocator=allocator,
+                args=args,
+                size_hint=size_hint,
+                pool_tag=pool_tag,
+                pool_flags=pool_flags,
+                start=match.start(),
+                end=match.end(),
+                line=match.group(0),
+            )
+        )
+    return result
+
+
+def _pool_field_accesses(text: str, allocation: _PoolAllocation) -> list[_PoolFieldAccess]:
+    result: list[_PoolFieldAccess] = []
+    for match in _INDEXED_CAST_STORE_RE.finditer(text or ""):
+        if match.group("base") != allocation.base or match.start() <= allocation.end:
+            continue
+        type_text = _normalize_type_text(match.group("type") or "")
+        size = _type_storage_size(type_text)
+        index = _parse_int(match.group("index") or "")
+        if index is None:
+            continue
+        result.append(
+            _PoolFieldAccess(
+                base=allocation.base,
+                offset=index * max(1, size),
+                type_text=type_text,
+                size=size,
+                rhs=(match.group("rhs") or "").strip(),
+                line=match.group(0).strip(),
+                start=match.start(),
+                evidence=["indexed_cast_store"],
+            )
+        )
+    for match in _OFFSET_STORE_RE.finditer(text or ""):
+        if match.group("base") != allocation.base or match.start() <= allocation.end:
+            continue
+        type_text = _normalize_type_text(match.group("type") or "")
+        offset = _parse_int(match.group("offset") or "0")
+        if offset is None:
+            continue
+        result.append(
+            _PoolFieldAccess(
+                base=allocation.base,
+                offset=offset,
+                type_text=type_text,
+                size=_type_storage_size(type_text),
+                rhs=(match.group("rhs") or "").strip(),
+                line=match.group(0).strip(),
+                start=match.start(),
+                evidence=["offset_store"],
+            )
+        )
+    for match in _DIRECT_STORE_RE.finditer(text or ""):
+        if match.group("base") != allocation.base or match.start() <= allocation.end:
+            continue
+        type_text = _normalize_type_text(match.group("type") or "")
+        result.append(
+            _PoolFieldAccess(
+                base=allocation.base,
+                offset=0,
+                type_text=type_text,
+                size=_type_storage_size(type_text),
+                rhs=(match.group("rhs") or "").strip(),
+                line=match.group(0).strip(),
+                start=match.start(),
+                evidence=["direct_base_store"],
+            )
+        )
+    result.sort(key=lambda item: (item.start, item.offset))
+    return result
+
+
+def _pool_fields_from_accesses(accesses: list[_PoolFieldAccess]) -> list[dict[str, Any]]:
+    by_offset: dict[int, list[_PoolFieldAccess]] = {}
+    for access in accesses:
+        by_offset.setdefault(access.offset, []).append(access)
+    fields = []
+    for offset in sorted(by_offset):
+        offset_accesses = by_offset[offset]
+        selected = offset_accesses[0]
+        type_counts = Counter(access.type_text for access in offset_accesses)
+        type_text = _most_common_type(type_counts)
+        size = _type_storage_size(type_text)
+        rhs_names = [_field_name_from_rhs(access.rhs, type_text, offset) for access in offset_accesses]
+        field_name = next((name for name in rhs_names if name and not name.startswith("field_")), "")
+        if not field_name:
+            field_name = "field_%02X" % offset
+        evidence = []
+        for access in offset_accesses:
+            evidence.extend(access.evidence)
+        fields.append(
+            {
+                "offset": offset,
+                "name": field_name,
+                "type": type_text,
+                "size": size,
+                "source": offset_accesses[0].line,
+                "source_local": selected.base,
+                "access_count": len(offset_accesses),
+                "confidence": 0.82 if field_name.startswith("field_") else 0.86,
+                "evidence": list(dict.fromkeys(evidence + ["pool_initializer_write"])),
+            }
+        )
+    return fields
+
+
+def _field_name_from_rhs(rhs: str, type_text: str, offset: int) -> str:
+    value = str(rhs or "").strip()
+    if "LIST_ENTRY" in str(type_text or "").upper():
+        return "ListEntry" if offset else "ListHead"
+    match = re.fullmatch(r"(?:\([^)]*\)\s*)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)", value)
+    if not match:
+        return "field_%02X" % offset
+    name = match.group("name")
+    if _looks_like_decompiler_temp(name) or _looks_like_scalar(name):
+        return "field_%02X" % offset
+    if name in {"NULL", "nullptr", "TRUE", "FALSE"}:
+        return "field_%02X" % offset
+    return _sanitize_field_name(name)
+
+
+def _pool_projection_blockers(
+    text: str,
+    allocation: _PoolAllocation,
+    accesses: list[_PoolFieldAccess],
+    fields: list[dict[str, Any]],
+) -> list[str]:
+    blockers = []
+    if _pool_has_offset_width_conflict(accesses):
+        blockers.append("offset/width conflict")
+    if _pool_has_multiple_allocation_sources(text, allocation):
+        blockers.append("multiple allocation source merge")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", allocation.base):
+        blockers.append("alias base unclear")
+    first_access = accesses[0].start if accesses else allocation.end
+    if not _pool_null_guard_after_allocation(text, allocation, first_access):
+        blockers.append("dominance/null-guard unclear")
+    if _pool_escape_before_init(text, allocation, first_access):
+        blockers.append("escape-before-init")
+    if _pool_free_before_first_access(text, allocation, first_access):
+        blockers.append("free-before-use")
+    if _pool_has_strided_or_loop_pattern(text, allocation):
+        blockers.append("array/strided loop pattern")
+    if allocation.size_hint and _field_extent(fields) > allocation.size_hint:
+        blockers.append("allocation size overrun")
+    if any(_INTERLOCKED_OR_VOLATILE_RE.search(access.line) for access in accesses):
+        blockers.append("volatile/mmio/atomic/interlocked access")
+    return list(dict.fromkeys(blockers))
+
+
+def _pool_safety_blockers(projection_blockers: list[str]) -> list[str]:
+    blockers = ["render-only projection; IDB type is not modified"]
+    blockers.extend(projection_blockers)
+    return list(dict.fromkeys(blockers))
+
+
+def _pool_aggregate_confidence(
+    fields: list[dict[str, Any]],
+    evidence: list[str],
+    blockers: list[str],
+    allocation: _PoolAllocation,
+) -> float:
+    confidence = 0.70
+    confidence += min(0.10, len(fields) * 0.025)
+    confidence += min(0.08, len(evidence) * 0.02)
+    if allocation.size_hint:
+        confidence += 0.04
+    if allocation.pool_tag:
+        confidence += 0.03
+    if blockers:
+        confidence -= min(0.26, len(blockers) * 0.07)
+    return max(0.30, min(0.91, confidence))
+
+
+def _pool_null_guard_after_allocation(text: str, allocation: _PoolAllocation, before: int) -> bool:
+    window = str(text or "")[allocation.end : max(allocation.end, before)]
+    base = re.escape(allocation.base)
+    return (
+        re.search(r"\bif\s*\(\s*%s\s*\)" % base, window) is not None
+        or re.search(r"\bif\s*\(\s*%s\s*!=\s*(?:0|NULL|nullptr)\s*\)" % base, window) is not None
+        or re.search(r"\bif\s*\(\s*!\s*%s\s*\)" % base, window) is not None
+        or re.search(r"\bif\s*\(\s*(?:0|NULL|nullptr)\s*==\s*%s\s*\)" % base, window) is not None
+    )
+
+
+def _pool_escape_before_init(text: str, allocation: _PoolAllocation, first_access: int) -> bool:
+    window = str(text or "")[allocation.end : max(allocation.end, first_access)]
+    base = re.escape(allocation.base)
+    for match in re.finditer(r"\b[A-Za-z_][A-Za-z0-9_]*\s*\([^;\n]*\b%s\b[^;\n]*\)\s*;" % base, window):
+        snippet = match.group(0)
+        if allocation.allocator in snippet:
+            continue
+        if re.search(r"\b(?:memset|RtlZeroMemory|RtlFillMemory|RtlCopyMemory|memcpy)\b", snippet):
+            continue
+        return True
+    return False
+
+
+def _pool_free_before_first_access(text: str, allocation: _PoolAllocation, first_access: int) -> bool:
+    window = str(text or "")[allocation.end : max(allocation.end, first_access)]
+    base = re.escape(allocation.base)
+    return _POOL_FREE_RE.search(window) is not None and re.search(r"\b%s\b" % base, window) is not None
+
+
+def _pool_has_strided_or_loop_pattern(text: str, allocation: _PoolAllocation) -> bool:
+    base = re.escape(allocation.base)
+    if re.search(r"\b(?:for|while)\s*\(", text or "") and re.search(
+        r"\b%s\s*\+\s*[A-Za-z_][A-Za-z0-9_]*\b" % base,
+        text or "",
+    ):
+        return True
+    return re.search(r"\b%s\s*\[\s*[A-Za-z_][A-Za-z0-9_]*\s*\]" % base, text or "") is not None
+
+
+def _pool_has_offset_width_conflict(accesses: list[_PoolFieldAccess]) -> bool:
+    widths_by_offset: dict[int, set[tuple[int, str]]] = {}
+    for access in accesses:
+        widths_by_offset.setdefault(access.offset, set()).add((access.size, access.type_text))
+    return any(len(items) > 1 for items in widths_by_offset.values())
+
+
+def _pool_has_multiple_allocation_sources(text: str, allocation: _PoolAllocation) -> bool:
+    assignments = [
+        item
+        for item in _BASE_ASSIGNMENT_RE.finditer(text or "")
+        if item.group("base") == allocation.base and item.group("op") == "="
+    ]
+    allocation_assignments = [
+        item
+        for item in assignments
+        if any(name in (item.group("rhs") or "") for name in _POOL_ALLOCATOR_NAMES)
+    ]
+    return len(allocation_assignments) > 1
+
+
+def _pool_publication_after_initialization(text: str, allocation: _PoolAllocation, accesses: list[_PoolFieldAccess]) -> bool:
+    if not accesses:
+        return False
+    last_access = max(access.start for access in accesses)
+    window = str(text or "")[last_access : last_access + 600]
+    base = re.escape(allocation.base)
+    return (
+        re.search(r"\b(?:InsertTailList|InsertHeadList|ExInterlockedInsertTailList|ObInsertObject)\s*\(", window) is not None
+        and re.search(r"\b%s\b" % base, window) is not None
+    ) or re.search(r"\breturn\s+%s\s*;" % base, window) is not None
+
+
+def _field_extent(fields: list[dict[str, Any]]) -> int:
+    extent = 0
+    for field in fields:
+        offset = int(field.get("offset", 0) or 0)
+        size = max(1, int(field.get("size", 1) or 1))
+        extent = max(extent, offset + size)
+    return extent
+
+
+def _split_call_args(args: str) -> list[str]:
+    result = []
+    current = []
+    depth = 0
+    for char in str(args or ""):
+        if char == "," and depth == 0:
+            result.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+        if char in "([{":
+            depth += 1
+        elif char in ")]}" and depth > 0:
+            depth -= 1
+    if current or args:
+        result.append("".join(current).strip())
+    return result
+
+
+def _pool_allocation_size(allocator: str, args: list[str]) -> int:
+    if allocator in {"ExAllocatePool2", "ExAllocatePoolWithTag", "ExAllocatePoolWithQuotaTag", "MiAllocatePool"}:
+        if len(args) >= 2:
+            return _parse_int(args[1]) or 0
+    return 0
+
+
+def _pool_allocation_tag(allocator: str, args: list[str]) -> str:
+    if allocator in {"ExAllocatePool2", "ExAllocatePoolWithTag", "ExAllocatePoolWithQuotaTag"} and len(args) >= 3:
+        return _pool_tag_text(args[2])
+    return ""
+
+
+def _pool_tag_text(value: str) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"'[^']{1,8}'", text):
+        return text.strip("'")
+    parsed = _parse_int(text)
+    if parsed is None:
+        return text if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", text) else ""
+    chars = []
+    for shift in (0, 8, 16, 24):
+        byte = (parsed >> shift) & 0xFF
+        if byte < 0x20 or byte > 0x7E:
+            continue
+        chars.append(chr(byte))
+    return "".join(chars)
+
+
+def _pool_synthetic_name(allocation: _PoolAllocation, index: int) -> str:
+    tag = _sanitize_identifier(allocation.pool_tag or allocation.base or "POOL")
+    size_text = "%X" % allocation.size_hint if allocation.size_hint else "%d" % index
+    return "PF_INFERRED_POOL_%s_%s" % (tag or "POOL", size_text)
+
+
+def _sanitize_field_name(value: str) -> str:
+    cleaned = _sanitize_identifier(value)
+    if not cleaned or cleaned[0].isdigit():
+        return ""
+    return cleaned
+
+
+def _sanitize_identifier(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_]", "_", str(value or ""))
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    if cleaned and cleaned[0].isdigit():
+        cleaned = "_" + cleaned
+    return cleaned
+
+
+def _looks_like_decompiler_temp(name: str) -> bool:
+    return re.fullmatch(r"(?:v|a|argument)\d+", str(name or "")) is not None
 
 
 def _aggregate_display_name(base: str, index: int) -> str:
@@ -722,6 +1214,7 @@ def _has_strided_record_evidence(evidence: _StridedRecordEvidence) -> bool:
 def _comment_priority(comment: dict[str, Any]) -> tuple[int, int, str]:
     kind_order = {
         "synthetic_local_aggregate": 0,
+        "synthetic_pool_aggregate": 0,
         "dense_accumulator_block": 0,
         "dense_stack_local_region": 1,
         "review_only_struct_candidate": 2,
@@ -745,6 +1238,8 @@ def _type_storage_size(type_text: str) -> int:
     normalized = _normalize_type_text(type_text)
     if not normalized:
         return 1
+    if normalized.endswith("LIST_ENTRY") or " LIST_ENTRY" in normalized:
+        return 16
     if "*" in normalized or normalized.startswith("P") and normalized.upper() == normalized:
         return 8
     known = _TYPE_SIZES.get(normalized, _TYPE_SIZES.get(normalized.lower()))
@@ -866,10 +1361,22 @@ def _jsonable_aggregate_model(comment: dict[str, Any]) -> dict[str, Any]:
         "stride": int(comment.get("stride", 0) or 0),
         "index_variables": [str(item) for item in comment.get("index_variables", []) or []],
         "confidence": float(comment.get("confidence", 0.0) or 0.0),
+        "confidence_tier": str(comment.get("confidence_tier", "") or ""),
+        "projection_policy": str(comment.get("policy", "") or comment.get("projection_policy", "") or ""),
+        "policy_decision": str(comment.get("policy_decision", "") or ""),
+        "projection_applied": bool(comment.get("projection_applied", False)),
+        "projection_blockers": [str(item) for item in comment.get("projection_blockers", []) or []],
+        "score_reason": str(comment.get("score_reason", "") or ""),
         "evidence": [str(item) for item in comment.get("evidence", []) or []],
         "safety_blockers": [str(item) for item in comment.get("safety_blockers", []) or []],
         "canonical_rewrite_attempted": bool(comment.get("canonical_rewrite_attempted", False)),
         "misleading_rewrite": bool(comment.get("misleading_rewrite", False)),
+        "allocator": str(comment.get("allocator", "") or ""),
+        "pool_tag": str(comment.get("pool_tag", "") or ""),
+        "pool_flags": str(comment.get("pool_flags", "") or ""),
+        "allocation_size": int(comment.get("allocation_size", 0) or 0),
+        "allocation_line": str(comment.get("allocation_line", "") or ""),
+        "aliases": [str(item) for item in comment.get("aliases", []) or []],
         "fields": fields,
     }
 

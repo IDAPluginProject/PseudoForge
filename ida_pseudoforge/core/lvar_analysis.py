@@ -38,6 +38,11 @@ from ida_pseudoforge.core.normalize import (
 from ida_pseudoforge.core.pattern_renames import pattern_renames
 from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice
 from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.projection_policy import (
+    DEFAULT_PROJECTION_POLICY,
+    apply_projection_policy_to_comments,
+    normalize_projection_policy,
+)
 from ida_pseudoforge.core.rename_normalization import normalize_rename_suggestions
 from ida_pseudoforge.core.registry_domain import registry_domain_renames
 from ida_pseudoforge.core.validation import (
@@ -55,7 +60,9 @@ def build_clean_plan(
     buffer_contract_case_values: list[int] | None = None,
     buffer_contract_helper_depth: int = 2,
     buffer_contract_disasm_slices: list[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None = None,
+    projection_policy: str = DEFAULT_PROJECTION_POLICY,
 ) -> CleanPlan:
+    normalized_projection_policy = normalize_projection_policy(projection_policy)
     rule_report = RuleReport()
     rule_engine = _build_rule_engine(rule_report, rule_dirs, capture)
     api_semantic_diagnostics: list[dict[str, Any]] = []
@@ -100,6 +107,7 @@ def build_clean_plan(
         kernel_comments(capture, rename_map, corrected_parameter_map=corrected_parameter_map)
         + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
     )
+    apply_projection_policy_to_comments(comments, normalized_projection_policy)
     function_identity_candidates = domain_identity_function_identity_candidates(
         capture.pseudocode,
         profile_context=capture.profile_context,
@@ -138,6 +146,7 @@ def build_clean_plan(
         function_identity_candidates=function_identity_candidates,
         corrected_parameter_map=corrected_parameter_map,
         warning_diagnostics=warning_diagnostics,
+        projection_policy=normalized_projection_policy,
     )
 
 

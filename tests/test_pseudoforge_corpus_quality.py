@@ -3656,6 +3656,58 @@ __int64 __fastcall SyntheticAggregate()
                 score["hard_gates"]["synthetic_aggregate_safety"]["status"],
             )
 
+    def test_projected_pool_aggregate_accesses_feed_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140002000_PoolProjection"
+            function_dir.mkdir(parents=True)
+            (function_dir / "PoolProjection.cleaned.cpp").write_text(
+                """
+/*
+    Projection policy: Balanced
+    Kernel insights:
+      - synthetic_pool_aggregate: Synthetic pool aggregate PF_INFERRED_POOL_pNmM_38 for newProviderRecordAggregate: 3 field candidate(s), allocator ExAllocatePool2, size hint 0x38, tag pNmM, evidence kernel_pool_allocation, fixed_offset_writes. confidence=0.91 tier=high decision=project
+      - synthetic_local_aggregate: Synthetic local aggregate PF_INFERRED_LOCAL_AGGREGATE_0 for v10Aggregate: 4 field candidate(s), size hint 0x10, evidence stack_array, indexed_local_access. confidence=0.68 tier=blocked decision=blocked
+*/
+__int64 __fastcall PoolProjection()
+{
+  PF_INFERRED_POOL_pNmM_38 *newProviderRecord;
+  newProviderRecord->DeviceObject = DeviceObject; // PseudoForge projected: newProviderRecord->DeviceObject (+0x18, high, balanced)
+  return (__int64)newProviderRecord;
+}
+""".lstrip(),
+                encoding="utf-8",
+            )
+            (function_dir / "PoolProjection.ida-batch-summary.json").write_text(
+                json.dumps({"function": "PoolProjection", "function_ea": "0x140002000"}),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            score = report["structure_quality_score"]
+
+            self.assertEqual(2, report["body_text_stats"]["synthetic_local_aggregate_candidates"])
+            self.assertEqual(1, report["body_text_stats"]["synthetic_pool_aggregate_candidates"])
+            self.assertEqual(1, report["body_text_stats"]["projected_aggregate_accesses"])
+            self.assertEqual(1, report["body_text_stats"]["projected_aggregate_access_tokens"])
+            self.assertEqual(1, report["body_text_stats"]["blocked_aggregate_candidates"])
+            self.assertEqual(1, report["body_text_stats"]["aggregate_projection_policy_balanced"])
+            self.assertEqual(0, report["body_text_stats"]["aggregate_misleading_rewrites"])
+            self.assertEqual(
+                "pass",
+                score["positive_gates"]["synthetic_local_aggregate_view"]["status"],
+            )
+            self.assertEqual(
+                "pass",
+                score["hard_gates"]["synthetic_aggregate_safety"]["status"],
+            )
+            self.assertEqual(
+                1,
+                score["hard_gates"]["synthetic_aggregate_safety"]["value"][
+                    "blocked_aggregate_candidates"
+                ],
+            )
+
     def test_structure_quality_scorecard_fails_type_assisted_restore_mismatch(self) -> None:
         report = _structure_score_report(
             applied_parameter_type_corrections=4,

@@ -52,6 +52,7 @@ from ida_pseudoforge.core.llm_candidate_cache import (
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.normalize import extract_parameters_from_signature
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, LocalVariable
+from ida_pseudoforge.core.projection_policy import projection_policy_choices
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.render_warnings import export_warnings
 from ida_pseudoforge.profiles.loader import active_profile_root, configure_profile_dir, profile_load_warnings
@@ -340,6 +341,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--stop-on-error", action="store_true", help="Stop after the first failed function.")
     parser.add_argument("--no-auto-wait", action="store_true", help="Do not wait for IDA autoanalysis first.")
     parser.add_argument("--no-exit", action="store_true", help="Do not call ida_pro.qexit at the end.")
+    parser.add_argument(
+        "--projection-policy",
+        choices=projection_policy_choices(),
+        default="review_only",
+        help="Render-only aggregate projection policy for this batch run.",
+    )
     return parser.parse_args(argv)
 
 
@@ -407,6 +414,7 @@ def _analyze_function(
         plan, llm_status, llm_error, llm_error_class, llm_error_summary = _build_plan_with_optional_llm(
             capture,
             rename_provider,
+            projection_policy=args.projection_policy,
         )
         llm_candidate_artifacts = _llm_candidate_artifacts(rename_provider, capture)
         render_result = _render_cleaned_with_ida_postprocess(capture, plan)
@@ -603,15 +611,15 @@ def _build_llm_context(args: argparse.Namespace) -> tuple[Any | None, dict[str, 
     return provider_instance, info
 
 
-def _build_plan_with_optional_llm(capture, rename_provider: Any | None):
+def _build_plan_with_optional_llm(capture, rename_provider: Any | None, projection_policy: str = "review_only"):
     if rename_provider is None:
-        return build_clean_plan(capture), "disabled", "", "", ""
+        return build_clean_plan(capture, projection_policy=projection_policy), "disabled", "", "", ""
     try:
-        return build_clean_plan(capture, rename_provider=rename_provider), "ok", "", "", ""
+        return build_clean_plan(capture, rename_provider=rename_provider, projection_policy=projection_policy), "ok", "", "", ""
     except Exception as exc:
         if bool(getattr(rename_provider, "strict_replay", False)):
             raise
-        plan = build_clean_plan(capture)
+        plan = build_clean_plan(capture, projection_policy=projection_policy)
         plan.warnings.insert(0, format_llm_fallback_warning(exc))
         error_class = _llm_error_class(exc)
         return plan, "fallback", str(exc), error_class, summarize_llm_failure(exc)

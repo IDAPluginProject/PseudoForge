@@ -309,6 +309,7 @@ class CleanPlan:
     function_identity_candidates: list[FunctionIdentityCandidate] = field(default_factory=list)
     corrected_parameter_map: list[CorrectedParameterMapEntry] = field(default_factory=list)
     warning_diagnostics: list[WarningDiagnostic] = field(default_factory=list)
+    projection_policy: str = "review_only"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
