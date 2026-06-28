@@ -16,6 +16,18 @@ _DIRECT_BASE_ACCESS_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[^()]*?)\s*\*\s*\)\s*"
     r"(?P<base>[A-Za-z_][A-Za-z0-9_]*)\b(?!\s*\()"
 )
+_STRIDED_AGGREGATE_RE = re.compile(
+    r"(?:(?P<stride_a>0x[0-9A-Fa-f]+|\d+)(?:LL|i64|ULL|uLL|UL|U|L)?\s*\*\s*"
+    r"(?P<index_a>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<base_a>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\+\s*(?P<offset_a>0x[0-9A-Fa-f]+|\d+))?|"
+    r"(?P<base_b>[A-Za-z_][A-Za-z0-9_]*)\s*\+\s*"
+    r"(?P<stride_b>0x[0-9A-Fa-f]+|\d+)(?:LL|i64|ULL|uLL|UL|U|L)?\s*\*\s*"
+    r"(?P<index_b>[A-Za-z_][A-Za-z0-9_]*)(?:\s*\+\s*(?P<offset_b>0x[0-9A-Fa-f]+|\d+))?)"
+)
+_LOCAL_DECLARATION_RE = re.compile(
+    r"^\s*(?:const\s+)?[A-Za-z_][A-Za-z0-9_:\s\*\&<>]*\s+"
+    r"[\*\&\s]*[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])?\s*;"
+)
 _REVIEW_ONLY_ALIAS_FIELD_KINDS = {
     "domain_structure_identity",
     "inferred_offset_field_aliases",
@@ -95,6 +107,7 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
     if not comment_kinds:
         return text
     review_only_field_aliases = _review_only_field_aliases_by_base(plan)
+    synthetic_aggregate_aliases = _synthetic_aggregate_aliases(plan)
     devpropkey_bases = _devpropkey_identity_bases(plan)
     devpropkey_intro_notes = _devpropkey_function_intro_notes(text, devpropkey_bases)
     event_builder_bases = _event_builder_identity_bases(plan)
@@ -124,6 +137,8 @@ def annotate_kernel_hints(text: str, plan: CleanPlan) -> str:
                 lines.append(indent + "// PseudoForge: providerLink is providerRecord->Link at offset +0x18.")
         if review_only_field_aliases:
             lines[-1] = _annotate_review_only_field_alias_line(lines[-1], review_only_field_aliases)
+        if synthetic_aggregate_aliases:
+            lines[-1] = _annotate_synthetic_aggregate_alias_line(lines[-1], synthetic_aggregate_aliases)
     return "\n".join(lines)
 
 
@@ -336,6 +351,161 @@ def _review_only_alias_source_text(comment: dict[str, object], context: dict[str
     if source:
         return source
     return ""
+
+
+def _synthetic_aggregate_aliases(plan: CleanPlan) -> dict[str, object]:
+    by_local: dict[str, dict[str, str]] = {}
+    by_indexed_local: dict[tuple[str, int], dict[str, str]] = {}
+    strided: dict[tuple[str, int, int], dict[str, str]] = {}
+    for comment in plan.comments:
+        if str(comment.get("kind", "") or "") != "synthetic_local_aggregate":
+            continue
+        display_name = str(comment.get("display_name", "") or "")
+        if not _IDENTIFIER_RE.fullmatch(display_name):
+            continue
+        aggregate_kind = str(comment.get("aggregate_kind", "") or "")
+        stride = _field_offset(comment.get("stride")) or 0
+        base = str(comment.get("base", "") or "")
+        for field in comment.get("fields", []) or []:
+            if not isinstance(field, dict):
+                continue
+            offset = _field_offset(field.get("offset"))
+            if offset is None:
+                continue
+            alias = {
+                "display_name": display_name,
+                "aggregate_kind": aggregate_kind,
+                "base": base,
+                "stride": str(stride),
+                "name": _field_name(field, offset),
+                "type": _field_type(field),
+                "offset": str(offset),
+                "source": str(field.get("source", "") or ""),
+                "source_local": str(field.get("source_local", "") or ""),
+            }
+            source_local = alias["source_local"]
+            if _IDENTIFIER_RE.fullmatch(source_local) and aggregate_kind == "stack_array":
+                source_index = _synthetic_array_source_index(alias["source"])
+                if source_index is not None:
+                    by_indexed_local[(source_local, source_index)] = alias
+            elif _IDENTIFIER_RE.fullmatch(source_local) and aggregate_kind != "strided_record":
+                by_local[source_local] = alias
+            if aggregate_kind == "strided_record" and _IDENTIFIER_RE.fullmatch(base) and stride > 0:
+                strided[(base, stride, offset)] = alias
+    return {"by_local": by_local, "by_indexed_local": by_indexed_local, "strided": strided}
+
+
+def _annotate_synthetic_aggregate_alias_line(line: str, alias_state: dict[str, object]) -> str:
+    if (
+        "// PseudoForge review-only:" in line
+        or "/*" in line
+        or "*/" in line
+        or _LOCAL_DECLARATION_RE.match(line or "") is not None
+    ):
+        return line
+    aliases = _synthetic_aggregate_aliases_for_line(line, alias_state)
+    if not aliases:
+        return line
+    parts = [_synthetic_aggregate_alias_token(alias) for alias in aliases[:2]]
+    parts = [part for part in parts if part]
+    if not parts:
+        return line
+    if len(aliases) > len(parts):
+        parts.append("...")
+    parts.append("no rewrite")
+    return "%s // PseudoForge review-only: %s" % (
+        line.rstrip(),
+        sanitize_generated_comment_text("; ".join(parts)),
+    )
+
+
+def _synthetic_aggregate_aliases_for_line(
+    line: str,
+    alias_state: dict[str, object],
+) -> list[dict[str, str]]:
+    result: list[tuple[int, dict[str, str]]] = []
+    seen = set()
+    by_local = alias_state.get("by_local", {})
+    if isinstance(by_local, dict):
+        for local, alias in by_local.items():
+            if not isinstance(local, str) or not isinstance(alias, dict):
+                continue
+            match = re.search(r"\b%s\b" % re.escape(local), line or "")
+            if match is None:
+                continue
+            key = (alias.get("display_name", ""), alias.get("name", ""), alias.get("source", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append((match.start(), alias))
+    by_indexed_local = alias_state.get("by_indexed_local", {})
+    if isinstance(by_indexed_local, dict):
+        for match in re.finditer(
+            r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\[\s*(?P<index>\d+)\s*\]",
+            line or "",
+        ):
+            alias = by_indexed_local.get((match.group("name"), int(match.group("index"))))
+            if not isinstance(alias, dict):
+                continue
+            key = (alias.get("display_name", ""), alias.get("name", ""), alias.get("source", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append((match.start(), alias))
+    strided = alias_state.get("strided", {})
+    if isinstance(strided, dict):
+        for match in _STRIDED_AGGREGATE_RE.finditer(line or ""):
+            base = match.group("base_a") or match.group("base_b") or ""
+            stride = _field_offset(match.group("stride_a") or match.group("stride_b") or "")
+            offset = _field_offset(match.group("offset_a") or match.group("offset_b") or "0")
+            if stride is None or offset is None:
+                continue
+            alias = strided.get((base, stride, offset))
+            if not isinstance(alias, dict):
+                continue
+            key = (alias.get("display_name", ""), alias.get("name", ""), alias.get("source", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append((match.start(), alias))
+    result.sort(key=lambda item: item[0])
+    return [item[1] for item in result[:3]]
+
+
+def _synthetic_array_source_index(source: str) -> int | None:
+    match = re.search(r"\[\s*(\d+)\s*\]\s*$", str(source or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _synthetic_aggregate_alias_token(alias: dict[str, str]) -> str:
+    display_name = str(alias.get("display_name", "") or "")
+    name = str(alias.get("name", "") or "")
+    if not _IDENTIFIER_RE.fullmatch(display_name) or not _IDENTIFIER_RE.fullmatch(name):
+        return ""
+    offset = _field_offset(alias.get("offset", "")) or 0
+    aggregate_kind = str(alias.get("aggregate_kind", "") or "")
+    source = str(alias.get("source", "") or "")
+    field_type = str(alias.get("type", "") or "unknown")
+    details = []
+    if source:
+        details.append("source %s" % source)
+    if field_type:
+        details.append(field_type)
+    details.append("+0x%X" % offset)
+    if aggregate_kind == "strided_record":
+        stride = _field_offset(alias.get("stride", "")) or 0
+        if stride:
+            details.append("stride 0x%X" % stride)
+        label = "inferred strided record"
+    else:
+        label = "inferred stack aggregate"
+    details.append(label)
+    return "%s.%s (%s)" % (display_name, name, ", ".join(details))
 
 
 def _review_only_alias_rank(alias: dict[str, str]) -> int:

@@ -13,6 +13,11 @@ from ida_pseudoforge.core.buffer_contracts import (
     render_buffer_contract_report,
     render_buffer_struct_header,
 )
+from ida_pseudoforge.core.dense_structural_hints import (
+    render_synthetic_aggregate_report,
+    render_synthetic_struct_header,
+    synthetic_aggregate_json_payload,
+)
 from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
@@ -67,6 +72,9 @@ def write_export_bundle(
     buffer_contract_report_path = output_path / f"{safe_name}.buffer-contracts.md"
     buffer_contract_json_path = output_path / f"{safe_name}.buffer-contracts.json"
     buffer_struct_header_path = output_path / f"{safe_name}.buffer-structs.hpp"
+    inferred_aggregate_report_path = output_path / f"{safe_name}.inferred-aggregates.md"
+    inferred_aggregate_json_path = output_path / f"{safe_name}.inferred-aggregates.json"
+    synthetic_struct_header_path = output_path / f"{safe_name}.synthetic-structs.hpp"
     rule_report_path = output_path / f"{safe_name}.rule-report.json"
     raw_path = output_path / f"{safe_name}.raw.cpp"
     warnings_path = output_path / f"{safe_name}.warnings.json"
@@ -93,6 +101,9 @@ def write_export_bundle(
     flow_report_text = render_flow_report(capture, plan)
     buffer_contract_report_text = render_buffer_contract_report(capture, plan.buffer_contracts)
     buffer_struct_header_text = render_buffer_struct_header(capture, plan.buffer_contracts)
+    inferred_aggregate_report_text = render_synthetic_aggregate_report(plan)
+    inferred_aggregate_payload = synthetic_aggregate_json_payload(plan)
+    synthetic_struct_header_text = render_synthetic_struct_header(plan)
     warnings = _combined_export_warnings(plan)
     warning_diagnostics = export_warning_diagnostics(plan)
 
@@ -109,6 +120,12 @@ def write_export_bundle(
         encoding="utf-8",
     )
     buffer_struct_header_path.write_text(buffer_struct_header_text, encoding="utf-8")
+    inferred_aggregate_report_path.write_text(inferred_aggregate_report_text, encoding="utf-8")
+    inferred_aggregate_json_path.write_text(
+        json.dumps(inferred_aggregate_payload, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    synthetic_struct_header_path.write_text(synthetic_struct_header_text, encoding="utf-8")
     rule_report_path.write_text(
         json.dumps(plan.rule_report or {}, indent=2, ensure_ascii=True),
         encoding="utf-8",
@@ -136,6 +153,9 @@ def write_export_bundle(
         "buffer_contract_report": str(buffer_contract_report_path),
         "buffer_contracts": str(buffer_contract_json_path),
         "buffer_structs": str(buffer_struct_header_path),
+        "inferred_aggregates_report": str(inferred_aggregate_report_path),
+        "inferred_aggregates": str(inferred_aggregate_json_path),
+        "synthetic_structs": str(synthetic_struct_header_path),
         "rule_report": str(rule_report_path),
         "raw_pseudocode": str(raw_path),
         "warnings": str(warnings_path),
@@ -234,6 +254,7 @@ def _export_summary_payload(
         "parameter_type_corrections": [asdict(item) for item in plan.type_corrections],
         "corrected_parameter_map": [asdict(item) for item in plan.corrected_parameter_map],
         "body_canonical_rewrite_summary": _body_canonical_rewrite_summary(plan),
+        "synthetic_aggregate_summary": _synthetic_aggregate_summary(plan),
         "source_context": _source_context_payload(capture),
         "profile_root": active_profile_root(),
         "active_profiles": active_profile_names(),
@@ -623,6 +644,20 @@ def _body_canonical_rewrite_summary(plan: CleanPlan) -> dict[str, object]:
         "source_provenance_counts": dict(sorted(source_provenance_counts.items())),
         "domain_profile_counts": dict(sorted(domain_profile_counts.items())),
         "bases": sorted(bases),
+    }
+
+
+def _synthetic_aggregate_summary(plan: CleanPlan) -> dict[str, object]:
+    payload = synthetic_aggregate_json_payload(plan)
+    aggregates = list(payload.get("aggregates", []) or [])
+    return {
+        "aggregate_count": int(payload.get("aggregate_count", 0) or 0),
+        "canonical_rewrite_attempts": int(payload.get("canonical_rewrite_attempts", 0) or 0),
+        "misleading_rewrites": int(payload.get("misleading_rewrites", 0) or 0),
+        "aggregate_kinds": dict(
+            sorted(Counter(str(item.get("aggregate_kind", "") or "") for item in aggregates).items())
+        ),
+        "fields": sum(len(item.get("fields", []) or []) for item in aggregates if isinstance(item, dict)),
     }
 
 

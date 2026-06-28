@@ -16,9 +16,10 @@ _root_key = os.path.normcase(str(ROOT))
 sys.path = [entry for entry in sys.path if os.path.normcase(entry) != _root_key]
 sys.path.insert(0, str(ROOT))
 
-for module_name in list(sys.modules):
-    if module_name == "ida_pseudoforge" or module_name.startswith("ida_pseudoforge."):
-        del sys.modules[module_name]
+if __name__ == "__main__":
+    for module_name in list(sys.modules):
+        if module_name == "ida_pseudoforge" or module_name.startswith("ida_pseudoforge."):
+            del sys.modules[module_name]
 
 from ida_pseudoforge.core.plan_schema import CleanPlan, LocalVariable, RenameSuggestion
 from ida_pseudoforge.core.validation import is_valid_c_identifier

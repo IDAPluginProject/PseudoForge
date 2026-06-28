@@ -28,6 +28,7 @@ CRITICAL_KERNEL_INSIGHT_KINDS = {
     "inferred_offset_rewrite_preview",
     "inferred_offset_rewrite_ready",
     "review_only_struct_candidate",
+    "synthetic_local_aggregate",
 }
 
 

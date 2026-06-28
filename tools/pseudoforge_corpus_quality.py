@@ -228,6 +228,7 @@ _STRUCTURE_QUALITY_COMPONENT_ORDER = (
     "prototype_correctness",
     "call_argument_cleanup",
     "structure_identity_evidence",
+    "synthetic_local_aggregate_view",
     "visible_body_improvement",
     "offset_residue",
     "pointer_indexed_residue",
@@ -239,6 +240,7 @@ _STRUCTURE_QUALITY_COMPONENT_WEIGHTS = {
     "prototype_correctness": 1.2,
     "call_argument_cleanup": 1.0,
     "structure_identity_evidence": 1.4,
+    "synthetic_local_aggregate_view": 0.8,
     "visible_body_improvement": 1.0,
     "offset_residue": 1.5,
     "pointer_indexed_residue": 1.0,
@@ -801,6 +803,16 @@ LAYOUT_HINT_RE = re.compile(
 VISIBLE_REVIEW_ONLY_FIELD_ALIAS_RE = re.compile(r"//\s*PseudoForge review-only:[^\n]*\bno rewrite\b")
 VISIBLE_REVIEW_ONLY_FIELD_ALIAS_TOKEN_RE = re.compile(
     r"\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\s+\([^)\n]*\+0x[0-9A-Fa-f]+[^)\n]*\)"
+)
+SYNTHETIC_AGGREGATE_COMMENT_RE = re.compile(r"\bsynthetic_local_aggregate\b")
+INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_RE = re.compile(
+    r"//\s*PseudoForge review-only:[^\n]*\binferred (?:stack aggregate|strided record)\b[^\n]*\bno rewrite\b"
+)
+INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_TOKEN_RE = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*\.field_[0-9A-Fa-f]+\s+\([^)\n]*\binferred (?:stack aggregate|strided record)\b[^)\n]*\)"
+)
+AGGREGATE_MISLEADING_REWRITE_RE = re.compile(
+    r"->field_[0-9A-Fa-f]+\b[^\n]*\binferred (?:stack aggregate|strided record)\b"
 )
 
 ARTIFACT_SUFFIXES = {
@@ -2333,6 +2345,36 @@ def _structure_quality_scorecard(report: dict[str, Any]) -> dict[str, Any]:
                 ),
             },
         ),
+        "synthetic_local_aggregate_view": _structure_quality_component(
+            "synthetic_local_aggregate_view",
+            _synthetic_local_aggregate_view_score(body_text_stats, functions),
+            {
+                "synthetic_local_aggregate_candidates": _int_value(
+                    body_text_stats.get("synthetic_local_aggregate_candidates"),
+                    0,
+                ),
+                "functions_with_synthetic_local_aggregate_view": _int_value(
+                    body_text_stats.get("functions_with_synthetic_local_aggregate_view"),
+                    0,
+                ),
+                "inline_review_only_aggregate_aliases": _int_value(
+                    body_text_stats.get("inline_review_only_aggregate_aliases"),
+                    0,
+                ),
+                "inline_review_only_aggregate_alias_tokens": _int_value(
+                    body_text_stats.get("inline_review_only_aggregate_alias_tokens"),
+                    0,
+                ),
+                "aggregate_canonical_rewrite_attempts": _int_value(
+                    body_text_stats.get("aggregate_canonical_rewrite_attempts"),
+                    0,
+                ),
+                "aggregate_misleading_rewrites": _int_value(
+                    body_text_stats.get("aggregate_misleading_rewrites"),
+                    0,
+                ),
+            },
+        ),
         "visible_body_improvement": _structure_quality_component(
             "visible_body_improvement",
             _visible_body_improvement_score(
@@ -2466,6 +2508,7 @@ def _structure_quality_scorecard(report: dict[str, Any]) -> dict[str, Any]:
         rewrite_preview_artifact_totals,
         rule_stats,
         prototype_totals,
+        body_text_stats,
     )
     manual_reread = _structure_quality_manual_reread(report)
     positive_gates = _structure_quality_positive_gates(
@@ -2668,6 +2711,30 @@ def _visible_body_improvement_score(
     return score
 
 
+def _synthetic_local_aggregate_view_score(
+    body_text_stats: dict[str, Any],
+    functions: int,
+) -> float:
+    candidates = _int_value(body_text_stats.get("synthetic_local_aggregate_candidates"), 0)
+    view_functions = _int_value(body_text_stats.get("functions_with_synthetic_local_aggregate_view"), 0)
+    inline_aliases = _int_value(body_text_stats.get("inline_review_only_aggregate_aliases"), 0)
+    alias_tokens = _int_value(body_text_stats.get("inline_review_only_aggregate_alias_tokens"), 0)
+    canonical_attempts = _int_value(body_text_stats.get("aggregate_canonical_rewrite_attempts"), 0)
+    misleading = _int_value(body_text_stats.get("aggregate_misleading_rewrites"), 0)
+    score = 9.0
+    if candidates > 0:
+        score = 8.0 + min(2.0, _density(inline_aliases + view_functions, functions) * 8.0)
+        if inline_aliases <= 0:
+            score -= 2.0
+        if alias_tokens > inline_aliases:
+            score += min(0.75, _density(alias_tokens - inline_aliases, functions) * 3.0)
+    if canonical_attempts > 0:
+        score -= min(5.0, 2.0 + canonical_attempts)
+    if misleading > 0:
+        score -= min(9.0, 4.0 + misleading * 2.0)
+    return score
+
+
 def _offset_residue_score(
     body_offset_totals: dict[str, Any],
     body_text_stats: dict[str, Any],
@@ -2789,6 +2856,7 @@ def _structure_quality_hard_gates(
     rewrite_preview_artifact_totals: dict[str, Any],
     rule_stats: dict[str, Any],
     prototype_totals: dict[str, Any],
+    body_text_stats: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     manual_reread = _structure_quality_manual_reread(report)
     return {
@@ -2825,6 +2893,21 @@ def _structure_quality_hard_gates(
             _int_value(prototype_totals.get("type_assisted_preview_restore_failures"), 0) == 0,
             "type-assisted preview restores the original IDB type after temporary redecompile",
             _int_value(prototype_totals.get("type_assisted_preview_restore_failures"), 0),
+        ),
+        "synthetic_aggregate_safety": _structure_quality_gate(
+            _int_value(body_text_stats.get("aggregate_canonical_rewrite_attempts"), 0) == 0
+            and _int_value(body_text_stats.get("aggregate_misleading_rewrites"), 0) == 0,
+            "synthetic aggregate evidence remains review-only with no misleading body rewrite",
+            {
+                "aggregate_canonical_rewrite_attempts": _int_value(
+                    body_text_stats.get("aggregate_canonical_rewrite_attempts"),
+                    0,
+                ),
+                "aggregate_misleading_rewrites": _int_value(
+                    body_text_stats.get("aggregate_misleading_rewrites"),
+                    0,
+                ),
+            },
         ),
         "manual_reread": {
             "status": str(manual_reread.get("status", "") or "missing"),
@@ -2919,6 +3002,27 @@ def _structure_quality_positive_gates(
                 ),
                 "canonical_layout_rewrite_applied": _int_value(
                     rewrite_preview_artifact_totals.get("canonical_rewrite_applied"),
+                    0,
+                ),
+            },
+        ),
+        "synthetic_local_aggregate_view": _structure_quality_gate(
+            (
+                _int_value(body_text_stats.get("synthetic_local_aggregate_candidates"), 0) == 0
+                or _int_value(body_text_stats.get("inline_review_only_aggregate_aliases"), 0) > 0
+            ),
+            "synthetic aggregate candidates are surfaced near body uses or no candidate exists",
+            {
+                "synthetic_local_aggregate_candidates": _int_value(
+                    body_text_stats.get("synthetic_local_aggregate_candidates"),
+                    0,
+                ),
+                "inline_review_only_aggregate_aliases": _int_value(
+                    body_text_stats.get("inline_review_only_aggregate_aliases"),
+                    0,
+                ),
+                "aggregate_misleading_rewrites": _int_value(
+                    body_text_stats.get("aggregate_misleading_rewrites"),
                     0,
                 ),
             },
@@ -14402,6 +14506,13 @@ def _update_text_metrics(
     body_text = _strip_pseudoforge_header(text)
     _update_visible_review_only_field_alias_metrics(text_totals, text)
     _update_visible_review_only_field_alias_metrics(body_text_totals, body_text)
+    _update_synthetic_aggregate_metrics(text_totals, text)
+    _update_synthetic_aggregate_metrics(body_text_totals, body_text)
+    full_synthetic_candidates = len(SYNTHETIC_AGGREGATE_COMMENT_RE.findall(text))
+    body_synthetic_candidates = len(SYNTHETIC_AGGREGATE_COMMENT_RE.findall(body_text))
+    body_synthetic_aliases = len(INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_RE.findall(body_text))
+    if full_synthetic_candidates and body_synthetic_aliases and not body_synthetic_candidates:
+        body_text_totals["synthetic_local_aggregate_candidates"] += full_synthetic_candidates
     body_metric_text = _strip_visible_review_only_field_alias_comments(body_text)
     _update_residue_metrics(body_text_totals, body_metric_text)
     decimal_status_body_literals = _decimal_status_like_literals(body_text)
@@ -14712,6 +14823,37 @@ def _update_visible_review_only_field_alias_metrics(text_totals: Counter[str], t
 
 def _strip_visible_review_only_field_alias_comments(text: str) -> str:
     return VISIBLE_REVIEW_ONLY_FIELD_ALIAS_RE.sub("", text or "")
+
+
+def _update_synthetic_aggregate_metrics(text_totals: Counter[str], text: str) -> None:
+    raw_text = text or ""
+    for key in (
+        "synthetic_local_aggregate_candidates",
+        "functions_with_synthetic_local_aggregate_view",
+        "inline_review_only_aggregate_aliases",
+        "inline_review_only_aggregate_alias_tokens",
+        "aggregate_canonical_rewrite_attempts",
+        "aggregate_misleading_rewrites",
+    ):
+        text_totals[key] += 0
+    candidates = len(SYNTHETIC_AGGREGATE_COMMENT_RE.findall(raw_text))
+    inline_aliases = list(INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_RE.finditer(raw_text))
+    misleading = len(AGGREGATE_MISLEADING_REWRITE_RE.findall(raw_text))
+    canonical_attempts = len(re.findall(r"\bcanonical aggregate rewrite (?:applied|attempted)\b", raw_text))
+    if candidates:
+        text_totals["synthetic_local_aggregate_candidates"] += candidates
+    if inline_aliases:
+        text_totals["inline_review_only_aggregate_aliases"] += len(inline_aliases)
+        tokens = 0
+        for alias in inline_aliases:
+            tokens += len(INLINE_REVIEW_ONLY_AGGREGATE_ALIAS_TOKEN_RE.findall(alias.group(0)))
+        text_totals["inline_review_only_aggregate_alias_tokens"] += tokens
+    if candidates or inline_aliases:
+        text_totals["functions_with_synthetic_local_aggregate_view"] += 1
+    if canonical_attempts:
+        text_totals["aggregate_canonical_rewrite_attempts"] += canonical_attempts
+    if misleading:
+        text_totals["aggregate_misleading_rewrites"] += misleading
 
 
 def _strip_pseudoforge_header(text: str) -> str:

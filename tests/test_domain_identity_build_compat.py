@@ -21,7 +21,6 @@ COMPATIBLE_26100_PROFILE_IDS = {
     "windows.memory_manager.create_pfn_template",
     "windows.memory_manager.create_slab_entry",
     "windows.memory_manager.delete_empty_page_table_commit",
-    "windows.memory_manager.free_pages_from_mdl",
     "windows.memory_manager.lock_page_list_and_last_page",
     "windows.memory_manager.make_system_address_valid",
     "windows.memory_manager.prefetch_virtual_memory",
@@ -51,6 +50,7 @@ COMPATIBLE_26100_PROFILE_IDS = {
 
 CANONICAL_REWRITE_26100_PROFILE_IDS = {
     "windows.memory_manager.create_shared_zero_pages",
+    "windows.memory_manager.free_pages_from_mdl",
     "windows.memory_manager.pf_allocate_mdls",
     "windows.memory_manager.store_work_item_process",
 }

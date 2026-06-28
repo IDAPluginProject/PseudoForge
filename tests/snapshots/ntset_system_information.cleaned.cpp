@@ -9,6 +9,9 @@
     Kernel semantic rewrites: 1
     Warnings: 1
     Flow: switch_recovery dispatcher=infoClass cases=[9, 113, 194, 235, 243] confidence=0.60
+    Function identities: 1 candidate(s), 1 report-only, 0 preview-rewrite, 0 canonical-rewrite-eligible.
+    Top function profiles: windows.subsystem_prefix.system_service.
+    Function identity blockers: generic_subsystem_prefix=1, report_only_profile=1.
     Kernel insights:
       - object_reference: Kernel object/context reference ownership changes are present confidence=0.84
     Label roles:

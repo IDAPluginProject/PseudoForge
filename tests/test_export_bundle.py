@@ -85,6 +85,23 @@ __int64 __fastcall LiveInRegisterExportSample()
 """
 
 
+SYNTHETIC_AGGREGATE_EXPORT_SAMPLE = """
+__int64 __fastcall SyntheticAggregateExportSample()
+{
+  int v10; // [rsp+40h] [rbp-20h] BYREF
+  int v11; // [rsp+44h] [rbp-1Ch]
+  int v12; // [rsp+48h] [rbp-18h]
+  int v13; // [rsp+4Ch] [rbp-14h]
+
+  memset_0(&v10, 0, 0x10uLL);
+  v11 += 1;
+  v12 += v11;
+  v13 += v12;
+  return v13;
+}
+"""
+
+
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
         profile_loader.clear_profile_caches()
@@ -205,6 +222,35 @@ class ExportBundleTests(unittest.TestCase):
             self.assertEqual(0, diagnostics[0]["argument_index"])
             self.assertEqual(artifacts["warning_diagnostics"], summary["artifacts"]["warning_diagnostics"])
             self.assertEqual(1, summary["warning_diagnostics"])
+
+    def test_write_export_bundle_includes_synthetic_aggregate_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                SYNTHETIC_AGGREGATE_EXPORT_SAMPLE,
+                ea=0x140003100,
+                source_path="sample.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            self.assertIn("inferred_aggregates", artifacts)
+            self.assertIn("inferred_aggregates_report", artifacts)
+            self.assertIn("synthetic_structs", artifacts)
+            aggregate_payload = json.loads(Path(artifacts["inferred_aggregates"]).read_text(encoding="utf-8"))
+            aggregate_report = Path(artifacts["inferred_aggregates_report"]).read_text(encoding="utf-8")
+            synthetic_structs = Path(artifacts["synthetic_structs"]).read_text(encoding="utf-8")
+            cleaned = Path(artifacts["cleaned_pseudocode"]).read_text(encoding="utf-8")
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+
+            self.assertGreaterEqual(aggregate_payload["aggregate_count"], 1)
+            self.assertEqual(0, aggregate_payload["canonical_rewrite_attempts"])
+            self.assertIn("PF_INFERRED_LOCAL_AGGREGATE_0", aggregate_report)
+            self.assertIn("typedef struct _PF_INFERRED_LOCAL_AGGREGATE_0", synthetic_structs)
+            self.assertIn("v11 += 1; // PseudoForge review-only:", cleaned)
+            self.assertIn("inferred stack aggregate", cleaned)
+            self.assertNotIn("v10Aggregate->field_", cleaned)
+            self.assertGreaterEqual(summary["synthetic_aggregate_summary"]["aggregate_count"], 1)
 
     def test_write_export_bundle_limits_long_artifact_stems(self) -> None:
         long_name = (

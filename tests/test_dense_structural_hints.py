@@ -95,6 +95,18 @@ __int64 __fastcall RaspScanConvert(__int64 a1, __int64 a2, unsigned int a3)
 """
 
 
+ENUM_STACK_ARRAY_SAMPLE = r"""
+__int64 __fastcall EnumArraySample(int a1)
+{
+  SECURITY_IMPERSONATION_LEVEL ImpersonationLevel[4]; // [rsp+C0h] [rbp-F8h]
+
+  ImpersonationLevel[0] = 0;
+  ImpersonationLevel[1] = a1;
+  return ImpersonationLevel[2] + ImpersonationLevel[1];
+}
+"""
+
+
 class DenseStructuralHintTests(unittest.TestCase):
     def test_ki_synch_numa_counter_dense_accumulators_are_reported(self) -> None:
         capture = capture_from_pseudocode(KI_SYNCH_NUMA_COUNTER_BLOCK_SAMPLE)
@@ -103,13 +115,19 @@ class DenseStructuralHintTests(unittest.TestCase):
 
         stack_regions = [item for item in plan.comments if item.get("kind") == "dense_stack_local_region"]
         accumulators = [item for item in plan.comments if item.get("kind") == "dense_accumulator_block"]
+        synthetic = [item for item in plan.comments if item.get("kind") == "synthetic_local_aggregate"]
 
         self.assertGreaterEqual(len(stack_regions), 2)
         self.assertGreaterEqual(len(accumulators), 2)
+        self.assertGreaterEqual(len(synthetic), 2)
+        self.assertTrue(any(item.get("synthetic_name") == "PF_INFERRED_LOCAL_AGGREGATE_0" for item in synthetic))
         self.assertTrue(any("v27..v38" in item["text"] for item in accumulators))
         self.assertTrue(any("memset_0(&v27, 0, 0x30)" in item["text"] for item in stack_regions))
         self.assertIn("dense_accumulator_block", rendered)
         self.assertIn("dense_stack_local_region", rendered)
+        self.assertIn("synthetic_local_aggregate", rendered)
+        self.assertIn("v28 += v17[1]; // PseudoForge review-only: v27Aggregate.field_04", rendered)
+        self.assertNotIn("v27Aggregate->field_04", rendered)
         self.assertIn("Review-only", rendered)
 
     def test_rasp_scan_convert_stack_array_and_strided_record_are_reported_only(self) -> None:
@@ -120,14 +138,33 @@ class DenseStructuralHintTests(unittest.TestCase):
 
         stack_regions = [item for item in plan.comments if item.get("kind") == "dense_stack_local_region"]
         struct_candidates = [item for item in plan.comments if item.get("kind") == "review_only_struct_candidate"]
+        synthetic = [item for item in plan.comments if item.get("kind") == "synthetic_local_aggregate"]
 
         self.assertTrue(any("v65[4]" in item["text"] for item in stack_regions))
         self.assertEqual(1, len(struct_candidates))
+        self.assertEqual(2, len(synthetic))
         self.assertIn("stride 0x11", struct_candidates[0]["text"])
         self.assertIn("+0x8", struct_candidates[0]["text"])
         self.assertIn("review_only_struct_candidate", rendered)
+        self.assertIn("synthetic_local_aggregate", rendered)
         self.assertNotIn("review_only_struct_candidate", body)
-        self.assertIn("*(_DWORD *)(17LL * v25 + argument1 + 8)", body)
+        self.assertIn(
+            "*(_DWORD *)(17LL * v25 + argument1 + 8); // PseudoForge review-only: argument1Aggregate.field_08",
+            body,
+        )
+        self.assertIn("v65[1] = v64 + v66; // PseudoForge review-only: v65Aggregate.field_04", body)
+        self.assertNotIn("argument1Aggregate->field_08", body)
+
+    def test_stack_array_typedef_scalars_use_word_sized_offsets(self) -> None:
+        capture = capture_from_pseudocode(ENUM_STACK_ARRAY_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+        body = rendered.rsplit("*/", 1)[-1]
+
+        self.assertIn("ImpersonationLevelAggregate.field_04", body)
+        self.assertIn("ImpersonationLevelAggregate.field_08", body)
+        self.assertNotIn("ImpersonationLevelAggregate.field_01", body)
+        self.assertNotIn("ImpersonationLevelAggregate.field_02", body)
 
 
 if __name__ == "__main__":

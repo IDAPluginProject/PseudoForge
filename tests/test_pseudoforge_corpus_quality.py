@@ -3615,6 +3615,47 @@ __int64 __fastcall ReviewOnlyAlias(__int64 context)
                 report["structure_quality_score"]["positive_gates"]["visible_body_improvement"]["status"],
             )
 
+    def test_synthetic_aggregate_inline_aliases_feed_scorecard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            function_dir = root / "functions" / "0000000140001000_SyntheticAggregate"
+            function_dir.mkdir(parents=True)
+            (function_dir / "SyntheticAggregate.cleaned.cpp").write_text(
+                """
+/*
+    Kernel insights:
+      - synthetic_local_aggregate: Synthetic local aggregate PF_INFERRED_LOCAL_AGGREGATE_0 for v10Aggregate: 4 field candidate(s), size hint 0x10, evidence zeroed_region, stack_adjacency. Review-only; canonical aggregate rewrite was not attempted. confidence=0.78
+*/
+__int64 __fastcall SyntheticAggregate()
+{
+  v11 += 1; // PseudoForge review-only: v10Aggregate.field_04 (source v11, int, +0x4, inferred stack aggregate); no rewrite
+  return v11;
+}
+""".lstrip(),
+                encoding="utf-8",
+            )
+            (function_dir / "SyntheticAggregate.ida-batch-summary.json").write_text(
+                json.dumps({"function": "SyntheticAggregate", "function_ea": "0x140001000"}),
+                encoding="utf-8",
+            )
+
+            report = analyze_corpus(root)
+            score = report["structure_quality_score"]
+
+            self.assertEqual(1, report["body_text_stats"]["synthetic_local_aggregate_candidates"])
+            self.assertEqual(1, report["body_text_stats"]["inline_review_only_aggregate_aliases"])
+            self.assertEqual(1, report["body_text_stats"]["inline_review_only_aggregate_alias_tokens"])
+            self.assertEqual(0, report["body_text_stats"]["aggregate_canonical_rewrite_attempts"])
+            self.assertEqual(0, report["body_text_stats"]["aggregate_misleading_rewrites"])
+            self.assertEqual(
+                "pass",
+                score["positive_gates"]["synthetic_local_aggregate_view"]["status"],
+            )
+            self.assertEqual(
+                "pass",
+                score["hard_gates"]["synthetic_aggregate_safety"]["status"],
+            )
+
     def test_structure_quality_scorecard_fails_type_assisted_restore_mismatch(self) -> None:
         report = _structure_score_report(
             applied_parameter_type_corrections=4,
