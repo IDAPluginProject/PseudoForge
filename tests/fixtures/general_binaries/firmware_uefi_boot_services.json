@@ -1,0 +1,32 @@
+{
+  "schema": "pseudoforge_general_benchmark_fixture_v1",
+  "name": "firmware_uefi_boot_services",
+  "source_path": "X:\\firmware\\Driver.efi",
+  "profile_context": {
+    "format": "pe",
+    "platform": "uefi",
+    "privilege_domain": "firmware",
+    "imports": ["AllocatePool", "FreePool", "LocateProtocol"],
+    "enable_textual_ir_evidence": true
+  },
+  "pseudocode": "EFI_STATUS __fastcall FirmwareUefiBootServices(void *gBS, void *guid)\n{\n  void *buffer;\n  void *protocol;\n  EFI_STATUS status;\n\n  status = AllocatePool(0, 0x200, &buffer);\n  if ( !status )\n    LocateProtocol(guid, 0i64, &protocol);\n  FreePool(buffer);\n  return status;\n}\n",
+  "expected_observations": [
+    {"kind": "target_family", "value": "firmware_uefi"},
+    {"kind": "eligible_domain_pack", "value": "firmware_uefi"},
+    {"kind": "target_field", "value": "platform=uefi"},
+    {"kind": "target_field", "value": "privilege_domain=firmware"},
+    {"kind": "contract_profile", "value": "contracts/uefi_api_contracts.json"},
+    {"kind": "contract_domain", "value": "firmware_uefi"},
+    {"kind": "contract_symbol", "value": "AllocatePool"},
+    {"kind": "contract_symbol", "value": "FreePool"},
+    {"kind": "contract_symbol", "value": "LocateProtocol"},
+    {"kind": "ir_available", "value": "true"},
+    {"kind": "ir_call_site_min", "value": "4"}
+  ],
+  "negative_controls": [
+    {"kind": "eligible_domain_pack", "value": "win_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "linux_elf_user"},
+    {"kind": "contract_symbol", "value": "CreateFileW"},
+    {"kind": "contract_symbol", "value": "malloc"}
+  ]
+}

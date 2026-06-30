@@ -1,0 +1,165 @@
+{
+  "schema": "pseudoforge_domain_packs_v1",
+  "schema_version": 1,
+  "packs": [
+    {
+      "id": "cxx_runtime",
+      "title": "C++ Runtime",
+      "domain": "cxx_runtime",
+      "mode": "report-only",
+      "source": "PseudoForge builtin C++ runtime semantic hints",
+      "source_version": "",
+      "target_filters": {
+        "format": ["pe", "idb", "elf", "macho"],
+        "language_runtime": ["cxx"],
+        "abi": ["msvc", "itanium"]
+      },
+      "abi_filters": {
+        "msvc": {
+          "format": ["pe", "idb"],
+          "platform": ["windows"],
+          "abi": ["msvc"]
+        },
+        "itanium": {
+          "format": ["elf", "macho", "idb"],
+          "abi": ["itanium"]
+        }
+      },
+      "profile_names": [
+        "contracts/cxx_runtime_contracts.json"
+      ],
+      "rule_pack_names": [
+        "cxx_runtime_comments.json"
+      ],
+      "scoring_rules": []
+    },
+    {
+      "id": "firmware_uefi",
+      "title": "UEFI Firmware",
+      "domain": "firmware_uefi",
+      "mode": "report-only",
+      "source": "PseudoForge builtin UEFI firmware semantic hints",
+      "source_version": "2026-06-30",
+      "target_filters": {
+        "format": ["pe", "idb"],
+        "platform": ["uefi"],
+        "privilege_domain": ["firmware", "unknown"]
+      },
+      "profile_names": [
+        "contracts/uefi_api_contracts.json"
+      ],
+      "rule_pack_names": [],
+      "scoring_rules": []
+    },
+    {
+      "id": "macos_macho_user",
+      "title": "macOS Mach-O Userland",
+      "domain": "macos_userland",
+      "mode": "report-only",
+      "source": "PseudoForge builtin macOS Mach-O userland semantic hints",
+      "source_version": "2026-06-30",
+      "target_filters": {
+        "format": ["macho", "idb"],
+        "platform": ["macos"],
+        "privilege_domain": ["user", "unknown"]
+      },
+      "profile_names": [
+        "contracts/macos_macho_api_contracts.json"
+      ],
+      "rule_pack_names": [],
+      "scoring_rules": []
+    },
+    {
+      "id": "generic_core",
+      "title": "Generic Decompile Cleanup Core",
+      "domain": "generic",
+      "mode": "report-only",
+      "source": "PseudoForge builtin generic cleanup scaffolding",
+      "source_version": "",
+      "target_filters": {},
+      "profile_names": [],
+      "rule_pack_names": [],
+      "scoring_rules": []
+    },
+    {
+      "id": "linux_elf_user",
+      "title": "Linux ELF Userland",
+      "domain": "linux_userland",
+      "mode": "report-only",
+      "source": "PseudoForge builtin Linux ELF userland API contracts",
+      "source_version": "",
+      "target_filters": {
+        "format": ["elf", "idb"],
+        "platform": ["linux"],
+        "privilege_domain": ["user", "unknown"]
+      },
+      "profile_names": [
+        "contracts/linux_user_api_contracts.json"
+      ],
+      "rule_pack_names": [],
+      "scoring_rules": []
+    },
+    {
+      "id": "windows_kernel",
+      "title": "Windows Kernel",
+      "domain": "windows_kernel",
+      "mode": "compatibility",
+      "source": "PseudoForge packaged WDK and curated Windows kernel profiles",
+      "source_version": "10.0.26200.8457",
+      "target_filters": {
+        "platform": ["windows"],
+        "privilege_domain": ["kernel", "unknown"]
+      },
+      "profile_names": [
+        "kernel_aliases.json",
+        "kernel_enums.json",
+        "kernel_functions.json",
+        "kernel_indices.json",
+        "kernel_macros.json",
+        "kernel_structures.json",
+        "kernel_symbol_index.json",
+        "kernel_api_overrides.json",
+        "callee_contracts.json",
+        "direct_call_result_layout_hints.json",
+        "subsystem_identity_index.json",
+        "status_codes.json",
+        "system_information_class.json",
+        "process_information_class.json",
+        "registry_domain.json",
+        "domain_identity.json"
+      ],
+      "profile_globs": [
+        "domain_identity/*.json"
+      ],
+      "rule_pack_names": [
+        "kernel_comments.json",
+        "call_arg_rewrites.json"
+      ],
+      "scoring_rules": [
+        "kernel_status",
+        "kernel_type",
+        "kernel_macro"
+      ]
+    },
+    {
+      "id": "win_user_pe",
+      "title": "Windows User-Mode PE",
+      "domain": "windows_user_mode",
+      "mode": "report-only",
+      "source": "PseudoForge builtin Windows user-mode PE semantic hints",
+      "source_version": "",
+      "target_filters": {
+        "format": ["pe", "idb"],
+        "platform": ["windows"],
+        "privilege_domain": ["user", "unknown"]
+      },
+      "profile_names": [
+        "contracts/win_user_api_contracts.json"
+      ],
+      "rule_pack_names": [
+        "win_user_pe_comments.json"
+      ],
+      "scoring_rules": []
+    }
+  ]
+}

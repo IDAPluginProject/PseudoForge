@@ -4,6 +4,7 @@ from typing import Any
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.plan_schema import FunctionCapture, LocalVariable, make_lvar_identity
+from ida_pseudoforge.ida.hexrays_ir import hexrays_cfunc_ir_evidence
 from ida_pseudoforge.ida.thread_helpers import run_on_main_thread
 from ida_pseudoforge.logging import log_checkpoint, log_event, trace_scope
 
@@ -85,6 +86,7 @@ def capture_current_function() -> tuple[FunctionCapture, Any]:
         capture = capture_from_pseudocode(pseudocode, name=name, ea=int(func.start_ea))
         with trace_scope("decompiler.extract_lvars", ea="0x%X" % int(func.start_ea)):
             capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+        _attach_hexrays_ir_evidence(capture, cfunc)
         log_checkpoint("decompiler.capture.do_capture.after", source="decompile", function=name, ea="0x%X" % int(func.start_ea))
         return capture, cfunc
 
@@ -132,6 +134,7 @@ def capture_function_by_name(name: str) -> FunctionCapture | None:
         function_name = ida_funcs.get_func_name(func.start_ea) or name
         capture = capture_from_pseudocode(pseudocode, name=function_name, ea=int(func.start_ea))
         capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+        _attach_hexrays_ir_evidence(capture, cfunc)
         return capture
 
     with trace_scope("decompiler.capture_by_name.run_on_main_thread", function=name):
@@ -176,8 +179,19 @@ def _capture_from_current_pseudocode_view() -> tuple[FunctionCapture, Any] | Non
     pseudocode = _cfunc_text(cfunc)
     capture = capture_from_pseudocode(pseudocode, name=name, ea=int(ea))
     capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+    _attach_hexrays_ir_evidence(capture, cfunc)
     log_event("capture.vdui.reuse function=\"%s\" ea=0x%X" % (_ascii_for_log(name), int(ea)))
     return capture, cfunc
+
+
+def _attach_hexrays_ir_evidence(capture: FunctionCapture, cfunc: Any) -> None:
+    try:
+        evidence = hexrays_cfunc_ir_evidence(cfunc, capture)
+    except Exception as exc:
+        log_checkpoint("decompiler.extract_ir.warning", error=str(exc))
+        return
+    if evidence.available:
+        capture.ir_evidence = evidence
 
 
 def _current_view_cfunc() -> Any | None:

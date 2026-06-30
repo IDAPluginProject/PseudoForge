@@ -8,8 +8,10 @@ from pathlib import Path
 
 from ida_pseudoforge.config import LlmConfig, ProviderCredential, PseudoForgeConfig
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.corpus_evidence import load_corpus_evidence
 from ida_pseudoforge.core.forge_store import render_forge_function_section
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.plan_schema import IrEvidence, IrLocalTypeSnapshot
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from tools.pseudoforge_ida_batch import (
     _apply_runtime_helper_aliases_to_batch_outputs,
@@ -24,6 +26,7 @@ from tools.pseudoforge_ida_batch import (
     _run_batch_type_assisted_preview,
     _write_compare_artifacts,
     _write_export_artifacts,
+    _write_ida_replay_corpus_manifest,
 )
 from tools import pseudoforge_ida_batch as ida_batch_module
 from tools.summarize_pseudoforge_ida_batch import summarize_records
@@ -913,6 +916,159 @@ NTSTATUS __fastcall SeQuerySecurityAttributesToken(
         )
         self.assertEqual([], calls)
 
+    def test_ida_batch_summary_preserves_available_capture_ir_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                BATCH_BOOLEAN_SAMPLE,
+                name="NtSetSystemInformation",
+                ea=0x140001000,
+            )
+            capture.ir_evidence = IrEvidence(
+                adapter="hexrays_cfunc_v1",
+                source="hexrays_cfunc",
+                available=True,
+                local_type_snapshots=[
+                    IrLocalTypeSnapshot(
+                        name="NotifyRoutine",
+                        type_text="PVOID",
+                        source="hexrays_lvar_arg",
+                        confidence=0.9,
+                        evidence="fixture",
+                    )
+                ],
+            )
+            plan = build_clean_plan(capture)
+            cleaned = render_cleaned_pseudocode(capture, plan)
+
+            export = _write_export_artifacts(
+                Path(temp_dir),
+                capture,
+                plan,
+                cleaned,
+                aliases={},
+                llm_status="disabled",
+                llm_error="",
+                llm_error_class="",
+                llm_error_summary="",
+                llm_info={"enabled": False},
+            )
+            summary = json.loads(Path(export["artifacts"]["summary"]).read_text(encoding="utf-8"))
+
+        self.assertEqual("hexrays_cfunc_v1", summary["ir_evidence_summary"]["adapter"])
+        self.assertEqual("hexrays_cfunc", summary["ir_evidence_summary"]["source"])
+        self.assertTrue(summary["ir_evidence_summary"]["available"])
+        self.assertEqual(1, summary["ir_evidence_summary"]["local_type_snapshots"])
+
+    def test_ida_batch_capture_function_by_name_attaches_hexrays_ir_evidence(self) -> None:
+        class FakeLine:
+            def __init__(self, line: str) -> None:
+                self.line = line
+
+        class FakeLvar:
+            name = "fileHandle"
+            type = "HANDLE"
+
+            def is_arg_var(self) -> bool:
+                return False
+
+        class FakeCfunc:
+            lvars = [FakeLvar()]
+
+            def get_pseudocode(self):
+                return [
+                    FakeLine("__int64 __fastcall OpenFile(wchar_t *path)"),
+                    FakeLine("{"),
+                    FakeLine("  HANDLE fileHandle;"),
+                    FakeLine("  fileHandle = CreateFileW(path, 0, 0, 0, 3, 0, 0);"),
+                    FakeLine("  return fileHandle != 0;"),
+                    FakeLine("}"),
+                ]
+
+        class FakeFunc:
+            start_ea = 0x140001000
+
+        class FakeIdaFuncs:
+            @staticmethod
+            def get_func(ea):
+                return FakeFunc()
+
+            @staticmethod
+            def get_func_name(ea):
+                return "OpenFile"
+
+        class FakeHexrays:
+            @staticmethod
+            def decompile(func):
+                return FakeCfunc()
+
+        old_funcs = ida_batch_module.ida_funcs
+        old_hexrays = ida_batch_module.ida_hexrays
+        old_lookup = ida_batch_module._function_ea_by_name
+        ida_batch_module.ida_funcs = FakeIdaFuncs
+        ida_batch_module.ida_hexrays = FakeHexrays
+        ida_batch_module._function_ea_by_name = lambda name: 0x140001000
+        try:
+            capture = ida_batch_module._capture_function_by_name("OpenFile", r"C:\bin\client.exe")
+        finally:
+            ida_batch_module.ida_funcs = old_funcs
+            ida_batch_module.ida_hexrays = old_hexrays
+            ida_batch_module._function_ea_by_name = old_lookup
+
+        self.assertIsNotNone(capture)
+        assert capture is not None
+        self.assertTrue(capture.ir_evidence.available)
+        self.assertEqual("hexrays_cfunc_v1", capture.ir_evidence.adapter)
+        self.assertEqual("hexrays_cfunc", capture.ir_evidence.source)
+        self.assertGreaterEqual(len(capture.ir_evidence.local_type_snapshots), 1)
+
+    def test_ida_batch_writes_replay_corpus_manifest_from_export_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            export_dir = root / "functions"
+            function_dir = export_dir / "0000000140001000_OpenFile"
+            function_dir.mkdir(parents=True)
+            (function_dir / "function.ida-batch-summary.json").write_text(
+                json.dumps(
+                    {
+                        "mode": "ida_batch_export",
+                        "function": "OpenFile",
+                        "function_ea": "0x140001000",
+                        "target_context": {"target_family": "windows_user_pe"},
+                        "ir_evidence_summary": {
+                            "schema": "pseudoforge_ir_evidence_v1",
+                            "adapter": "hexrays_cfunc_v1",
+                            "source": "hexrays_cfunc",
+                            "available": True,
+                            "use_def_chains": 1,
+                            "value_ranges": 0,
+                            "local_type_snapshots": 1,
+                            "constant_origins": 0,
+                            "call_site_signatures": 1,
+                            "diagnostics": 0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manifest_path = root / "pseudoforge-general-corpus-manifest.json"
+
+            record = _write_ida_replay_corpus_manifest(
+                manifest_path,
+                export_dir,
+                source_reference="ida-batch://unit-run",
+                claim_eligible=True,
+            )
+            evidence = load_corpus_evidence([manifest_path])
+
+        self.assertEqual("corpus_manifest", record["event"])
+        self.assertEqual(1, record["corpora"])
+        self.assertEqual(1, record["functions"])
+        self.assertEqual(1, record["ir_evidence_functions"])
+        self.assertEqual(1, evidence["real_corpus_count"])
+        self.assertEqual(1, evidence["real_corpus_function_count"])
+        self.assertEqual(1, evidence["ir_evidence_function_count"])
+        self.assertEqual(0, evidence["qualified_ground_truth_pair_count"])
+
     def test_ida_batch_export_uses_short_paths_for_long_mangled_symbols(self) -> None:
         long_name = (
             "??$Write@U?$_tlgWrapperByVal@$07@@U?$_tlgWrapperByVal@$03@@"
@@ -959,6 +1115,27 @@ NTSTATUS __fastcall SeQuerySecurityAttributesToken(
 
             summary = json.loads(Path(export["artifacts"]["summary"]).read_text(encoding="utf-8"))
             self.assertEqual(long_name, summary["function"])
+            self.assertIn("target_context", summary)
+            self.assertEqual("", summary["target_context"]["source_path"])
+            self.assertEqual("unknown", summary["target_context"]["format"])
+            self.assertEqual(
+                [
+                    "cxx_runtime",
+                    "firmware_uefi",
+                    "generic_core",
+                    "linux_elf_user",
+                    "macos_macho_user",
+                    "win_user_pe",
+                    "windows_kernel",
+                ],
+                summary["active_domain_packs"],
+            )
+            self.assertEqual(
+                summary["active_domain_packs"],
+                summary["target_context"]["active_domain_packs"],
+            )
+            self.assertIn("generic_core", summary["eligible_domain_packs"])
+            self.assertIn("domain_pack_activation_report", summary)
 
     def test_ida_batch_compare_file_stem_is_windows_safe(self) -> None:
         stem = _function_file_stem(0x1234, "bad:name<with>|chars?and spaces")

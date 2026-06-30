@@ -1,0 +1,52 @@
+{
+  "schema": "pseudoforge_contract_pack_v1",
+  "schema_version": 1,
+  "id": "uefi_api_contracts",
+  "title": "UEFI Firmware API Contracts",
+  "domain_pack_id": "firmware_uefi",
+  "target_domain": "firmware_uefi",
+  "mode": "report-only",
+  "source": "PseudoForge curated UEFI boot/runtime service contract pack",
+  "source_version": "2026-06-30",
+  "contracts": [
+    {
+      "id": "uefi.allocate_pool.buffer",
+      "symbol": "AllocatePool",
+      "aliases": ["gBS->AllocatePool"],
+      "summary": "allocates firmware pool memory through EFI_BOOT_SERVICES",
+      "argument_roles": ["pool_type", "size", "buffer_out"],
+      "return_rule": "EFI_SUCCESS indicates output buffer is initialized",
+      "ownership": "returns_firmware_pool_buffer",
+      "lifetime": "pair_with_FreePool",
+      "confidence": 0.84,
+      "evidence": ["UEFI firmware target", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "linux_elf_user"]
+    },
+    {
+      "id": "uefi.free_pool.buffer",
+      "symbol": "FreePool",
+      "aliases": ["gBS->FreePool"],
+      "summary": "releases firmware pool memory through EFI_BOOT_SERVICES",
+      "argument_roles": ["buffer"],
+      "return_rule": "EFI_SUCCESS indicates release request accepted",
+      "ownership": "consumes_firmware_pool_buffer",
+      "lifetime": "releases_AllocatePool_buffer",
+      "confidence": 0.84,
+      "evidence": ["UEFI firmware target", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "linux_elf_user"]
+    },
+    {
+      "id": "uefi.locate_protocol.interface",
+      "symbol": "LocateProtocol",
+      "aliases": ["gBS->LocateProtocol"],
+      "summary": "locates a firmware protocol interface by GUID",
+      "argument_roles": ["protocol_guid", "registration", "interface_out"],
+      "return_rule": "EFI_SUCCESS indicates interface_out points to a protocol interface",
+      "ownership": "borrows_protocol_interface",
+      "lifetime": "firmware_protocol_lifetime",
+      "confidence": 0.8,
+      "evidence": ["UEFI firmware target", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "linux_elf_user"]
+    }
+  ]
+}

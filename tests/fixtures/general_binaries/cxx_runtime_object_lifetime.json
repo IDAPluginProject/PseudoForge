@@ -1,0 +1,37 @@
+{
+  "schema": "pseudoforge_general_benchmark_fixture_v1",
+  "name": "cxx_runtime_object_lifetime",
+  "source_path": "C:\\bin\\game_client.exe",
+  "profile_context": {
+    "format": "pe",
+    "platform": "windows",
+    "privilege_domain": "user",
+    "imports": ["operator new", "operator delete", "__CxxFrameHandler4"],
+    "compiler_family": "msvc",
+    "abi": "msvc",
+    "language_runtime": "cxx",
+    "enable_textual_ir_evidence": true
+  },
+  "pseudocode": "void *__fastcall CxxRuntimeObjectLifetime(unsigned __int64 size)\n{\n  void *object;\n\n  object = _Znwm(size);\n  __CxxFrameHandler4(0i64, 0i64, 0i64, 0i64);\n  _ZdlPv(object);\n  return object;\n}\n",
+  "expected_observations": [
+    {"kind": "target_family", "value": "windows_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "win_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "cxx_runtime"},
+    {"kind": "runtime_clue", "value": "runtime:cxx"},
+    {"kind": "runtime_clue", "value": "abi:msvc"},
+    {"kind": "contract_profile", "value": "contracts/cxx_runtime_contracts.json"},
+    {"kind": "contract_domain", "value": "cxx_runtime"},
+    {"kind": "contract_symbol", "value": "operator new"},
+    {"kind": "contract_symbol", "value": "operator delete"},
+    {"kind": "contract_symbol", "value": "__CxxFrameHandler4"},
+    {"kind": "ir_available", "value": "true"},
+    {"kind": "ir_call_site_min", "value": "3"},
+    {"kind": "ir_use_def_min", "value": "1"}
+  ],
+  "negative_controls": [
+    {"kind": "eligible_domain_pack", "value": "linux_elf_user"},
+    {"kind": "eligible_domain_pack", "value": "firmware_uefi"},
+    {"kind": "contract_symbol", "value": "malloc"},
+    {"kind": "contract_symbol", "value": "AllocatePool"}
+  ]
+}

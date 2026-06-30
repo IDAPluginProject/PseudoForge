@@ -9,6 +9,21 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+GENERIC_QUALITY_BUCKET = "generic_core"
+WINDOWS_KERNEL_QUALITY_BUCKET = "windows_kernel"
+RESERVED_DOMAIN_QUALITY_BUCKETS = (
+    "win_user_pe",
+    "linux_elf_user",
+    "cxx_runtime",
+    "firmware_uefi",
+)
+QUALITY_BUCKET_ORDER = (
+    GENERIC_QUALITY_BUCKET,
+    WINDOWS_KERNEL_QUALITY_BUCKET,
+    *RESERVED_DOMAIN_QUALITY_BUCKETS,
+)
+
+
 @dataclass(frozen=True)
 class QualityFinding:
     category: str
@@ -17,6 +32,7 @@ class QualityFinding:
     points: int
     message: str
     examples: tuple[str, ...] = ()
+    bucket: str = GENERIC_QUALITY_BUCKET
 
 
 @dataclass(frozen=True)
@@ -26,6 +42,7 @@ class QualityScore:
     reward: int
     findings: tuple[QualityFinding, ...]
     rewards: tuple[QualityFinding, ...]
+    quality_buckets: dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -44,6 +61,7 @@ class _PenaltyRule:
     points_per_match: int
     point_cap: int
     message: str
+    bucket: str = GENERIC_QUALITY_BUCKET
 
 
 @dataclass(frozen=True)
@@ -53,6 +71,7 @@ class _RewardRule:
     points_per_match: int
     point_cap: int
     message: str
+    bucket: str = GENERIC_QUALITY_BUCKET
 
 
 _PENALTY_RULES: tuple[_PenaltyRule, ...] = (
@@ -127,6 +146,7 @@ _PENALTY_RULES: tuple[_PenaltyRule, ...] = (
         3,
         18,
         "NTSTATUS-like failure literals remain unresolved.",
+        WINDOWS_KERNEL_QUALITY_BUCKET,
     ),
     _PenaltyRule(
         "unresolved_helper_call",
@@ -157,6 +177,7 @@ _REWARD_RULES: tuple[_RewardRule, ...] = (
         2,
         16,
         "Trusted kernel-oriented types are present.",
+        WINDOWS_KERNEL_QUALITY_BUCKET,
     ),
     _RewardRule(
         "symbolic_status",
@@ -164,6 +185,7 @@ _REWARD_RULES: tuple[_RewardRule, ...] = (
         2,
         16,
         "Symbolic NTSTATUS names are present.",
+        WINDOWS_KERNEL_QUALITY_BUCKET,
     ),
     _RewardRule(
         "symbolic_status_check",
@@ -171,6 +193,7 @@ _REWARD_RULES: tuple[_RewardRule, ...] = (
         3,
         12,
         "Symbolic NTSTATUS predicates are present.",
+        WINDOWS_KERNEL_QUALITY_BUCKET,
     ),
     _RewardRule(
         "profile_field_access",
@@ -185,6 +208,7 @@ _REWARD_RULES: tuple[_RewardRule, ...] = (
         3,
         15,
         "Symbolic kernel macros or pseudo intrinsics are present.",
+        WINDOWS_KERNEL_QUALITY_BUCKET,
     ),
     _RewardRule(
         "side_effect_preserved_void_call",
@@ -210,6 +234,7 @@ def score_pseudocode_quality(cleaned_text: str, raw_text: str = "") -> QualitySc
         reward=reward,
         findings=findings,
         rewards=rewards,
+        quality_buckets=_quality_bucket_totals(findings, rewards),
     )
 
 
@@ -266,6 +291,8 @@ def quality_records_to_summary(
             "reward": score.reward,
             "findings": [quality_finding_to_dict(item) for item in score.findings],
             "rewards": [quality_finding_to_dict(item) for item in score.rewards],
+            "quality_buckets": score.quality_buckets,
+            "domain_buckets": _domain_bucket_view(score.quality_buckets),
         }
         functions.append(function_entry)
         for finding in score.findings:
@@ -280,6 +307,7 @@ def quality_records_to_summary(
     average_score = round(sum(int(item["score"]) for item in functions) / count, 2) if count else 0.0
     average_opportunity = round(sum(int(item["opportunity"]) for item in functions) / count, 2) if count else 0.0
     average_reward = round(sum(int(item["reward"]) for item in functions) / count, 2) if count else 0.0
+    quality_buckets = _aggregate_quality_buckets(record.score.quality_buckets for record in record_list)
 
     return {
         "schema": "pseudoforge_quality_v1",
@@ -294,6 +322,9 @@ def quality_records_to_summary(
         "max_score": max((int(item["score"]) for item in functions), default=0),
         "finding_totals": _counter_summary(finding_totals, finding_points),
         "reward_totals": _counter_summary(reward_totals, reward_points),
+        "quality_buckets": quality_buckets,
+        "generic_bucket": quality_buckets.get(GENERIC_QUALITY_BUCKET, {}),
+        "domain_buckets": _domain_bucket_view(quality_buckets),
         "worst_functions": functions[:top],
         "functions": functions,
     }
@@ -307,7 +338,94 @@ def quality_finding_to_dict(finding: QualityFinding) -> dict[str, Any]:
         "points": finding.points,
         "message": finding.message,
         "examples": list(finding.examples),
+        "bucket": finding.bucket,
     }
+
+
+def _quality_bucket_totals(
+    findings: Iterable[QualityFinding],
+    rewards: Iterable[QualityFinding],
+) -> dict[str, dict[str, Any]]:
+    buckets = {bucket: _empty_quality_bucket(bucket) for bucket in QUALITY_BUCKET_ORDER}
+    for finding in findings:
+        item = _ensure_quality_bucket(buckets, finding.bucket)
+        item["opportunity"] += int(finding.points)
+        item["finding_count"] += int(finding.count)
+    for reward in rewards:
+        item = _ensure_quality_bucket(buckets, reward.bucket)
+        item["reward"] += int(reward.points)
+        item["reward_count"] += int(reward.count)
+    return _ordered_quality_buckets(buckets)
+
+
+def _aggregate_quality_buckets(
+    bucket_maps: Iterable[dict[str, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    buckets = {bucket: _empty_quality_bucket(bucket) for bucket in QUALITY_BUCKET_ORDER}
+    for bucket_map in bucket_maps:
+        if not isinstance(bucket_map, dict):
+            continue
+        for bucket, source in bucket_map.items():
+            if not isinstance(source, dict):
+                continue
+            item = _ensure_quality_bucket(buckets, str(bucket or GENERIC_QUALITY_BUCKET))
+            for field in ("opportunity", "reward", "finding_count", "reward_count"):
+                item[field] += _safe_int(source.get(field, 0))
+    return _ordered_quality_buckets(buckets)
+
+
+def _domain_bucket_view(bucket_map: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        bucket: dict(item)
+        for bucket, item in _ordered_quality_buckets(bucket_map).items()
+        if bucket != GENERIC_QUALITY_BUCKET
+    }
+
+
+def _empty_quality_bucket(bucket: str) -> dict[str, Any]:
+    bucket_id = str(bucket or GENERIC_QUALITY_BUCKET)
+    return {
+        "bucket": bucket_id,
+        "bucket_type": "generic" if bucket_id == GENERIC_QUALITY_BUCKET else "domain",
+        "reserved": bucket_id in RESERVED_DOMAIN_QUALITY_BUCKETS,
+        "opportunity": 0,
+        "reward": 0,
+        "finding_count": 0,
+        "reward_count": 0,
+    }
+
+
+def _ensure_quality_bucket(
+    buckets: dict[str, dict[str, Any]],
+    bucket: str,
+) -> dict[str, Any]:
+    bucket_id = str(bucket or GENERIC_QUALITY_BUCKET)
+    if bucket_id not in buckets:
+        buckets[bucket_id] = _empty_quality_bucket(bucket_id)
+    return buckets[bucket_id]
+
+
+def _ordered_quality_buckets(bucket_map: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    buckets = {
+        str(bucket): dict(item)
+        for bucket, item in bucket_map.items()
+        if isinstance(item, dict)
+    }
+    for bucket in QUALITY_BUCKET_ORDER:
+        buckets.setdefault(bucket, _empty_quality_bucket(bucket))
+    ordered: dict[str, dict[str, Any]] = {}
+    for bucket in QUALITY_BUCKET_ORDER:
+        ordered[bucket] = dict(buckets[bucket])
+    for bucket in sorted(item for item in buckets if item not in ordered):
+        ordered[bucket] = dict(buckets[bucket])
+    return ordered
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def quality_summary_to_markdown(summary: dict[str, Any], top: int = 15) -> str:
@@ -324,6 +442,10 @@ def quality_summary_to_markdown(summary: dict[str, Any], top: int = 15) -> str:
     lines.append(f"- Average opportunity: {summary.get('average_opportunity', 0)}")
     lines.append(f"- Average reward: {summary.get('average_reward', 0)}")
     lines.append(f"- Score range: {summary.get('min_score', 0)}..{summary.get('max_score', 0)}")
+    lines.append("")
+    lines.append("## Quality Buckets")
+    lines.append("")
+    lines.extend(_markdown_bucket_table(summary.get("quality_buckets") or {}))
     lines.append("")
     lines.append("## Common Remaining Findings")
     lines.append("")
@@ -357,9 +479,10 @@ def quality_summary_to_markdown(summary: dict[str, Any], top: int = 15) -> str:
     lines.append("## Notes")
     lines.append("")
     lines.append(
-        "The score is heuristic and corpus-agnostic. It penalizes generic Hex-Rays "
-        "artifacts that usually reduce review quality and rewards conservative "
-        "semantic recovery signals that are useful in no-PDB kernel analysis."
+        "The score is heuristic and bucketed. Generic artifacts are tracked in "
+        "`generic_core`; Windows-kernel-specific signals are isolated under "
+        "`windows_kernel`; other domain buckets are reserved until packs provide "
+        "evidence."
     )
     return "\n".join(lines) + "\n"
 
@@ -386,6 +509,7 @@ def _score_penalties(text: str) -> Iterable[QualityFinding]:
             points=points,
             message=rule.message,
             examples=tuple(examples),
+            bucket=rule.bucket,
         )
 
 
@@ -403,6 +527,7 @@ def _score_rewards(text: str, raw_text: str) -> Iterable[QualityFinding]:
             points=points,
             message=rule.message,
             examples=tuple(examples),
+            bucket=rule.bucket,
         )
 
     if raw_text:
@@ -417,6 +542,7 @@ def _score_rewards(text: str, raw_text: str) -> Iterable[QualityFinding]:
                 points=min(20, max(1, reduction // 4)),
                 message="Cleaned output reduces generic decompiler artifact pressure versus raw input.",
                 examples=(),
+                bucket=GENERIC_QUALITY_BUCKET,
             )
 
 
@@ -504,5 +630,27 @@ def _markdown_counter_table(items: list[dict[str, Any]]) -> list[str]:
         lines.append(
             "| `%s` | %s | %s |"
             % (item.get("category", ""), item.get("count", 0), item.get("points", 0))
+        )
+    return lines
+
+
+def _markdown_bucket_table(bucket_map: dict[str, dict[str, Any]]) -> list[str]:
+    buckets = _ordered_quality_buckets(bucket_map)
+    lines = [
+        "| Bucket | Type | Reserved | Opportunity | Reward | Findings | Rewards |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+    ]
+    for bucket, item in buckets.items():
+        lines.append(
+            "| `%s` | `%s` | `%s` | %s | %s | %s | %s |"
+            % (
+                bucket,
+                item.get("bucket_type", ""),
+                str(bool(item.get("reserved", False))).lower(),
+                item.get("opportunity", 0),
+                item.get("reward", 0),
+                item.get("finding_count", 0),
+                item.get("reward_count", 0),
+            )
         )
     return lines

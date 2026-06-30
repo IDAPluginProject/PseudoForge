@@ -1,0 +1,55 @@
+{
+  "schema": "pseudoforge_general_corpus_manifest_v1",
+  "corpora": [
+    {
+      "name": "win_user_pe_open_source_file_lifetime",
+      "target_family": "windows_user_pe",
+      "origin": "open_source_build_summary",
+      "claim_eligible": true,
+      "source_reference": "local-summary://win_user_pe_open_source_file_lifetime",
+      "function_count": 45,
+      "ground_truth_pair_count": 1,
+      "ground_truth_pairs": [
+        {
+          "id": "win_user_file_handle_lifetime",
+          "reference": "local-summary://win_user_pe_open_source_file_lifetime/CreateFileW-CloseHandle",
+          "expectation": "CreateFileW handle result is recognized as a handle lifetime source that reaches CloseHandle."
+        }
+      ],
+      "ir_evidence_function_count": 0,
+      "ir_total_function_count": 45,
+      "cross_function_contract_count": 0,
+      "external_baselines": [],
+      "analyst_audit_count": 0
+    },
+    {
+      "name": "linux_elf_open_source_heap_thread_socket",
+      "target_family": "linux_elf_user",
+      "origin": "open_source_build_summary",
+      "claim_eligible": true,
+      "source_reference": "local-summary://linux_elf_open_source_heap_thread_socket",
+      "function_count": 40,
+      "ground_truth_pair_count": 1,
+      "ground_truth_pairs": [
+        {
+          "id": "linux_heap_thread_socket_contracts",
+          "reference": "local-summary://linux_elf_open_source_heap_thread_socket/malloc-pthread-socket",
+          "expectation": "malloc, pthread_mutex_lock, and socket are mapped to Linux userland contracts without Windows pack leakage."
+        }
+      ],
+      "ir_evidence_function_count": 0,
+      "ir_total_function_count": 40,
+      "cross_function_contract_count": 0,
+      "external_baselines": [],
+      "analyst_audit_count": 0
+    },
+    {
+      "name": "toy_negative_control",
+      "target_family": "windows_user_pe",
+      "origin": "synthetic",
+      "claim_eligible": true,
+      "function_count": 5000,
+      "ground_truth_pair_count": 5000
+    }
+  ]
+}

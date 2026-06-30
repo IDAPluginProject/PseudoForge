@@ -54,6 +54,37 @@ class FreeAnalysisServiceTests(unittest.TestCase):
             self.assertTrue(Path(result.artifacts["raw_vs_cleaned_diff"]).exists())
             self.assertTrue(Path(result.artifacts["summary"]).exists())
             self.assertFalse(loaded_ida_modules())
+            self.assertEqual("clipboard.cpp", result.payload["target_context"]["source_path"])
+            self.assertEqual("unknown", result.payload["target_context"]["format"])
+            self.assertEqual("unknown", result.payload["target_context"]["architecture"])
+            self.assertEqual(0, result.payload["target_context"]["bitness"])
+            self.assertEqual("text_only", result.payload["ir_evidence_summary"]["adapter"])
+            self.assertFalse(result.payload["ir_evidence_summary"]["available"])
+            self.assertEqual(0, result.payload["ir_evidence_summary"]["use_def_chains"])
+            self.assertEqual(0, result.payload["ir_evidence_summary"]["call_site_signatures"])
+            self.assertIn("contract_pack_summary", result.payload)
+            self.assertEqual([], result.payload["contract_pack_summary"]["profiles"])
+            self.assertEqual(
+                ["cxx_runtime", "generic_core", "linux_elf_user", "win_user_pe", "windows_kernel"],
+                result.payload["active_domain_packs"],
+            )
+            self.assertEqual(
+                result.payload["active_domain_packs"],
+                result.payload["target_context"]["active_domain_packs"],
+            )
+            self.assertIn("generic_core", result.payload["eligible_domain_packs"])
+            self.assertIn("win_user_pe", result.payload["rejected_domain_packs"])
+            self.assertEqual(
+                result.payload["eligible_domain_packs"],
+                result.payload["target_context"]["eligible_domain_packs"],
+            )
+            self.assertTrue(result.payload["domain_pack_activation_report"])
+            self.assertTrue(
+                any(item["id"] == "generic_core" for item in result.payload["domain_pack_manifests"])
+            )
+            self.assertTrue(
+                any(item["id"] == "windows_kernel" for item in result.payload["domain_pack_manifests"])
+            )
 
     def test_analyze_text_rejects_missing_function(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -118,11 +149,17 @@ class FreeAnalysisServiceTests(unittest.TestCase):
             self.assertEqual(result.payload["profile_root"], saved.payload["profile_root"])
             self.assertEqual(result.payload["active_profiles"], saved.payload["active_profiles"])
             self.assertEqual(result.payload["profile_manifests"], saved.payload["profile_manifests"])
+            self.assertEqual(result.payload["active_domain_packs"], saved.payload["active_domain_packs"])
+            self.assertEqual(result.payload["domain_pack_manifests"], saved.payload["domain_pack_manifests"])
             self.assertTrue(Path(saved.artifacts["cleaned_pseudocode"]).exists())
             self.assertTrue(Path(saved.artifacts["summary"]).exists())
             summary = json.loads(Path(saved.artifacts["summary"]).read_text(encoding="utf-8"))
             self.assertEqual(result.function, summary["function"])
             self.assertEqual(result.payload["active_profiles"], summary["active_profiles"])
+            self.assertEqual(result.payload["active_domain_packs"], summary["active_domain_packs"])
+            self.assertEqual(result.payload["target_context"]["source_path"], summary["target_context"]["source_path"])
+            self.assertEqual("text_only", summary["ir_evidence_summary"]["adapter"])
+            self.assertFalse(summary["ir_evidence_summary"]["available"])
 
     def test_cancellation_is_checked_between_safe_phases(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

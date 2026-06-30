@@ -104,6 +104,24 @@
         "contracts": 4
       }
     },
+    "contracts/win_user_api_contracts.json": {
+      "profile_kind": "contract_pack",
+      "source": "PseudoForge curated Win32 user-mode API contract pack",
+      "schema": "pseudoforge_contract_pack_v1",
+      "source_version": "2026-06-30",
+      "counts": {
+        "contracts": 6
+      }
+    },
+    "contracts/linux_user_api_contracts.json": {
+      "profile_kind": "contract_pack",
+      "source": "PseudoForge curated POSIX/libc userland API contract pack",
+      "schema": "pseudoforge_contract_pack_v1",
+      "source_version": "2026-06-30",
+      "counts": {
+        "contracts": 9
+      }
+    },
     "direct_call_result_layout_hints.json": {
       "profile_kind": "direct_call_result_layout_hints",
       "source": "PseudoForge curated report-only direct call-result layout hints",

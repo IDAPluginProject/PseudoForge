@@ -1,0 +1,121 @@
+{
+  "schema": "pseudoforge_contract_pack_v1",
+  "schema_version": 1,
+  "id": "linux_user_api_contracts",
+  "title": "Linux ELF Userland API Contracts",
+  "domain_pack_id": "linux_elf_user",
+  "target_domain": "linux_userland",
+  "mode": "report-only",
+  "source": "PseudoForge curated POSIX/libc userland API contract pack",
+  "source_version": "2026-06-30",
+  "contracts": [
+    {
+      "id": "libc.malloc.heap_buffer",
+      "symbol": "malloc",
+      "summary": "allocates a heap buffer from the C runtime allocator",
+      "argument_roles": ["size"],
+      "return_rule": "NULL indicates failure; non-NULL pointer is caller-owned",
+      "ownership": "returns_heap_buffer",
+      "lifetime": "pair_with_free",
+      "confidence": 0.84,
+      "evidence": ["libc import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "libc.free.heap_buffer",
+      "symbol": "free",
+      "summary": "releases a heap buffer allocated by a compatible allocator",
+      "argument_roles": ["ptr"],
+      "return_rule": "void function; pointer must be NULL or a compatible allocation",
+      "ownership": "consumes_heap_buffer",
+      "lifetime": "releases_malloc_buffer",
+      "confidence": 0.84,
+      "evidence": ["libc import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "pthread.mutex_lock.acquire",
+      "symbol": "pthread_mutex_lock",
+      "summary": "acquires a pthread mutex",
+      "argument_roles": ["mutex"],
+      "return_rule": "zero indicates success; nonzero is an errno-style failure",
+      "ownership": "acquires_lock",
+      "lifetime": "pair_with_pthread_mutex_unlock",
+      "confidence": 0.82,
+      "evidence": ["pthread import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "pthread.mutex_unlock.release",
+      "symbol": "pthread_mutex_unlock",
+      "summary": "releases a pthread mutex held by the caller",
+      "argument_roles": ["mutex"],
+      "return_rule": "zero indicates success; nonzero is an errno-style failure",
+      "ownership": "releases_lock",
+      "lifetime": "releases_pthread_mutex_lock",
+      "confidence": 0.82,
+      "evidence": ["pthread import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "posix.socket.fd",
+      "symbol": "socket",
+      "summary": "creates an endpoint file descriptor for network communication",
+      "argument_roles": ["domain", "type", "protocol"],
+      "return_rule": "-1 indicates failure; non-negative descriptor is caller-owned",
+      "ownership": "returns_file_descriptor",
+      "lifetime": "pair_with_close",
+      "confidence": 0.82,
+      "evidence": ["posix_socket import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "posix.connect.fd",
+      "symbol": "connect",
+      "summary": "initiates a connection on a socket file descriptor",
+      "argument_roles": ["fd", "address", "address_length"],
+      "return_rule": "zero indicates success; -1 indicates errno failure",
+      "ownership": "uses_file_descriptor",
+      "lifetime": "fd_remains_owned_by_caller",
+      "confidence": 0.8,
+      "evidence": ["posix_socket import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "posix.send.fd",
+      "symbol": "send",
+      "summary": "sends bytes through a socket file descriptor",
+      "argument_roles": ["fd", "buffer", "length", "flags"],
+      "return_rule": "non-negative byte count indicates progress; -1 indicates errno failure",
+      "ownership": "uses_file_descriptor",
+      "lifetime": "buffer_not_owned_by_send",
+      "confidence": 0.8,
+      "evidence": ["posix_socket import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "posix.recv.fd",
+      "symbol": "recv",
+      "summary": "receives bytes from a socket file descriptor",
+      "argument_roles": ["fd", "buffer", "length", "flags"],
+      "return_rule": "positive byte count indicates data; zero indicates orderly shutdown; -1 indicates errno failure",
+      "ownership": "uses_file_descriptor",
+      "lifetime": "buffer_not_owned_by_recv",
+      "confidence": 0.8,
+      "evidence": ["posix_socket import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    },
+    {
+      "id": "posix.close.fd",
+      "symbol": "close",
+      "summary": "releases a POSIX file descriptor",
+      "argument_roles": ["fd"],
+      "return_rule": "zero indicates success; -1 indicates errno failure",
+      "ownership": "consumes_file_descriptor",
+      "lifetime": "closes_socket_or_file_descriptor",
+      "confidence": 0.82,
+      "evidence": ["posix_socket import family", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "windows_kernel"]
+    }
+  ]
+}

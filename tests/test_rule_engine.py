@@ -603,6 +603,67 @@ __int64 __fastcall RuleProfileFactsSample(void *inputBuffer)
         self.assertIn("Alignment is flags", comments[0]["text"])
         self.assertEqual("Alignment", result.report.matched_rules[0]["bindings"]["profile_param_name"])
 
+    def test_rule_engine_target_scope_matches_user_pe_only(self) -> None:
+        pack = RulePack(
+            schema_version=2,
+            id="test.target",
+            description="target scoped rules",
+            rules=[
+                Rule(
+                    id="test.comment.target_user_pe",
+                    phase="semantic_comment",
+                    priority=100,
+                    confidence=0.90,
+                    scope={
+                        "target": {
+                            "format": ["pe", "idb"],
+                            "platform": "windows",
+                            "privilege_domain": ["user", "unknown"],
+                        },
+                        "text_contains": "SetLastError",
+                    },
+                    match={"text_contains": "SetLastError"},
+                    emit={
+                        "kind": "semantic_comment",
+                        "comment_kind": "target_user_pe",
+                        "text": "user-mode PE target matched",
+                    },
+                )
+            ],
+        )
+        sample = """
+__int64 __fastcall RuleTargetScopeSample()
+{
+  SetLastError(5u);
+  return 0;
+}
+"""
+
+        user_capture = capture_from_pseudocode(sample, source_path=r"C:\bin\client.exe")
+        kernel_capture = capture_from_pseudocode(sample, source_path=r"C:\drivers\client.sys")
+        non_pe_capture = capture_from_pseudocode(sample, source_path="/tmp/client.elf")
+        forced_capture = capture_from_pseudocode(
+            sample,
+            source_path="client.bin",
+            profile_context={
+                "format": "pe",
+                "platform": "windows",
+                "privilege_domain": "user",
+            },
+        )
+
+        user_result = RuleEngine([pack]).run(build_rule_context(user_capture), phases={"semantic_comment"})
+        kernel_result = RuleEngine([pack]).run(build_rule_context(kernel_capture), phases={"semantic_comment"})
+        non_pe_result = RuleEngine([pack]).run(build_rule_context(non_pe_capture), phases={"semantic_comment"})
+        forced_result = RuleEngine([pack]).run(build_rule_context(forced_capture), phases={"semantic_comment"})
+
+        self.assertEqual("user", user_capture.target_context.privilege_domain)
+        self.assertEqual("kernel", kernel_capture.target_context.privilege_domain)
+        self.assertEqual(1, len(user_result.emissions))
+        self.assertEqual([], kernel_result.emissions)
+        self.assertEqual([], non_pe_result.emissions)
+        self.assertEqual(1, len(forced_result.emissions))
+
     def test_rule_engine_explain_misses_is_opt_in(self) -> None:
         capture = capture_from_pseudocode(
             """

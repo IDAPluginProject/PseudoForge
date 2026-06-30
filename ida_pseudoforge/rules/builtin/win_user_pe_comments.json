@@ -1,0 +1,295 @@
+{
+  "schema_version": 2,
+  "id": "pseudoforge.builtin.win_user_pe_comments",
+  "description": "Builtin report-only semantic comment rules for Windows user-mode PE cleanup.",
+  "rules": [
+    {
+      "id": "builtin.win_user_pe_hresult.literal",
+      "phase": "semantic_comment",
+      "priority": 72,
+      "confidence": 0.86,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        }
+      },
+      "match": {
+        "regex": "\\b(?P<hresult>0x800(?:04005|70005))\\b"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_hresult",
+        "text": "HRESULT literal $hresult should be reviewed as symbolic COM/Win32 failure status",
+        "evidence": "HRESULT failure literal is present"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.win32_error.set_last_error",
+      "phase": "semantic_comment",
+      "priority": 70,
+      "confidence": 0.84,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "calls_any": ["SetLastError"]
+      },
+      "match": {
+        "call_site": {
+          "function_name": "SetLastError",
+          "arg_count": 1,
+          "arg_regex": {
+            "argument_index": 0,
+            "regex": "^(?:2|5|87|122|998|ERROR_[A-Z0-9_]+)u?$"
+          }
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_win32_error",
+        "text": "SetLastError uses Win32 error value $call_arg0; keep the error role symbolic in review output",
+        "evidence": "SetLastError call has a recognizable Win32 error argument"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.win32_error.get_last_error",
+      "phase": "semantic_comment",
+      "priority": 66,
+      "confidence": 0.82,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "calls_any": ["GetLastError"]
+      },
+      "match": {
+        "call_site": {
+          "function_name": "GetLastError",
+          "arg_count": 0
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_win32_error",
+        "text": "GetLastError captures a thread-local Win32 error code; preserve nearby failure predicate context",
+        "evidence": "GetLastError call is present"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.argument_roles.createfile",
+      "phase": "semantic_comment",
+      "priority": 68,
+      "confidence": 0.84,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "call_site": {
+          "function_name_regex": "^CreateFile[AW]$"
+        }
+      },
+      "match": {
+        "call_site": {
+          "function_name_regex": "^CreateFile[AW]$",
+          "arg_count": 7
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_argument_roles",
+        "text": "$call_name arguments map to lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes, hTemplateFile",
+        "evidence": "CreateFileA/W call arity matches documented kernel32 signature"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.argument_roles.virtualalloc",
+      "phase": "semantic_comment",
+      "priority": 68,
+      "confidence": 0.84,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "calls_any": ["VirtualAlloc"]
+      },
+      "match": {
+        "call_site": {
+          "function_name": "VirtualAlloc",
+          "arg_count": 4
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_argument_roles",
+        "text": "VirtualAlloc arguments map to lpAddress, dwSize, flAllocationType, flProtect",
+        "evidence": "VirtualAlloc call arity matches documented kernel32 signature"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.argument_roles.ntqueryinformationprocess",
+      "phase": "semantic_comment",
+      "priority": 68,
+      "confidence": 0.84,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "calls_any": ["NtQueryInformationProcess"]
+      },
+      "match": {
+        "call_site": {
+          "function_name": "NtQueryInformationProcess",
+          "arg_count": 5
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_argument_roles",
+        "text": "NtQueryInformationProcess arguments map to ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength, ReturnLength",
+        "evidence": "NTDLL process query call arity matches documented native API shape"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.handle_lifetime.closehandle",
+      "phase": "semantic_comment",
+      "priority": 70,
+      "confidence": 0.86,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "calls_any": ["CloseHandle"]
+      },
+      "match": {
+        "call_site": {
+          "function_name": "CloseHandle",
+          "arg_count": 1
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_handle_lifetime",
+        "text": "CloseHandle marks a HANDLE lifetime edge; review nearby INVALID_HANDLE_VALUE and NULL checks",
+        "evidence": "CloseHandle call is present"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.com_vtable.call",
+      "phase": "semantic_comment",
+      "priority": 66,
+      "confidence": 0.80,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "text_contains": "lpVtbl"
+      },
+      "match": {
+        "regex": "\\b(?P<com_object>[A-Za-z_][A-Za-z0-9_]*)->lpVtbl->(?P<com_method>[A-Za-z_][A-Za-z0-9_]*)\\b"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_com_vtable",
+        "text": "COM vtable dispatch $com_object->$com_method detected; first argument is usually the interface this pointer",
+        "evidence": "COM lpVtbl method dispatch pattern is present"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.tls.api",
+      "phase": "semantic_comment",
+      "priority": 64,
+      "confidence": 0.80,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "call_site": {
+          "function_name_regex": "^Tls(?:Alloc|Free|GetValue|SetValue)$"
+        }
+      },
+      "match": {
+        "call_site": {
+          "function_name_regex": "^Tls(?:Alloc|Free|GetValue|SetValue)$"
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_tls",
+        "text": "$call_name participates in thread-local storage lifetime or lookup",
+        "evidence": "TLS API call is present"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.seh.vectored_handler",
+      "phase": "semantic_comment",
+      "priority": 64,
+      "confidence": 0.80,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "call_site": {
+          "function_name_regex": "^Rtl(?:Add|Remove)Vectored(?:Exception|Continue)Handler$"
+        }
+      },
+      "match": {
+        "call_site": {
+          "function_name_regex": "^Rtl(?:Add|Remove)Vectored(?:Exception|Continue)Handler$"
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_seh",
+        "text": "$call_name updates vectored exception handling state; track handler registration lifetime",
+        "evidence": "Vectored exception handler API call is present"
+      }
+    },
+    {
+      "id": "builtin.win_user_pe.init.crt",
+      "phase": "semantic_comment",
+      "priority": 62,
+      "confidence": 0.78,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "privilege_domain": ["user", "unknown"]
+        },
+        "call_site": {
+          "function_name_regex": "^(?:__security_init_cookie|_initterm|_initterm_e|atexit)$"
+        }
+      },
+      "match": {
+        "call_site": {
+          "function_name_regex": "^(?:__security_init_cookie|_initterm|_initterm_e|atexit)$"
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "win_user_init_routine",
+        "text": "$call_name is part of user-mode CRT or process initialization scaffolding",
+        "evidence": "CRT initialization API/helper is present"
+      }
+    }
+  ]
+}

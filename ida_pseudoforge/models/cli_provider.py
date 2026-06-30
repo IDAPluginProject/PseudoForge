@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ida_pseudoforge.core.plan_schema import FunctionCapture
 from ida_pseudoforge.logging import log_event
-from ida_pseudoforge.models.prompting import build_cli_rename_prompt
+from ida_pseudoforge.models.prompting import build_cli_candidate_prompt, build_cli_rename_prompt
 from ida_pseudoforge.models.subprocess_utils import hidden_subprocess_kwargs
 
 
@@ -33,6 +33,9 @@ class CliRenameProvider:
 
     def suggest_renames(self, capture: FunctionCapture) -> str:
         return self.complete(build_cli_rename_prompt(capture), task_name="rename")
+
+    def suggest_candidates(self, capture: FunctionCapture) -> str:
+        return self.complete(build_cli_candidate_prompt(capture), task_name="candidates")
 
     def complete(
         self,

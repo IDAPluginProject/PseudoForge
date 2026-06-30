@@ -1,0 +1,21 @@
+{
+  "schema": "pseudoforge_analyst_audit_ledger_v1",
+  "audits": [
+    {
+      "id": "audit-win-user-file-lifetime",
+      "corpus_name": "win_user_pe_open_source_file_lifetime",
+      "target_family": "windows_user_pe",
+      "reviewer": "local-review",
+      "reference": "local-audit://win_user_pe_open_source_file_lifetime/review-001",
+      "status": "accepted"
+    },
+    {
+      "id": "audit-linux-heap-thread-socket-rejected",
+      "corpus_name": "linux_elf_open_source_heap_thread_socket",
+      "target_family": "linux_elf_user",
+      "reviewer": "local-review",
+      "reference": "local-audit://linux_elf_open_source_heap_thread_socket/review-001",
+      "status": "rejected"
+    }
+  ]
+}

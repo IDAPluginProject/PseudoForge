@@ -1,0 +1,35 @@
+{
+  "schema": "pseudoforge_cross_function_contract_ledger_v1",
+  "contracts": [
+    {
+      "id": "win-open-close-lifetime",
+      "corpus_name": "win_user_pe_open_source_file_lifetime",
+      "target_family": "windows_user_pe",
+      "reference": "local-contract://win_user_pe_open_source_file_lifetime/CreateFileW-to-CloseHandle",
+      "source_function": "WinUserFileLifetime",
+      "sink_function": "CloseHandle",
+      "contract": "CreateFileW result reaches CloseHandle in the same lifetime region.",
+      "status": "validated"
+    },
+    {
+      "id": "linux-socket-send-close",
+      "corpus_name": "linux_elf_open_source_heap_thread_socket",
+      "target_family": "linux_elf_user",
+      "reference": "local-contract://linux_elf_open_source_heap_thread_socket/socket-to-close",
+      "source_function": "LinuxHeapThreadSocket",
+      "sink_function": "close",
+      "contract": "socket result reaches send and close in the same descriptor lifetime region.",
+      "status": "validated"
+    },
+    {
+      "id": "blocked-contract",
+      "corpus_name": "linux_elf_open_source_heap_thread_socket",
+      "target_family": "linux_elf_user",
+      "reference": "local-contract://linux_elf_open_source_heap_thread_socket/blocked",
+      "source_function": "LinuxHeapThreadSocket",
+      "sink_function": "free",
+      "contract": "blocked example",
+      "status": "blocked"
+    }
+  ]
+}

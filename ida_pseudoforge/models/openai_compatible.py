@@ -7,7 +7,12 @@ import urllib.request
 
 from ida_pseudoforge.core.plan_schema import FunctionCapture
 from ida_pseudoforge.logging import log_event
-from ida_pseudoforge.models.prompting import SYSTEM_RENAME_PROMPT, build_rename_prompt
+from ida_pseudoforge.models.prompting import (
+    SYSTEM_CANDIDATE_PROMPT,
+    SYSTEM_RENAME_PROMPT,
+    build_candidate_prompt,
+    build_rename_prompt,
+)
 
 
 class OpenAICompatibleRenameProvider:
@@ -44,6 +49,14 @@ class OpenAICompatibleRenameProvider:
             build_rename_prompt(capture),
             response_format=self.response_format,
             task_name=capture.name or "rename",
+        )
+
+    def suggest_candidates(self, capture: FunctionCapture) -> str:
+        return self.complete(
+            SYSTEM_CANDIDATE_PROMPT,
+            build_candidate_prompt(capture),
+            response_format=self.response_format,
+            task_name=(capture.name or "function") + ":candidates",
         )
 
     def complete(

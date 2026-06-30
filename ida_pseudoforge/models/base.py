@@ -9,3 +9,8 @@ if TYPE_CHECKING:
 class RenameAssistProvider(Protocol):
     def suggest_renames(self, capture: "FunctionCapture") -> str:
         """Return a JSON document containing rename suggestions."""
+
+
+class CandidateAssistProvider(Protocol):
+    def suggest_candidates(self, capture: "FunctionCapture") -> str:
+        """Return a JSON document containing review-only candidate suggestions."""

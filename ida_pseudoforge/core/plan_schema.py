@@ -16,6 +16,102 @@ class LocalVariable:
 
 
 @dataclass(slots=True)
+class TargetContext:
+    source_path: str = ""
+    image_name: str = ""
+    target_family: str = "unknown"
+    confidence: float = 0.0
+    format: str = "unknown"
+    architecture: str = "unknown"
+    bitness: int = 0
+    endianness: str = "unknown"
+    platform: str = "unknown"
+    privilege_domain: str = "unknown"
+    compiler_family: str = "unknown"
+    abi: str = "unknown"
+    language_runtime: str = "unknown"
+    symbol_state: str = "unknown"
+    imports: list[str] = field(default_factory=list)
+    exports: list[str] = field(default_factory=list)
+    sections: list[str] = field(default_factory=list)
+    import_families: list[str] = field(default_factory=list)
+    section_clues: list[str] = field(default_factory=list)
+    runtime_clues: list[str] = field(default_factory=list)
+    profile_root: str = ""
+    active_domain_packs: list[str] = field(default_factory=list)
+    eligible_domain_packs: list[str] = field(default_factory=list)
+    rejected_domain_packs: list[str] = field(default_factory=list)
+    domain_pack_activation_report: list[dict[str, Any]] = field(default_factory=list)
+    evidence: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class IrUseDefChain:
+    variable: str
+    definitions: list[str] = field(default_factory=list)
+    uses: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
+class IrValueRange:
+    expression: str
+    minimum: str = ""
+    maximum: str = ""
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
+class IrLocalTypeSnapshot:
+    name: str
+    type_text: str = ""
+    source: str = ""
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
+class IrConstantOrigin:
+    value: str
+    origin: str = ""
+    expression: str = ""
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
+class IrCallSiteSignature:
+    call_name: str
+    return_type: str = ""
+    argument_types: list[str] = field(default_factory=list)
+    argument_names: list[str] = field(default_factory=list)
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+@dataclass(slots=True)
+class IrEvidence:
+    schema: str = "pseudoforge_ir_evidence_v1"
+    adapter: str = "text_only"
+    source: str = "pseudocode"
+    available: bool = False
+    use_def_chains: list[IrUseDefChain] = field(default_factory=list)
+    value_ranges: list[IrValueRange] = field(default_factory=list)
+    local_type_snapshots: list[IrLocalTypeSnapshot] = field(default_factory=list)
+    constant_origins: list[IrConstantOrigin] = field(default_factory=list)
+    call_site_signatures: list[IrCallSiteSignature] = field(default_factory=list)
+    diagnostics: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class FunctionCapture:
     ea: int = 0
     name: str = ""
@@ -25,6 +121,8 @@ class FunctionCapture:
     calls: list[str] = field(default_factory=list)
     source_path: str = ""
     profile_context: dict[str, Any] = field(default_factory=dict)
+    target_context: TargetContext = field(default_factory=TargetContext)
+    ir_evidence: IrEvidence = field(default_factory=IrEvidence)
 
     def input_fingerprint(self) -> str:
         import hashlib
@@ -294,6 +392,23 @@ class CommandBufferContract:
 
 
 @dataclass(slots=True)
+class LlmCandidate:
+    task: str
+    kind: str
+    confidence: float
+    target: str = ""
+    name: str = ""
+    text: str = ""
+    role: str = ""
+    type_name: str = ""
+    evidence: str = ""
+    source: str = "llm_candidate"
+    status: str = "blocked"
+    blockers: list[str] = field(default_factory=list)
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class CleanPlan:
     function_ea: int
     function_name: str
@@ -309,6 +424,8 @@ class CleanPlan:
     function_identity_candidates: list[FunctionIdentityCandidate] = field(default_factory=list)
     corrected_parameter_map: list[CorrectedParameterMapEntry] = field(default_factory=list)
     warning_diagnostics: list[WarningDiagnostic] = field(default_factory=list)
+    llm_candidates: list[LlmCandidate] = field(default_factory=list)
+    ir_evidence: IrEvidence = field(default_factory=IrEvidence)
     projection_policy: str = "review_only"
 
     def to_dict(self) -> dict[str, Any]:

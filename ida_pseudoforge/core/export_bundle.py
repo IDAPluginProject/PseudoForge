@@ -8,16 +8,24 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from ida_pseudoforge.core.capture import build_target_context
 from ida_pseudoforge.core.buffer_contracts import (
     buffer_contracts_json_payload,
     render_buffer_contract_report,
     render_buffer_struct_header,
 )
+from ida_pseudoforge.core.contract_packs import contract_pack_summary
 from ida_pseudoforge.core.dense_structural_hints import (
     render_synthetic_aggregate_report,
     render_synthetic_struct_header,
     synthetic_aggregate_json_payload,
 )
+from ida_pseudoforge.core.generic_candidates import (
+    generic_candidate_json_payload,
+    generic_candidate_summary,
+    render_generic_candidate_report,
+)
+from ida_pseudoforge.core.ir_evidence import ir_evidence_summary
 from ida_pseudoforge.core.layout_rewrite_preview import build_layout_rewrite_preview_bundle
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
@@ -38,6 +46,8 @@ from ida_pseudoforge.core.render import (
 from ida_pseudoforge.core.render_warnings import export_warning_diagnostics, export_warnings
 from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
 from ida_pseudoforge.profiles.loader import (
+    active_domain_pack_ids,
+    active_domain_pack_manifests,
     active_profile_manifests,
     active_profile_names,
     active_profile_root,
@@ -75,6 +85,8 @@ def write_export_bundle(
     inferred_aggregate_report_path = output_path / f"{safe_name}.inferred-aggregates.md"
     inferred_aggregate_json_path = output_path / f"{safe_name}.inferred-aggregates.json"
     synthetic_struct_header_path = output_path / f"{safe_name}.synthetic-structs.hpp"
+    generic_candidates_report_path = output_path / f"{safe_name}.generic-candidates.md"
+    generic_candidates_json_path = output_path / f"{safe_name}.generic-candidates.json"
     rule_report_path = output_path / f"{safe_name}.rule-report.json"
     raw_path = output_path / f"{safe_name}.raw.cpp"
     warnings_path = output_path / f"{safe_name}.warnings.json"
@@ -104,6 +116,8 @@ def write_export_bundle(
     inferred_aggregate_report_text = render_synthetic_aggregate_report(plan)
     inferred_aggregate_payload = synthetic_aggregate_json_payload(plan)
     synthetic_struct_header_text = render_synthetic_struct_header(plan)
+    generic_candidates_payload = generic_candidate_json_payload(capture, plan)
+    generic_candidates_report_text = render_generic_candidate_report(generic_candidates_payload)
     warnings = _combined_export_warnings(plan)
     warning_diagnostics = export_warning_diagnostics(plan)
 
@@ -126,6 +140,11 @@ def write_export_bundle(
         encoding="utf-8",
     )
     synthetic_struct_header_path.write_text(synthetic_struct_header_text, encoding="utf-8")
+    generic_candidates_report_path.write_text(generic_candidates_report_text, encoding="utf-8")
+    generic_candidates_json_path.write_text(
+        json.dumps(generic_candidates_payload, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
     rule_report_path.write_text(
         json.dumps(plan.rule_report or {}, indent=2, ensure_ascii=True),
         encoding="utf-8",
@@ -156,6 +175,8 @@ def write_export_bundle(
         "inferred_aggregates_report": str(inferred_aggregate_report_path),
         "inferred_aggregates": str(inferred_aggregate_json_path),
         "synthetic_structs": str(synthetic_struct_header_path),
+        "generic_candidates_report": str(generic_candidates_report_path),
+        "generic_candidates": str(generic_candidates_json_path),
         "rule_report": str(rule_report_path),
         "raw_pseudocode": str(raw_path),
         "warnings": str(warnings_path),
@@ -232,6 +253,19 @@ def _export_summary_payload(
     artifacts: dict[str, str],
 ) -> dict[str, object]:
     rule_diagnostics = summarize_rule_report(plan.rule_report)
+    profile_root = active_profile_root()
+    active_profiles = active_profile_names()
+    active_domain_packs = active_domain_pack_ids()
+    domain_pack_manifests = active_domain_pack_manifests()
+    target_context = build_target_context(
+        capture.source_path,
+        capture.profile_context,
+        profile_root=profile_root,
+        active_domain_packs=active_domain_packs,
+        call_names=capture.calls,
+        function_name=capture.name,
+        domain_pack_manifests=domain_pack_manifests,
+    )
     return {
         "mode": entrypoint,
         "pseudoforge_version": VERSION,
@@ -256,12 +290,48 @@ def _export_summary_payload(
         "corrected_parameter_map": [asdict(item) for item in plan.corrected_parameter_map],
         "body_canonical_rewrite_summary": _body_canonical_rewrite_summary(plan),
         "synthetic_aggregate_summary": _synthetic_aggregate_summary(plan),
+        "generic_candidate_summary": generic_candidate_summary(generic_candidate_json_payload(capture, plan)),
+        "contract_pack_summary": contract_pack_summary(capture, plan),
+        "llm_candidate_summary": _llm_candidate_summary(plan),
+        "ir_evidence_summary": ir_evidence_summary(_summary_ir_evidence(capture, plan)),
         "source_context": _source_context_payload(capture),
-        "profile_root": active_profile_root(),
-        "active_profiles": active_profile_names(),
+        "target_context": target_context.to_dict(),
+        "active_domain_packs": active_domain_packs,
+        "eligible_domain_packs": list(target_context.eligible_domain_packs),
+        "rejected_domain_packs": list(target_context.rejected_domain_packs),
+        "domain_pack_activation_report": list(target_context.domain_pack_activation_report),
+        "domain_pack_manifests": domain_pack_manifests,
+        "profile_root": profile_root,
+        "active_profiles": active_profiles,
         "profile_warnings": profile_load_warnings(),
         "profile_manifests": active_profile_manifests(),
         "artifacts": dict(artifacts),
+}
+
+
+def _summary_ir_evidence(capture: FunctionCapture, plan: CleanPlan) -> object:
+    plan_evidence = getattr(plan, "ir_evidence", None)
+    capture_evidence = getattr(capture, "ir_evidence", None)
+    if bool(getattr(plan_evidence, "available", False)):
+        return plan_evidence
+    if bool(getattr(capture_evidence, "available", False)):
+        return capture_evidence
+    return plan_evidence if plan_evidence is not None else capture_evidence
+
+
+def _llm_candidate_summary(plan: CleanPlan) -> dict[str, object]:
+    candidates = list(getattr(plan, "llm_candidates", []) or [])
+    by_task: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    for item in candidates:
+        task = str(getattr(item, "task", "") or "unknown")
+        status = str(getattr(item, "status", "") or "unknown")
+        by_task[task] = by_task.get(task, 0) + 1
+        by_status[status] = by_status.get(status, 0) + 1
+    return {
+        "total": len(candidates),
+        "by_task": {key: by_task[key] for key in sorted(by_task)},
+        "by_status": {key: by_status[key] for key in sorted(by_status)},
     }
 
 

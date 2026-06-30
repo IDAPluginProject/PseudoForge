@@ -1,0 +1,49 @@
+{
+  "schema": "pseudoforge_contract_pack_v1",
+  "schema_version": 1,
+  "id": "macos_macho_api_contracts",
+  "title": "macOS Mach-O Userland API Contracts",
+  "domain_pack_id": "macos_macho_user",
+  "target_domain": "macos_userland",
+  "mode": "report-only",
+  "source": "PseudoForge curated Darwin and Objective-C runtime contract pack",
+  "source_version": "2026-06-30",
+  "contracts": [
+    {
+      "id": "darwin.dispatch_async.block",
+      "symbol": "dispatch_async",
+      "summary": "submits a block to a Grand Central Dispatch queue",
+      "argument_roles": ["queue", "block"],
+      "return_rule": "asynchronous scheduling; block executes later on the target queue",
+      "ownership": "borrows_queue_and_block",
+      "lifetime": "block_lifetime_extends_to_dispatch_execution",
+      "confidence": 0.8,
+      "evidence": ["macOS Mach-O target", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "linux_elf_user"]
+    },
+    {
+      "id": "objc.retain.object",
+      "symbol": "objc_retain",
+      "summary": "increments an Objective-C object's retain count",
+      "argument_roles": ["object"],
+      "return_rule": "returns the retained object pointer",
+      "ownership": "retains_object",
+      "lifetime": "pair_with_objc_release",
+      "confidence": 0.82,
+      "evidence": ["Objective-C runtime symbol", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "firmware_uefi"]
+    },
+    {
+      "id": "objc.release.object",
+      "symbol": "objc_release",
+      "summary": "releases an Objective-C object reference",
+      "argument_roles": ["object"],
+      "return_rule": "void release path; object may deallocate when retain count reaches zero",
+      "ownership": "releases_object",
+      "lifetime": "releases_objc_retain_reference",
+      "confidence": 0.82,
+      "evidence": ["Objective-C runtime symbol", "call-site symbol"],
+      "negative_controls": ["windows_user_pe", "firmware_uefi"]
+    }
+  ]
+}

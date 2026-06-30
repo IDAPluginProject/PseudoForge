@@ -81,18 +81,46 @@ class ReleasePseudoForgeTests(unittest.TestCase):
 
             self.assertIn("pseudoforge.py", names)
             self.assertIn("ida-plugin.json", names)
+            self.assertIn("ida_pseudoforge/core/contract_packs.py", names)
             self.assertIn("ida_pseudoforge/core/domain_identity.py", names)
+            self.assertIn("ida_pseudoforge/profiles/domain_packs_manifest.json", names)
             self.assertIn("ida_pseudoforge/profiles/profiles_manifest.json", names)
             self.assertIn("ida_pseudoforge/profiles/subsystem_identity_index.json", names)
+            self.assertIn("ida_pseudoforge/profiles/contracts/win_user_api_contracts.json", names)
+            self.assertIn("ida_pseudoforge/profiles/contracts/linux_user_api_contracts.json", names)
+            self.assertIn("ida_pseudoforge/profiles/contracts/cxx_runtime_contracts.json", names)
+            self.assertIn("ida_pseudoforge/profiles/contracts/uefi_api_contracts.json", names)
+            self.assertIn("ida_pseudoforge/profiles/contracts/macos_macho_api_contracts.json", names)
             self.assertGreater(len(domain_profiles), 0)
             self.assertFalse(any(name.startswith("tools/") for name in names))
             self.assertFalse(any(name.startswith("tests/") for name in names))
+            self.assertFalse(
+                any(name.startswith("tests/fixtures/general_binaries/") for name in names)
+            )
+            self.assertFalse(
+                any(name.startswith("tests/fixtures/general_corpus/") for name in names)
+            )
 
             smoke = _run_packaged_runtime_smoke(extract_dir)
 
         self.assertTrue(smoke["domain_profiles_available"])
         self.assertEqual(expected_profile_root, smoke["profile_root"])
         self.assertGreater(smoke["domain_profile_count"], 0)
+        self.assertEqual(
+            [
+                "cxx_runtime",
+                "firmware_uefi",
+                "generic_core",
+                "linux_elf_user",
+                "macos_macho_user",
+                "win_user_pe",
+                "windows_kernel",
+            ],
+            smoke["active_domain_pack_ids"],
+        )
+        self.assertGreaterEqual(smoke["contract_profile_count"], 5)
+        self.assertEqual(0, smoke["user_contract_comment_count"])
+        self.assertGreater(smoke["domain_pack_manifest_count"], 0)
         self.assertEqual("I/O Manager", smoke["io_manager_subsystem"])
         self.assertEqual(1, smoke["type_correction_count"])
         self.assertEqual("windows.io_manager.delete_device", smoke["type_correction_profile"])
@@ -166,11 +194,25 @@ def _run_packaged_runtime_smoke(package_root: Path) -> dict[str, object]:
         rendered = render_cleaned_pseudocode(capture, plan)
         type_correction = plan.type_corrections[0] if plan.type_corrections else None
         active_profiles = profile_loader.active_profile_names()
+        active_domain_pack_ids = profile_loader.active_domain_pack_ids()
+        domain_pack_manifests = profile_loader.active_domain_pack_manifests()
+        domain_pack_manifest_count = len(domain_pack_manifests)
         domain_profile_names = [
             name
             for name in active_profiles
             if name.startswith("domain_identity/")
         ]
+        contract_profile_names = [
+            name
+            for manifest in domain_pack_manifests
+            for name in manifest.get("profile_names", [])
+            if str(name).startswith("contracts/")
+        ]
+        contract_comment_count = sum(
+            1
+            for item in plan.comments
+            if isinstance(item, dict) and item.get("kind") == "contract_pack_api"
+        )
         tools_modules = sorted(
             name
             for name in sys.modules
@@ -180,7 +222,11 @@ def _run_packaged_runtime_smoke(package_root: Path) -> dict[str, object]:
             json.dumps(
                 {
                     "domain_profiles_available": domain_profiles_available,
+                    "active_domain_pack_ids": active_domain_pack_ids,
+                    "domain_pack_manifest_count": domain_pack_manifest_count,
                     "domain_profile_count": len(domain_profile_names),
+                    "contract_profile_count": len(contract_profile_names),
+                    "user_contract_comment_count": contract_comment_count,
                     "io_manager_subsystem": io_manager_metadata.get("subsystem", ""),
                     "profile_root": profile_loader.active_profile_root(),
                     "type_corrected_signature": "void __stdcall IoDeleteDevice(PDEVICE_OBJECT deviceObject)" in rendered,

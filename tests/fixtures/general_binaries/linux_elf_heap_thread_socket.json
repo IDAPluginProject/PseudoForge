@@ -1,0 +1,37 @@
+{
+  "schema": "pseudoforge_general_benchmark_fixture_v1",
+  "name": "linux_elf_heap_thread_socket",
+  "source_path": "/tmp/server.elf",
+  "profile_context": {
+    "format": "elf",
+    "platform": "linux",
+    "imports": ["malloc", "free", "pthread_mutex_lock", "pthread_mutex_unlock", "socket", "send", "close"],
+    "sections": [".text", ".rodata", ".eh_frame"],
+    "enable_textual_ir_evidence": true
+  },
+  "pseudocode": "int __fastcall LinuxHeapThreadSocket(void *ctx)\n{\n  int fd;\n  void *buffer;\n\n  buffer = malloc(64);\n  pthread_mutex_lock(ctx);\n  fd = socket(2, 1, 0);\n  send(fd, buffer, 64, 0);\n  close(fd);\n  pthread_mutex_unlock(ctx);\n  free(buffer);\n  return 0;\n}\n",
+  "expected_observations": [
+    {"kind": "target_family", "value": "linux_elf_user"},
+    {"kind": "eligible_domain_pack", "value": "linux_elf_user"},
+    {"kind": "import_family", "value": "libc"},
+    {"kind": "import_family", "value": "pthread"},
+    {"kind": "import_family", "value": "posix_socket"},
+    {"kind": "section_clue", "value": "elf_exception_metadata"},
+    {"kind": "contract_profile", "value": "contracts/linux_user_api_contracts.json"},
+    {"kind": "contract_domain", "value": "linux_userland"},
+    {"kind": "contract_symbol", "value": "malloc"},
+    {"kind": "contract_symbol", "value": "pthread_mutex_lock"},
+    {"kind": "contract_symbol", "value": "socket"},
+    {"kind": "contract_symbol", "value": "send"},
+    {"kind": "contract_symbol", "value": "close"},
+    {"kind": "ir_available", "value": "true"},
+    {"kind": "ir_call_site_min", "value": "8"},
+    {"kind": "ir_use_def_min", "value": "2"}
+  ],
+  "negative_controls": [
+    {"kind": "eligible_domain_pack", "value": "win_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "windows_kernel"},
+    {"kind": "contract_profile", "value": "contracts/win_user_api_contracts.json"},
+    {"kind": "contract_symbol", "value": "CreateFileW"}
+  ]
+}

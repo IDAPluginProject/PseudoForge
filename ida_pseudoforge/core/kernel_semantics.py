@@ -75,6 +75,8 @@ _ZW_CATEGORY_ROUTINES = {
 
 
 def kernel_rename_suggestions(capture: FunctionCapture) -> list[RenameSuggestion]:
+    if not _allows_kernel_semantics(capture):
+        return []
     text = capture.pseudocode or ""
     suggestions: list[RenameSuggestion] = []
     record_vars: set[str] = set()
@@ -215,6 +217,27 @@ def kernel_comments(
     raw_text = capture.pseudocode or ""
     text = _apply_rename_map(raw_text, rename_map)
     comments: list[dict[str, Any]] = []
+    if not _allows_kernel_semantics(capture):
+        comments.extend(dense_structural_comments(capture, text))
+        layout_comments = field_layout_comments(
+            text,
+            profile_context=capture.profile_context,
+            corrected_parameter_map=corrected_parameter_map,
+        )
+        layout_identity_bases = {
+            str(comment.get("base", ""))
+            for comment in layout_comments
+            if comment.get("kind") == "domain_structure_identity"
+        }
+        comments.extend(
+            domain_identity_role_comments(
+                text,
+                profile_context=capture.profile_context,
+                exclude_bases=layout_identity_bases,
+            )
+        )
+        comments.extend(layout_comments)
+        return comments
 
     if looks_like_driver_entry(capture):
         has_driver_entry_sequence = (
@@ -384,6 +407,8 @@ def kernel_comments(
 
 
 def kernel_warnings(capture: FunctionCapture) -> list[str]:
+    if not _allows_kernel_semantics(capture):
+        return []
     text = capture.pseudocode or ""
     warnings = []
     suspicious_operands = suspicious_ps_reference_silo_context_operands(text)
@@ -410,10 +435,14 @@ def _rename(old: str, new: str, confidence: float, source: str, evidence: str) -
 
 
 def looks_like_driver_entry(capture: FunctionCapture) -> bool:
+    if not _allows_kernel_semantics(capture):
+        return False
     return _has_driver_entry_evidence(capture.pseudocode or "", capture.prototype or "", capture.name or "")
 
 
 def driver_entry_parameter_names(capture: FunctionCapture) -> list[str]:
+    if not _allows_kernel_semantics(capture):
+        return []
     if not looks_like_driver_entry(capture):
         return []
     params = extract_parameters_from_signature(capture.prototype)
@@ -423,12 +452,16 @@ def driver_entry_parameter_names(capture: FunctionCapture) -> list[str]:
 
 
 def driver_dispatch_parameter_names(capture: FunctionCapture) -> list[str]:
+    if not _allows_kernel_semantics(capture):
+        return []
     if not looks_like_irp_dispatch(capture):
         return []
     return ["deviceObject", "irp"]
 
 
 def callback_registration_parameter_names(capture: FunctionCapture) -> list[str]:
+    if not _allows_kernel_semantics(capture):
+        return []
     text = capture.pseudocode or ""
     if not _has_callback_registration_toggle_evidence(text):
         return []
@@ -445,6 +478,8 @@ def callback_registration_parameter_names(capture: FunctionCapture) -> list[str]
 
 
 def registry_callback_parameter_names(capture: FunctionCapture) -> list[str]:
+    if not _allows_kernel_semantics(capture):
+        return []
     text = capture.pseudocode or ""
     if not _has_registry_callback_registration_evidence(text):
         return []
@@ -458,22 +493,32 @@ def registry_callback_parameter_names(capture: FunctionCapture) -> list[str]:
 
 
 def looks_like_callback_registration_toggle(capture: FunctionCapture) -> bool:
+    if not _allows_kernel_semantics(capture):
+        return False
     return _has_callback_registration_toggle_evidence(capture.pseudocode or "")
 
 
 def looks_like_registry_callback_registration(capture: FunctionCapture) -> bool:
+    if not _allows_kernel_semantics(capture):
+        return False
     return _has_registry_callback_registration_evidence(capture.pseudocode or "")
 
 
 def looks_like_zw_api_probe(capture: FunctionCapture) -> bool:
+    if not _allows_kernel_semantics(capture):
+        return False
     return _has_zw_api_probe_evidence(capture.pseudocode or "")
 
 
 def looks_like_driver_dispatch(capture: FunctionCapture) -> bool:
+    if not _allows_kernel_semantics(capture):
+        return False
     return _has_driver_dispatch_evidence(capture.pseudocode or "", capture.prototype or "")
 
 
 def looks_like_irp_dispatch(capture: FunctionCapture) -> bool:
+    if not _allows_kernel_semantics(capture):
+        return False
     return _has_irp_dispatch_evidence(capture.pseudocode or "", capture.prototype or "")
 
 
@@ -483,6 +528,17 @@ def _comment(kind: str, text: str, confidence: float) -> dict[str, Any]:
         "text": text,
         "confidence": confidence,
     }
+
+
+def _allows_kernel_semantics(capture: FunctionCapture) -> bool:
+    target = getattr(capture, "target_context", None)
+    platform = str(getattr(target, "platform", "") or "unknown")
+    privilege = str(getattr(target, "privilege_domain", "") or "unknown")
+    if platform in {"linux", "macos", "uefi"}:
+        return False
+    if platform == "windows" and privilege == "user":
+        return False
+    return True
 
 
 def _has_driver_entry_evidence(text: str, prototype: str, function_name: str) -> bool:

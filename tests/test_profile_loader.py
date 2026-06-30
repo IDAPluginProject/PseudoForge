@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ida_pseudoforge.core.capture import build_target_context
 from ida_pseudoforge.profiles import loader as profile_loader
 from ida_pseudoforge.core import kernel_api
 from ida_pseudoforge.ida.profile_config_dialog import format_profile_summary
@@ -100,6 +101,267 @@ class ProfileLoaderTests(unittest.TestCase):
             self.assertIn("Domain pack source versions: 10.0.26200.8457", summary)
         finally:
             profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
+    def test_active_domain_pack_manifests_reports_builtin_inventory(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        try:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+
+            ids = profile_loader.active_domain_pack_ids()
+            manifests = {
+                str(item.get("id", "")): item
+                for item in profile_loader.active_domain_pack_manifests()
+            }
+
+            self.assertEqual(
+                [
+                    "cxx_runtime",
+                    "firmware_uefi",
+                    "generic_core",
+                    "linux_elf_user",
+                    "macos_macho_user",
+                    "win_user_pe",
+                    "windows_kernel",
+                ],
+                ids,
+            )
+            self.assertEqual("report-only", manifests["cxx_runtime"]["mode"])
+            self.assertEqual("manifest", manifests["cxx_runtime"]["availability"])
+            self.assertEqual(["cxx_runtime_comments.json"], manifests["cxx_runtime"]["rule_pack_names"])
+            self.assertEqual("report-only", manifests["firmware_uefi"]["mode"])
+            self.assertEqual("manifest", manifests["firmware_uefi"]["availability"])
+            self.assertEqual(
+                ["contracts/uefi_api_contracts.json"],
+                manifests["firmware_uefi"]["profile_names"],
+            )
+            self.assertEqual("report-only", manifests["generic_core"]["mode"])
+            self.assertEqual("manifest", manifests["generic_core"]["availability"])
+            self.assertEqual([], manifests["generic_core"]["profile_names"])
+            self.assertEqual("report-only", manifests["linux_elf_user"]["mode"])
+            self.assertEqual("manifest", manifests["linux_elf_user"]["availability"])
+            self.assertEqual(
+                ["contracts/linux_user_api_contracts.json"],
+                manifests["linux_elf_user"]["profile_names"],
+            )
+            self.assertEqual("report-only", manifests["macos_macho_user"]["mode"])
+            self.assertEqual("manifest", manifests["macos_macho_user"]["availability"])
+            self.assertEqual(
+                ["contracts/macos_macho_api_contracts.json"],
+                manifests["macos_macho_user"]["profile_names"],
+            )
+            self.assertEqual("report-only", manifests["win_user_pe"]["mode"])
+            self.assertEqual("manifest", manifests["win_user_pe"]["availability"])
+            self.assertEqual(
+                ["contracts/win_user_api_contracts.json"],
+                manifests["win_user_pe"]["profile_names"],
+            )
+            self.assertEqual(["win_user_pe_comments.json"], manifests["win_user_pe"]["rule_pack_names"])
+            self.assertEqual("compatibility", manifests["windows_kernel"]["mode"])
+            self.assertEqual("manifest", manifests["windows_kernel"]["availability"])
+            self.assertEqual("10.0.26200.8457", manifests["windows_kernel"]["source_version"])
+            self.assertIn("kernel_functions.json", manifests["windows_kernel"]["profile_names"])
+            self.assertIn("domain_identity/io_manager.json", manifests["windows_kernel"]["profile_names"])
+            self.assertEqual(profile_loader.profile_load_warnings(), [])
+        finally:
+            profile_loader.PROFILE_DIR = original_dir
+            profile_loader.clear_profile_caches()
+
+    def test_target_context_reports_pack_activation_reasons(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        try:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+            active_ids = profile_loader.active_domain_pack_ids()
+            manifests = profile_loader.active_domain_pack_manifests()
+
+            context = build_target_context(
+                r"C:\bin\client.exe",
+                {
+                    "format": "pe",
+                    "platform": "windows",
+                    "privilege_domain": "user",
+                    "imports": ["CreateFileW", "CloseHandle"],
+                    "sections": [".text", ".rdata", ".pdata"],
+                },
+                active_domain_packs=active_ids,
+                domain_pack_manifests=manifests,
+            )
+            report = {str(item["id"]): item for item in context.domain_pack_activation_report}
+
+            self.assertEqual("windows_user_pe", context.target_family)
+            self.assertGreaterEqual(context.confidence, 0.8)
+            self.assertIn("kernel32", context.import_families)
+            self.assertIn("pe_exception_metadata", context.section_clues)
+            self.assertIn("generic_core", context.eligible_domain_packs)
+            self.assertIn("win_user_pe", context.eligible_domain_packs)
+            self.assertIn("linux_elf_user", context.rejected_domain_packs)
+            self.assertIn("windows_kernel", context.rejected_domain_packs)
+            self.assertTrue(report["win_user_pe"]["eligible"])
+            self.assertFalse(report["windows_kernel"]["eligible"])
+            self.assertTrue(
+                any("privilege_domain=user" in item for item in report["windows_kernel"]["rejection_reasons"])
+            )
+        finally:
+            profile_loader.PROFILE_DIR = original_dir
+            profile_loader.clear_profile_caches()
+
+    def test_linux_elf_target_context_stays_out_of_windows_packs(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        try:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+            active_ids = profile_loader.active_domain_pack_ids()
+            manifests = profile_loader.active_domain_pack_manifests()
+
+            context = build_target_context(
+                "/tmp/server.elf",
+                {
+                    "format": "elf",
+                    "platform": "linux",
+                    "imports": ["malloc", "pthread_mutex_lock", "socket"],
+                    "sections": [".text", ".rodata", ".eh_frame"],
+                },
+                active_domain_packs=active_ids,
+                domain_pack_manifests=manifests,
+            )
+
+            self.assertEqual("linux_elf_user", context.target_family)
+            self.assertIn("libc", context.import_families)
+            self.assertIn("pthread", context.import_families)
+            self.assertIn("posix_socket", context.import_families)
+            self.assertIn("elf_exception_metadata", context.section_clues)
+            self.assertIn("generic_core", context.eligible_domain_packs)
+            self.assertIn("linux_elf_user", context.eligible_domain_packs)
+            self.assertIn("win_user_pe", context.rejected_domain_packs)
+            self.assertIn("windows_kernel", context.rejected_domain_packs)
+            self.assertNotIn("win_user_pe", context.eligible_domain_packs)
+            self.assertNotIn("windows_kernel", context.eligible_domain_packs)
+        finally:
+            profile_loader.PROFILE_DIR = original_dir
+            profile_loader.clear_profile_caches()
+
+    def test_cxx_runtime_clues_can_activate_cxx_pack_without_explicit_context(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        try:
+            profile_loader.configure_profile_dir(profile_loader.DEFAULT_PROFILE_DIR)
+            active_ids = profile_loader.active_domain_pack_ids()
+            manifests = profile_loader.active_domain_pack_manifests()
+
+            context = build_target_context(
+                r"C:\bin\widget.exe",
+                {
+                    "format": "pe",
+                    "platform": "windows",
+                    "privilege_domain": "user",
+                },
+                active_domain_packs=active_ids,
+                call_names=["operator new", "__CxxFrameHandler3"],
+                function_name="??0Widget@@QEAA@XZ",
+                domain_pack_manifests=manifests,
+            )
+
+            self.assertEqual("windows_user_pe", context.target_family)
+            self.assertEqual("cxx", context.language_runtime)
+            self.assertEqual("msvc", context.abi)
+            self.assertIn("runtime:cxx", context.runtime_clues)
+            self.assertIn("cxx_runtime", context.eligible_domain_packs)
+            self.assertIn("win_user_pe", context.eligible_domain_packs)
+        finally:
+            profile_loader.PROFILE_DIR = original_dir
+            profile_loader.clear_profile_caches()
+
+    def test_active_domain_pack_manifests_falls_back_without_manifest(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "domain_identity"
+            pack_dir.mkdir()
+            (pack_dir / "custom.json").write_text(
+                json.dumps({"schema": "domain_identity_profiles_v1", "profiles": []}),
+                encoding="utf-8",
+            )
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+
+                ids = profile_loader.active_domain_pack_ids()
+                manifests = {
+                    str(item.get("id", "")): item
+                    for item in profile_loader.active_domain_pack_manifests()
+                }
+
+                self.assertEqual(["generic_core", "windows_kernel"], ids)
+                self.assertEqual("compatibility", manifests["generic_core"]["availability"])
+                self.assertEqual("compatibility", manifests["windows_kernel"]["availability"])
+                self.assertEqual(["domain_identity/custom.json"], manifests["windows_kernel"]["profile_names"])
+                self.assertEqual(
+                    ["domain_identity/custom.json"],
+                    profile_loader.available_domain_identity_profile_names(),
+                )
+                self.assertEqual(profile_loader.profile_load_warnings(), [])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_invalid_domain_pack_manifest_blocks_domain_pack_inventory_only(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "domain_identity"
+            pack_dir.mkdir()
+            (pack_dir / "custom.json").write_text(
+                json.dumps({"schema": "domain_identity_profiles_v1", "profiles": []}),
+                encoding="utf-8",
+            )
+            (temp_path / profile_loader.DOMAIN_PACKS_MANIFEST_NAME).write_text(
+                "{broken",
+                encoding="utf-8",
+            )
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+
+                self.assertEqual([], profile_loader.active_domain_pack_ids())
+                self.assertEqual([], profile_loader.active_domain_pack_manifests())
+                self.assertEqual(
+                    ["domain_identity/custom.json"],
+                    profile_loader.available_domain_identity_profile_names(),
+                )
+                warnings = profile_loader.profile_load_warnings()
+
+                self.assertEqual(len(warnings), 1)
+                self.assertIn(profile_loader.DOMAIN_PACKS_MANIFEST_NAME, warnings[0])
+                self.assertIn("invalid JSON", warnings[0])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
+
+    def test_malformed_domain_pack_manifest_does_not_fall_back_to_compatibility(self) -> None:
+        original_dir = profile_loader.PROFILE_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pack_dir = temp_path / "domain_identity"
+            pack_dir.mkdir()
+            (pack_dir / "custom.json").write_text(
+                json.dumps({"schema": "domain_identity_profiles_v1", "profiles": []}),
+                encoding="utf-8",
+            )
+            (temp_path / profile_loader.DOMAIN_PACKS_MANIFEST_NAME).write_text(
+                json.dumps(
+                    {
+                        "schema": profile_loader.DOMAIN_PACKS_SCHEMA,
+                        "packs": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            try:
+                profile_loader.configure_profile_dir(temp_path)
+
+                self.assertEqual([], profile_loader.active_domain_pack_ids())
+                warnings = profile_loader.profile_load_warnings()
+
+                self.assertEqual(len(warnings), 1)
+                self.assertIn("packs must be a JSON array", warnings[0])
+            finally:
+                profile_loader.PROFILE_DIR = original_dir
+                profile_loader.clear_profile_caches()
 
     def test_available_domain_identity_profiles_reports_isolated_pack_inventory(self) -> None:
         original_dir = profile_loader.PROFILE_DIR

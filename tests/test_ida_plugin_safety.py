@@ -12,6 +12,7 @@ from ida_pseudoforge.config import (
     PseudoForgeConfig,
 )
 from ida_pseudoforge.core.capture import capture_from_pseudocode
+from ida_pseudoforge.core.ir_evidence import ir_evidence_summary
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
@@ -555,6 +556,28 @@ class IdaPluginSafetyTests(unittest.TestCase):
         self.assertIn("Inferred arch: (missing)", summary)
         self.assertIn("Inferred build: (missing)", summary)
         self.assertIn("Context status: missing source_path, image, arch, build", summary)
+
+    def test_text_only_ir_evidence_is_inert_without_external_facts(self):
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall TextOnlyIrSample(int a1)
+{
+  return a1 + 1;
+}
+""",
+            source_path="text_only.cpp",
+        )
+        plan = build_clean_plan(capture)
+        summary = ir_evidence_summary(plan.ir_evidence)
+
+        self.assertEqual("text_only", capture.ir_evidence.adapter)
+        self.assertEqual("text_only", summary["adapter"])
+        self.assertFalse(summary["available"])
+        self.assertEqual(0, summary["use_def_chains"])
+        self.assertEqual(0, summary["value_ranges"])
+        self.assertEqual(0, summary["local_type_snapshots"])
+        self.assertEqual(0, summary["constant_origins"])
+        self.assertEqual(0, summary["call_site_signatures"])
 
     def test_preflight_rejects_invalid_colliding_and_unselected_renames(self):
         capture = _capture()

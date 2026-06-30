@@ -1,0 +1,32 @@
+{
+  "schema": "pseudoforge_general_benchmark_fixture_v1",
+  "name": "win_user_pe_file_lifetime",
+  "source_path": "C:\\bin\\client.exe",
+  "profile_context": {
+    "format": "pe",
+    "platform": "windows",
+    "privilege_domain": "user",
+    "imports": ["CreateFileW", "VirtualAlloc", "CloseHandle"],
+    "enable_textual_ir_evidence": true
+  },
+  "pseudocode": "__int64 __fastcall WinUserFileLifetime(void *ctx)\n{\n  HANDLE hFile;\n  void *region;\n\n  hFile = CreateFileW(L\"C:\\\\temp\\\\input.bin\", 0x80000000, 1u, 0i64, 3u, 0x80u, 0i64);\n  region = VirtualAlloc(0i64, 0x1000ui64, 0x3000u, 4u);\n  CloseHandle(hFile);\n  return region != 0;\n}\n",
+  "expected_observations": [
+    {"kind": "target_family", "value": "windows_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "win_user_pe"},
+    {"kind": "contract_profile", "value": "contracts/win_user_api_contracts.json"},
+    {"kind": "contract_domain", "value": "windows_user_mode"},
+    {"kind": "contract_symbol", "value": "CreateFileW"},
+    {"kind": "contract_symbol", "value": "VirtualAlloc"},
+    {"kind": "contract_symbol", "value": "CloseHandle"},
+    {"kind": "ir_available", "value": "true"},
+    {"kind": "ir_call_site_min", "value": "4"},
+    {"kind": "ir_use_def_min", "value": "2"},
+    {"kind": "ir_diagnostic", "value": "return_check:VirtualAlloc:region:nonzero_success"}
+  ],
+  "negative_controls": [
+    {"kind": "eligible_domain_pack", "value": "windows_kernel"},
+    {"kind": "eligible_domain_pack", "value": "linux_elf_user"},
+    {"kind": "contract_profile", "value": "contracts/linux_user_api_contracts.json"},
+    {"kind": "contract_symbol", "value": "malloc"}
+  ]
+}

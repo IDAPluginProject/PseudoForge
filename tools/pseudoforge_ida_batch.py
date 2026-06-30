@@ -39,6 +39,10 @@ from ida_pseudoforge.core.helper_aliases import (
     is_runtime_helper_alias_advisory,
     runtime_helper_alias_summary,
 )
+from ida_pseudoforge.core.ida_batch_replay import (
+    corpus_manifest_from_ida_batch_summaries,
+    load_ida_batch_summaries,
+)
 from ida_pseudoforge.core.llm_failures import (
     format_llm_fallback_warning,
     is_llm_provider_cyber_policy_block,
@@ -57,6 +61,7 @@ from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.core.render_warnings import export_warnings
 from ida_pseudoforge.profiles.loader import active_profile_root, configure_profile_dir, profile_load_warnings
 from ida_pseudoforge.ida.decompiler import merge_lvars_from_text_and_cfunc
+from ida_pseudoforge.ida.hexrays_ir import hexrays_cfunc_ir_evidence
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
     PROVIDER_ORDER,
@@ -144,6 +149,9 @@ def main(argv: list[str] | None = None) -> int:
         forge_path = Path(args.forge_path) if args.forge_path else target_path.with_suffix(".forge")
         compare_dir = Path(args.compare_dir) if args.compare_dir else None
         export_dir = Path(args.export_dir) if args.export_dir else None
+        corpus_manifest_path = Path(args.corpus_manifest_out) if args.corpus_manifest_out else None
+        if corpus_manifest_path is not None and export_dir is None:
+            raise RuntimeError("--corpus-manifest-out requires --export-dir")
         corpus_metadata_path = Path(args.corpus_metadata) if args.corpus_metadata else None
         cancel_file = Path(args.cancel_file) if args.cancel_file else None
         rename_provider, llm_info = _build_llm_context(args)
@@ -164,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
                 "forge_path": str(forge_path),
                 "compare_dir": str(compare_dir) if compare_dir else "",
                 "export_dir": str(export_dir) if export_dir else "",
+                "corpus_manifest_out": str(corpus_manifest_path) if corpus_manifest_path else "",
                 "corpus_metadata": str(corpus_metadata_path) if corpus_metadata_path else "",
                 "cancel_file": str(cancel_file) if cancel_file else "",
                 "llm": llm_info,
@@ -229,6 +238,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         if postprocess_result.get("aliases"):
             reporter.write(postprocess_result)
+        if corpus_manifest_path is not None and export_dir is not None:
+            reporter.write(
+                _write_ida_replay_corpus_manifest(
+                    corpus_manifest_path,
+                    export_dir,
+                    source_reference=args.corpus_source_reference,
+                    claim_eligible=bool(args.corpus_claim_eligible),
+                )
+            )
 
         reporter.write(
             {
@@ -267,6 +285,21 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--forge-path", default="", help="Aggregate .forge output path.")
     parser.add_argument("--compare-dir", default="", help="Directory for raw Hex-Rays, PseudoForge, and unified diff artifacts.")
     parser.add_argument("--export-dir", default="", help="Directory for full per-function export bundles.")
+    parser.add_argument(
+        "--corpus-manifest-out",
+        default="",
+        help="Write a corpus replay manifest from --export-dir IDA batch summaries.",
+    )
+    parser.add_argument(
+        "--corpus-source-reference",
+        default="",
+        help="Source reference to use when writing a claim-eligible corpus replay manifest.",
+    )
+    parser.add_argument(
+        "--corpus-claim-eligible",
+        action="store_true",
+        help="Mark the generated corpus replay manifest as claim eligible.",
+    )
     parser.add_argument("--corpus-metadata", default="", help="Path for global IDB corpus metadata JSON.")
     parser.add_argument("--metadata-max-strings", type=int, default=20000, help="Maximum strings to store in corpus metadata.")
     parser.add_argument("--metadata-max-names", type=int, default=20000, help="Maximum named addresses to store in corpus metadata.")
@@ -411,6 +444,7 @@ def _analyze_function(
             profile_context=_batch_profile_context(idb_path, target_path),
         )
         capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+        _attach_hexrays_ir_evidence(capture, cfunc)
         plan, llm_status, llm_error, llm_error_class, llm_error_summary = _build_plan_with_optional_llm(
             capture,
             rename_provider,
@@ -1368,6 +1402,42 @@ def _write_corpus_metadata(
     }
 
 
+def _write_ida_replay_corpus_manifest(
+    path: Path,
+    export_dir: Path,
+    source_reference: str,
+    claim_eligible: bool,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    summaries = load_ida_batch_summaries([export_dir])
+    manifest = corpus_manifest_from_ida_batch_summaries(
+        summaries,
+        source_reference=source_reference,
+        claim_eligible=claim_eligible,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
+    corpora = [item for item in manifest.get("corpora", []) if isinstance(item, dict)]
+    return {
+        "event": "corpus_manifest",
+        "time": _utc_now(),
+        "path": str(path),
+        "export_dir": str(export_dir),
+        "claim_eligible": bool(claim_eligible),
+        "corpora": len(corpora),
+        "functions": sum(_safe_int(item.get("function_count")) for item in corpora),
+        "ir_evidence_functions": sum(_safe_int(item.get("ir_evidence_function_count")) for item in corpora),
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    }
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _build_corpus_metadata(
     idb_path: Path | None,
     target_path: Path,
@@ -1954,7 +2024,17 @@ def _capture_function_by_name(name: str, source_path: str = "") -> FunctionCaptu
         source_path=source_path,
     )
     capture.lvars = merge_lvars_from_text_and_cfunc(capture.lvars, _extract_lvars_from_cfunc(cfunc))
+    _attach_hexrays_ir_evidence(capture, cfunc)
     return capture
+
+
+def _attach_hexrays_ir_evidence(capture: FunctionCapture, cfunc: Any) -> None:
+    try:
+        evidence = hexrays_cfunc_ir_evidence(cfunc, capture)
+    except Exception:
+        return
+    if evidence.available:
+        capture.ir_evidence = evidence
 
 
 def _function_ea_by_name(name: str) -> int | None:

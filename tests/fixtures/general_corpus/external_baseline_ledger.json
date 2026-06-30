@@ -1,0 +1,29 @@
+{
+  "schema": "pseudoforge_external_baseline_ledger_v1",
+  "baselines": [
+    {
+      "name": "ghidra",
+      "corpus_name": "win_user_pe_open_source_file_lifetime",
+      "target_family": "windows_user_pe",
+      "reference": "local-baseline://ghidra/win_user_pe_open_source_file_lifetime",
+      "metric": "accepted_observation_delta",
+      "status": "passed"
+    },
+    {
+      "name": "binary-ninja",
+      "corpus_name": "linux_elf_open_source_heap_thread_socket",
+      "target_family": "linux_elf_user",
+      "reference": "local-baseline://binary-ninja/linux_elf_open_source_heap_thread_socket",
+      "metric": "accepted_observation_delta",
+      "status": "passed"
+    },
+    {
+      "name": "blocked-baseline",
+      "corpus_name": "win_user_pe_open_source_file_lifetime",
+      "target_family": "windows_user_pe",
+      "reference": "local-baseline://blocked/win_user_pe_open_source_file_lifetime",
+      "metric": "accepted_observation_delta",
+      "status": "blocked"
+    }
+  ]
+}

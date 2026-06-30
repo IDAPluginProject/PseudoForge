@@ -21,7 +21,11 @@ from ida_pseudoforge.config import (
     save_config,
 )
 from ida_pseudoforge.core.capture import capture_from_pseudocode
-from ida_pseudoforge.core.llm_assist import parse_llm_rename_response, suggest_renames_with_provider
+from ida_pseudoforge.core.llm_assist import (
+    parse_llm_candidate_response,
+    parse_llm_rename_response,
+    suggest_renames_with_provider,
+)
 from ida_pseudoforge.core.llm_candidate_cache import (
     LlmCandidateRecordingProvider,
     LlmCandidateReplayProvider,
@@ -32,7 +36,13 @@ from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.render import render_cleaned_pseudocode
 from ida_pseudoforge.models.cli_provider import CliRenameProvider
 from ida_pseudoforge.models.openai_compatible import OpenAICompatibleRenameProvider
-from ida_pseudoforge.models.prompting import build_cli_rename_prompt
+from ida_pseudoforge.models.prompting import (
+    build_cli_candidate_prompt,
+    build_field_candidate_prompt,
+    build_intent_comment_candidate_prompt,
+    build_type_role_candidate_prompt,
+    build_cli_rename_prompt,
+)
 from ida_pseudoforge.models.provider_factory import build_rename_provider
 from ida_pseudoforge.models.provider_registry import (
     PROVIDER_CHATGPT_OAUTH_VIA_CODEX_CLI,
@@ -209,6 +219,159 @@ class LlmConfigTests(unittest.TestCase):
         self.assertEqual(len(suggestions), 1)
         self.assertEqual(suggestions[0].new, "byteLength")
 
+    def test_llm_candidate_prompts_have_separate_strict_json_shapes(self) -> None:
+        capture = capture_from_pseudocode(LLM_PLAN_SAMPLE)
+        field_prompt = build_field_candidate_prompt(capture)
+        type_prompt = build_type_role_candidate_prompt(capture)
+        comment_prompt = build_intent_comment_candidate_prompt(capture)
+        cli_prompt = build_cli_candidate_prompt(capture)
+
+        self.assertIn('"task": "field_candidates"', field_prompt)
+        self.assertIn('"task": "type_role_candidates"', type_prompt)
+        self.assertIn('"task": "intent_comments"', comment_prompt)
+        self.assertIn("Return strict JSON only", cli_prompt)
+        self.assertIn('"field_candidates"', cli_prompt)
+        self.assertIn('"type_role_candidates"', cli_prompt)
+        self.assertIn('"intent_comments"', cli_prompt)
+
+    def test_parse_llm_candidate_response_is_strict_json(self) -> None:
+        capture = capture_from_pseudocode(LLM_PLAN_SAMPLE)
+        candidates, warnings = parse_llm_candidate_response(
+            capture,
+            """
+            ```json
+            {"field_candidates":[]}
+            ```
+            """,
+        )
+
+        self.assertEqual([], candidates)
+        self.assertEqual(["LLM candidate response was not strict JSON"], warnings)
+        candidates, warnings = parse_llm_candidate_response(capture, "{broken}")
+        self.assertEqual([], candidates)
+        self.assertTrue(warnings[0].startswith("LLM candidate response was not valid JSON"))
+
+    def test_parse_llm_candidate_response_returns_blocked_diagnostics(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CandidateSample(char *ctx)
+{
+  int v1;
+
+  v1 = *(_DWORD *)(ctx + 0x18);
+  return v1;
+}
+""",
+            name="CandidateSample",
+        )
+        candidates, warnings = parse_llm_candidate_response(
+            capture,
+            json.dumps(
+                {
+                    "field_candidates": [
+                        {
+                            "base": "ctx",
+                            "offset": "0x18",
+                            "name": "sessionId",
+                            "confidence": 0.91,
+                            "evidence": "ctx+0x18 is read into a local",
+                        }
+                    ],
+                    "type_role_candidates": [
+                        {
+                            "target": "missingLocal",
+                            "role": "byte_length",
+                            "type": "size_t",
+                            "confidence": 0.92,
+                            "evidence": "model guess",
+                        }
+                    ],
+                    "intent_comments": [
+                        {
+                            "anchor": "function",
+                            "text": "Reads a session id-like field.",
+                            "confidence": 0.88,
+                            "evidence": "single field read",
+                        }
+                    ],
+                }
+            ),
+        )
+
+        self.assertEqual([], warnings)
+        self.assertEqual(3, len(candidates))
+        self.assertTrue(all(item.source == "llm_candidate" for item in candidates))
+        self.assertTrue(all(item.status == "blocked" for item in candidates))
+        self.assertEqual("field_name", candidates[0].kind)
+        self.assertEqual("sessionId", candidates[0].name)
+        self.assertNotIn("offset is not present", " ".join(candidates[0].blockers))
+        self.assertEqual("type_role", candidates[1].kind)
+        self.assertIn("target local is not present in capture", candidates[1].blockers)
+        self.assertEqual("intent_comment", candidates[2].kind)
+
+    def test_build_plan_with_llm_candidates_keeps_them_report_only(self) -> None:
+        class FakeProvider:
+            def suggest_renames(self, capture):
+                return '{"renames":[]}'
+
+            def suggest_candidates(self, capture):
+                return json.dumps(
+                    {
+                        "field_candidates": [
+                            {
+                                "base": "ctx",
+                                "offset": "0x18",
+                                "name": "sessionId",
+                                "confidence": 0.91,
+                                "evidence": "ctx+0x18 is read into a local",
+                            }
+                        ],
+                        "intent_comments": [
+                            {
+                                "anchor": "function",
+                                "text": "Reads a session id-like field.",
+                                "confidence": 0.88,
+                                "evidence": "single field read",
+                            }
+                        ],
+                    }
+                )
+
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CandidatePlanSample(char *ctx)
+{
+  int v1;
+
+  v1 = *(_DWORD *)(ctx + 0x18);
+  return v1;
+}
+""",
+            name="CandidatePlanSample",
+        )
+        plan = build_clean_plan(capture, rename_provider=FakeProvider())
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertEqual(2, len(plan.llm_candidates))
+        self.assertTrue(all(item.source == "llm_candidate" for item in plan.llm_candidates))
+        self.assertTrue(all(item.status == "blocked" for item in plan.llm_candidates))
+        self.assertNotIn("Reads a session id-like field", rendered)
+        self.assertFalse(any(rename.source == "llm_candidate" for rename in plan.renames))
+
+    def test_llm_candidate_provider_failure_keeps_deterministic_plan(self) -> None:
+        class FakeProvider:
+            def suggest_renames(self, capture):
+                return '{"renames":[]}'
+
+            def suggest_candidates(self, capture):
+                raise TimeoutError("candidate timeout")
+
+        capture = capture_from_pseudocode(LLM_PLAN_SAMPLE)
+        plan = build_clean_plan(capture, rename_provider=FakeProvider())
+
+        self.assertEqual([], plan.llm_candidates)
+        self.assertTrue(any("LLM candidate assist failed" in warning for warning in plan.warnings))
+
     def test_llm_candidate_cache_records_and_replays_raw_response(self) -> None:
         class FakeProvider:
             def suggest_renames(self, capture):
@@ -240,6 +403,33 @@ __int64 __fastcall CacheSample(int a1)
             self.assertIsNotNone(cache_path)
             self.assertEqual(raw, read_llm_candidate_response(cache_path))
             self.assertEqual(raw, replay.suggest_renames(capture))
+            self.assertEqual(str(cache_path), replay.last_candidate_replay_path)
+
+    def test_llm_candidate_cache_records_and_replays_candidate_task(self) -> None:
+        class FakeProvider:
+            def suggest_candidates(self, capture):
+                return '{"field_candidates":[{"base":"ctx","offset":"0x10","name":"field","confidence":0.9}]}'
+
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall CandidateCacheSample(char *ctx)
+{
+  return *(_DWORD *)(ctx + 0x10);
+}
+""",
+            name="CandidateCacheSample",
+            ea=0x140004000,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = LlmCandidateRecordingProvider(FakeProvider(), temp_dir)
+            raw = recorder.suggest_candidates(capture)
+            cache_path = find_llm_candidate_cache(temp_dir, capture, task_name="candidates")
+            replay = LlmCandidateReplayProvider(temp_dir)
+
+            self.assertIsNotNone(cache_path)
+            self.assertTrue(str(cache_path).endswith(".llm-candidates.json"))
+            self.assertEqual(raw, read_llm_candidate_response(cache_path))
+            self.assertEqual(raw, replay.suggest_candidates(capture))
             self.assertEqual(str(cache_path), replay.last_candidate_replay_path)
 
     def test_llm_candidate_cache_clears_last_artifact_on_failure(self) -> None:

@@ -1,0 +1,86 @@
+{
+  "schema": "pseudoforge_contract_pack_v1",
+  "schema_version": 1,
+  "id": "win_user_api_contracts",
+  "title": "Windows User-Mode API Contracts",
+  "domain_pack_id": "win_user_pe",
+  "target_domain": "windows_user_mode",
+  "mode": "report-only",
+  "source": "PseudoForge curated Win32 user-mode API contract pack",
+  "source_version": "2026-06-30",
+  "contracts": [
+    {
+      "id": "win32.createfilew.handle",
+      "symbol": "CreateFileW",
+      "aliases": ["CreateFileA"],
+      "summary": "opens or creates a Win32 file object handle",
+      "argument_roles": ["path", "desired_access", "share_mode", "security_attributes", "creation_disposition", "flags_and_attributes", "template_file"],
+      "return_rule": "INVALID_HANDLE_VALUE indicates failure; a successful HANDLE is owned by the caller",
+      "ownership": "returns_handle",
+      "lifetime": "pair_with_CloseHandle",
+      "confidence": 0.86,
+      "evidence": ["kernel32 import family", "call-site symbol"],
+      "negative_controls": ["windows_kernel", "linux_elf_user"]
+    },
+    {
+      "id": "win32.closehandle.release",
+      "symbol": "CloseHandle",
+      "summary": "releases a Win32 object handle owned by the caller",
+      "argument_roles": ["handle"],
+      "return_rule": "zero indicates failure; nonzero indicates release request accepted",
+      "ownership": "consumes_handle",
+      "lifetime": "closes_CreateFileW_and_other_kernel32_handles",
+      "confidence": 0.86,
+      "evidence": ["kernel32 import family", "call-site symbol"],
+      "negative_controls": ["windows_kernel", "linux_elf_user"]
+    },
+    {
+      "id": "win32.virtualalloc.region",
+      "symbol": "VirtualAlloc",
+      "summary": "reserves or commits process virtual memory",
+      "argument_roles": ["address", "size", "allocation_type", "protection"],
+      "return_rule": "NULL indicates allocation failure; non-NULL pointer must follow allocation ownership rules",
+      "ownership": "returns_memory_region",
+      "lifetime": "pair_with_VirtualFree_when_owned",
+      "confidence": 0.82,
+      "evidence": ["kernel32 import family", "call-site symbol"],
+      "negative_controls": ["windows_kernel", "linux_elf_user"]
+    },
+    {
+      "id": "win32.virtualfree.region",
+      "symbol": "VirtualFree",
+      "summary": "releases or decommits process virtual memory",
+      "argument_roles": ["address", "size", "free_type"],
+      "return_rule": "zero indicates failure; nonzero indicates free/decommit request accepted",
+      "ownership": "consumes_memory_region",
+      "lifetime": "releases_VirtualAlloc_region",
+      "confidence": 0.82,
+      "evidence": ["kernel32 import family", "call-site symbol"],
+      "negative_controls": ["windows_kernel", "linux_elf_user"]
+    },
+    {
+      "id": "win32.getlasterror.thread_state",
+      "symbol": "GetLastError",
+      "summary": "reads the calling thread's last-error value",
+      "argument_roles": [],
+      "return_rule": "returns thread-local Win32 last-error state",
+      "ownership": "reads_thread_error_state",
+      "lifetime": "valid_until_overwritten_by_next_last_error_api",
+      "confidence": 0.8,
+      "evidence": ["kernel32 import family", "call-site symbol"],
+      "negative_controls": ["windows_kernel", "linux_elf_user"]
+    },
+    {
+      "id": "win32.setlasterror.thread_state",
+      "symbol": "SetLastError",
+      "summary": "updates the calling thread's last-error value",
+      "argument_roles": ["error_code"],
+      "return_rule": "void function that changes thread-local Win32 error state",
+      "ownership": "writes_thread_error_state",
+      "lifetime": "state_is_thread_local",
+      "confidence": 0.8,
+      "evidence": ["kernel32 import family", "call-site symbol"],
+      "negative_controls": ["windows_kernel", "linux_elf_user"]
+    }
+  ]
+}

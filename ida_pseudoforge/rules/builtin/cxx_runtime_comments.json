@@ -1,0 +1,242 @@
+{
+  "schema_version": 2,
+  "id": "pseudoforge.builtin.cxx_runtime_comments",
+  "description": "Builtin report-only semantic comment rules for C++ runtime cleanup hints.",
+  "rules": [
+    {
+      "id": "builtin.cxx_runtime.msvc.vftable_call",
+      "phase": "semantic_comment",
+      "priority": 68,
+      "confidence": 0.82,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "language_runtime": "cxx",
+          "abi": "msvc"
+        },
+        "text_contains": "vf"
+      },
+      "match": {
+        "regex": "\\b(?P<cxx_object>[A-Za-z_][A-Za-z0-9_]*)->(?:vfptr|__vfptr|_vfptr|vftable|__vftable|_vftable)->(?P<cxx_method>[A-Za-z_][A-Za-z0-9_]*)\\b"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_vtable_call",
+        "text": "MSVC-style vtable dispatch $cxx_object->$cxx_method detected; review this pointer and slot owner type",
+        "evidence": "MSVC vfptr/vftable dispatch pattern is present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.itanium.vptr_call",
+      "phase": "semantic_comment",
+      "priority": 68,
+      "confidence": 0.82,
+      "scope": {
+        "target": {
+          "format": ["elf", "macho", "idb"],
+          "language_runtime": "cxx",
+          "abi": "itanium"
+        },
+        "text_contains": "vptr"
+      },
+      "match": {
+        "regex": "\\b(?P<cxx_object>[A-Za-z_][A-Za-z0-9_]*)->(?:_vptr|__vptr|vptr)->(?P<cxx_method>[A-Za-z_][A-Za-z0-9_]*)\\b"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_vtable_call",
+        "text": "Itanium-style vptr dispatch $cxx_object->$cxx_method detected; review this pointer and slot owner type",
+        "evidence": "Itanium vptr dispatch pattern is present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.msvc.special_member_name",
+      "phase": "semantic_comment",
+      "priority": 64,
+      "confidence": 0.78,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "language_runtime": "cxx",
+          "abi": "msvc"
+        },
+        "function_name_regex": "^\\?\\?[01]"
+      },
+      "match": {
+        "text_contains": "{"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_ctor_dtor_candidate",
+        "text": "MSVC decorated constructor/destructor name detected; preserve object lifetime context",
+        "evidence": "Function name matches MSVC constructor/destructor decoration"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.itanium.special_member_name",
+      "phase": "semantic_comment",
+      "priority": 64,
+      "confidence": 0.78,
+      "scope": {
+        "target": {
+          "format": ["elf", "macho", "idb"],
+          "language_runtime": "cxx",
+          "abi": "itanium"
+        },
+        "function_name_regex": "^_ZN.*[CD][012]E"
+      },
+      "match": {
+        "text_contains": "{"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_ctor_dtor_candidate",
+        "text": "Itanium ABI constructor/destructor name detected; preserve object lifetime context",
+        "evidence": "Function name matches Itanium C++ constructor/destructor decoration"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.msvc.rtti_locator",
+      "phase": "semantic_comment",
+      "priority": 62,
+      "confidence": 0.78,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "language_runtime": "cxx",
+          "abi": "msvc"
+        },
+        "text_contains": "RTTICompleteObjectLocator"
+      },
+      "match": {
+        "text_contains": "RTTICompleteObjectLocator"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_rtti_name_hint",
+        "text": "MSVC RTTI locator reference can seed class name and vtable owner review",
+        "evidence": "RTTICompleteObjectLocator reference is present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.itanium.rtti_symbol",
+      "phase": "semantic_comment",
+      "priority": 62,
+      "confidence": 0.78,
+      "scope": {
+        "target": {
+          "format": ["elf", "macho", "idb"],
+          "language_runtime": "cxx",
+          "abi": "itanium"
+        }
+      },
+      "match": {
+        "regex": "\\b(?P<cxx_rtti>_ZT[IV][A-Za-z0-9_]+)\\b"
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_rtti_name_hint",
+        "text": "Itanium ABI RTTI/vtable symbol $cxx_rtti can seed class name review",
+        "evidence": "Itanium RTTI or vtable symbol is present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.exception_cleanup",
+      "phase": "semantic_comment",
+      "priority": 62,
+      "confidence": 0.78,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb", "elf", "macho"],
+          "language_runtime": "cxx"
+        },
+        "call_site": {
+          "function_name_regex": "^(?:__CxxFrameHandler3|_Unwind_Resume|__cxa_throw|__cxa_begin_catch)$"
+        }
+      },
+      "match": {
+        "call_site": {
+          "function_name_regex": "^(?:__CxxFrameHandler3|_Unwind_Resume|__cxa_throw|__cxa_begin_catch)$"
+        }
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_exception_cleanup",
+        "text": "$call_name marks C++ exception handling or cleanup runtime state",
+        "evidence": "C++ exception runtime call is present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.operator_new_delete_pair",
+      "phase": "semantic_comment",
+      "priority": 60,
+      "confidence": 0.76,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb", "elf", "macho"],
+          "language_runtime": "cxx"
+        },
+        "text_contains_all": ["operator new", "operator delete"]
+      },
+      "match": {
+        "text_contains_all": ["operator new", "operator delete"]
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_allocator_lifetime",
+        "text": "operator new/delete pair suggests C++ heap object lifetime; review allocation owner and cleanup edge",
+        "evidence": "operator new and operator delete are both present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.msvc.stl_vector_shape",
+      "phase": "semantic_comment",
+      "priority": 58,
+      "confidence": 0.74,
+      "scope": {
+        "target": {
+          "format": ["pe", "idb"],
+          "platform": "windows",
+          "language_runtime": "cxx",
+          "abi": "msvc"
+        },
+        "text_contains_all": ["_Myfirst", "_Mylast"]
+      },
+      "match": {
+        "text_contains_all": ["_Myfirst", "_Mylast"]
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_stl_container_shape",
+        "text": "MSVC STL vector-like _Myfirst/_Mylast fields suggest begin/end storage shape",
+        "evidence": "MSVC STL vector field pair is present"
+      }
+    },
+    {
+      "id": "builtin.cxx_runtime.itanium.stl_vector_shape",
+      "phase": "semantic_comment",
+      "priority": 58,
+      "confidence": 0.74,
+      "scope": {
+        "target": {
+          "format": ["elf", "macho", "idb"],
+          "language_runtime": "cxx",
+          "abi": "itanium"
+        },
+        "text_contains_all": ["_M_start", "_M_finish"]
+      },
+      "match": {
+        "text_contains_all": ["_M_start", "_M_finish"]
+      },
+      "emit": {
+        "kind": "semantic_comment",
+        "comment_kind": "cxx_stl_container_shape",
+        "text": "Itanium/libstdc++ vector-like _M_start/_M_finish fields suggest begin/end storage shape",
+        "evidence": "Itanium/libstdc++ STL vector field pair is present"
+      }
+    }
+  ]
+}

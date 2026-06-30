@@ -1,0 +1,34 @@
+{
+  "schema": "pseudoforge_general_benchmark_fixture_v1",
+  "name": "macos_macho_objc_dispatch",
+  "source_path": "/tmp/AppKitClient.macho",
+  "profile_context": {
+    "format": "macho",
+    "platform": "macos",
+    "privilege_domain": "user",
+    "imports": ["dispatch_async", "objc_retain", "objc_release"],
+    "sections": ["__text", "__cstring", "__objc_classlist"],
+    "enable_textual_ir_evidence": true
+  },
+  "pseudocode": "void __fastcall MacosObjcDispatch(void *queue, void *object, void *block)\n{\n  void *retained;\n\n  retained = objc_retain(object);\n  dispatch_async(queue, block);\n  objc_release(retained);\n}\n",
+  "expected_observations": [
+    {"kind": "target_family", "value": "macos_macho_user"},
+    {"kind": "eligible_domain_pack", "value": "macos_macho_user"},
+    {"kind": "target_field", "value": "platform=macos"},
+    {"kind": "target_field", "value": "format=macho"},
+    {"kind": "contract_profile", "value": "contracts/macos_macho_api_contracts.json"},
+    {"kind": "contract_domain", "value": "macos_userland"},
+    {"kind": "contract_symbol", "value": "dispatch_async"},
+    {"kind": "contract_symbol", "value": "objc_retain"},
+    {"kind": "contract_symbol", "value": "objc_release"},
+    {"kind": "ir_available", "value": "true"},
+    {"kind": "ir_call_site_min", "value": "4"},
+    {"kind": "ir_use_def_min", "value": "1"}
+  ],
+  "negative_controls": [
+    {"kind": "eligible_domain_pack", "value": "win_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "firmware_uefi"},
+    {"kind": "contract_symbol", "value": "CreateFileW"},
+    {"kind": "contract_symbol", "value": "AllocatePool"}
+  ]
+}

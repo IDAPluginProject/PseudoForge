@@ -13,6 +13,8 @@ from ida_pseudoforge.core.plan_schema import (
     CleanPlan,
     CorrectedParameterField,
     CorrectedParameterMapEntry,
+    IrEvidence,
+    IrLocalTypeSnapshot,
 )
 from ida_pseudoforge.core.render import (
     render_cleaned_pseudocode,
@@ -102,6 +104,79 @@ __int64 __fastcall SyntheticAggregateExportSample()
 """
 
 
+GENERIC_LAYOUT_CANDIDATE_EXPORT_SAMPLE = """
+__int64 __fastcall GenericLayoutCandidate(__int64 sessionSpace)
+{
+  return *(_QWORD *)(sessionSpace + 0x10)
+       + *(_QWORD *)(sessionSpace + 0x18)
+       + *(_QWORD *)(sessionSpace + 0x20)
+       + *(_QWORD *)(sessionSpace + 0x28)
+       + *(_QWORD *)(sessionSpace + 0x30)
+       + *(_QWORD *)(sessionSpace + 0x38)
+       + *(_QWORD *)(sessionSpace + 0x40)
+       + *(_QWORD *)(sessionSpace + 0x48)
+       + *(_QWORD *)(sessionSpace + 0x10)
+       + *(_QWORD *)(sessionSpace + 0x18)
+       + *(_QWORD *)(sessionSpace + 0x20)
+       + *(_QWORD *)(sessionSpace + 0x28);
+}
+"""
+
+
+AMBIGUOUS_LAYOUT_CANDIDATE_EXPORT_SAMPLE = """
+__int64 __fastcall AmbiguousLayoutCandidate(__int64 a1, __int64 a2)
+{
+  __int64 v22;
+  __int64 v44;
+
+  v44 = a2;
+  v22 = a1;
+  v22 = v44;
+  return *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40)
+       + *(_QWORD *)(v22 + 48)
+       + *(_QWORD *)(v22 + 56)
+       + *(_QWORD *)(v22 + 64)
+       + *(_QWORD *)(v22 + 72)
+       + *(_QWORD *)(v22 + 16)
+       + *(_QWORD *)(v22 + 24)
+       + *(_QWORD *)(v22 + 32)
+       + *(_QWORD *)(v22 + 40);
+}
+"""
+
+
+SINGLE_OFFSET_EXPORT_SAMPLE = """
+__int64 __fastcall SingleOffsetCandidate(__int64 context)
+{
+  return *(_QWORD *)(context + 0x10);
+}
+"""
+
+
+CONFLICTING_WIDTH_LAYOUT_EXPORT_SAMPLE = """
+__int64 __fastcall ConflictingWidthLayout(__int64 sessionSpace)
+{
+  return *(_BYTE *)(sessionSpace + 0x206)
+       + *(_WORD *)(sessionSpace + 0x206)
+       + *(_QWORD *)(sessionSpace + 0x10)
+       + *(_QWORD *)(sessionSpace + 0x18)
+       + *(_QWORD *)(sessionSpace + 0x20)
+       + *(_QWORD *)(sessionSpace + 0x28)
+       + *(_QWORD *)(sessionSpace + 0x30)
+       + *(_QWORD *)(sessionSpace + 0x38)
+       + *(_QWORD *)(sessionSpace + 0x40)
+       + *(_QWORD *)(sessionSpace + 0x48)
+       + *(_QWORD *)(sessionSpace + 0x10)
+       + *(_QWORD *)(sessionSpace + 0x18)
+       + *(_QWORD *)(sessionSpace + 0x20)
+       + *(_QWORD *)(sessionSpace + 0x28);
+}
+"""
+
+
 class ExportBundleTests(unittest.TestCase):
     def test_write_export_bundle_includes_parity_artifacts(self) -> None:
         profile_loader.clear_profile_caches()
@@ -149,8 +224,83 @@ class ExportBundleTests(unittest.TestCase):
                 self.assertTrue(
                     any(item["name"] == "status_codes.json" for item in summary["profile_manifests"])
                 )
+                target_context = summary["target_context"]
+                self.assertEqual(
+                    ["cxx_runtime", "generic_core", "linux_elf_user", "win_user_pe", "windows_kernel"],
+                    summary["active_domain_packs"],
+                )
+                self.assertTrue(
+                    any(item["id"] == "generic_core" for item in summary["domain_pack_manifests"])
+                )
+                self.assertTrue(
+                    any(item["id"] == "windows_kernel" for item in summary["domain_pack_manifests"])
+                )
+                self.assertEqual("sample.bin", target_context["source_path"])
+                self.assertEqual("sample.bin", target_context["image_name"])
+                self.assertEqual("unknown", target_context["format"])
+                self.assertEqual("unknown", target_context["architecture"])
+                self.assertEqual(0, target_context["bitness"])
+                self.assertEqual(profile_loader.active_profile_root(), target_context["profile_root"])
+                self.assertEqual(summary["active_domain_packs"], target_context["active_domain_packs"])
+                self.assertEqual("unknown", target_context["target_family"])
+                self.assertIn("contract_pack_summary", summary)
+                self.assertEqual([], summary["contract_pack_summary"]["profiles"])
+                self.assertIn("generic_core", summary["eligible_domain_packs"])
+                self.assertIn("win_user_pe", summary["rejected_domain_packs"])
+                self.assertTrue(
+                    any(item["id"] == "generic_core" for item in summary["domain_pack_activation_report"])
+                )
             finally:
                 profile_loader.clear_profile_caches()
+
+    def test_write_export_bundle_preserves_available_capture_ir_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(SAMPLE, name="ExportBundleSample", ea=0x140001000)
+            capture.ir_evidence = IrEvidence(
+                adapter="hexrays_cfunc_v1",
+                source="hexrays_cfunc",
+                available=True,
+                local_type_snapshots=[
+                    IrLocalTypeSnapshot(
+                        name="status",
+                        type_text="int",
+                        source="hexrays_lvar_local",
+                        confidence=0.9,
+                        evidence="fixture",
+                    )
+                ],
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_batch")
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+
+        self.assertEqual("hexrays_cfunc_v1", summary["ir_evidence_summary"]["adapter"])
+        self.assertEqual("hexrays_cfunc", summary["ir_evidence_summary"]["source"])
+        self.assertTrue(summary["ir_evidence_summary"]["available"])
+        self.assertEqual(1, summary["ir_evidence_summary"]["local_type_snapshots"])
+
+    def test_write_export_bundle_emits_unknown_target_context_without_source_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(SAMPLE, ea=0x140001000)
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            target_context = summary["target_context"]
+            self.assertEqual("", target_context["source_path"])
+            self.assertEqual("", target_context["image_name"])
+            self.assertEqual("unknown", target_context["format"])
+            self.assertEqual("unknown", target_context["architecture"])
+            self.assertEqual(0, target_context["bitness"])
+            self.assertEqual("unknown", target_context["platform"])
+            self.assertEqual("unknown", target_context["privilege_domain"])
+            self.assertEqual([], target_context["imports"])
+            self.assertEqual([], target_context["exports"])
+            self.assertEqual([], target_context["sections"])
+            self.assertEqual(summary["active_domain_packs"], target_context["active_domain_packs"])
+            self.assertIn("domain_pack_activation_report", summary)
 
     def test_write_export_bundle_hides_resolved_status_carrier_display_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -259,6 +409,91 @@ class ExportBundleTests(unittest.TestCase):
             self.assertEqual("review_only", summary["projection_policy"])
             self.assertGreaterEqual(summary["synthetic_aggregate_summary"]["aggregate_count"], 1)
             self.assertIn("policy_decisions", summary["synthetic_aggregate_summary"])
+            self.assertIn("generic_candidates", artifacts)
+            self.assertIn("generic_candidates_report", artifacts)
+            generic_candidates = json.loads(Path(artifacts["generic_candidates"]).read_text(encoding="utf-8"))
+            self.assertGreaterEqual(generic_candidates["type_candidate_count"], 1)
+            self.assertEqual(0, generic_candidates["rewrite_eligible_count"])
+            self.assertEqual(
+                generic_candidates["type_candidate_count"],
+                summary["generic_candidate_summary"]["type_candidates"],
+            )
+
+    def test_write_export_bundle_includes_generic_layout_candidate_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                GENERIC_LAYOUT_CANDIDATE_EXPORT_SAMPLE,
+                ea=0x140003200,
+                source_path="generic.bin",
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            payload = json.loads(Path(artifacts["generic_candidates"]).read_text(encoding="utf-8"))
+            report = Path(artifacts["generic_candidates_report"]).read_text(encoding="utf-8")
+            summary = json.loads(Path(artifacts["summary"]).read_text(encoding="utf-8"))
+            layout = next(item for item in payload["layout_candidates"] if item["base"] == "sessionSpace")
+
+            self.assertEqual("pseudoforge_generic_candidates_v1", payload["schema"])
+            self.assertEqual("report-only", payload["mode"])
+            self.assertEqual(0, payload["rewrite_eligible_count"])
+            self.assertGreaterEqual(payload["field_candidate_count"], 8)
+            self.assertGreaterEqual(payload["layout_candidate_count"], 1)
+            self.assertEqual(8, layout["offset_count"])
+            self.assertEqual(12, layout["access_count"])
+            self.assertIn(0x10, layout["offsets"])
+            self.assertIn("trusted rewrite source is required for canonical body rewrite", layout["blockers"])
+            self.assertTrue(all(not item["rewrite_eligible"] for item in payload["field_candidates"]))
+            self.assertEqual(payload["candidate_count"], summary["generic_candidate_summary"]["candidate_count"])
+            self.assertIn("# PseudoForge Generic Type/Layout Candidates", report)
+            self.assertIn("sessionSpace", report)
+
+    def test_generic_candidate_artifact_keeps_ambiguous_base_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(
+                AMBIGUOUS_LAYOUT_CANDIDATE_EXPORT_SAMPLE,
+                ea=0x140003300,
+            )
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            payload = json.loads(Path(artifacts["generic_candidates"]).read_text(encoding="utf-8"))
+
+            self.assertGreater(payload["candidate_count"], 0)
+            self.assertEqual(0, payload["rewrite_eligible_count"])
+            self.assertIn("base has multiple initializers before layout access", payload["blocker_counts"])
+            self.assertIn("base is a decompiler temporary", payload["blocker_counts"])
+            self.assertTrue(all(not item["rewrite_eligible"] for item in payload["layout_candidates"]))
+
+    def test_generic_candidate_artifact_ignores_single_offset_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(SINGLE_OFFSET_EXPORT_SAMPLE, ea=0x140003400)
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            payload = json.loads(Path(artifacts["generic_candidates"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(0, payload["candidate_count"])
+            self.assertEqual([], payload["layout_candidates"])
+            self.assertEqual([], payload["field_candidates"])
+            self.assertEqual([], payload["type_candidates"])
+
+    def test_generic_candidate_artifact_keeps_conflicting_widths_report_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capture = capture_from_pseudocode(CONFLICTING_WIDTH_LAYOUT_EXPORT_SAMPLE, ea=0x140003500)
+            plan = build_clean_plan(capture)
+
+            artifacts = write_export_bundle(temp_dir, capture, plan, entrypoint="ida_interactive")
+
+            payload = json.loads(Path(artifacts["generic_candidates"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(0, payload["type_candidate_count"])
+            self.assertEqual(0, payload["rewrite_eligible_count"])
+            self.assertIn("one or more offsets mix narrow subfield access widths", payload["blocker_counts"])
+            self.assertTrue(all(not item["rewrite_eligible"] for item in payload["layout_candidates"]))
 
     def test_write_export_bundle_limits_long_artifact_stems(self) -> None:
         long_name = (
@@ -365,6 +600,11 @@ class ExportBundleTests(unittest.TestCase):
 
                 self.assertEqual("D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", summary["source_context"]["source_path"])
                 self.assertEqual("26200.8457", summary["source_context"]["profile_context"]["build"])
+                self.assertEqual("D:\\bin\\os\\26200.8457\\ntoskrnl.exe.i64", summary["target_context"]["source_path"])
+                self.assertEqual("ntoskrnl.exe", summary["target_context"]["image_name"])
+                self.assertEqual("idb", summary["target_context"]["format"])
+                self.assertEqual("x64", summary["target_context"]["architecture"])
+                self.assertEqual(64, summary["target_context"]["bitness"])
                 candidates = {
                     item["profile_id"]: item
                     for item in summary["function_identity_candidates"]

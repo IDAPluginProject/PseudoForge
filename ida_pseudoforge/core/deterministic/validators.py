@@ -183,6 +183,8 @@ def _validate_scope_values(scope: dict[str, Any], prefix: str) -> list[str]:
     for key in ("prototype_contains", "text_contains"):
         if key in scope:
             errors.extend(_validate_non_empty_string(scope.get(key), "%s.%s" % (prefix, key)))
+    if "target" in scope:
+        errors.extend(_validate_target_selector(scope.get("target"), "%s.target" % prefix))
     errors.extend(_validate_typed_fact_values(scope, prefix))
     return errors
 
@@ -390,6 +392,48 @@ def _validate_profile_param_selector(value: object, prefix: str) -> list[str]:
             errors.extend(_validate_non_empty_string(data.get(key), "%s.%s" % (prefix, key)))
     if "type_regex" in data:
         errors.extend(_validate_regex_string(data.get("type_regex"), "%s.type_regex" % prefix))
+    return errors
+
+
+def _validate_target_selector(value: object, prefix: str) -> list[str]:
+    data, errors = _selector_object(value, prefix)
+    if data is None:
+        return errors
+    allowed = {
+        "abi",
+        "architecture",
+        "compiler_family",
+        "endianness",
+        "format",
+        "image_name",
+        "image_name_regex",
+        "language_runtime",
+        "platform",
+        "privilege_domain",
+        "source_path",
+        "source_path_regex",
+        "symbol_state",
+    }
+    errors.extend(_validate_selector_keys(data, allowed, prefix))
+    errors.extend(_validate_selector_non_empty(data, prefix))
+    for key in (
+        "abi",
+        "architecture",
+        "compiler_family",
+        "endianness",
+        "format",
+        "image_name",
+        "language_runtime",
+        "platform",
+        "privilege_domain",
+        "source_path",
+        "symbol_state",
+    ):
+        if key in data:
+            errors.extend(_validate_string_or_string_list(data.get(key), "%s.%s" % (prefix, key)))
+    for key in ("image_name_regex", "source_path_regex"):
+        if key in data:
+            errors.extend(_validate_regex_string(data.get(key), "%s.%s" % (prefix, key)))
     return errors
 
 

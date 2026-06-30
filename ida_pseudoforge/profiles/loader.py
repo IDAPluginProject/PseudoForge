@@ -11,6 +11,8 @@ from pathlib import Path
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent
 PROFILE_DIR = Path(os.environ.get("PSEUDOFORGE_PROFILE_DIR") or DEFAULT_PROFILE_DIR).expanduser()
 PROFILE_MANIFEST_NAME = "profiles_manifest.json"
+DOMAIN_PACKS_MANIFEST_NAME = "domain_packs_manifest.json"
+DOMAIN_PACKS_SCHEMA = "pseudoforge_domain_packs_v1"
 KERNEL_API_PROFILE_NAME = "kernel_api.json"
 DOMAIN_IDENTITY_PROFILE_NAME = "domain_identity.json"
 DOMAIN_IDENTITY_PROFILE_DIR = "domain_identity"
@@ -140,6 +142,23 @@ def available_domain_identity_profile_manifests() -> list[dict[str, Any]]:
     return result
 
 
+def active_domain_pack_ids() -> list[str]:
+    return [str(item.get("id", "")) for item in active_domain_pack_manifests() if str(item.get("id", ""))]
+
+
+def active_domain_pack_manifests() -> list[dict[str, Any]]:
+    return available_domain_pack_manifests()
+
+
+def available_domain_pack_manifests() -> list[dict[str, Any]]:
+    manifest_status, manifest = load_domain_packs_manifest()
+    if manifest_status == "invalid":
+        return []
+    if manifest_status == "loaded":
+        return _available_domain_pack_entries(_domain_pack_entries_from_manifest(manifest))
+    return _available_domain_pack_entries(_compatibility_domain_pack_entries())
+
+
 @lru_cache(maxsize=None)
 def subsystem_identity_index_entries() -> dict[str, dict[str, Any]]:
     path = PROFILE_DIR / SUBSYSTEM_IDENTITY_INDEX_NAME
@@ -198,6 +217,7 @@ def clear_profile_caches() -> None:
     subsystem_identity_index_entries.cache_clear()
     _available_domain_identity_profile_ids.cache_clear()
     load_profiles_manifest.cache_clear()
+    load_domain_packs_manifest.cache_clear()
     get_kernel_enum_member_name.cache_clear()
     get_kernel_enum_member_value.cache_clear()
     get_system_information_class_value.cache_clear()
@@ -217,6 +237,10 @@ def _clear_profile_dependent_runtime_caches() -> None:
         (
             "ida_pseudoforge.core.buffer_contracts",
             "clear_profile_dependent_buffer_contract_caches",
+        ),
+        (
+            "ida_pseudoforge.core.contract_packs",
+            "clear_profile_dependent_contract_pack_caches",
         ),
         (
             "ida_pseudoforge.core.render_status",
@@ -260,6 +284,155 @@ def load_profiles_manifest() -> dict[str, Any]:
         )
         return {}
     return payload
+
+
+@lru_cache(maxsize=None)
+def load_domain_packs_manifest() -> tuple[str, dict[str, Any]]:
+    path = PROFILE_DIR / DOMAIN_PACKS_MANIFEST_NAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "missing", {}
+    except json.JSONDecodeError as exc:
+        _record_profile_warning(
+            DOMAIN_PACKS_MANIFEST_NAME,
+            "invalid JSON in %s at line %d column %d: %s"
+            % (path, exc.lineno, exc.colno, exc.msg),
+        )
+        return "invalid", {}
+    except OSError as exc:
+        _record_profile_warning(
+            DOMAIN_PACKS_MANIFEST_NAME,
+            "domain pack manifest read failed for %s: %s" % (path, exc),
+        )
+        return "invalid", {}
+    if not isinstance(payload, dict):
+        _record_profile_warning(
+            DOMAIN_PACKS_MANIFEST_NAME,
+            "domain pack manifest root must be a JSON object, got %s" % type(payload).__name__,
+        )
+        return "invalid", {}
+    schema = str(payload.get("schema", "") or "").strip()
+    if schema and schema != DOMAIN_PACKS_SCHEMA:
+        _record_profile_warning(
+            DOMAIN_PACKS_MANIFEST_NAME,
+            "unsupported domain pack manifest schema: %s" % schema,
+        )
+        return "invalid", {}
+    return "loaded", payload
+
+
+def _domain_pack_entries_from_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    packs = manifest.get("packs", [])
+    if not isinstance(packs, list):
+        _record_profile_warning(
+            DOMAIN_PACKS_MANIFEST_NAME,
+            "domain pack manifest packs must be a JSON array, got %s" % type(packs).__name__,
+        )
+        return []
+    result = []
+    for item in packs:
+        if not isinstance(item, dict):
+            continue
+        pack_id = str(item.get("id", "") or "").strip()
+        if not pack_id:
+            continue
+        payload = dict(item)
+        payload["id"] = pack_id
+        payload.setdefault("availability", "manifest")
+        result.append(payload)
+    return result
+
+
+def _compatibility_domain_pack_entries() -> list[dict[str, Any]]:
+    entries = [
+        {
+            "id": "generic_core",
+            "title": "Generic Decompile Cleanup Core",
+            "domain": "generic",
+            "mode": "report-only",
+            "source": "PseudoForge builtin generic cleanup scaffolding",
+            "source_version": "",
+            "profile_names": [],
+            "rule_pack_names": [],
+            "availability": "compatibility",
+        }
+    ]
+    kernel_profiles = _kernel_compatibility_profile_names()
+    if kernel_profiles:
+        entries.append(
+            {
+                "id": "windows_kernel",
+                "title": "Windows Kernel",
+                "domain": "windows_kernel",
+                "mode": "compatibility",
+                "source": "PseudoForge packaged WDK and curated Windows kernel profiles",
+                "source_version": _windows_kernel_pack_source_version(),
+                "profile_names": kernel_profiles,
+                "rule_pack_names": [],
+                "availability": "compatibility",
+            }
+        )
+    return entries
+
+
+def _available_domain_pack_entries(packs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for item in packs:
+        pack_id = str(item.get("id", "") or "").strip()
+        if not pack_id:
+            continue
+        profile_names = _domain_pack_profile_names(item)
+        available_profiles = [name for name in profile_names if (PROFILE_DIR / name).exists()]
+        if profile_names and not available_profiles:
+            continue
+        payload = dict(item)
+        payload["id"] = pack_id
+        payload["profile_names"] = available_profiles
+        payload["available"] = True
+        result.append(payload)
+    result.sort(key=lambda entry: str(entry.get("id", "")))
+    return result
+
+
+def _domain_pack_profile_names(item: dict[str, Any]) -> list[str]:
+    names = _string_list(item.get("profile_names"))
+    for pattern in _string_list(item.get("profile_globs")):
+        for path in sorted(PROFILE_DIR.glob(pattern)):
+            if path.is_file():
+                names.append(path.relative_to(PROFILE_DIR).as_posix())
+    return sorted(dict.fromkeys(names))
+
+
+def _kernel_compatibility_profile_names() -> list[str]:
+    names = []
+    for name in sorted(KERNEL_API_FAMILY_FILES.values()):
+        if (PROFILE_DIR / name).exists():
+            names.append(name)
+    for name in (
+        "kernel_api_overrides.json",
+        "callee_contracts.json",
+        "direct_call_result_layout_hints.json",
+        "subsystem_identity_index.json",
+        "status_codes.json",
+        "system_information_class.json",
+        "process_information_class.json",
+        "registry_domain.json",
+    ):
+        if (PROFILE_DIR / name).exists():
+            names.append(name)
+    names.extend(available_domain_identity_profile_names())
+    return sorted(dict.fromkeys(names))
+
+
+def _windows_kernel_pack_source_version() -> str:
+    versions = []
+    for name in _kernel_compatibility_profile_names():
+        manifest = profile_manifest(name)
+        version = str(manifest.get("source_version", "") or "").strip()
+        if version:
+            versions.append(version)
+    return ", ".join(sorted(dict.fromkeys(versions)))
 
 
 def _profiles_manifest_entries() -> dict[str, Any]:
@@ -348,6 +521,16 @@ def _load_kernel_api_family_file(name: str, family: str) -> dict[str, Any]:
 
 def _record_profile_warning(name: str, message: str) -> None:
     _PROFILE_LOAD_WARNINGS[name] = "PseudoForge profile load warning: %s: %s" % (name, message)
+
+
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, tuple):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str) and value:
+        return [value]
+    return []
 
 
 def get_status_name(literal: str | int) -> str:

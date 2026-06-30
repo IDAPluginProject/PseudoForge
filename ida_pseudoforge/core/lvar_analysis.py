@@ -7,6 +7,7 @@ from typing import Any
 from ida_pseudoforge.core.buffer_contracts import recover_buffer_contracts
 from ida_pseudoforge.core.cleanup_rewriter import classify_cleanup_labels
 from ida_pseudoforge.core.api_semantics import FUNCTION_PARAMETER_NAMES, LOCAL_NAME_RULES
+from ida_pseudoforge.core.contract_packs import contract_pack_comments
 from ida_pseudoforge.core.deterministic.context import build_rule_context
 from ida_pseudoforge.core.deterministic.emitters import emissions_to_comments, emissions_to_renames
 from ida_pseudoforge.core.deterministic.engine import RuleEngine
@@ -29,7 +30,7 @@ from ida_pseudoforge.core.kernel_semantics import (
     kernel_warnings,
     registry_callback_parameter_names,
 )
-from ida_pseudoforge.core.llm_assist import suggest_renames_with_provider
+from ida_pseudoforge.core.llm_assist import suggest_candidates_with_provider, suggest_renames_with_provider
 from ida_pseudoforge.core.normalize import (
     extract_function_name,
     extract_parameters_from_signature,
@@ -74,9 +75,13 @@ def build_clean_plan(
     suggestions.extend(kernel_rename_suggestions(capture))
     suggestions.extend(_rule_rename_suggestions(capture, rule_engine, rule_report))
     llm_warnings = []
+    llm_candidates = []
     if rename_provider is not None:
         llm_suggestions, llm_warnings = suggest_renames_with_provider(capture, rename_provider)
         suggestions.extend(llm_suggestions)
+        candidate_suggestions, candidate_warnings = suggest_candidates_with_provider(capture, rename_provider)
+        llm_candidates.extend(candidate_suggestions)
+        llm_warnings.extend(candidate_warnings)
     suggestions = normalize_rename_suggestions(capture, suggestions)
     suggestions = _dedupe_suggestions(suggestions)
     validated, warnings = validate_renames(capture, suggestions)
@@ -105,6 +110,7 @@ def build_clean_plan(
     )
     comments = _dedupe_comments(
         kernel_comments(capture, rename_map, corrected_parameter_map=corrected_parameter_map)
+        + contract_pack_comments(capture)
         + _rule_semantic_comments(capture, rename_map, rule_engine, rule_report)
     )
     apply_projection_policy_to_comments(comments, normalized_projection_policy)
@@ -146,6 +152,8 @@ def build_clean_plan(
         function_identity_candidates=function_identity_candidates,
         corrected_parameter_map=corrected_parameter_map,
         warning_diagnostics=warning_diagnostics,
+        llm_candidates=llm_candidates,
+        ir_evidence=capture.ir_evidence,
         projection_policy=normalized_projection_policy,
     )
 

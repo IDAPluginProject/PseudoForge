@@ -577,16 +577,33 @@ def _result_payload(
     deps: FreeAnalysisDeps,
     profile_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from ida_pseudoforge.core.capture import build_target_context
+    from ida_pseudoforge.core.contract_packs import contract_pack_summary
+    from ida_pseudoforge.core.ir_evidence import ir_evidence_summary
     from ida_pseudoforge.core.rule_diagnostics import summarize_rule_report
+    from ida_pseudoforge.profiles.loader import active_domain_pack_ids, active_domain_pack_manifests
 
     rule_diagnostics = summarize_rule_report(plan.rule_report)
     profile_root = deps.active_profile_root()
     active_profiles = deps.active_profile_names()
     profile_manifests = deps.active_profile_manifests()
+    active_domain_packs = active_domain_pack_ids()
+    domain_pack_manifests = active_domain_pack_manifests()
     if profile_metadata is not None:
         profile_root = str(profile_metadata.get("profile_root", profile_root) or "")
         active_profiles = _list_from_payload(profile_metadata.get("active_profiles", active_profiles))
         profile_manifests = _list_from_payload(profile_metadata.get("profile_manifests", profile_manifests))
+        active_domain_packs = _list_from_payload(profile_metadata.get("active_domain_packs", active_domain_packs))
+        domain_pack_manifests = _list_from_payload(profile_metadata.get("domain_pack_manifests", domain_pack_manifests))
+    target_context = build_target_context(
+        str(getattr(capture, "source_path", "") or ""),
+        dict(getattr(capture, "profile_context", {}) or {}),
+        profile_root=profile_root,
+        active_domain_packs=active_domain_packs,
+        call_names=list(getattr(capture, "calls", []) or []),
+        function_name=str(getattr(capture, "name", "") or ""),
+        domain_pack_manifests=domain_pack_manifests,
+    )
     return {
         "input": input_label,
         "function": capture.name,
@@ -599,6 +616,14 @@ def _result_payload(
         "rule_load_errors": list(rule_diagnostics["load_error_details"]),
         "rule_validation_errors": list(rule_diagnostics["validation_error_details"]),
         "warnings": warnings,
+        "ir_evidence_summary": ir_evidence_summary(getattr(plan, "ir_evidence", None)),
+        "contract_pack_summary": contract_pack_summary(capture, plan),
+        "target_context": target_context.to_dict(),
+        "active_domain_packs": active_domain_packs,
+        "eligible_domain_packs": list(target_context.eligible_domain_packs),
+        "rejected_domain_packs": list(target_context.rejected_domain_packs),
+        "domain_pack_activation_report": list(target_context.domain_pack_activation_report),
+        "domain_pack_manifests": domain_pack_manifests,
         "profile_root": profile_root,
         "active_profiles": active_profiles,
         "profile_manifests": profile_manifests,
@@ -611,6 +636,8 @@ def _profile_metadata_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "profile_root": str(payload.get("profile_root", "") or ""),
         "active_profiles": _list_from_payload(payload.get("active_profiles", [])),
         "profile_manifests": _list_from_payload(payload.get("profile_manifests", [])),
+        "active_domain_packs": _list_from_payload(payload.get("active_domain_packs", [])),
+        "domain_pack_manifests": _list_from_payload(payload.get("domain_pack_manifests", [])),
     }
 
 

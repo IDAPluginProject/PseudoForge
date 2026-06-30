@@ -115,6 +115,8 @@ def _regex_matches_for_pattern(context: RuleContext, pattern: str, assignment: b
 
 
 def _scope_matches(rule: Rule, context: RuleContext) -> bool:
+    if _pack_target_miss_reason(rule, context):
+        return False
     scope = rule.scope or {}
     for key, value in scope.items():
         if key == "calls_any":
@@ -134,6 +136,9 @@ def _scope_matches(rule: Rule, context: RuleContext) -> bool:
                 return False
         elif key == "requires_comment_kind":
             if not _any_string_in_set(value, context.semantic_comment_kinds):
+                return False
+        elif key == "target":
+            if not _target_matches(value, context):
                 return False
         elif key == "text_contains":
             if str(value) not in context.text:
@@ -164,6 +169,10 @@ def explain_rule_miss(rule: Rule, context: RuleContext) -> list[str]:
 
 def _scope_miss_reasons(rule: Rule, context: RuleContext) -> list[str]:
     reasons = []
+    pack_reason = _pack_target_miss_reason(rule, context)
+    if pack_reason:
+        reasons.append(pack_reason)
+        return reasons
     scope = rule.scope or {}
     for key, value in scope.items():
         if key == "calls_any" and not _any_string_in_set(value, context.calls):
@@ -178,6 +187,8 @@ def _scope_miss_reasons(rule: Rule, context: RuleContext) -> list[str]:
             reasons.append("scope.prototype_contains not present")
         elif key == "requires_comment_kind" and not _any_string_in_set(value, context.semantic_comment_kinds):
             reasons.append("scope.requires_comment_kind missing: %s" % _join_values(value))
+        elif key == "target" and not _target_matches(value, context):
+            reasons.append("scope.target did not match target context")
         elif key == "text_contains" and str(value) not in context.text:
             reasons.append("scope.text_contains not present")
         elif key == "text_contains_all" and not _all_strings_in_text(value, context.text):
@@ -191,6 +202,7 @@ def _scope_miss_reasons(rule: Rule, context: RuleContext) -> list[str]:
             "lvars_any",
             "prototype_contains",
             "requires_comment_kind",
+            "target",
             "text_contains",
             "text_contains_all",
         } | _TYPED_FACT_OPERATORS:
@@ -467,6 +479,58 @@ def _profile_function_matches(fact: ProfileFunctionFact, selector: dict[str, obj
     if "param" in selector and not _profile_param_matches(fact, selector.get("param")):
         return False
     return True
+
+
+def _target_matches(selector: object, context: RuleContext) -> bool:
+    if not isinstance(selector, dict) or not selector:
+        return False
+    target = context.capture.target_context
+    exact_fields = {
+        "abi",
+        "architecture",
+        "compiler_family",
+        "endianness",
+        "format",
+        "image_name",
+        "language_runtime",
+        "platform",
+        "privilege_domain",
+        "source_path",
+        "symbol_state",
+    }
+    for key in exact_fields:
+        if key in selector and not _target_value_matches(getattr(target, key, ""), selector.get(key)):
+            return False
+    if "image_name_regex" in selector:
+        if re.search(str(selector.get("image_name_regex", "")), target.image_name or "") is None:
+            return False
+    if "source_path_regex" in selector:
+        if re.search(str(selector.get("source_path_regex", "")), target.source_path or "") is None:
+            return False
+    return True
+
+
+def _pack_target_miss_reason(rule: Rule, context: RuleContext) -> str:
+    pack_id = str(getattr(rule, "pack_id", "") or "")
+    if pack_id not in {
+        "pseudoforge.builtin.kernel_comments",
+        "pseudoforge.builtin.call_arg_rewrites",
+    }:
+        return ""
+    target = context.capture.target_context
+    platform = str(getattr(target, "platform", "") or "unknown")
+    privilege = str(getattr(target, "privilege_domain", "") or "unknown")
+    if platform in {"linux", "macos", "uefi"}:
+        return "builtin kernel pack rejected for platform=%s" % platform
+    if platform == "windows" and privilege == "user":
+        return "builtin kernel pack rejected for explicit user-mode Windows target"
+    return ""
+
+
+def _target_value_matches(actual: object, expected: object) -> bool:
+    actual_text = str(actual or "").strip().casefold()
+    values = [item.casefold() for item in _string_list(expected)]
+    return bool(values) and actual_text in values
 
 
 def _profile_param_matches(fact: ProfileFunctionFact, selector: object) -> bool:

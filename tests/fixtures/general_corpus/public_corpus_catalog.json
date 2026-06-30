@@ -1,0 +1,32 @@
+{
+  "schema": "pseudoforge_public_corpus_catalog_v1",
+  "artifacts": [
+    {
+      "name": "sample_windows_user_pe",
+      "target_family": "windows_user_pe",
+      "source_reference": "public-corpus://sample/windows-user-pe",
+      "artifact_uri": "https://example.com/corpus/windows-user-pe.zip",
+      "license": "MIT",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "function_count": 120,
+      "claim_eligible": true
+    },
+    {
+      "name": "sample_linux_elf_user",
+      "target_family": "linux_elf_user",
+      "source_reference": "public-corpus://sample/linux-elf-user",
+      "artifact_uri": "https://example.com/corpus/linux-elf-user.zip",
+      "license": "MIT",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "function_count": 140,
+      "claim_eligible": true
+    },
+    {
+      "name": "sample_unqualified_placeholder",
+      "target_family": "cxx_runtime",
+      "source_reference": "public-corpus://sample/unqualified-placeholder",
+      "function_count": 0,
+      "claim_eligible": false
+    }
+  ]
+}

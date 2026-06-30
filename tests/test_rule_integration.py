@@ -48,6 +48,70 @@ __int64 __fastcall ProjectFlowReportSample(int code)
 """
 
 
+WIN_USER_PE_SAMPLE = r"""
+__int64 __fastcall WinUserPeSample(void *iface)
+{
+  HANDLE hFile;
+  void *region;
+  int lastError;
+
+  hFile = CreateFileW(L"C:\\temp\\input.bin", 0x80000000, 1u, 0i64, 3u, 0x80u, 0i64);
+  if ( hFile == (HANDLE)-1 )
+  {
+    SetLastError(5u);
+    return 0x80070005;
+  }
+  region = VirtualAlloc(0i64, 0x1000ui64, 0x3000u, 4u);
+  lastError = GetLastError();
+  TlsSetValue(1u, region);
+  RtlAddVectoredExceptionHandler(1u, Handler);
+  iface->lpVtbl->Release(iface);
+  CloseHandle(hFile);
+  __security_init_cookie();
+  return lastError;
+}
+"""
+
+
+CXX_MSVC_SAMPLE = r"""
+__int64 __fastcall CxxMsvcSample(struct Widget *thisPtr)
+{
+  void *storage;
+
+  storage = operator new(32ui64);
+  thisPtr->__vftable->Run(thisPtr);
+  thisPtr->vec._Myfirst = storage;
+  thisPtr->vec._Mylast = (char *)storage + 32;
+  __RTTICompleteObjectLocator = 0;
+  __CxxFrameHandler3();
+  operator delete(storage);
+  return 0;
+}
+"""
+
+
+CXX_ITANIUM_SAMPLE = r"""
+__int64 __fastcall CxxItaniumSample(struct Widget *thisPtr, void *exc)
+{
+  thisPtr->_vptr->Run(thisPtr);
+  thisPtr->vec._M_start = 0;
+  thisPtr->vec._M_finish = thisPtr->vec._M_start;
+  _ZTI6Widget = 0;
+  _Unwind_Resume(exc);
+  return 0;
+}
+"""
+
+
+CXX_FUNCTION_POINTER_SAMPLE = r"""
+__int64 __fastcall CxxFunctionPointerSample(struct CallbackHolder *ctx)
+{
+  ctx->callback(ctx);
+  return 0;
+}
+"""
+
+
 class RuleIntegrationTests(unittest.TestCase):
     def test_build_clean_plan_reports_v2_call_arg_rewrites_without_plan_conversion(self) -> None:
         sample = """
@@ -168,6 +232,43 @@ __int64 __fastcall BuiltinCallArgReportSample(void *NotifyRoutine)
         self.assertIn("PspSetCreateProcessNotifyRoutine(NotifyRoutine, FALSE);", rendered)
         self.assertFalse(any("Deterministic rule emission rejected" in warning for warning in plan.warnings))
 
+    def test_builtin_kernel_packs_do_not_activate_for_explicit_user_pe_target(self) -> None:
+        capture = capture_from_pseudocode(
+            """
+__int64 __fastcall ExplicitUserPeKernelBuiltinGuard(void *Resource, void *NotifyRoutine)
+{
+  ExAcquireResourceExclusiveLite(Resource, 1u);
+  ExReleaseResourceLite(Resource);
+  PsSetCreateProcessNotifyRoutine(NotifyRoutine, 1u);
+  return 0;
+}
+""",
+            source_path=r"C:\bin\client.exe",
+            profile_context={
+                "format": "pe",
+                "platform": "windows",
+                "privilege_domain": "user",
+            },
+        )
+        plan = build_clean_plan(capture)
+
+        self.assertEqual("windows_user_pe", capture.target_context.target_family)
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.call_arg.ps")
+                for item in plan.rule_report["rewrite_emissions"]
+            )
+        )
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.call_arg.ps")
+                for item in plan.rule_report["matched_rules"]
+            )
+        )
+        self.assertFalse(
+            any(item.get("kind") == "resource" for item in plan.comments if isinstance(item, dict))
+        )
+
     def test_builtin_shadowed_rename_conflicts_do_not_emit_plan_warnings(self) -> None:
         capture = capture_from_pseudocode(
             """
@@ -273,6 +374,174 @@ __int64 __fastcall RuleSourceSpoofSample()
             1,
         )
         self.assertTrue(plan.rule_report["matched_rules"])
+
+    def test_builtin_win_user_pe_pack_emits_report_only_evidence(self) -> None:
+        capture = capture_from_pseudocode(WIN_USER_PE_SAMPLE, source_path=r"C:\bin\client.exe")
+        plan = build_clean_plan(capture)
+        kinds = {str(item.get("kind", "")) for item in plan.comments}
+        win_user_rule_ids = [
+            str(item.get("rule_id", ""))
+            for item in plan.rule_report["matched_rules"]
+            if str(item.get("rule_id", "")).startswith("builtin.win_user_pe.")
+        ]
+
+        self.assertEqual("pe", capture.target_context.format)
+        self.assertEqual("windows", capture.target_context.platform)
+        self.assertEqual("user", capture.target_context.privilege_domain)
+        self.assertIn("win_user_hresult", kinds)
+        self.assertIn("win_user_win32_error", kinds)
+        self.assertIn("win_user_argument_roles", kinds)
+        self.assertIn("win_user_handle_lifetime", kinds)
+        self.assertIn("win_user_com_vtable", kinds)
+        self.assertIn("win_user_tls", kinds)
+        self.assertIn("win_user_seh", kinds)
+        self.assertIn("win_user_init_routine", kinds)
+        self.assertTrue(win_user_rule_ids)
+        self.assertFalse(any(item.source == "rule" for item in plan.renames))
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.win_user_pe.")
+                for item in plan.rule_report["rewrite_emissions"]
+            )
+        )
+
+    def test_builtin_win_user_pe_pack_does_not_activate_for_kernel_target(self) -> None:
+        capture = capture_from_pseudocode(
+            WIN_USER_PE_SAMPLE,
+            source_path=r"C:\drivers\client.sys",
+            profile_context={
+                "format": "pe",
+                "platform": "windows",
+                "privilege_domain": "kernel",
+            },
+        )
+        plan = build_clean_plan(capture)
+
+        self.assertEqual("kernel", capture.target_context.privilege_domain)
+        self.assertFalse(
+            any(str(item.get("rule_id", "")).startswith("builtin.win_user_pe.") for item in plan.comments)
+        )
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.win_user_pe.")
+                for item in plan.rule_report["matched_rules"]
+            )
+        )
+
+    def test_builtin_win_user_pe_pack_requires_pe_windows_context(self) -> None:
+        non_pe_capture = capture_from_pseudocode(WIN_USER_PE_SAMPLE, source_path="/tmp/client.elf")
+        non_pe_plan = build_clean_plan(non_pe_capture)
+        forced_capture = capture_from_pseudocode(
+            WIN_USER_PE_SAMPLE,
+            source_path="client.bin",
+            profile_context={
+                "format": "pe",
+                "platform": "windows",
+                "privilege_domain": "user",
+            },
+        )
+        forced_plan = build_clean_plan(forced_capture)
+
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.win_user_pe.")
+                for item in non_pe_plan.rule_report["matched_rules"]
+            )
+        )
+        self.assertTrue(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.win_user_pe.")
+                for item in forced_plan.rule_report["matched_rules"]
+            )
+        )
+
+    def test_builtin_cxx_runtime_pack_reports_msvc_evidence(self) -> None:
+        capture = capture_from_pseudocode(
+            CXX_MSVC_SAMPLE,
+            name="??0Widget@@QEAA@XZ",
+            source_path=r"C:\bin\widget.exe",
+            profile_context={
+                "format": "pe",
+                "platform": "windows",
+                "language_runtime": "cxx",
+                "abi": "msvc",
+            },
+        )
+        plan = build_clean_plan(capture)
+        kinds = {str(item.get("kind", "")) for item in plan.comments}
+        cxx_rule_ids = [
+            str(item.get("rule_id", ""))
+            for item in plan.rule_report["matched_rules"]
+            if str(item.get("rule_id", "")).startswith("builtin.cxx_runtime.")
+        ]
+
+        self.assertEqual("cxx", capture.target_context.language_runtime)
+        self.assertEqual("msvc", capture.target_context.abi)
+        self.assertIn("cxx_vtable_call", kinds)
+        self.assertIn("cxx_ctor_dtor_candidate", kinds)
+        self.assertIn("cxx_rtti_name_hint", kinds)
+        self.assertIn("cxx_exception_cleanup", kinds)
+        self.assertIn("cxx_allocator_lifetime", kinds)
+        self.assertIn("cxx_stl_container_shape", kinds)
+        self.assertTrue(cxx_rule_ids)
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.cxx_runtime.")
+                for item in plan.rule_report["rewrite_emissions"]
+            )
+        )
+
+    def test_builtin_cxx_runtime_pack_reports_itanium_evidence(self) -> None:
+        capture = capture_from_pseudocode(
+            CXX_ITANIUM_SAMPLE,
+            name="_ZN6WidgetC1Ev",
+            source_path="/tmp/widget.elf",
+            profile_context={
+                "format": "elf",
+                "platform": "linux",
+                "language_runtime": "cxx",
+                "abi": "itanium",
+            },
+        )
+        plan = build_clean_plan(capture)
+        kinds = {str(item.get("kind", "")) for item in plan.comments}
+
+        self.assertEqual("cxx", capture.target_context.language_runtime)
+        self.assertEqual("itanium", capture.target_context.abi)
+        self.assertIn("cxx_vtable_call", kinds)
+        self.assertIn("cxx_ctor_dtor_candidate", kinds)
+        self.assertIn("cxx_rtti_name_hint", kinds)
+        self.assertIn("cxx_exception_cleanup", kinds)
+        self.assertIn("cxx_stl_container_shape", kinds)
+        self.assertTrue(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.cxx_runtime.itanium.")
+                for item in plan.rule_report["matched_rules"]
+            )
+        )
+
+    def test_builtin_cxx_runtime_pack_ignores_ordinary_function_pointer_call(self) -> None:
+        capture = capture_from_pseudocode(
+            CXX_FUNCTION_POINTER_SAMPLE,
+            source_path=r"C:\bin\callback.exe",
+            profile_context={
+                "format": "pe",
+                "platform": "windows",
+                "language_runtime": "cxx",
+                "abi": "msvc",
+            },
+        )
+        plan = build_clean_plan(capture)
+
+        self.assertFalse(
+            any(str(item.get("kind", "")) == "cxx_vtable_call" for item in plan.comments)
+        )
+        self.assertFalse(
+            any(
+                str(item.get("rule_id", "")).startswith("builtin.cxx_runtime.msvc.vftable_call")
+                for item in plan.rule_report["matched_rules"]
+            )
+        )
 
     def test_project_local_rule_directory_can_add_rename_without_core_code_change(self) -> None:
         sample = """

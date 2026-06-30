@@ -1,0 +1,52 @@
+{
+  "schema": "pseudoforge_contract_pack_v1",
+  "schema_version": 1,
+  "id": "cxx_runtime_contracts",
+  "title": "C++ Runtime Contracts",
+  "domain_pack_id": "cxx_runtime",
+  "target_domain": "cxx_runtime",
+  "mode": "report-only",
+  "source": "PseudoForge curated C++ runtime contract pack",
+  "source_version": "2026-06-30",
+  "contracts": [
+    {
+      "id": "cxx.operator_new.heap_object",
+      "symbol": "operator new",
+      "aliases": ["??2@YAPEAX_K@Z", "_Znwm"],
+      "summary": "allocates storage for a C++ object or array",
+      "argument_roles": ["size"],
+      "return_rule": "successful return is caller-owned object storage; throwing variants do not return NULL",
+      "ownership": "returns_cxx_storage",
+      "lifetime": "pair_with_operator_delete_or_destructor_path",
+      "confidence": 0.82,
+      "evidence": ["runtime:cxx", "call-site symbol"],
+      "negative_controls": ["plain_c", "jump_table"]
+    },
+    {
+      "id": "cxx.operator_delete.heap_object",
+      "symbol": "operator delete",
+      "aliases": ["??3@YAXPEAX@Z", "_ZdlPv"],
+      "summary": "releases storage for a C++ object or array",
+      "argument_roles": ["object_storage"],
+      "return_rule": "void release path; object lifetime should already be ended or ending",
+      "ownership": "consumes_cxx_storage",
+      "lifetime": "releases_operator_new_storage",
+      "confidence": 0.82,
+      "evidence": ["runtime:cxx", "call-site symbol"],
+      "negative_controls": ["plain_c", "jump_table"]
+    },
+    {
+      "id": "cxx.msvc_exception_frame",
+      "symbol": "__CxxFrameHandler4",
+      "aliases": ["__CxxFrameHandler3", "_Unwind_Resume"],
+      "summary": "marks compiler-generated C++ exception unwinding support",
+      "argument_roles": ["exception_record", "establisher_frame", "context_record", "dispatcher_context"],
+      "return_rule": "runtime-managed exception dispatch path",
+      "ownership": "exception_runtime_state",
+      "lifetime": "scope_unwind_or_cleanup_edge",
+      "confidence": 0.78,
+      "evidence": ["runtime:cxx", "exception runtime symbol"],
+      "negative_controls": ["plain_c", "firmware_uefi"]
+    }
+  ]
+}
