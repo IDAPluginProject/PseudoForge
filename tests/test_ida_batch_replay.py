@@ -32,6 +32,8 @@ class IdaBatchReplayTests(unittest.TestCase):
 
         self.assertEqual(2, evidence["real_corpus_count"])
         self.assertEqual(3, evidence["real_corpus_function_count"])
+        self.assertEqual(2, evidence["qualified_real_replay_target_count"])
+        self.assertEqual(["linux_elf_user", "windows_user_pe"], evidence["qualified_real_replay_families"])
         self.assertEqual(0, evidence["qualified_ground_truth_pair_count"])
         self.assertEqual(2, evidence["ir_evidence_function_count"])
         self.assertEqual(3, evidence["ir_total_function_count"])
@@ -136,6 +138,7 @@ class IdaBatchReplayTests(unittest.TestCase):
 
         self.assertEqual(1, evidence["real_corpus_count"])
         self.assertEqual(1, evidence["real_corpus_function_count"])
+        self.assertEqual(1, evidence["qualified_real_replay_target_count"])
         self.assertEqual(1, evidence["qualified_ground_truth_pair_count"])
         self.assertEqual(1, evidence["ir_evidence_function_count"])
         self.assertEqual(1.0, evidence["ir_evidence_coverage"])

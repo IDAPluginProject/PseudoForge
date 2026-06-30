@@ -13,6 +13,12 @@ if str(ROOT) not in sys.path:
 from ida_pseudoforge.core.benchmark import run_benchmark
 from ida_pseudoforge.core.benchmark_report import write_benchmark_report
 from ida_pseudoforge.core.benchmark_schema import load_benchmark_fixtures
+from ida_pseudoforge.core.agentic_benchmark import (
+    apply_agentic_report_to_corpus_evidence,
+    load_agentic_task_suite,
+    run_agentic_benchmark,
+)
+from ida_pseudoforge.core.claim_gate import evaluate_claim_gate
 from ida_pseudoforge.core.claim_gap import render_world_class_gap_markdown, world_class_gap_report
 from ida_pseudoforge.core.corpus_evidence import load_corpus_evidence, load_corpus_manifest, summarize_corpus_manifests
 from ida_pseudoforge.core.evidence_pack import (
@@ -51,6 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Attach one or more cross-function contract ledger JSON files to corpus evidence.",
     )
+    parser.add_argument(
+        "--agentic-task-suite",
+        action="append",
+        default=[],
+        help="Run one or more agentic task suites against the benchmark report and attach the results.",
+    )
     parser.add_argument("--no-runtime", action="store_true", help="Use deterministic runtime_ms=0 in reports.")
     args = parser.parse_args(argv)
     try:
@@ -66,6 +78,11 @@ def main(argv: list[str] | None = None) -> int:
             measure_runtime=not args.no_runtime,
             corpus_evidence=corpus_evidence,
         )
+        if args.agentic_task_suite:
+            report = _attach_agentic_task_suites(
+                report,
+                [Path(item) for item in args.agentic_task_suite],
+            )
         gap = world_class_gap_report(report)
         summary = _summary_payload(report, gap)
         _write_pack(Path(args.out_dir), report, gap, summary)
@@ -96,6 +113,26 @@ def _load_corpus_evidence(
     )
 
 
+def _attach_agentic_task_suites(
+    report: dict[str, object],
+    task_suite_paths: list[Path],
+) -> dict[str, object]:
+    agentic_reports = [
+        run_agentic_benchmark(load_agentic_task_suite(path), report)
+        for path in task_suite_paths
+    ]
+    corpus_evidence = dict(report.get("corpus_evidence", {}) or {})
+    for agentic_report in agentic_reports:
+        corpus_evidence = apply_agentic_report_to_corpus_evidence(corpus_evidence, agentic_report)
+    result = dict(report)
+    result["agentic_benchmark_reports"] = agentic_reports
+    result["corpus_evidence"] = corpus_evidence
+    claim_gate = evaluate_claim_gate(result)
+    result["claim_gate"] = claim_gate
+    result["claim_level"] = claim_gate["claim_level"]
+    return result
+
+
 def _summary_payload(report: dict[str, object], gap: dict[str, object]) -> dict[str, object]:
     claim_gate = report.get("claim_gate", {})
     if not isinstance(claim_gate, dict):
@@ -105,7 +142,9 @@ def _summary_payload(report: dict[str, object], gap: dict[str, object]) -> dict[
         "claim_level": str(report.get("claim_level", "") or ""),
         "claim_status": str(claim_gate.get("status", "") or ""),
         "world_class_claim_allowed": bool(claim_gate.get("world_class_claim_allowed", False)),
+        "external_world_class_claim_allowed": bool(claim_gate.get("external_world_class_claim_allowed", False)),
         "gap_count": int(gap.get("gap_count", 0) or 0),
+        "external_gap_count": int(gap.get("external_gap_count", 0) or 0),
         "fixture_count": int(report.get("fixture_count", 0) or 0),
         "passed": int(report.get("passed", 0) or 0),
         "failed": int(report.get("failed", 0) or 0),

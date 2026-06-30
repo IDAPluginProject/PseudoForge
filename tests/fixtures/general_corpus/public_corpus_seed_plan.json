@@ -1,0 +1,142 @@
+{
+  "name": "pseudoforge-public-corpus-v0",
+  "projects": [
+    {
+      "build_recipes": [
+        {
+          "artifact_globs": [
+            "Release/*.dll",
+            "Release/*.exe",
+            "Release/*.lib",
+            "**/*.a",
+            "**/*.so"
+          ],
+          "build_args": [
+            "--config",
+            "Release"
+          ],
+          "configure_args": [
+            "-G",
+            "Visual Studio 17 2022",
+            "-A",
+            "x64"
+          ],
+          "id": "cmake-msvc-x64-release",
+          "system": "cmake"
+        }
+      ],
+      "license": "Zlib",
+      "name": "zlib-v1.3.1",
+      "semantic_seeds": [
+        {
+          "function": "adler32",
+          "id": "zlib-adler32-checksum",
+          "oracle": "adler32 updates a rolling checksum from a byte buffer and length.",
+          "semantic_kind": "checksum_state_update",
+          "status": "planned",
+          "validation": "source oracle plus built binary symbol/RVA replay"
+        },
+        {
+          "function": "crc32",
+          "id": "zlib-crc32-checksum",
+          "oracle": "crc32 updates a CRC state from a byte buffer and length.",
+          "semantic_kind": "checksum_state_update",
+          "status": "planned",
+          "validation": "source oracle plus built binary symbol/RVA replay"
+        },
+        {
+          "function": "compress2",
+          "id": "zlib-compress2-buffer-contract",
+          "oracle": "compress2 consumes a source buffer and updates destination length on success.",
+          "semantic_kind": "buffer_size_contract",
+          "status": "planned",
+          "validation": "source oracle plus Hex-Rays argument contract review"
+        }
+      ],
+      "source": {
+        "commit": "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf",
+        "kind": "git",
+        "ref": "refs/tags/v1.3.1",
+        "repo_url": "https://github.com/madler/zlib.git"
+      },
+      "source_globs": [
+        "**/*.c",
+        "**/*.h"
+      ],
+      "target_family": "windows_user_pe"
+    },
+    {
+      "build_recipes": [],
+      "license": "Public Domain",
+      "name": "sqlite-version-3.45.3",
+      "semantic_seeds": [
+        {
+          "function": "sqlite3_open",
+          "id": "sqlite-open-close-handle",
+          "oracle": "sqlite3_open initializes a database handle that must be closed by sqlite3_close.",
+          "semantic_kind": "resource_lifetime",
+          "status": "planned",
+          "validation": "source oracle plus call graph replay"
+        },
+        {
+          "function": "sqlite3_prepare_v2",
+          "id": "sqlite-prepare-finalize-statement",
+          "oracle": "sqlite3_prepare_v2 creates a statement object that is finalized by sqlite3_finalize.",
+          "semantic_kind": "resource_lifetime",
+          "status": "planned",
+          "validation": "source oracle plus dataflow contract replay"
+        }
+      ],
+      "source": {
+        "commit": "b74eb00e2cb05d9749859e6fbe77d229ad1dc1e1",
+        "kind": "git",
+        "ref": "refs/tags/version-3.45.3",
+        "repo_url": "https://github.com/sqlite/sqlite.git"
+      },
+      "source_globs": [
+        "src/**/*.c",
+        "src/**/*.h",
+        "*.c",
+        "*.h"
+      ],
+      "target_family": "windows_user_pe"
+    },
+    {
+      "build_recipes": [],
+      "license": "curl",
+      "name": "curl-8.8.0",
+      "semantic_seeds": [
+        {
+          "function": "curl_easy_init",
+          "id": "curl-easy-init-cleanup",
+          "oracle": "curl_easy_init returns a handle that is released by curl_easy_cleanup.",
+          "semantic_kind": "resource_lifetime",
+          "status": "planned",
+          "validation": "source oracle plus call graph replay"
+        },
+        {
+          "function": "curl_easy_setopt",
+          "id": "curl-easy-setopt-vararg-contract",
+          "oracle": "curl_easy_setopt semantics depend on the option selector and typed vararg payload.",
+          "semantic_kind": "selector_typed_argument_contract",
+          "status": "planned",
+          "validation": "source oracle plus option table review"
+        }
+      ],
+      "source": {
+        "commit": "fd567d4f06857f4fc8e2f64ea727b1318f76ad33",
+        "kind": "git",
+        "ref": "refs/tags/curl-8_8_0",
+        "repo_url": "https://github.com/curl/curl.git"
+      },
+      "source_globs": [
+        "lib/**/*.c",
+        "lib/**/*.h",
+        "src/**/*.c",
+        "src/**/*.h"
+      ],
+      "target_family": "windows_user_pe"
+    }
+  ],
+  "schema": "pseudoforge_public_corpus_plan_v1"
+}

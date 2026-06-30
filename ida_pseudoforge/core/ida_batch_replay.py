@@ -57,6 +57,12 @@ def corpus_manifest_from_ida_batch_summaries(
             if include_contract_call_evidence
             else []
         )
+        real_replay_targets = _real_replay_targets(
+            family_summaries,
+            family,
+            source_reference,
+            claim_eligible=bool(claim_eligible),
+        )
         corpora.append(
             {
                 "name": "%s_%s_0" % (_slug(name_prefix), _slug(family)),
@@ -73,6 +79,8 @@ def corpus_manifest_from_ida_batch_summaries(
                 "cross_function_contracts": cross_function_contracts,
                 "external_baselines": [],
                 "analyst_audit_count": 0,
+                "real_replay_target_count": len(real_replay_targets),
+                "real_replay_targets": real_replay_targets,
             }
         )
     return {
@@ -197,6 +205,25 @@ def _matched_contract_symbols(summary: dict[str, Any]) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _real_replay_targets(
+    summaries: list[dict[str, Any]],
+    family: str,
+    source_reference: str,
+    claim_eligible: bool,
+) -> list[dict[str, Any]]:
+    if not summaries:
+        return []
+    return [
+        {
+            "family": family,
+            "tool": "ida_hexrays",
+            "reference": "%s#ida-replay=%s" % (source_reference or "ida-batch-replay://local", _slug(family)),
+            "function_count": len(summaries),
+            "status": "passed" if claim_eligible else "blocked",
+        }
+    ]
 
 
 def _stable_function_symbol(summary: dict[str, Any]) -> str:

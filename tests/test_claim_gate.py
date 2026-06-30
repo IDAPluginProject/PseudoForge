@@ -156,6 +156,91 @@ class ClaimGateTests(unittest.TestCase):
         self.assertEqual("passed", gate["status"])
         self.assertEqual("world-class candidate", gate["claim_level"])
         self.assertTrue(gate["world_class_claim_allowed"])
+        self.assertFalse(gate["external_world_class_claim_allowed"])
+
+    def test_external_world_class_requires_all_six_evidence_axes(self) -> None:
+        report = _strong_report()
+        report["accepted_observations"] = 45
+        report["corpus_evidence"] = {
+            "real_corpus_count": 6,
+            "real_corpus_function_count": 1500,
+            "ground_truth_pair_count": 300,
+            "qualified_ground_truth_pair_count": 300,
+            "ir_evidence_coverage": 0.85,
+            "cross_function_contract_count": 50,
+            "qualified_cross_function_contract_count": 50,
+            "external_baseline_count": 3,
+            "qualified_external_baseline_count": 3,
+            "analyst_audit_count": 1,
+            "qualified_analyst_audit_count": 1,
+            "semantic_ground_truth_pair_count": 120,
+            "qualified_semantic_ground_truth_pair_count": 120,
+            "real_replay_target_count": 5,
+            "qualified_real_replay_target_count": 5,
+            "qualified_real_replay_families": [
+                "windows_user_pe",
+                "windows_kernel",
+                "linux_elf_user",
+                "macos_macho_user",
+            ],
+            "qualified_non_windows_real_replay_family_count": 2,
+            "multi_ir_record_count": 60,
+            "qualified_multi_ir_record_count": 60,
+            "qualified_multi_ir_view_count": 4,
+            "dataflow_contract_count": 30,
+            "qualified_dataflow_contract_count": 30,
+            "baseline_comparison_count": 9,
+            "qualified_baseline_comparison_count": 9,
+            "qualified_baseline_tool_count": 3,
+            "agentic_task_count": 5,
+            "qualified_agentic_task_count": 5,
+            "agentic_task_precision": 1.0,
+            "target_families": [
+                "windows_user_pe",
+                "windows_kernel",
+                "linux_elf_user",
+                "macos_macho_user",
+                "firmware_uefi",
+            ],
+        }
+
+        gate = evaluate_claim_gate(report)
+
+        self.assertEqual("passed", gate["status"])
+        self.assertEqual("external-world-class candidate", gate["claim_level"])
+        self.assertTrue(gate["world_class_claim_allowed"])
+        self.assertTrue(gate["external_world_class_claim_allowed"])
+        self.assertIn("external_world_class_candidate_threshold", gate["passed_gates"])
+
+    def test_external_world_class_rejects_symbol_only_world_class_evidence(self) -> None:
+        report = _strong_report()
+        report["accepted_observations"] = 45
+        report["corpus_evidence"] = {
+            "real_corpus_count": 5,
+            "real_corpus_function_count": 1200,
+            "ground_truth_pair_count": 300,
+            "qualified_ground_truth_pair_count": 300,
+            "ir_evidence_coverage": 0.75,
+            "cross_function_contract_count": 50,
+            "qualified_cross_function_contract_count": 50,
+            "external_baseline_count": 2,
+            "qualified_external_baseline_count": 2,
+            "analyst_audit_count": 1,
+            "qualified_analyst_audit_count": 1,
+            "target_families": [
+                "windows_user_pe",
+                "linux_elf_user",
+                "cxx_runtime",
+                "uefi",
+                "ue_cpp",
+            ],
+        }
+
+        gate = evaluate_claim_gate(report)
+
+        self.assertEqual("world-class candidate", gate["claim_level"])
+        self.assertFalse(gate["external_world_class_claim_allowed"])
+        self.assertIn("external_world_class_candidate_threshold_not_met", gate["blockers"])
 
     def test_unqualified_world_class_counts_do_not_raise_claim(self) -> None:
         report = _strong_report()

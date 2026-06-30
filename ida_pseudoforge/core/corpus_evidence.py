@@ -8,6 +8,9 @@ from typing import Any
 CORPUS_MANIFEST_SCHEMA = "pseudoforge_general_corpus_manifest_v1"
 CORPUS_EVIDENCE_SCHEMA = "pseudoforge_general_corpus_evidence_v1"
 SYNTHETIC_ORIGINS = {"synthetic", "unit_fixture", "toy"}
+QUALIFYING_EVIDENCE_STATUS = {"accepted", "accepted_with_notes", "passed", "validated"}
+NONQUALIFYING_EVIDENCE_STATUS = {"blocked", "failed", "rejected"}
+WINDOWS_FAMILIES = {"windows_kernel", "windows_user_pe"}
 
 
 def load_corpus_evidence(paths: list[str | Path]) -> dict[str, Any]:
@@ -82,6 +85,28 @@ def summarize_corpus_manifests(manifests: list[dict[str, Any]]) -> dict[str, Any
             if isinstance(value, dict) and str(value.get("id", "") or value.get("reference", "") or "")
         }
     )
+    qualified_replay_targets = [
+        value
+        for item in claim_eligible
+        for value in item.get("real_replay_targets", []) or []
+        if isinstance(value, dict)
+    ]
+    qualified_multi_ir_records = [
+        value
+        for item in claim_eligible
+        for value in item.get("multi_ir_records", []) or []
+        if isinstance(value, dict)
+    ]
+    qualified_agentic_tasks = [
+        value
+        for item in claim_eligible
+        for value in item.get("agentic_tasks", []) or []
+        if isinstance(value, dict)
+    ]
+    agentic_total = sum(_int(item.get("agentic_task_count"), 0) for item in claim_eligible)
+    agentic_precision = 0.0
+    if agentic_total > 0:
+        agentic_precision = len(qualified_agentic_tasks) / agentic_total
     return {
         "schema": CORPUS_EVIDENCE_SCHEMA,
         "manifest_count": len(manifests),
@@ -109,6 +134,73 @@ def summarize_corpus_manifests(manifests: list[dict[str, Any]]) -> dict[str, Any
         "analyst_audit_count": sum(_int(item.get("analyst_audit_count"), 0) for item in claim_eligible),
         "qualified_analyst_audit_count": len(qualified_analyst_audits),
         "qualified_analyst_audits": qualified_analyst_audits,
+        "semantic_ground_truth_pair_count": sum(
+            _int(item.get("semantic_ground_truth_pair_count"), 0) for item in claim_eligible
+        ),
+        "qualified_semantic_ground_truth_pair_count": sum(
+            len(item.get("semantic_ground_truth_pairs", []) or []) for item in claim_eligible
+        ),
+        "real_replay_target_count": sum(_int(item.get("real_replay_target_count"), 0) for item in claim_eligible),
+        "qualified_real_replay_target_count": len(qualified_replay_targets),
+        "qualified_real_replay_families": sorted(
+            {
+                str(item.get("family", "") or "")
+                for item in qualified_replay_targets
+                if str(item.get("family", "") or "")
+            }
+        ),
+        "qualified_non_windows_real_replay_family_count": len(
+            {
+                str(item.get("family", "") or "")
+                for item in qualified_replay_targets
+                if _is_non_windows_family(str(item.get("family", "") or ""))
+            }
+        ),
+        "multi_ir_record_count": sum(_int(item.get("multi_ir_record_count"), 0) for item in claim_eligible),
+        "qualified_multi_ir_record_count": len(qualified_multi_ir_records),
+        "qualified_multi_ir_views": sorted(
+            {
+                view
+                for item in qualified_multi_ir_records
+                for view in _record_views(item)
+            }
+        ),
+        "qualified_multi_ir_view_count": len(
+            {
+                view
+                for item in qualified_multi_ir_records
+                for view in _record_views(item)
+            }
+        ),
+        "dataflow_contract_count": sum(_int(item.get("dataflow_contract_count"), 0) for item in claim_eligible),
+        "qualified_dataflow_contract_count": sum(
+            len(item.get("dataflow_contracts", []) or []) for item in claim_eligible
+        ),
+        "baseline_comparison_count": sum(
+            _int(item.get("baseline_comparison_count"), 0) for item in claim_eligible
+        ),
+        "qualified_baseline_comparison_count": sum(
+            len(item.get("baseline_comparisons", []) or []) for item in claim_eligible
+        ),
+        "qualified_baseline_tools": sorted(
+            {
+                str(value.get("tool", "") or "")
+                for item in claim_eligible
+                for value in item.get("baseline_comparisons", []) or []
+                if isinstance(value, dict) and str(value.get("tool", "") or "")
+            }
+        ),
+        "qualified_baseline_tool_count": len(
+            {
+                str(value.get("tool", "") or "")
+                for item in claim_eligible
+                for value in item.get("baseline_comparisons", []) or []
+                if isinstance(value, dict) and str(value.get("tool", "") or "")
+            }
+        ),
+        "agentic_task_count": agentic_total,
+        "qualified_agentic_task_count": len(qualified_agentic_tasks),
+        "agentic_task_precision": agentic_precision,
         "target_families": sorted(
             {
                 str(item.get("target_family", "") or "")
@@ -163,6 +255,49 @@ def _normalize_corpus(item: object, path: Path, index: int) -> dict[str, Any]:
         path,
         index,
     )
+    semantic_ground_truth_pairs = _qualified_status_objects(
+        item.get("semantic_ground_truth_pairs", []),
+        "semantic_ground_truth_pairs",
+        ("id", "reference", "function", "semantic_kind", "oracle", "validation"),
+        path,
+        index,
+    )
+    real_replay_targets = _qualified_status_objects(
+        item.get("real_replay_targets", []),
+        "real_replay_targets",
+        ("family", "tool", "reference", "function_count"),
+        path,
+        index,
+        require_positive_function_count=True,
+    )
+    multi_ir_records = _qualified_status_objects(
+        item.get("multi_ir_records", []),
+        "multi_ir_records",
+        ("function", "views", "reference"),
+        path,
+        index,
+    )
+    dataflow_contracts = _qualified_status_objects(
+        item.get("dataflow_contracts", []),
+        "dataflow_contracts",
+        ("id", "reference", "source_function", "sink_function", "contract", "proof"),
+        path,
+        index,
+    )
+    baseline_comparisons = _qualified_status_objects(
+        item.get("baseline_comparisons", []),
+        "baseline_comparisons",
+        ("tool", "reference", "metric", "pseudoforge_value", "baseline_value"),
+        path,
+        index,
+    )
+    agentic_tasks = _qualified_status_objects(
+        item.get("agentic_tasks", []),
+        "agentic_tasks",
+        ("id", "reference", "objective", "score"),
+        path,
+        index,
+    )
     return {
         "name": name,
         "target_family": target_family,
@@ -188,13 +323,62 @@ def _normalize_corpus(item: object, path: Path, index: int) -> dict[str, Any]:
         "cross_function_contracts": cross_function_contracts,
         "external_baselines": _external_baseline_names(external_baselines),
         "qualified_external_baselines": qualified_external_baselines,
-        "analyst_audit_count": _nonnegative_int(
-            item.get("analyst_audit_count"),
+        "analyst_audit_count": _declared_or_list_count(
+            item,
             "analyst_audit_count",
+            "analyst_audits",
             path,
             index,
         ),
         "analyst_audits": analyst_audits,
+        "semantic_ground_truth_pair_count": _declared_or_list_count(
+            item,
+            "semantic_ground_truth_pair_count",
+            "semantic_ground_truth_pairs",
+            path,
+            index,
+        ),
+        "semantic_ground_truth_pairs": semantic_ground_truth_pairs,
+        "real_replay_target_count": _declared_or_list_count(
+            item,
+            "real_replay_target_count",
+            "real_replay_targets",
+            path,
+            index,
+        ),
+        "real_replay_targets": real_replay_targets,
+        "multi_ir_record_count": _declared_or_list_count(
+            item,
+            "multi_ir_record_count",
+            "multi_ir_records",
+            path,
+            index,
+        ),
+        "multi_ir_records": multi_ir_records,
+        "dataflow_contract_count": _declared_or_list_count(
+            item,
+            "dataflow_contract_count",
+            "dataflow_contracts",
+            path,
+            index,
+        ),
+        "dataflow_contracts": dataflow_contracts,
+        "baseline_comparison_count": _declared_or_list_count(
+            item,
+            "baseline_comparison_count",
+            "baseline_comparisons",
+            path,
+            index,
+        ),
+        "baseline_comparisons": baseline_comparisons,
+        "agentic_task_count": _declared_or_list_count(
+            item,
+            "agentic_task_count",
+            "agentic_tasks",
+            path,
+            index,
+        ),
+        "agentic_tasks": agentic_tasks,
     }
 
 
@@ -281,6 +465,44 @@ def _qualified_objects(
     ]
 
 
+def _qualified_status_objects(
+    value: object,
+    field_name: str,
+    required_fields: tuple[str, ...],
+    path: Path,
+    index: int,
+    require_positive_function_count: bool = False,
+) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("corpus manifest corpora[%d].%s must be a list in %s" % (index, field_name, path))
+    result: list[dict[str, Any]] = []
+    for value_index, item in enumerate(value):
+        record = _qualified_object(
+            item,
+            field_name,
+            required_fields + ("status",),
+            path,
+            index,
+            value_index,
+        )
+        status = str(record.get("status", "") or "")
+        if status not in QUALIFYING_EVIDENCE_STATUS and status not in NONQUALIFYING_EVIDENCE_STATUS:
+            raise ValueError(
+                "corpus manifest corpora[%d].%s[%d].status is unsupported in %s"
+                % (index, field_name, value_index, path)
+            )
+        if status not in QUALIFYING_EVIDENCE_STATUS:
+            continue
+        if require_positive_function_count and _int(record.get("function_count"), 0) <= 0:
+            continue
+        if field_name == "multi_ir_records":
+            record["views"] = _normalize_views(record.get("views"))
+        result.append(record)
+    return result
+
+
 def _qualified_object(
     value: object,
     field_name: str,
@@ -302,6 +524,38 @@ def _qualified_object(
                 % (index, field_name, value_index, required, path)
             )
     return result
+
+
+def _declared_or_list_count(
+    payload: dict[str, Any],
+    count_field: str,
+    list_field: str,
+    path: Path,
+    index: int,
+) -> int:
+    if count_field in payload:
+        return _nonnegative_int(payload.get(count_field), count_field, path, index)
+    value = payload.get(list_field, [])
+    if value is None:
+        return 0
+    if not isinstance(value, list):
+        raise ValueError("corpus manifest corpora[%d].%s must be a list in %s" % (index, list_field, path))
+    return len(value)
+
+
+def _normalize_views(value: object) -> list[str]:
+    if isinstance(value, list):
+        return sorted({str(item).strip() for item in value if str(item).strip()})
+    text = str(value or "")
+    return sorted({item.strip() for item in text.replace(";", ",").split(",") if item.strip()})
+
+
+def _record_views(record: dict[str, Any]) -> list[str]:
+    return _normalize_views(record.get("views"))
+
+
+def _is_non_windows_family(family: str) -> bool:
+    return bool(family) and family not in WINDOWS_FAMILIES and not family.startswith("windows_")
 
 
 def _required_string(payload: dict[str, Any], key: str, path: Path, index: int) -> str:

@@ -53,14 +53,69 @@ def world_class_gap_report(report: dict[str, Any]) -> dict[str, Any]:
         _int(corpus.get("qualified_analyst_audit_count"), 0),
         1,
     )
+    external_gaps: list[dict[str, Any]] = list(gaps)
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_semantic_ground_truth_pair_count",
+        _int(corpus.get("qualified_semantic_ground_truth_pair_count"), 0),
+        100,
+    )
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_non_windows_real_replay_family_count",
+        _int(corpus.get("qualified_non_windows_real_replay_family_count"), 0),
+        2,
+    )
+    _add_required_family_gap(external_gaps, corpus, "windows_user_pe")
+    _add_required_family_gap(external_gaps, corpus, "windows_kernel")
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_multi_ir_record_count",
+        _int(corpus.get("qualified_multi_ir_record_count"), 0),
+        50,
+    )
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_multi_ir_view_count",
+        _int(corpus.get("qualified_multi_ir_view_count"), 0),
+        3,
+    )
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_dataflow_contract_count",
+        _int(corpus.get("qualified_dataflow_contract_count"), 0),
+        25,
+    )
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_baseline_tool_count",
+        _int(corpus.get("qualified_baseline_tool_count"), 0),
+        3,
+    )
+    _add_min_gap(
+        external_gaps,
+        "corpus.qualified_agentic_task_count",
+        _int(corpus.get("qualified_agentic_task_count"), 0),
+        5,
+    )
+    _add_min_gap(
+        external_gaps,
+        "corpus.agentic_task_precision",
+        _float(corpus.get("agentic_task_precision"), 0.0),
+        0.95,
+    )
     return {
         "schema": CLAIM_GAP_SCHEMA,
         "target_claim_level": "world-class candidate",
         "current_claim_level": str(gate.get("claim_level", "") or ""),
         "world_class_claim_allowed": bool(gate.get("world_class_claim_allowed", False)),
+        "external_world_class_claim_allowed": bool(gate.get("external_world_class_claim_allowed", False)),
         "status": str(gate.get("status", "") or ""),
         "gap_count": len(gaps),
         "gaps": gaps,
+        "external_target_claim_level": "external-world-class candidate",
+        "external_gap_count": len(external_gaps),
+        "external_gaps": external_gaps,
     }
 
 
@@ -70,7 +125,10 @@ def render_world_class_gap_markdown(gap_report: dict[str, Any]) -> str:
         "",
         "- Current claim level: `%s`" % _md(gap_report.get("current_claim_level")),
         "- World-class allowed: `%s`" % str(bool(gap_report.get("world_class_claim_allowed", False))).lower(),
+        "- External-world-class allowed: `%s`"
+        % str(bool(gap_report.get("external_world_class_claim_allowed", False))).lower(),
         "- Gap count: `%s`" % _md(gap_report.get("gap_count", 0)),
+        "- External gap count: `%s`" % _md(gap_report.get("external_gap_count", 0)),
         "",
     ]
     gaps = [item for item in gap_report.get("gaps", []) or [] if isinstance(item, dict)]
@@ -151,6 +209,25 @@ def _add_domain_pack_gap(gaps: list[dict[str, Any]], metrics: dict[str, Any]) ->
             "current": max(eligible, contracts),
             "required": 2,
             "missing": 2 - max(eligible, contracts),
+        }
+    )
+
+
+def _add_required_family_gap(gaps: list[dict[str, Any]], corpus: dict[str, Any], family: str) -> None:
+    families = {
+        str(item)
+        for item in corpus.get("qualified_real_replay_families", []) or []
+        if str(item)
+    }
+    if family in families:
+        return
+    gaps.append(
+        {
+            "metric": "corpus.qualified_real_replay_families.%s" % family,
+            "direction": "contains",
+            "current": ",".join(sorted(families)),
+            "required": family,
+            "missing": 1,
         }
     )
 

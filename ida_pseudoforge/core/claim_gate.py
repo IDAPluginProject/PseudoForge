@@ -11,6 +11,7 @@ CLAIM_LEVELS = [
     "useful general assistant",
     "advanced general cleanup",
     "world-class candidate",
+    "external-world-class candidate",
 ]
 
 
@@ -73,6 +74,12 @@ def evaluate_claim_gate(
     else:
         blockers.append("world_class_candidate_threshold_not_met")
 
+    if _passes_external_world_class(metrics, corpus):
+        claim_level = "external-world-class candidate"
+        passed_gates.append("external_world_class_candidate_threshold")
+    else:
+        blockers.append("external_world_class_candidate_threshold_not_met")
+
     regressions = _regressions(report, baseline_report, claim_level) if baseline_report is not None else []
     status = "failed" if metrics["failed"] > 0 or metrics["false_positives"] > 0 or regressions else "passed"
     rank = _claim_rank(claim_level)
@@ -81,7 +88,10 @@ def evaluate_claim_gate(
         "status": status,
         "claim_level": claim_level,
         "claim_rank": rank,
-        "world_class_claim_allowed": claim_level == "world-class candidate" and status == "passed",
+        "world_class_claim_allowed": rank >= _claim_rank("world-class candidate") and status == "passed",
+        "external_world_class_claim_allowed": (
+            rank >= _claim_rank("external-world-class candidate") and status == "passed"
+        ),
         "release_claim": _release_claim(claim_level, status),
         "metrics": metrics,
         "corpus_evidence": corpus,
@@ -144,6 +154,31 @@ def _passes_world_class(metrics: dict[str, Any], corpus: dict[str, Any]) -> bool
     if corpus["qualified_external_baseline_count"] < 2:
         return False
     if corpus["qualified_analyst_audit_count"] < 1:
+        return False
+    return True
+
+
+def _passes_external_world_class(metrics: dict[str, Any], corpus: dict[str, Any]) -> bool:
+    if not _passes_world_class(metrics, corpus):
+        return False
+    replay_families = set(_string_list(corpus.get("qualified_real_replay_families")))
+    if "windows_user_pe" not in replay_families or "windows_kernel" not in replay_families:
+        return False
+    if corpus["qualified_non_windows_real_replay_family_count"] < 2:
+        return False
+    if corpus["qualified_semantic_ground_truth_pair_count"] < 100:
+        return False
+    if corpus["qualified_multi_ir_record_count"] < 50:
+        return False
+    if corpus["qualified_multi_ir_view_count"] < 3:
+        return False
+    if corpus["qualified_dataflow_contract_count"] < 25:
+        return False
+    if corpus["qualified_baseline_tool_count"] < 3:
+        return False
+    if corpus["qualified_agentic_task_count"] < 5:
+        return False
+    if corpus["agentic_task_precision"] < 0.95:
         return False
     return True
 
@@ -370,6 +405,8 @@ def _append_float_regression(
 def _release_claim(claim_level: str, status: str) -> str:
     if status == "failed":
         return "General-analysis quality claims are blocked because the benchmark or regression gate failed."
+    if claim_level == "external-world-class candidate":
+        return "PseudoForge is an external-world-class candidate for general decompile cleanup based on semantic GT, multi-IR, real replay, dataflow, baseline, audit, and agentic workflow gates."
     if claim_level == "world-class candidate":
         return "PseudoForge is a world-class candidate for general decompile cleanup based on passed multi-corpus precision, IR, baseline, and analyst-audit gates."
     if claim_level == "advanced general cleanup":
@@ -396,6 +433,29 @@ def _corpus_evidence(report: dict[str, Any]) -> dict[str, Any]:
         "qualified_external_baseline_count": _int(raw.get("qualified_external_baseline_count"), 0),
         "analyst_audit_count": _int(raw.get("analyst_audit_count"), 0),
         "qualified_analyst_audit_count": _int(raw.get("qualified_analyst_audit_count"), 0),
+        "semantic_ground_truth_pair_count": _int(raw.get("semantic_ground_truth_pair_count"), 0),
+        "qualified_semantic_ground_truth_pair_count": _int(
+            raw.get("qualified_semantic_ground_truth_pair_count"),
+            0,
+        ),
+        "real_replay_target_count": _int(raw.get("real_replay_target_count"), 0),
+        "qualified_real_replay_target_count": _int(raw.get("qualified_real_replay_target_count"), 0),
+        "qualified_real_replay_families": _string_list(raw.get("qualified_real_replay_families")),
+        "qualified_non_windows_real_replay_family_count": _int(
+            raw.get("qualified_non_windows_real_replay_family_count"),
+            0,
+        ),
+        "multi_ir_record_count": _int(raw.get("multi_ir_record_count"), 0),
+        "qualified_multi_ir_record_count": _int(raw.get("qualified_multi_ir_record_count"), 0),
+        "qualified_multi_ir_view_count": _int(raw.get("qualified_multi_ir_view_count"), 0),
+        "dataflow_contract_count": _int(raw.get("dataflow_contract_count"), 0),
+        "qualified_dataflow_contract_count": _int(raw.get("qualified_dataflow_contract_count"), 0),
+        "baseline_comparison_count": _int(raw.get("baseline_comparison_count"), 0),
+        "qualified_baseline_comparison_count": _int(raw.get("qualified_baseline_comparison_count"), 0),
+        "qualified_baseline_tool_count": _int(raw.get("qualified_baseline_tool_count"), 0),
+        "agentic_task_count": _int(raw.get("agentic_task_count"), 0),
+        "qualified_agentic_task_count": _int(raw.get("qualified_agentic_task_count"), 0),
+        "agentic_task_precision": _float(raw.get("agentic_task_precision"), 0.0),
         "target_families": _string_list(raw.get("target_families")),
     }
 

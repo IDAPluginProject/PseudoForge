@@ -270,6 +270,116 @@ class CorpusEvidenceTests(unittest.TestCase):
             self.assertEqual(99, evidence["cross_function_contract_count"])
             self.assertEqual(1, evidence["qualified_cross_function_contract_count"])
 
+    def test_external_world_class_evidence_axes_are_counted_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "manifest.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "pseudoforge_general_corpus_manifest_v1",
+                        "corpora": [
+                            {
+                                "name": "external_axes",
+                                "target_family": "linux_elf_user",
+                                "origin": "open_source_build_summary",
+                                "claim_eligible": True,
+                                "source_reference": "local-summary://external_axes",
+                                "function_count": 10,
+                                "semantic_ground_truth_pairs": [
+                                    {
+                                        "id": "semantic-open-close",
+                                        "reference": "local-summary://external_axes/semantic",
+                                        "function": "open_and_close",
+                                        "semantic_kind": "resource_lifetime",
+                                        "oracle": "source-level expected close on every success path",
+                                        "validation": "source-map + runtime check",
+                                        "status": "validated",
+                                    },
+                                    {
+                                        "id": "semantic-blocked",
+                                        "reference": "local-summary://external_axes/blocked",
+                                        "function": "unknown",
+                                        "semantic_kind": "symbol_identity",
+                                        "oracle": "symbol-only",
+                                        "validation": "not semantic",
+                                        "status": "blocked",
+                                    },
+                                ],
+                                "real_replay_targets": [
+                                    {
+                                        "family": "linux_elf_user",
+                                        "tool": "ida",
+                                        "reference": "ida-replay://linux",
+                                        "function_count": 10,
+                                        "status": "passed",
+                                    }
+                                ],
+                                "multi_ir_records": [
+                                    {
+                                        "function": "open_and_close",
+                                        "views": ["ida_hexrays", "ghidra_pcode", "angr_ail"],
+                                        "reference": "multi-ir://open_and_close",
+                                        "status": "validated",
+                                    }
+                                ],
+                                "dataflow_contracts": [
+                                    {
+                                        "id": "fd-open-close",
+                                        "reference": "dataflow://fd-open-close",
+                                        "source_function": "open",
+                                        "sink_function": "close",
+                                        "contract": "file descriptor reaches close",
+                                        "proof": "def-use source-to-sink path",
+                                        "status": "validated",
+                                    }
+                                ],
+                                "baseline_comparisons": [
+                                    {
+                                        "tool": "ghidra",
+                                        "reference": "baseline://ghidra/open_and_close",
+                                        "metric": "semantic_contract_recall",
+                                        "pseudoforge_value": "1.0",
+                                        "baseline_value": "0.5",
+                                        "status": "passed",
+                                    }
+                                ],
+                                "agentic_tasks": [
+                                    {
+                                        "id": "task-resource-lifetime",
+                                        "reference": "agentic://task-resource-lifetime",
+                                        "objective": "recover fd lifetime",
+                                        "score": "1.0",
+                                        "status": "passed",
+                                    },
+                                    {
+                                        "id": "task-failed",
+                                        "reference": "agentic://task-failed",
+                                        "objective": "negative task",
+                                        "score": "0.0",
+                                        "status": "failed",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            evidence = load_corpus_evidence([manifest_path])
+
+        self.assertEqual(2, evidence["semantic_ground_truth_pair_count"])
+        self.assertEqual(1, evidence["qualified_semantic_ground_truth_pair_count"])
+        self.assertEqual(1, evidence["qualified_non_windows_real_replay_family_count"])
+        self.assertEqual(["linux_elf_user"], evidence["qualified_real_replay_families"])
+        self.assertEqual(1, evidence["qualified_multi_ir_record_count"])
+        self.assertEqual(3, evidence["qualified_multi_ir_view_count"])
+        self.assertEqual(1, evidence["qualified_dataflow_contract_count"])
+        self.assertEqual(1, evidence["qualified_baseline_tool_count"])
+        self.assertEqual(2, evidence["agentic_task_count"])
+        self.assertEqual(1, evidence["qualified_agentic_task_count"])
+        self.assertEqual(0.5, evidence["agentic_task_precision"])
+
 
 if __name__ == "__main__":
     unittest.main()
