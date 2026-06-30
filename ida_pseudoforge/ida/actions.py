@@ -42,7 +42,8 @@ from ida_pseudoforge.core.normalize import (
     find_matching_paren,
     split_parameters_with_spans,
 )
-from ida_pseudoforge.core.ioctl import parse_c_integer_literal
+from ida_pseudoforge.core.ioctl import decode_ioctl_code, parse_c_integer_literal
+from ida_pseudoforge.core.ioctl_analysis import render_ioctl_deep_analysis_report
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.kernel_api import kernel_function_metadata
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, ParameterTypeCorrection
@@ -319,6 +320,21 @@ def analyze_current_buffer_contract_case(
         return capture, plan, text
 
 
+def analyze_current_ioctl_case(
+    command_value: int,
+    capture: FunctionCapture | None = None,
+    case_entry_ea: int | None = None,
+) -> tuple[FunctionCapture, CleanPlan, str]:
+    if decode_ioctl_code(command_value) is None:
+        raise RuntimeError("case 0x%X does not decode as a Windows IOCTL value" % command_value)
+    capture, plan, _buffer_text = analyze_current_buffer_contract_case(
+        command_value,
+        capture=capture,
+        case_entry_ea=case_entry_ea,
+    )
+    return capture, plan, render_ioctl_deep_analysis_report(capture, plan, command_value)
+
+
 def _store_analysis_session(
     capture: FunctionCapture,
     plan: CleanPlan,
@@ -563,6 +579,61 @@ class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else ob
             group_name=PLUGIN_STATE_GROUP,
         )
         log_checkpoint("action.buffer_contract_case.activate.after", case="0x%X" % command_value)
+        return 1
+
+    def update(self, ctx):
+        return idaapi.AST_ENABLE_ALWAYS if idaapi else 1
+
+
+class AnalyzeIoctlCaseHandler(idaapi.action_handler_t if idaapi else object):
+    def activate(self, ctx):
+        log_checkpoint("action.ioctl_case.activate.before")
+        capture = None
+        case_entry_ea = _current_screen_ea()
+        command_value, capture = _resolve_buffer_contract_case_from_cursor(ctx)
+        if command_value is None:
+            command_value = _ask_buffer_contract_case_value()
+        if command_value is None:
+            info("PseudoForge IOCTL analysis cancelled.")
+            log_checkpoint("action.ioctl_case.cancelled")
+            return 1
+        if decode_ioctl_code(command_value) is None:
+            warning(
+                "PseudoForge selected case 0x%X does not decode as a Windows IOCTL value. "
+                "Use buffer contract analysis for generic command cases."
+                % command_value
+            )
+            log_checkpoint("action.ioctl_case.not_ioctl", case="0x%X" % command_value)
+            return 1
+        log_output("PseudoForge IOCTL deep analysis is running for 0x%X." % command_value)
+
+        def on_success(result):
+            log_checkpoint("action.ioctl_case.on_success.before")
+            capture, plan, text = result
+            title = "PseudoForge IOCTL analysis: %s 0x%X" % (capture.name or "function", command_value)
+            show_text_view(
+                title,
+                text,
+                suggested_filename=build_save_as_filename("pseudoforge-ioctl-analysis", capture.name, capture.ea),
+                copy_from_source=False,
+                reference_text=capture.pseudocode,
+                reference_title="Raw Hex-Rays pseudocode",
+                content_title="PseudoForge IOCTL deep analysis",
+                summary_text="PseudoForge analyzed IOCTL 0x%X: %d contract(s)" % (
+                    command_value,
+                    len(plan.buffer_contracts),
+                ),
+            )
+            log_output("PseudoForge IOCTL deep analysis completed for 0x%X." % command_value)
+            log_checkpoint("action.ioctl_case.on_success.after")
+
+        run_background(
+            "ioctl-case",
+            lambda: analyze_current_ioctl_case(command_value, capture=capture, case_entry_ea=case_entry_ea),
+            on_success,
+            group_name=PLUGIN_STATE_GROUP,
+        )
+        log_checkpoint("action.ioctl_case.activate.after", case="0x%X" % command_value)
         return 1
 
     def update(self, ctx):

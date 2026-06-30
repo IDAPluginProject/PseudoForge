@@ -1568,6 +1568,7 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
                 field["name"],
             )
         )
+    lines.extend(_render_ioctl_role_aliases(contract, buffer))
     struct_size = max(size_hint, _fields_end_offset(fields))
     if exact_hint == 0 and struct_size == 0:
         lines.append("// Exact-size predicate is 0; C++ empty structs have non-zero sizeof.")
@@ -1592,6 +1593,18 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
         lines.extend(_render_cpp_size_validator(buffer.structure_name, size_predicates))
     lines.append("")
     return lines
+
+
+def _render_ioctl_role_aliases(contract: CommandBufferContract, buffer: BufferContract) -> list[str]:
+    if contract.dispatcher_kind != "ioctl":
+        return []
+    prefix = "PF_IOCTL_%08X" % (contract.command_value & 0xFFFFFFFF)
+    aliases: list[str] = []
+    if buffer.role in {"input", "inout"}:
+        aliases.append("using %s_REQUEST = %s;" % (prefix, buffer.structure_name))
+    if buffer.role in {"output", "inout"}:
+        aliases.append("using %s_RESPONSE = %s;" % (prefix, buffer.structure_name))
+    return aliases
 
 
 def _case_value_from_line(line: str) -> int | None:

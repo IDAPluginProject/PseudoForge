@@ -1325,6 +1325,51 @@ __int64 __fastcall sub_140001000(int argument)
         self.assertEqual(asks, [True])
         self.assertEqual(len(runs), 1)
 
+    def test_ioctl_action_prompts_when_cursor_case_is_unresolved(self):
+        handler = actions_module.AnalyzeIoctlCaseHandler()
+        old_resolve = actions_module._resolve_buffer_contract_case_from_cursor
+        old_ask = actions_module._ask_buffer_contract_case_value
+        old_run = actions_module.run_background
+        asks = []
+        runs = []
+        actions_module._resolve_buffer_contract_case_from_cursor = lambda ctx: (None, None)
+        actions_module._ask_buffer_contract_case_value = lambda: asks.append(True) or 0x91234000
+        actions_module.run_background = lambda *args, **kwargs: runs.append((args, kwargs)) or True
+        try:
+            self.assertEqual(handler.activate(object()), 1)
+        finally:
+            actions_module._resolve_buffer_contract_case_from_cursor = old_resolve
+            actions_module._ask_buffer_contract_case_value = old_ask
+            actions_module.run_background = old_run
+
+        self.assertEqual(asks, [True])
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0][0][0], "ioctl-case")
+
+    def test_ioctl_action_rejects_non_ioctl_case_value(self):
+        handler = actions_module.AnalyzeIoctlCaseHandler()
+        old_resolve = actions_module._resolve_buffer_contract_case_from_cursor
+        old_ask = actions_module._ask_buffer_contract_case_value
+        old_warning = actions_module.warning
+        old_run = actions_module.run_background
+        warnings = []
+        runs = []
+        actions_module._resolve_buffer_contract_case_from_cursor = lambda ctx: (None, None)
+        actions_module._ask_buffer_contract_case_value = lambda: 29
+        actions_module.warning = warnings.append
+        actions_module.run_background = lambda *args, **kwargs: runs.append((args, kwargs)) or True
+        try:
+            self.assertEqual(handler.activate(object()), 1)
+        finally:
+            actions_module._resolve_buffer_contract_case_from_cursor = old_resolve
+            actions_module._ask_buffer_contract_case_value = old_ask
+            actions_module.warning = old_warning
+            actions_module.run_background = old_run
+
+        self.assertFalse(runs)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("does not decode as a Windows IOCTL value", warnings[0])
+
     def test_buffer_contract_case_analysis_captures_helper_from_selected_case_body(self):
         pseudocode = r"""
 NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
@@ -1511,6 +1556,7 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             self.assertIn(plugin_module.PseudoForgePlugin.analyzed_functions_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.buffer_contract_cursor_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.buffer_contract_value_action_name, fake_idaapi.registered)
+            self.assertIn(plugin_module.PseudoForgePlugin.ioctl_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.cancel_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.type_assisted_recompile_preview_action_name, fake_idaapi.registered)
             self.assertIn(plugin_module.PseudoForgePlugin.configure_preview_action_name, fake_idaapi.registered)
@@ -1518,12 +1564,14 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
             self.assertNotIn(plugin_module.PseudoForgePlugin.legacy_preview_action_name, fake_idaapi.registered)
             attached_menu_actions = [(path, action_name) for path, action_name, _flags in fake_idaapi.attached]
             self.assertIn(("pseudoforge_menu", "PseudoForge", "Edit/"), fake_kernwin.created_menus)
+            self.assertIn(("pseudoforge_ioctl_menu", "IOCTL Analysis", "Edit/PseudoForge/"), fake_kernwin.created_menus)
             self.assertIn(("pseudoforge_advanced_menu", "Advanced", "Edit/PseudoForge/"), fake_kernwin.created_menus)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.analyze_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.preview_current_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.analyzed_functions_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.buffer_contract_cursor_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.buffer_contract_value_action_name), attached_menu_actions)
+            self.assertIn(("Edit/PseudoForge/IOCTL Analysis/", plugin_module.PseudoForgePlugin.ioctl_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.cancel_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.configure_preview_action_name), attached_menu_actions)
             self.assertIn(("Edit/PseudoForge/", plugin_module.PseudoForgePlugin.configure_profile_action_name), attached_menu_actions)

@@ -526,6 +526,8 @@ Edit/PseudoForge/
   Export cleaned pseudocode
   Analyze buffer contract for cursor case
   Analyze buffer contract by case value...
+  IOCTL Analysis/
+    Analyze IOCTL path...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -545,6 +547,8 @@ PseudoForge/
   Export cleaned pseudocode
   Analyze buffer contract for cursor case
   Analyze buffer contract by case value...
+  IOCTL Analysis/
+    Analyze IOCTL path...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -562,6 +566,7 @@ Ctrl+Alt+P        Show current analysis result
 Ctrl+Alt+Shift+P  Analyzed functions...
 Ctrl+Alt+Shift+F  Export cleaned pseudocode
 Ctrl+Alt+B        Analyze buffer contract for cursor case
+Ctrl+Alt+I        Analyze IOCTL path
 Ctrl+Alt+Shift+V  Configure preview mode
 ```
 
@@ -589,7 +594,7 @@ the case body. Helper-only cases are handled by scanning the selected case
 call-sites for arguments that reference recovered buffer or length variables
 before the deep helper capture pass runs. The preview reports both helper
 candidates and successfully captured helpers, which separates candidate
-discovery failures from helper decompilation/capture failures. It also reports
+discovery from helper decompilation/capture failures. It also reports
 captured helpers that were not linked back to the selected buffer path, which
 separates useful helper propagation from unrelated or currently untracked helper
 captures. It also reports the selected case body line count and a short excerpt;
@@ -623,6 +628,19 @@ In the example, the Hex-Rays cursor is on `case 75`, the PseudoForge context
 menu exposes both cursor-case and explicit case-value analysis, and the preview
 shows the generated buffer-contract C++ sketch for review. The sketch is an
 export/preview artifact only; it is not applied to the IDB as a type definition.
+
+`Analyze IOCTL path...` is the DeviceControl-specific view of the same focused
+analysis. It first uses the Hex-Rays cursor to resolve the selected case, then
+prompts for an IOCTL code if the cursor is not on a concrete case. It accepts
+only case values that decode as Windows
+`CTL_CODE(...)` values, then reports the IOCTL method/access bits, inferred
+input/output or shared-buffer structures, rejection-guard-derived length and
+field predicates required to stay on the meaningful path, helper propagation,
+and a packed C++ struct sketch. This is a necessary-condition report from local
+guards, not a full symbolic satisfiability proof.
+
+The generic buffer contract action remains available for `NtSetInformation*`
+and other non-IOCTL command dispatchers.
 
 `Cancel current operation` requests cooperative cancellation for the active analyze, export, or apply-preparation task. Cancellation is checked at safe phase boundaries; an in-flight Hex-Rays decompile or LLM provider call may finish before the task stops.
 
@@ -1152,7 +1170,8 @@ File purposes:
 - `.buffer-structs.hpp`: packed C++ ABI sketch generated from recovered buffer
   contracts, including inferred padding, fixed-offset fields, observed/valid
   predicate comments, size constants, inline size validators, directional
-  byte windows for size-only contracts, exact zero-length validators, and
+  byte windows for size-only contracts, exact zero-length validators, IOCTL
+  request/response aliases, and
   `offsetof`/`sizeof` assertions where C++ object size permits them.
 - `.rule-report.json`: deterministic rule matches, rejected emissions, load errors, and validation errors.
 - `.raw.cpp`: original captured decompiler text used as analysis input.
