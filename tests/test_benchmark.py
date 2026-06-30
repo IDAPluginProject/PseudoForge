@@ -187,6 +187,8 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(len(fixtures), report["passed"])
         self.assertEqual(0, report["failed"])
         self.assertEqual(0, report["false_positives"])
+        self.assertGreaterEqual(report["claim_gate"]["metrics"]["target_family_count"], 5)
+        self.assertIn("windows_kernel", report["claim_gate"]["metrics"]["target_families"])
         self.assertTrue(
             any(
                 "contracts/win_user_api_contracts.json" in fixture["contract_profiles"]

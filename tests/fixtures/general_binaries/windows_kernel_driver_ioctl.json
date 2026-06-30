@@ -1,0 +1,36 @@
+{
+  "schema": "pseudoforge_general_benchmark_fixture_v1",
+  "name": "windows_kernel_driver_ioctl",
+  "source_path": "C:\\Windows\\System32\\drivers\\sample.sys",
+  "profile_context": {
+    "format": "pe",
+    "platform": "windows",
+    "privilege_domain": "kernel",
+    "imports": ["IoCreateDevice", "IoCreateSymbolicLink", "IoDeleteDevice", "IoDeleteSymbolicLink", "IoCompleteRequest"],
+    "sections": [".text", ".rdata", ".pdata"],
+    "symbol_state": "public",
+    "enable_textual_ir_evidence": true
+  },
+  "pseudocode": "NTSTATUS __fastcall DriverEntry(void *DriverObject, void *RegistryPath)\n{\n  NTSTATUS status;\n  void *DeviceObject;\n\n  DeviceObject = 0i64;\n  status = IoCreateDevice(DriverObject, 0, L\"\\\\Device\\\\PseudoForge\", 0x22u, 0, 0, &DeviceObject);\n  if ( status >= 0 )\n  {\n    status = IoCreateSymbolicLink(L\"\\\\DosDevices\\\\PseudoForge\", L\"\\\\Device\\\\PseudoForge\");\n    if ( status < 0 )\n    {\n      IoDeleteDevice(DeviceObject);\n    }\n  }\n  if ( status < 0 )\n  {\n    return status;\n  }\n  IoCompleteRequest(DriverObject, 0);\n  IoDeleteSymbolicLink(L\"\\\\DosDevices\\\\PseudoForge\");\n  IoDeleteDevice(DeviceObject);\n  return status;\n}\n",
+  "expected_observations": [
+    {"kind": "target_family", "value": "windows_kernel"},
+    {"kind": "target_field", "value": "privilege_domain=kernel"},
+    {"kind": "target_field", "value": "format=pe"},
+    {"kind": "target_field", "value": "platform=windows"},
+    {"kind": "eligible_domain_pack", "value": "windows_kernel"},
+    {"kind": "rejected_domain_pack", "value": "win_user_pe"},
+    {"kind": "section_clue", "value": "pe_exception_metadata"},
+    {"kind": "section_clue", "value": "read_only_runtime_data"},
+    {"kind": "ir_available", "value": "true"},
+    {"kind": "ir_call_site_min", "value": "6"},
+    {"kind": "ir_use_def_min", "value": "2"}
+  ],
+  "negative_controls": [
+    {"kind": "eligible_domain_pack", "value": "win_user_pe"},
+    {"kind": "eligible_domain_pack", "value": "linux_elf_user"},
+    {"kind": "eligible_domain_pack", "value": "firmware_uefi"},
+    {"kind": "contract_profile", "value": "contracts/win_user_api_contracts.json"},
+    {"kind": "contract_symbol", "value": "CreateFileW"},
+    {"kind": "contract_symbol", "value": "malloc"}
+  ]
+}
