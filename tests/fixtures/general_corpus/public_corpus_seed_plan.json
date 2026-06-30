@@ -66,9 +66,54 @@
       "target_family": "windows_user_pe"
     },
     {
-      "build_recipes": [],
+      "build_recipes": [
+        {
+          "artifact_globs": [
+            "*.dll",
+            "*.lib",
+            "*.pdb"
+          ],
+          "compile_args": [
+            "/O2",
+            "/Zi",
+            "/D_CRT_SECURE_NO_WARNINGS",
+            "/DSQLITE_ENABLE_FTS5",
+            "/DSQLITE_ENABLE_RTREE",
+            "/DSQLITE_ENABLE_JSON1"
+          ],
+          "id": "msvc-x64-release-dll",
+          "output_name": "sqlite3.dll",
+          "output_type": "dll",
+          "source_files": [
+            "sqlite3.c"
+          ],
+          "system": "msvc_cl"
+        },
+        {
+          "artifact_globs": [
+            "*.exe",
+            "*.pdb"
+          ],
+          "compile_args": [
+            "/O2",
+            "/Zi",
+            "/D_CRT_SECURE_NO_WARNINGS",
+            "/DSQLITE_ENABLE_FTS5",
+            "/DSQLITE_ENABLE_RTREE",
+            "/DSQLITE_ENABLE_JSON1"
+          ],
+          "id": "msvc-x64-release-shell",
+          "output_name": "sqlite3-shell.exe",
+          "output_type": "exe",
+          "source_files": [
+            "shell.c",
+            "sqlite3.c"
+          ],
+          "system": "msvc_cl"
+        }
+      ],
       "license": "Public Domain",
-      "name": "sqlite-version-3.45.3",
+      "name": "sqlite-amalgamation-3.53.3",
       "semantic_seeds": [
         {
           "function": "sqlite3_open",
@@ -88,14 +133,12 @@
         }
       ],
       "source": {
-        "commit": "b74eb00e2cb05d9749859e6fbe77d229ad1dc1e1",
-        "kind": "git",
-        "ref": "refs/tags/version-3.45.3",
-        "repo_url": "https://github.com/sqlite/sqlite.git"
+        "kind": "archive",
+        "sha3_256": "d45c688a8cb23f68611a894a756a12d7eb6ab6e9e2468ca70adbeab3808b5ab9",
+        "strip_prefix": "sqlite-amalgamation-3530300",
+        "url": "https://sqlite.org/2026/sqlite-amalgamation-3530300.zip"
       },
       "source_globs": [
-        "src/**/*.c",
-        "src/**/*.h",
         "*.c",
         "*.h"
       ],

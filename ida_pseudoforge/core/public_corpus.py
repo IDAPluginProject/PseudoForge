@@ -3,10 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import subprocess
+import tarfile
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import urlopen
 
 from ida_pseudoforge.core.corpus_evidence import CORPUS_MANIFEST_SCHEMA
 
@@ -14,8 +18,8 @@ from ida_pseudoforge.core.corpus_evidence import CORPUS_MANIFEST_SCHEMA
 PUBLIC_CORPUS_PLAN_SCHEMA = "pseudoforge_public_corpus_plan_v1"
 PUBLIC_CORPUS_BOOTSTRAP_REPORT_SCHEMA = "pseudoforge_public_corpus_bootstrap_report_v1"
 PUBLIC_CORPUS_ORIGIN = "public_corpus_bootstrap"
-SUPPORTED_SOURCE_KINDS = {"git", "local"}
-SUPPORTED_BUILD_SYSTEMS = {"cmake"}
+SUPPORTED_SOURCE_KINDS = {"archive", "git", "local"}
+SUPPORTED_BUILD_SYSTEMS = {"cmake", "msvc_cl"}
 MANIFEST_STATUS_BY_SEED_STATUS = {
     "accepted": "accepted",
     "accepted_with_notes": "accepted_with_notes",
@@ -211,6 +215,23 @@ def _source(item: object, path: Path, index: int) -> dict[str, str]:
             "ref": _required_string(item, "ref", path, index),
             "commit": _required_string(item, "commit", path, index),
         }
+    if kind == "archive":
+        url = _required_string(item, "url", path, index)
+        _validate_archive_url(url, path, index)
+        sha256 = str(item.get("sha256", "") or "").strip().lower()
+        sha3_256 = str(item.get("sha3_256", "") or "").strip().lower()
+        if not sha256 and not sha3_256:
+            raise ValueError(
+                "public corpus plan projects[%d].source.sha256 or source.sha3_256 is required in %s"
+                % (index, path)
+            )
+        return {
+            "kind": kind,
+            "url": url,
+            "sha256": sha256,
+            "sha3_256": sha3_256,
+            "strip_prefix": str(item.get("strip_prefix", "") or "").strip(),
+        }
     return {
         "kind": kind,
         "path": _required_string(item, "path", path, index),
@@ -228,6 +249,12 @@ def _build_recipe(item: object, path: Path, project_index: int, recipe_index: in
         raise ValueError(
             "public corpus plan projects[%d].build_recipes[%d].system is unsupported in %s: %s"
             % (project_index, recipe_index, path, system)
+        )
+    output_type = str(item.get("output_type", "dll") or "dll").strip().lower()
+    if output_type not in {"dll", "exe"}:
+        raise ValueError(
+            "public corpus plan projects[%d].build_recipes[%d].output_type is unsupported in %s: %s"
+            % (project_index, recipe_index, path, output_type)
         )
     return {
         "id": _required_nested_string(item, "id", path, project_index, "build_recipes", recipe_index),
@@ -251,6 +278,28 @@ def _build_recipe(item: object, path: Path, project_index: int, recipe_index: in
             path,
             project_index,
         ),
+        "source_files": _string_list(
+            item.get("source_files"),
+            "build_recipes[%d].source_files" % recipe_index,
+            path,
+            project_index,
+        ),
+        "compile_args": _string_list(
+            item.get("compile_args"),
+            "build_recipes[%d].compile_args" % recipe_index,
+            path,
+            project_index,
+        ),
+        "link_args": _string_list(
+            item.get("link_args"),
+            "build_recipes[%d].link_args" % recipe_index,
+            path,
+            project_index,
+        ),
+        "output_name": str(item.get("output_name", "") or "").strip(),
+        "output_type": output_type,
+        "vcvars_path": str(item.get("vcvars_path", "") or "").strip(),
+        "architecture": str(item.get("architecture", "amd64") or "amd64").strip(),
     }
 
 
@@ -350,6 +399,8 @@ def _prepare_source(
         if not path.is_dir():
             return None, "blocked", {"stage": "source", "code": "local_source_missing", "detail": str(path)}
         return path.resolve(), "present", None
+    if kind == "archive":
+        return _prepare_archive_source(project, source_workspace, fetch, timeout_seconds)
     target = source_workspace / str(project.get("name", "") or "project")
     expected_commit = str(source.get("commit", "") or "")
     if not fetch:
@@ -372,6 +423,168 @@ def _prepare_source(
     if checkout_result:
         return target, "blocked", checkout_result
     return target, "present", None
+
+
+def _prepare_archive_source(
+    project: dict[str, Any],
+    source_workspace: Path,
+    fetch: bool,
+    timeout_seconds: int,
+) -> tuple[Path | None, str, dict[str, str] | None]:
+    source = project.get("source", {}) if isinstance(project.get("source"), dict) else {}
+    name = str(project.get("name", "") or "project")
+    target = source_workspace / name
+    if target.is_dir() and any(target.iterdir()):
+        return target, "present", None
+    if not fetch:
+        return target, "blocked", {"stage": "source", "code": "archive_source_missing_no_fetch", "detail": str(target)}
+    url = str(source.get("url", "") or "")
+    archive_path = source_workspace / "_archives" / _archive_filename(url, name)
+    download = _download_url(url, archive_path, timeout_seconds)
+    if download:
+        return target, "blocked", download
+    verify = _verify_archive_hash(archive_path, source)
+    if verify:
+        return target, "blocked", verify
+    extract_root = source_workspace / ("_%s_extracting" % name)
+    if extract_root.exists():
+        _remove_tree(extract_root, source_workspace)
+    extract_root.mkdir(parents=True, exist_ok=True)
+    try:
+        _extract_archive(archive_path, extract_root)
+        source_dir = _archive_source_dir(extract_root, str(source.get("strip_prefix", "") or ""))
+        if not source_dir.is_dir():
+            return target, "blocked", {"stage": "source", "code": "archive_strip_prefix_missing", "detail": str(source_dir)}
+        if target.exists():
+            _remove_tree(target, source_workspace)
+        shutil.move(str(source_dir), str(target))
+        metadata_path = target / ".pseudoforge-source.json"
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "kind": "archive",
+                    "url": url,
+                    "sha256": str(source.get("sha256", "") or ""),
+                    "sha3_256": str(source.get("sha3_256", "") or ""),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as exc:
+        return target, "blocked", {"stage": "source", "code": "archive_extract_failed", "detail": str(exc)}
+    finally:
+        if extract_root.exists():
+            _remove_tree(extract_root, source_workspace)
+    return target, "present", None
+
+
+def _archive_filename(url: str, project_name: str) -> str:
+    parsed = urlparse(url)
+    name = Path(parsed.path).name
+    if name:
+        return name
+    return "%s.archive" % project_name
+
+
+def _download_url(url: str, target: Path, timeout_seconds: int) -> dict[str, str] | None:
+    if target.is_file():
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with urlopen(url, timeout=timeout_seconds) as response:
+            with target.open("wb") as handle:
+                shutil.copyfileobj(response, handle)
+    except (OSError, ValueError) as exc:
+        return {"stage": "source", "code": "archive_download_failed", "detail": str(exc)}
+    return None
+
+
+def _verify_archive_hash(archive_path: Path, source: dict[str, Any]) -> dict[str, str] | None:
+    expected_sha256 = str(source.get("sha256", "") or "").lower()
+    if expected_sha256:
+        actual_sha256 = _hash_file_with(archive_path, "sha256")
+        if actual_sha256.lower() != expected_sha256:
+            return {
+                "stage": "source",
+                "code": "archive_sha256_mismatch",
+                "detail": "expected %s got %s" % (expected_sha256, actual_sha256),
+            }
+    expected_sha3_256 = str(source.get("sha3_256", "") or "").lower()
+    if expected_sha3_256:
+        actual_sha3_256 = _hash_file_with(archive_path, "sha3_256")
+        if actual_sha3_256.lower() != expected_sha3_256:
+            return {
+                "stage": "source",
+                "code": "archive_sha3_256_mismatch",
+                "detail": "expected %s got %s" % (expected_sha3_256, actual_sha3_256),
+            }
+    return None
+
+
+def _extract_archive(archive_path: Path, extract_root: Path) -> None:
+    name = archive_path.name.lower()
+    if name.endswith(".zip"):
+        _extract_zip(archive_path, extract_root)
+        return
+    if name.endswith((".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2")):
+        _extract_tar(archive_path, extract_root)
+        return
+    raise ValueError("unsupported archive extension: %s" % archive_path)
+
+
+def _extract_zip(archive_path: Path, extract_root: Path) -> None:
+    root = extract_root.resolve()
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.infolist():
+            target = (root / member.filename).resolve()
+            if not _is_relative_to(target, root):
+                raise ValueError("unsafe archive member path: %s" % member.filename)
+        archive.extractall(root)
+
+
+def _extract_tar(archive_path: Path, extract_root: Path) -> None:
+    root = extract_root.resolve()
+    with tarfile.open(archive_path) as archive:
+        for member in archive.getmembers():
+            if not (member.isfile() or member.isdir()):
+                continue
+            target = (root / member.name).resolve()
+            if not _is_relative_to(target, root):
+                raise ValueError("unsafe archive member path: %s" % member.name)
+            archive.extract(member, root)
+
+
+def _archive_source_dir(extract_root: Path, strip_prefix: str) -> Path:
+    prefix = strip_prefix.replace("\\", "/").strip("/")
+    if prefix:
+        return extract_root.joinpath(*prefix.split("/"))
+    children = [path for path in extract_root.iterdir() if path.is_dir()]
+    files = [path for path in extract_root.iterdir() if path.is_file()]
+    if len(children) == 1 and not files:
+        return children[0]
+    return extract_root
+
+
+def _remove_tree(path: Path, root: Path) -> None:
+    resolved = path.resolve()
+    root_resolved = root.resolve()
+    if resolved == root_resolved or not _is_relative_to(resolved, root_resolved):
+        raise ValueError("refusing to remove path outside workspace: %s" % resolved)
+    if resolved.is_dir():
+        shutil.rmtree(resolved)
+    elif resolved.exists():
+        resolved.unlink()
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def _git_checkout(target: Path, expected_commit: str, timeout_seconds: int) -> dict[str, str] | None:
@@ -435,10 +648,13 @@ def _run_build_recipe(
             "artifacts": [],
         }
     build_path.mkdir(parents=True, exist_ok=True)
-    if str(recipe.get("system", "") or "") != "cmake":
+    system = str(recipe.get("system", "") or "")
+    if system == "msvc_cl":
+        return _run_msvc_cl_build(project_name, source_path, recipe, build_path, timeout_seconds)
+    if system != "cmake":
         return {
             "id": recipe_id,
-            "system": str(recipe.get("system", "") or ""),
+            "system": system,
             "status": "blocked",
             "message": "unsupported build system",
             "build_path": str(build_path),
@@ -474,6 +690,118 @@ def _run_build_recipe(
     return {
         "id": recipe_id,
         "system": "cmake",
+        "status": status,
+        "message": message,
+        "build_path": str(build_path),
+        "artifacts": artifacts,
+    }
+
+
+def _run_msvc_cl_build(
+    project_name: str,
+    source_path: Path,
+    recipe: dict[str, Any],
+    build_path: Path,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    recipe_id = str(recipe.get("id", "") or "default")
+    source_files = [str(item) for item in recipe.get("source_files", []) or []]
+    if not source_files:
+        return {
+            "id": recipe_id,
+            "system": "msvc_cl",
+            "status": "blocked",
+            "message": "msvc_cl recipe has no source_files",
+            "build_path": str(build_path),
+            "artifacts": [],
+        }
+    resolved_sources: list[Path] = []
+    for item in source_files:
+        candidate = (source_path / item).resolve()
+        if not candidate.is_file():
+            return {
+                "id": recipe_id,
+                "system": "msvc_cl",
+                "status": "blocked",
+                "message": "source file not found: %s" % item,
+                "build_path": str(build_path),
+                "artifacts": [],
+            }
+        resolved_sources.append(candidate)
+    vcvars_path = Path(str(recipe.get("vcvars_path", "") or "")) if str(recipe.get("vcvars_path", "") or "") else _default_vcvars_path()
+    if not vcvars_path.is_file():
+        return {
+            "id": recipe_id,
+            "system": "msvc_cl",
+            "status": "blocked",
+            "message": "Visual Studio vcvars batch file not found: %s" % vcvars_path,
+            "build_path": str(build_path),
+            "artifacts": [],
+        }
+    output_type = str(recipe.get("output_type", "dll") or "dll").lower()
+    output_name = str(recipe.get("output_name", "") or project_name).strip()
+    expected_suffix = ".exe" if output_type == "exe" else ".dll"
+    if not output_name.lower().endswith(expected_suffix):
+        output_name += expected_suffix
+    output_path = build_path / output_name
+    pdb_path = output_path.with_suffix(".pdb")
+    architecture = str(recipe.get("architecture", "amd64") or "amd64")
+    compile_args = [str(item) for item in recipe.get("compile_args", []) or []]
+    link_args = [str(item) for item in recipe.get("link_args", []) or []]
+    obj_dir = build_path / "obj"
+    obj_dir.mkdir(parents=True, exist_ok=True)
+    object_arg = _prefixed_arg("/Fo", str(Path("obj") / ("%s.obj" % output_path.stem)))
+    cl_parts = [
+        "cl",
+        "/nologo",
+        object_arg,
+        _prefixed_arg("/Fe", output_path.name),
+        _prefixed_arg("/Fd", pdb_path.name),
+    ]
+    if output_type == "dll":
+        cl_parts.insert(2, "/LD")
+    if len(resolved_sources) > 1:
+        cl_parts = [item for item in cl_parts if not item.startswith("/Fo")]
+    cl_parts.extend(compile_args)
+    cl_parts.extend(_cmd_quote(str(item)) for item in resolved_sources)
+    if link_args:
+        cl_parts.append("/link")
+        cl_parts.extend(link_args)
+    script_path = build_path / "build.bat"
+    script_path.write_text(
+        "\n".join(
+            [
+                "@echo off",
+                "setlocal",
+                "pushd %~dp0",
+                "call %s %s >nul" % (_cmd_quote(str(vcvars_path)), architecture),
+                "if errorlevel 1 exit /b %errorlevel%",
+                " ".join(cl_parts),
+                "set PF_CL_EXIT=%errorlevel%",
+                "popd",
+                "exit /b %PF_CL_EXIT%",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    built = _run_batch(script_path, timeout_seconds)
+    if built["returncode"] != 0:
+        return {
+            "id": recipe_id,
+            "system": "msvc_cl",
+            "status": "failed",
+            "message": "cl build failed: %s" % (built["stderr_tail"] or built["stdout_tail"]),
+            "build_path": str(build_path),
+            "artifacts": [],
+        }
+    artifact_globs = recipe.get("artifact_globs", []) or ["*.dll", "*.lib", "*.pdb"]
+    artifacts = _collect_artifacts(build_path, artifact_globs)
+    status = "passed" if artifacts else "blocked"
+    message = "build passed" if artifacts else "build passed but no configured artifacts matched"
+    return {
+        "id": recipe_id,
+        "system": "msvc_cl",
         "status": status,
         "message": message,
         "build_path": str(build_path),
@@ -548,6 +876,14 @@ def _hash_source_tree(source_path: Path, files: list[Path]) -> str:
 
 def _hash_file(path: Path) -> str:
     digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _hash_file_with(path: Path, algorithm: str) -> str:
+    digest = hashlib.new(algorithm)
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
@@ -638,6 +974,9 @@ def _source_reference(project: dict[str, Any]) -> str:
     if source.get("kind") == "git":
         commit = str(project.get("actual_commit", "") or source.get("commit", "") or "")
         return "public-corpus://git/%s@%s#%s" % (name, commit, source_hash)
+    if source.get("kind") == "archive":
+        expected = str(source.get("sha3_256", "") or source.get("sha256", "") or "")
+        return "public-corpus://archive/%s@%s#%s" % (name, expected, source_hash)
     return "public-corpus://local/%s#%s" % (name, source_hash)
 
 
@@ -687,6 +1026,10 @@ def _run(args: list[str], timeout_seconds: int) -> dict[str, Any]:
     }
 
 
+def _run_batch(script_path: Path, timeout_seconds: int) -> dict[str, Any]:
+    return _run(["cmd.exe", "/d", "/c", str(script_path)], timeout_seconds)
+
+
 def _tail(value: str, limit: int = 2000) -> str:
     text = str(value or "").strip()
     if len(text) <= limit:
@@ -694,10 +1037,39 @@ def _tail(value: str, limit: int = 2000) -> str:
     return text[-limit:]
 
 
+def _default_vcvars_path() -> Path:
+    candidates = [
+        Path("C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Auxiliary/Build/vcvars64.bat"),
+        Path("C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat"),
+        Path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat"),
+        Path("C:/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"),
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
+
+
+def _cmd_quote(value: str) -> str:
+    return '"%s"' % value.replace('"', '""')
+
+
+def _prefixed_arg(prefix: str, value: str) -> str:
+    return "%s%s" % (prefix, _cmd_quote(value))
+
+
 def _validate_http_git_url(value: str, path: Path, index: int) -> None:
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("public corpus plan projects[%d].source.repo_url must be an http(s) URL in %s" % (index, path))
+
+
+def _validate_archive_url(value: str, path: Path, index: int) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https", "file"}:
+        raise ValueError("public corpus plan projects[%d].source.url must be an http(s) or file URL in %s" % (index, path))
+    if parsed.scheme in {"http", "https"} and not parsed.netloc:
+        raise ValueError("public corpus plan projects[%d].source.url must include a network location in %s" % (index, path))
 
 
 def _required_string(payload: dict[str, Any], key: str, path: Path, index: int) -> str:

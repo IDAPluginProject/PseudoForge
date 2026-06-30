@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from ida_pseudoforge.core.corpus_evidence import load_corpus_evidence
@@ -54,6 +56,40 @@ class PublicCorpusTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "commit is required"):
                 load_public_corpus_plan(path)
+
+    def test_archive_source_bootstrap_extracts_and_scans_pinned_zip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive_path = root / "sample.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("sample-1/sample.c", "int archived_entry(void) {\n    return 7;\n}\n")
+                archive.writestr("sample-1/sample.h", "int archived_entry(void);\n")
+            digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(_archive_plan(archive_path.as_uri(), digest)), encoding="utf-8")
+
+            plan = load_public_corpus_plan(plan_path)
+            report = bootstrap_public_corpus(plan, root / "workspace", fetch=True, build=False)
+
+        self.assertEqual(1, report["source_ready_count"])
+        self.assertEqual("archive", report["projects"][0]["source"]["kind"])
+        self.assertEqual(1, report["candidate_function_count"])
+        self.assertEqual("not_run", report["projects"][0]["build_results"][0]["status"])
+
+    def test_archive_source_blocks_on_hash_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            archive_path = root / "sample.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("sample-1/sample.c", "int archived_entry(void) {\n    return 7;\n}\n")
+            plan_path = root / "plan.json"
+            plan_path.write_text(json.dumps(_archive_plan(archive_path.as_uri(), "0" * 64)), encoding="utf-8")
+
+            plan = load_public_corpus_plan(plan_path)
+            report = bootstrap_public_corpus(plan, root / "workspace", fetch=True, build=False)
+
+        self.assertEqual(0, report["source_ready_count"])
+        self.assertEqual("archive_sha256_mismatch", report["projects"][0]["blockers"][0]["code"])
 
     def test_local_source_bootstrap_scans_functions_without_claim_inflation(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -233,6 +269,45 @@ def _local_plan(source: Path) -> dict[str, object]:
                         "function": "add_pair",
                         "semantic_kind": "arithmetic",
                         "oracle": "add_pair returns a + b",
+                        "validation": "source oracle plus binary replay",
+                        "status": "planned",
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _archive_plan(url: str, sha256: str) -> dict[str, object]:
+    return {
+        "schema": "pseudoforge_public_corpus_plan_v1",
+        "projects": [
+            {
+                "name": "archive-sample",
+                "target_family": "windows_user_pe",
+                "license": "Test",
+                "source": {
+                    "kind": "archive",
+                    "url": url,
+                    "sha256": sha256,
+                    "strip_prefix": "sample-1",
+                },
+                "source_globs": ["**/*.c", "**/*.h"],
+                "build_recipes": [
+                    {
+                        "id": "msvc-dll",
+                        "system": "msvc_cl",
+                        "source_files": ["sample.c"],
+                        "output_name": "sample.dll",
+                        "artifact_globs": ["*.dll", "*.lib", "*.pdb"],
+                    }
+                ],
+                "semantic_seeds": [
+                    {
+                        "id": "archive-entry",
+                        "function": "archived_entry",
+                        "semantic_kind": "fixture",
+                        "oracle": "archived_entry returns 7.",
                         "validation": "source oracle plus binary replay",
                         "status": "planned",
                     }
