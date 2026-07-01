@@ -257,6 +257,13 @@ def _depth_limit_summary(callee: str, external_profile: dict[str, str]) -> dict[
             "reason": "maximum helper depth stopped at a diagnostic or terminal sink",
             "next_action": "none",
         }
+    if _looks_like_internal_state_probe(name):
+        return {
+            "classification": "depth_limit_internal_state_probe",
+            "severity": "info",
+            "reason": "maximum helper depth stopped at a kernel-internal state probe",
+            "next_action": "review manually only if this helper is expected to write the caller ABI",
+        }
     return {}
 
 
@@ -271,6 +278,19 @@ def _looks_like_terminal_sink(callee: str) -> bool:
         "Notification",
     )
     return any(marker in name for marker in terminal_markers)
+
+
+def _looks_like_internal_state_probe(callee: str) -> bool:
+    name = str(callee or "")
+    if name.startswith(("ExpCheckFor", "KeCheckFor")):
+        return True
+    internal_state_queries = {
+        "ExGetHeapFromVA",
+        "ExIsSpecialPoolAddress",
+        "MmDeterminePoolType",
+        "MmIsNonPagedPoolNx",
+    }
+    return name in internal_state_queries
 
 
 def _external_profile_is_input_only(raw_signature: str) -> bool:

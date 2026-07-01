@@ -1559,6 +1559,33 @@ class BufferContractTests(unittest.TestCase):
         self.assertEqual("depth_limit_terminal_sink", record["classification"])
         self.assertFalse(record["blocks_recovery"])
 
+    def test_depth_limited_internal_state_probes_are_nonblocking_context(self) -> None:
+        for callee in [
+            "ExpCheckForResource",
+            "KeCheckForTimer",
+            "MmIsNonPagedPoolNx",
+            "ExGetHeapFromVA",
+        ]:
+            with self.subTest(callee=callee):
+                edge = HelperContractEdge(
+                    callee=callee,
+                    arguments=["systemInformation", "a3"],
+                    passed_buffers=["systemInformation"],
+                    resolved=False,
+                    depth=5,
+                    evidence="%s(systemInformation, a3)" % callee,
+                    warnings=[
+                        "helper depth limit reached",
+                        "helper not analyzed because maximum helper depth was reached",
+                    ],
+                )
+
+                record = classify_helper_edge(edge)
+
+                self.assertEqual("depth_limit_internal_state_probe", record["classification"])
+                self.assertEqual("info", record["severity"])
+                self.assertFalse(record["blocks_recovery"])
+
     def test_helper_only_case_still_emits_buffer_struct_fields(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
         helper_capture = capture_from_pseudocode(HELPER_SAMPLE)
