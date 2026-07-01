@@ -7,8 +7,13 @@ from pathlib import Path
 
 from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.buffer_contracts import (
+    _build_buffer_contracts,
+    _candidate_contract_buffers,
     _infer_buffer_sources,
     _iter_helper_call_sites,
+    _passed_buffer_arguments,
+    _recover_field_accesses,
+    _recover_field_constraints,
     _recover_helper_edges,
     find_case_value_near_line,
     helper_names_for_selected_case,
@@ -25,7 +30,12 @@ from ida_pseudoforge.core.helper_edge_audit import (
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.plan_schema import (
+    BufferContract,
+    BufferSizeConstraint,
     CleanPlan,
+    CommandBufferContract,
+    FieldAccess,
+    FieldConstraint,
     FlowRewrite,
     FunctionCapture,
     HelperContractEdge,
@@ -184,6 +194,62 @@ NTSTATUS NTAPI NtSetInformationProcess(
       {
         status = STATUS_INFO_LENGTH_MISMATCH;
         break;
+      }
+      status = 0;
+      break;
+    default:
+      status = STATUS_INVALID_INFO_CLASS;
+      break;
+  }
+  return status;
+}
+"""
+
+
+NTQUERY_PROCESS_CONTRACT_SAMPLE = r"""
+NTSTATUS __fastcall NtQueryInformationProcess(__int64 a1, unsigned int a2, void *a3, unsigned int a4, unsigned int *a5)
+{
+  NTSTATUS status;
+
+  switch ( a2 )
+  {
+    case 0:
+      if ( a4 < 48 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      *(_QWORD *)a3 = 0LL;
+      *((_QWORD *)a3 + 1) = 0LL;
+      if ( a5 )
+      {
+        *a5 = 48;
+      }
+      status = 0;
+      break;
+    case 7:
+      if ( a4 != 8 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      *(_QWORD *)a3 = -1LL;
+      if ( a5 )
+      {
+        *a5 = 8;
+      }
+      status = 0;
+      break;
+    case 29:
+      if ( a4 < 4 )
+      {
+        status = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+      }
+      *(_DWORD *)a3 = 0;
+      if ( a5 )
+      {
+        *a5 = 4;
       }
       status = 0;
       break;
@@ -1587,6 +1653,64 @@ class BufferContractTests(unittest.TestCase):
                 self.assertEqual("info", record["severity"])
                 self.assertFalse(record["blocks_recovery"])
 
+    def test_depth_limited_helper_local_after_primary_evidence_is_nonblocking(self) -> None:
+        leaf = HelperContractEdge(
+            callee="DeepTokenContextQuery",
+            arguments=["v9"],
+            passed_buffers=["v9"],
+            resolved=False,
+            depth=5,
+            evidence="DeepTokenContextQuery(v9)",
+            warnings=[
+                "helper depth limit reached",
+                "helper not analyzed because maximum helper depth was reached",
+            ],
+        )
+        root = HelperContractEdge(
+            callee="QueryPrimaryOutput",
+            arguments=["processInformation"],
+            passed_buffers=["processInformation"],
+            resolved=True,
+            depth=1,
+            evidence="QueryPrimaryOutput(processInformation)",
+            propagated_field_accesses=[
+                FieldAccess(
+                    buffer="processInformation",
+                    structure="",
+                    offset=0,
+                    type="ULONG",
+                    field="field_0x00",
+                    access="write",
+                    evidence="*(_DWORD *)processInformation = 0",
+                    source="helper:QueryPrimaryOutput",
+                )
+            ],
+            nested_edges=[leaf],
+        )
+        contract = CommandBufferContract(
+            dispatcher_kind="ntquery_process",
+            dispatcher="processInformationClass",
+            command_value=64,
+            command_name="ProcessTelemetryIdInformation",
+            buffers=[
+                BufferContract(
+                    role="output",
+                    source="parameter",
+                    variable="processInformation",
+                    length_variable="processInformationLength",
+                    structure_name="PF_PROCESS_ProcessTelemetryIdInformation_OUTPUT",
+                )
+            ],
+            helper_edges=[root],
+        )
+
+        audit = helper_edge_audit_records([contract])
+        leaf_record = [item for item in audit if item["callee"] == "DeepTokenContextQuery"][0]
+
+        self.assertEqual("depth_limit_helper_local_context", leaf_record["classification"])
+        self.assertEqual("info", leaf_record["severity"])
+        self.assertFalse(leaf_record["blocks_recovery"])
+
     def test_missing_lock_boundary_with_explicit_length_is_nonblocking_summary(self) -> None:
         edge = HelperContractEdge(
             callee="SubsystemAcquireLock",
@@ -1924,6 +2048,323 @@ class BufferContractTests(unittest.TestCase):
         ]
         self.assertIn("No bytes are accepted for this buffer role.", zero_struct)
         self.assertNotIn("std::uint8_t reserved_0x00[1];", zero_struct)
+
+    def test_ntquery_process_contract_uses_output_information_names(self) -> None:
+        capture = capture_from_pseudocode(NTQUERY_PROCESS_CONTRACT_SAMPLE)
+        plan = build_clean_plan(capture)
+
+        contracts = {contract.command_value: contract for contract in plan.buffer_contracts}
+        self.assertIn(0, contracts)
+        contract = contracts[0]
+        self.assertEqual("ntquery_process", contract.dispatcher_kind)
+        self.assertEqual("ProcessBasicInformation", contract.command_name)
+        buffer = contract.buffers[0]
+        self.assertEqual("processInformation", buffer.variable)
+        self.assertEqual("output", buffer.role)
+        self.assertEqual("PF_PROCESS_ProcessBasicInformation_OUTPUT", buffer.structure_name)
+        self.assertTrue(
+            any(
+                item.length == "processInformationLength"
+                and item.relation == "<"
+                and item.value == "48"
+                and item.valid_relation == ">="
+                and item.role == "output"
+                for item in buffer.size_constraints
+            )
+        )
+        self.assertTrue(any(item.field == "field_0x00" and item.access == "write" for item in buffer.field_accesses))
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("PF_PROCESS_ProcessBasicInformation_OUTPUT_MIN_OUTPUT_SIZE", header)
+        self.assertIn("inline bool IsValidPF_PROCESS_ProcessBasicInformation_OUTPUTSize", header)
+        self.assertNotIn("PF_PROCESS_ProcessBasicInformation_INPUT", header)
+
+    def test_helper_length_temp_after_known_buffer_is_not_promoted_to_buffer(self) -> None:
+        arguments = [
+            "(ULONG_PTR)processHandle",
+            "processInformation",
+            "v5",
+            "returnLength",
+            "previousMode",
+        ]
+
+        self.assertEqual(["processInformation"], _passed_buffer_arguments(arguments, {"processInformation"}))
+
+    def test_primary_buffer_evidence_filters_helper_local_context_buffers(self) -> None:
+        helper_edge = HelperContractEdge(
+            callee="NestedContextQuery",
+            arguments=["v9", "processInformation"],
+            passed_buffers=["v9"],
+            resolved=True,
+            depth=2,
+            evidence="NestedContextQuery(v9, processInformation)",
+            propagated_field_accesses=[
+                FieldAccess(
+                    buffer="v9",
+                    structure="",
+                    offset=0,
+                    type="ULONG",
+                    field="field_0x00",
+                    access="read",
+                    evidence="*(_DWORD *)v9",
+                    source="helper:NestedContextQuery",
+                )
+            ],
+        )
+        field_accesses = [
+            FieldAccess(
+                buffer="processInformation",
+                structure="",
+                offset=0,
+                type="ULONG",
+                field="field_0x00",
+                access="write",
+                evidence="*(_DWORD *)processInformation = 0",
+                source="case",
+            )
+        ]
+
+        buffers = _candidate_contract_buffers(
+            {"processInformation": {"source": "parameter", "role": "output"}},
+            [],
+            field_accesses,
+            [],
+            [helper_edge],
+        )
+
+        self.assertEqual(["processInformation"], buffers)
+
+    def test_declaration_only_pointer_line_is_not_field_access(self) -> None:
+        accesses = _recover_field_accesses(
+            [
+                "char *processInformation; // r8",
+                "*(_DWORD *)processInformation = 1;",
+            ],
+            {"processInformation": {"source": "parameter", "role": "output"}},
+        )
+
+        self.assertEqual(1, len(accesses))
+        self.assertEqual("write", accesses[0].access)
+        self.assertEqual("field_0x00", accesses[0].field)
+
+    def test_compound_reject_guard_recovers_each_field_predicate_with_type_aliases(self) -> None:
+        lines = [
+            "if ( *(_DWORD *)inputBuffer != 5 || (*(_DWORD *)(inputBuffer + 8) & 3) == 0 || *(_DWORD *)(inputBuffer + 0xC) < 4 )",
+            "{",
+            "  return STATUS_INVALID_PARAMETER;",
+            "}",
+        ]
+        accesses = _recover_field_accesses(lines, {"inputBuffer": {"source": "parameter", "role": "input"}})
+        constraints = _recover_field_constraints(lines, accesses)
+
+        self.assertTrue(
+            any(
+                item.offset == 0
+                and item.relation == "!="
+                and item.value == "5"
+                and item.valid_relation == "=="
+                and item.valid_value == "5"
+                for item in constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.offset == 8
+                and item.relation == "mask_=="
+                and item.mask == "3"
+                and item.valid_relation == "mask_!="
+                and item.valid_value == "0"
+                for item in constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.offset == 0xC
+                and item.relation == "<"
+                and item.value == "4"
+                and item.valid_relation == ">="
+                and item.valid_value == "4"
+                for item in constraints
+            )
+        )
+
+    def test_helper_size_constraints_do_not_turn_query_output_into_inout(self) -> None:
+        helper_edge = HelperContractEdge(
+            callee="QueryOutputHelper",
+            arguments=["processInformation", "v5"],
+            passed_buffers=["processInformation"],
+            resolved=True,
+            depth=1,
+            evidence="QueryOutputHelper(processInformation, v5)",
+            propagated_size_constraints=[
+                BufferSizeConstraint(
+                    buffer="processInformation",
+                    length="v5",
+                    relation="<",
+                    value="0x60",
+                    valid_relation=">=",
+                    valid_value="0x60",
+                    role="input",
+                    evidence="if ( v5 < 0x60 )",
+                    source="helper:QueryOutputHelper",
+                )
+            ],
+            propagated_field_accesses=[
+                FieldAccess(
+                    buffer="processInformation",
+                    structure="",
+                    offset=0,
+                    type="ULONG",
+                    field="field_0x00",
+                    access="write",
+                    evidence="*(_DWORD *)processInformation = 0x60",
+                    source="helper:QueryOutputHelper",
+                )
+            ],
+        )
+
+        buffers = _build_buffer_contracts(
+            "ntquery_process",
+            64,
+            "ProcessTelemetryIdInformation",
+            {"processInformation": {"source": "parameter", "role": "output", "length": "processInformationLength"}},
+            [],
+            [],
+            [],
+            [helper_edge],
+        )
+
+        self.assertEqual(1, len(buffers))
+        self.assertEqual("output", buffers[0].role)
+        self.assertEqual("PF_PROCESS_ProcessTelemetryIdInformation_OUTPUT", buffers[0].structure_name)
+
+    def test_suspicious_disasm_stack_offset_is_quarantined_from_query_layout_and_role(self) -> None:
+        capture = FunctionCapture(name="NtQueryInformationProcess")
+        buffers = _build_buffer_contracts(
+            "ntquery_process",
+            0x60,
+            "ProcessEnableLogging",
+            {
+                "processInformation": {
+                    "source": "parameter",
+                    "role": "output",
+                    "length": "processInformationLength",
+                }
+            },
+            [
+                BufferSizeConstraint(
+                    buffer="processInformation",
+                    length="processInformationLength",
+                    relation="<",
+                    value="4",
+                    valid_relation=">=",
+                    valid_value="4",
+                    role="output",
+                )
+            ],
+            [
+                FieldAccess(
+                    buffer="processInformation",
+                    structure="",
+                    offset=0,
+                    type="ULONG",
+                    field="field_0x00",
+                    access="write",
+                    source="local",
+                    evidence="*(_DWORD *)processInformation = 1;",
+                ),
+                FieldAccess(
+                    buffer="processInformation",
+                    structure="",
+                    offset=0xA08,
+                    type="ULONG",
+                    field="field_0xA08",
+                    access="read",
+                    source="disasm:0x14099FE0F",
+                    evidence="mov     rdx, [rsp+0A08h+ObjectNameInformation]",
+                ),
+            ],
+            [],
+            [],
+        )
+        contracts = [
+            CommandBufferContract(
+                dispatcher_kind="ntquery_process",
+                dispatcher="processInformationClass",
+                command_value=0x60,
+                command_name="ProcessEnableLogging",
+                buffers=buffers,
+            )
+        ]
+
+        self.assertEqual("output", buffers[0].role)
+
+        header = render_buffer_struct_header(capture, contracts)
+
+        self.assertIn("std::uint32_t field_0x00;", header)
+        self.assertIn("Quarantined layout observations:", header)
+        self.assertIn("offset 0xA08", header)
+        self.assertNotIn("field_0xA08;", header)
+        self.assertNotIn("reserved_0x04[2564]", header)
+
+    def test_selector_profile_hint_names_compatible_process_query_layout(self) -> None:
+        capture = FunctionCapture(name="NtQueryInformationProcess")
+        contracts = [
+            CommandBufferContract(
+                dispatcher_kind="ntquery_process",
+                dispatcher="processInformationClass",
+                command_value=0,
+                command_name="ProcessBasicInformation",
+                buffers=[
+                    BufferContract(
+                        role="output",
+                        source="parameter",
+                        variable="processInformation",
+                        length_variable="processInformationLength",
+                        structure_name="PF_PROCESS_ProcessBasicInformation_OUTPUT",
+                        size_constraints=[
+                            BufferSizeConstraint(
+                                buffer="processInformation",
+                                length="processInformationLength",
+                                relation="!=",
+                                value="48",
+                                valid_relation="==",
+                                valid_value="48",
+                                role="output",
+                            )
+                        ],
+                        field_accesses=[
+                            FieldAccess(
+                                buffer="processInformation",
+                                structure="",
+                                offset=0,
+                                type="ULONG",
+                                field="field_0x00",
+                                access="write",
+                                evidence="*(_DWORD *)processInformation = status;",
+                                source="local",
+                            ),
+                            FieldAccess(
+                                buffer="processInformation",
+                                structure="",
+                                offset=8,
+                                type="ULONGLONG",
+                                field="field_0x08",
+                                access="write",
+                                evidence="*(_QWORD *)(processInformation + 8) = peb;",
+                                source="local",
+                            ),
+                        ],
+                    )
+                ],
+            )
+        ]
+
+        header = render_buffer_struct_header(capture, contracts)
+
+        self.assertIn("ExitStatus", header)
+        self.assertIn("PebBaseAddress", header)
+        self.assertIn("UniqueProcessId", header)
+        self.assertIn("profile:PROCESS_BASIC_INFORMATION", header)
 
     def test_ntset_shared_tail_length_assignment_recovers_case_contract(self) -> None:
         capture = capture_from_pseudocode(NTSET_PROCESS_SHARED_TAIL_LENGTH_SAMPLE)

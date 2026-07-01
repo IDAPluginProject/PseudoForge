@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from ida_pseudoforge.core.buffer_contracts import (
     render_buffer_struct_header,
     render_case_context_report,
@@ -119,6 +121,16 @@ def _render_selector_model(
             lines.append("- No buffer contract was recovered for this SystemInformationClass case.")
         lines.append("")
         return lines
+    if selector_kind == "ntquery_system":
+        lines.append(
+            "- `NtQuerySystemInformation` uses `SystemInformationClass` as the selector and "
+            "`SystemInformation`/`SystemInformationLength` as the focused output buffer contract."
+        )
+        lines.append("- `ReturnLength` is reported as a length-result parameter when recovered.")
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this SystemInformationClass case.")
+        lines.append("")
+        return lines
     if selector_kind == "ntset_process":
         lines.append(
             "- `NtSetInformationProcess` uses `PROCESSINFOCLASS` as the selector and "
@@ -128,11 +140,31 @@ def _render_selector_model(
             lines.append("- No buffer contract was recovered for this ProcessInformationClass case.")
         lines.append("")
         return lines
+    if selector_kind == "ntquery_process":
+        lines.append(
+            "- `NtQueryInformationProcess` uses `PROCESSINFOCLASS` as the selector and "
+            "`ProcessInformation`/`ProcessInformationLength` as the focused output buffer contract."
+        )
+        lines.append("- `ReturnLength` is reported as a length-result parameter when recovered.")
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this ProcessInformationClass case.")
+        lines.append("")
+        return lines
     if selector_kind == "ntset_thread":
         lines.append(
             "- `NtSetInformationThread` uses `THREADINFOCLASS` as the selector and "
             "`ThreadInformation`/`ThreadInformationLength` as the focused buffer contract."
         )
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this ThreadInformationClass case.")
+        lines.append("")
+        return lines
+    if selector_kind == "ntquery_thread":
+        lines.append(
+            "- `NtQueryInformationThread` uses `THREADINFOCLASS` as the selector and "
+            "`ThreadInformation`/`ThreadInformationLength` as the focused output buffer contract."
+        )
+        lines.append("- `ReturnLength` is reported as a length-result parameter when recovered.")
         if not contracts:
             lines.append("- No buffer contract was recovered for this ThreadInformationClass case.")
         lines.append("")
@@ -219,9 +251,11 @@ def _render_meaningful_path_requirements(contracts: list[CommandBufferContract])
     hard_field_rows: list[str] = []
     likely_size_rows: list[str] = []
     likely_field_rows: list[str] = []
+    output_field_rows: list[str] = []
     context_rows: list[str] = []
     for contract in contracts:
         for buffer in contract.buffers:
+            accesses = _all_field_accesses(contract, buffer)
             for item in _all_size_constraints(contract, buffer):
                 hard_row = _format_size_requirement(item)
                 if hard_row:
@@ -231,19 +265,30 @@ def _render_meaningful_path_requirements(contracts: list[CommandBufferContract])
                 if likely_row:
                     likely_size_rows.append(likely_row)
             for item in _all_field_constraints(contract, buffer):
-                hard_row = _format_field_requirement(buffer, item)
-                if hard_row:
-                    hard_field_rows.append(hard_row)
+                if _field_constraint_user_controlled(buffer, item, accesses):
+                    hard_row = _format_field_requirement(buffer, item)
+                    if hard_row:
+                        hard_field_rows.append(hard_row)
+                        continue
+                    likely_row = _format_likely_field_requirement(buffer, item)
+                    if likely_row:
+                        likely_field_rows.append(likely_row)
+                    continue
+                if _field_constraint_output_only(buffer, item, accesses):
+                    output_row = _format_likely_field_requirement(buffer, item)
+                    if output_row:
+                        output_field_rows.append(output_row)
                     continue
                 likely_row = _format_likely_field_requirement(buffer, item)
                 if likely_row:
-                    likely_field_rows.append(likely_row)
+                    context_rows.append("%s [non-user-controlled predicate]" % likely_row)
             context_rows.extend(_field_access_context_rows(contract, buffer))
 
     hard_size_rows = _dedupe(hard_size_rows)
     hard_field_rows = _dedupe(hard_field_rows)
     likely_size_rows = _dedupe(likely_size_rows)
     likely_field_rows = _dedupe(likely_field_rows)
+    output_field_rows = _dedupe(output_field_rows)
     context_rows = _dedupe(context_rows)
 
     lines.append("Hard requirements:")
@@ -276,6 +321,14 @@ def _render_meaningful_path_requirements(contracts: list[CommandBufferContract])
     else:
         lines.append("- none")
     lines.append("")
+    lines.append("Output-only observations:")
+    lines.append("")
+    if output_field_rows:
+        for row in output_field_rows:
+            lines.append("- %s" % row)
+    else:
+        lines.append("- none")
+    lines.append("")
     lines.append("Context observations:")
     lines.append("")
     if context_rows:
@@ -288,8 +341,9 @@ def _render_meaningful_path_requirements(contracts: list[CommandBufferContract])
     lines.append("")
     lines.append(
         "Hard rows are derived from observed rejection guards. Likely rows are predicates without a confirmed "
-        "reject outcome. Context rows are access evidence, not requirements. This is not a full path "
-        "satisfiability proof."
+        "reject outcome and only include user-controlled input/inout fields. Output-only observations are "
+        "computed writes or output predicates, not values the caller must provide. Context rows are access "
+        "evidence, not requirements. This is not a full path satisfiability proof."
     )
     lines.append("")
     return lines
@@ -496,6 +550,35 @@ def _format_likely_field_requirement(buffer: BufferContract, item: FieldConstrai
     return "`%s` from `%s` [%s]" % (expression, item.evidence, item.source)
 
 
+def _field_constraint_user_controlled(
+    buffer: BufferContract,
+    item: FieldConstraint,
+    accesses: list[FieldAccess],
+) -> bool:
+    if buffer.role == "input":
+        return True
+    if buffer.role != "inout":
+        return False
+    return any(access.offset == item.offset and _field_access_reads_caller_value(access) for access in accesses)
+
+
+def _field_constraint_output_only(
+    buffer: BufferContract,
+    item: FieldConstraint,
+    accesses: list[FieldAccess],
+) -> bool:
+    same_offset = [access for access in accesses if access.offset == item.offset]
+    if buffer.role == "output":
+        return not same_offset or all(not _field_access_reads_caller_value(access) for access in same_offset)
+    if buffer.role == "inout" and same_offset:
+        return all(access.access == "write" for access in same_offset)
+    return False
+
+
+def _field_access_reads_caller_value(access: FieldAccess) -> bool:
+    return access.access in {"read", "read_write"} or "read" in (access.access or "")
+
+
 def _field_access_context_rows(contract: CommandBufferContract, buffer: BufferContract) -> list[str]:
     constrained_offsets = {item.offset for item in _all_field_constraints(contract, buffer)}
     rows: list[str] = []
@@ -548,25 +631,66 @@ def _selector_kind(capture: FunctionCapture, contracts: list[CommandBufferContra
     for contract in contracts:
         if contract.dispatcher_kind:
             return contract.dispatcher_kind
-    name = (capture.name or "").lower()
+    name = _compact_api_name(capture.name)
     prototype = capture.prototype or ""
-    if name == "ntsetsysteminformation" or "SYSTEM_INFORMATION_CLASS" in prototype:
-        return "ntset_system"
-    if name == "ntsetinformationprocess" or "PROCESSINFOCLASS" in prototype:
-        return "ntset_process"
-    if name == "ntsetinformationthread" or "THREADINFOCLASS" in prototype:
-        return "ntset_thread"
+    if _is_process_selector_domain(name, prototype):
+        return "ntquery_process" if _is_query_selector_api(name) else "ntset_process"
+    if _is_thread_selector_domain(name, prototype):
+        return "ntquery_thread" if _is_query_selector_api(name) else "ntset_thread"
+    if _is_system_selector_domain(name, prototype):
+        return "ntquery_system" if _is_query_selector_api(name) else "ntset_system"
     return "generic"
+
+
+def _compact_api_name(value: str | None) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", value or "").lower()
+
+
+def _is_query_selector_api(compact_name: str) -> bool:
+    return compact_name.startswith("ntquery") or compact_name.startswith("zwquery")
+
+
+def _is_process_selector_domain(compact_name: str, prototype: str) -> bool:
+    if compact_name in {
+        "ntqueryinformationprocess",
+        "zwqueryinformationprocess",
+        "ntsetinformationprocess",
+        "zwsetinformationprocess",
+    }:
+        return True
+    return "PROCESSINFOCLASS" in (prototype or "")
+
+
+def _is_thread_selector_domain(compact_name: str, prototype: str) -> bool:
+    if compact_name in {
+        "ntqueryinformationthread",
+        "zwqueryinformationthread",
+        "ntsetinformationthread",
+        "zwsetinformationthread",
+    }:
+        return True
+    return "THREADINFOCLASS" in (prototype or "")
+
+
+def _is_system_selector_domain(compact_name: str, prototype: str) -> bool:
+    if compact_name in {
+        "ntquerysysteminformation",
+        "zwquerysysteminformation",
+        "ntsetsysteminformation",
+        "zwsetsysteminformation",
+    }:
+        return True
+    return "SYSTEM_INFORMATION_CLASS" in (prototype or "")
 
 
 def _selector_domain_label(selector_kind: str) -> str:
     if selector_kind == "ioctl":
         return "IOCTL"
-    if selector_kind == "ntset_system":
+    if selector_kind in {"ntset_system", "ntquery_system"}:
         return "SYSTEM_INFORMATION_CLASS"
-    if selector_kind == "ntset_process":
+    if selector_kind in {"ntset_process", "ntquery_process"}:
         return "PROCESSINFOCLASS"
-    if selector_kind == "ntset_thread":
+    if selector_kind in {"ntset_thread", "ntquery_thread"}:
         return "THREADINFOCLASS"
     return selector_kind or "generic"
 
@@ -579,11 +703,11 @@ def _selector_name(
     for contract in contracts:
         if contract.command_name:
             return contract.command_name
-    if selector_kind == "ntset_system":
+    if selector_kind in {"ntset_system", "ntquery_system"}:
         return get_system_information_class_name(command_value)
-    if selector_kind == "ntset_process":
+    if selector_kind in {"ntset_process", "ntquery_process"}:
         return get_process_information_class_name(command_value)
-    if selector_kind == "ntset_thread":
+    if selector_kind in {"ntset_thread", "ntquery_thread"}:
         return get_thread_information_class_name(command_value)
     if selector_kind == "ioctl" and decode_ioctl_code(command_value) is not None:
         return format_ctl_code(command_value)

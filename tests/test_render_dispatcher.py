@@ -75,6 +75,33 @@ NTSTATUS __fastcall NtSetInformationProcess(ULONG_PTR BugCheckParameter1, __int6
 """
 
 
+NTQUERY_INFORMATION_PROCESS_SAMPLE = r"""
+NTSTATUS __fastcall NtQueryInformationProcess(__int64 a1, unsigned int a2, void *a3, unsigned int a4, unsigned int *a5)
+{
+  switch ( a2 )
+  {
+    case 0:
+      if ( a4 < 48 )
+        return -1073741820;
+      *(_QWORD *)a3 = 0LL;
+      return 0;
+    case 7:
+      if ( a4 != 8 )
+        return -1073741820;
+      *(_QWORD *)a3 = -1LL;
+      return 0;
+    case 29:
+      if ( a4 < 4 )
+        return -1073741820;
+      *(_DWORD *)a3 = 0;
+      return 0;
+    default:
+      return -1073741821;
+  }
+}
+"""
+
+
 class RenderDispatcherTests(unittest.TestCase):
     def test_system_information_class_literals_and_delta_chain(self) -> None:
         rendered = rewrite_system_information_class_literals(
@@ -185,6 +212,24 @@ class RenderDispatcherTests(unittest.TestCase):
 
         self.assertIn("case ProcessSlistRollbackInformation:", rendered)
         self.assertIn("processInformationClass == ProcessEnableLogging", rendered)
+
+    def test_ntquery_process_signature_and_cases_are_process_domain(self) -> None:
+        capture = capture_from_pseudocode(NTQUERY_INFORMATION_PROCESS_SAMPLE)
+        plan = build_clean_plan(capture)
+        rendered = render_cleaned_pseudocode(capture, plan)
+
+        self.assertTrue(plan.flow_rewrites)
+        self.assertEqual(plan.flow_rewrites[0].dispatcher, "processInformationClass")
+        self.assertEqual(plan.flow_rewrites[0].case_names[0], "ProcessBasicInformation")
+        self.assertIn("NTSTATUS NTAPI NtQueryInformationProcess(", rendered)
+        self.assertIn("HANDLE processHandle,", rendered)
+        self.assertIn("PROCESSINFOCLASS processInformationClass,", rendered)
+        self.assertIn("PVOID processInformation,", rendered)
+        self.assertIn("ULONG processInformationLength,", rendered)
+        self.assertIn("PULONG returnLength)", rendered)
+        self.assertIn("case ProcessBasicInformation:", rendered)
+        self.assertIn("case ProcessDebugPort:", rendered)
+        self.assertNotIn("SystemBasicInformation", rendered)
 
     def test_system_information_class_delta_chain_preserves_delta_variables(self) -> None:
         source = """

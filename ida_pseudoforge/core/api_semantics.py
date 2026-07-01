@@ -2,6 +2,26 @@ from __future__ import annotations
 
 
 FUNCTION_PARAMETER_NAMES = {
+    "NtQuerySystemInformation": [
+        "systemInformationClass",
+        "systemInformation",
+        "systemInformationLength",
+        "returnLength",
+    ],
+    "NtQueryInformationProcess": [
+        "processHandle",
+        "processInformationClass",
+        "processInformation",
+        "processInformationLength",
+        "returnLength",
+    ],
+    "NtQueryInformationThread": [
+        "threadHandle",
+        "threadInformationClass",
+        "threadInformation",
+        "threadInformationLength",
+        "returnLength",
+    ],
     "NtSetSystemInformation": [
         "systemInformationClass",
         "systemInformation",
@@ -23,6 +43,29 @@ FUNCTION_PARAMETER_NAMES = {
 
 
 FUNCTION_SIGNATURE_OVERRIDES = {
+    "NtQuerySystemInformation": [
+        "NTSTATUS NTAPI NtQuerySystemInformation(",
+        "        SYSTEM_INFORMATION_CLASS systemInformationClass,",
+        "        PVOID systemInformation,",
+        "        ULONG systemInformationLength,",
+        "        PULONG returnLength)",
+    ],
+    "NtQueryInformationProcess": [
+        "NTSTATUS NTAPI NtQueryInformationProcess(",
+        "        HANDLE processHandle,",
+        "        PROCESSINFOCLASS processInformationClass,",
+        "        PVOID processInformation,",
+        "        ULONG processInformationLength,",
+        "        PULONG returnLength)",
+    ],
+    "NtQueryInformationThread": [
+        "NTSTATUS NTAPI NtQueryInformationThread(",
+        "        HANDLE threadHandle,",
+        "        THREADINFOCLASS threadInformationClass,",
+        "        PVOID threadInformation,",
+        "        ULONG threadInformationLength,",
+        "        PULONG returnLength)",
+    ],
     "NtSetSystemInformation": [
         "NTSTATUS NTAPI NtSetSystemInformation(",
         "        SYSTEM_INFORMATION_CLASS systemInformationClass,",

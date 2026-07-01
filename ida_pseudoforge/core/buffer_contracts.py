@@ -158,6 +158,15 @@ _TYPE_LIKE_CALL_TOKENS = {
 }
 _TYPE_LIKE_CALL_RE = re.compile(r"^_{1,2}(?:u?int(?:8|16|32|64)|m(?:64|128i?|256i?|512i?))$")
 _IRP_ASSOCIATED_IRP_OFFSET_X64 = 0x18
+_SELECTOR_PROFILE_STRUCTURE_HINTS = {
+    ("ntquery_process", "ProcessBasicInformation"): "PROCESS_BASIC_INFORMATION",
+    ("ntquery_process", "ProcessQuotaLimits"): "QUOTA_LIMITS",
+    ("ntquery_process", "ProcessIoCounters"): "IO_COUNTERS",
+    ("ntquery_process", "ProcessVmCounters"): "VM_COUNTERS",
+    ("ntquery_process", "ProcessTimes"): "KERNEL_USER_TIMES",
+    ("ntquery_process", "ProcessPooledUsageAndLimits"): "POOLED_USAGE_AND_LIMITS",
+    ("ntquery_process", "ProcessHandleTracing"): "PROCESS_HANDLE_TRACING_QUERY",
+}
 
 
 def clear_profile_dependent_buffer_contract_caches() -> None:
@@ -1585,8 +1594,17 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
     helper_accesses = _helper_field_accesses_for_buffer(contract.helper_edges, buffer.variable)
     helper_fields = _helper_field_constraints_for_buffer(contract.helper_edges, buffer.variable)
     all_size_constraints = buffer.size_constraints + helper_sizes
-    all_field_accesses = buffer.field_accesses + helper_accesses
+    raw_field_accesses = buffer.field_accesses + helper_accesses
+    quarantined_accesses = _suspicious_disasm_layout_accesses(raw_field_accesses)
+    all_field_accesses = [
+        item
+        for item in raw_field_accesses
+        if not _is_suspicious_disasm_layout_access(item)
+    ]
     all_field_constraints = buffer.field_constraints + helper_fields
+    profile_accesses = _selector_profile_hint_accesses(contract, buffer, all_field_accesses, all_size_constraints)
+    if profile_accesses:
+        all_field_accesses = _merge_field_access_lists(all_field_accesses, profile_accesses)
     fields = _build_cpp_fields(all_field_accesses, all_field_constraints)
     size_hint = _struct_size_hint(fields, all_size_constraints)
     exact_hint = _struct_exact_size_hint(all_size_constraints)
@@ -1624,6 +1642,19 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
         lines.append("// Named fields with unknown offsets:")
         for note in named_unknowns:
             lines.append("// - %s" % _cpp_comment(note))
+    if quarantined_accesses:
+        lines.append("// Quarantined layout observations:")
+        for access in quarantined_accesses[:4]:
+            lines.append(
+                "// - offset 0x%X from %s: %s"
+                % (
+                    access.offset,
+                    _cpp_comment(access.source or "unknown"),
+                    _cpp_comment(access.evidence or access.field),
+                )
+            )
+        if len(quarantined_accesses) > 4:
+            lines.append("// - ... %d more" % (len(quarantined_accesses) - 4))
     if size_predicates:
         lines.extend(_render_cpp_size_constants(buffer.structure_name, size_predicates))
     lines.append("struct %s" % buffer.structure_name)
@@ -1751,6 +1782,83 @@ def _build_cpp_fields(
         if constraint.evidence:
             _append_unique(item["evidence"], constraint.evidence)
     return [fields[offset] for offset in sorted(fields)]
+
+
+def _selector_profile_hint_accesses(
+    contract: CommandBufferContract,
+    buffer: BufferContract,
+    accesses: list[FieldAccess],
+    size_constraints: list[BufferSizeConstraint],
+) -> list[FieldAccess]:
+    structure_name = _selector_profile_structure_name(contract.dispatcher_kind, contract.command_name)
+    if not structure_name:
+        return []
+    layout = _profile_structure_field_layout(structure_name)
+    if not layout:
+        return []
+    if not _selector_profile_layout_is_compatible(layout, accesses, size_constraints):
+        return []
+    result: list[FieldAccess] = []
+    for field_name, metadata in sorted(layout.items(), key=lambda item: int(item[1].get("offset", 0) or 0)):
+        offset = int(metadata.get("offset", 0) or 0)
+        result.append(
+            FieldAccess(
+                buffer=buffer.variable,
+                structure=str(metadata.get("structure", structure_name) or structure_name),
+                offset=offset,
+                type=str(metadata.get("type", "unknown") or "unknown"),
+                field=field_name,
+                access="profile",
+                evidence="selector profile hint %s.%s" % (structure_name, field_name),
+                source=str(metadata.get("source", "profile:%s" % structure_name) or "profile:%s" % structure_name),
+                confidence=0.66,
+            )
+        )
+    return result
+
+
+def _selector_profile_structure_name(dispatcher_kind: str, command_name: str) -> str:
+    key = (str(dispatcher_kind or ""), str(command_name or ""))
+    return _SELECTOR_PROFILE_STRUCTURE_HINTS.get(key, "")
+
+
+def _selector_profile_layout_is_compatible(
+    layout: dict[str, dict[str, object]],
+    accesses: list[FieldAccess],
+    size_constraints: list[BufferSizeConstraint],
+) -> bool:
+    profile_offsets = {int(item.get("offset", 0) or 0) for item in layout.values()}
+    profile_size = _profile_layout_size(layout)
+    recovered_offsets = {
+        access.offset
+        for access in accesses
+        if access.offset >= 0 and not _is_suspicious_disasm_layout_access(access)
+    }
+    if recovered_offsets:
+        compatible_offsets = {offset for offset in recovered_offsets if offset in profile_offsets}
+        if not compatible_offsets:
+            return False
+    size_hints = [
+        _parse_constraint_integer(item.valid_value or item.value)
+        for item in size_constraints
+        if (item.valid_value or item.value)
+    ]
+    concrete_hints = [value for value in size_hints if value is not None and value > 0]
+    if concrete_hints and profile_size:
+        if max(concrete_hints) < min(profile_offsets or {0}):
+            return False
+        if min(concrete_hints) > 0 and profile_size > max(concrete_hints) * 4:
+            return False
+    return True
+
+
+def _profile_layout_size(layout: dict[str, dict[str, object]]) -> int:
+    result = 0
+    for metadata in layout.values():
+        offset = int(metadata.get("offset", 0) or 0)
+        size = int(metadata.get("size", 1) or 1)
+        result = max(result, offset + max(1, size))
+    return result
 
 
 def _new_cpp_field(offset: int) -> dict[str, object]:
@@ -2032,11 +2140,26 @@ def _parse_constraint_integer(value: str) -> int | None:
 
 
 def _access_has_layout_offset(access: FieldAccess) -> bool:
+    if _is_suspicious_disasm_layout_access(access):
+        return False
     if access.field.startswith("field_0x"):
         return True
     if "profile:" in (access.source or "") and access.type and access.type != "unknown":
         return True
     return bool("*" in access.evidence and access.type and access.type != "unknown")
+
+
+def _suspicious_disasm_layout_accesses(accesses: list[FieldAccess]) -> list[FieldAccess]:
+    return [access for access in accesses if _is_suspicious_disasm_layout_access(access)]
+
+
+def _is_suspicious_disasm_layout_access(access: FieldAccess) -> bool:
+    if not _source_is_disasm(access.source or ""):
+        return False
+    evidence = (access.evidence or "").lower()
+    if access.offset >= 0x400:
+        return True
+    return "[rsp+" in evidence or "rsp+" in evidence
 
 
 def _named_unknown_field_notes(accesses: list[FieldAccess]) -> list[str]:
@@ -2067,10 +2190,13 @@ def _cpp_type(type_text: str) -> str:
         "SHORT": "std::int16_t",
         "ULONG": "std::uint32_t",
         "LONG": "std::int32_t",
+        "NTSTATUS": "std::int32_t",
+        "KPRIORITY": "std::int32_t",
         "int": "std::int32_t",
         "unsigned int": "std::uint32_t",
         "ULONGLONG": "std::uint64_t",
         "LONGLONG": "std::int64_t",
+        "LARGE_INTEGER": "std::int64_t",
         "SIZE_T": "std::uintptr_t",
         "ULONG_PTR": "std::uintptr_t",
         "PVOID": "void *",
@@ -2089,6 +2215,10 @@ def _cpp_type_size(type_text: str) -> int:
         return 2
     if type_text in {"std::uint32_t", "std::int32_t"}:
         return 4
+    if type_text in {"NTSTATUS", "KPRIORITY"}:
+        return 4
+    if type_text == "LARGE_INTEGER":
+        return 8
     return 8
 
 
@@ -2899,11 +3029,11 @@ def _switch_dispatcher_identifier(expression: str) -> str:
 
 
 def _command_name_for_kind(kind: str, value: int) -> str:
-    if kind == "ntset_system":
+    if kind in {"ntset_system", "ntquery_system"}:
         return get_system_information_class_name(value)
-    if kind == "ntset_process":
+    if kind in {"ntset_process", "ntquery_process"}:
         return get_process_information_class_name(value)
-    if kind == "ntset_thread":
+    if kind in {"ntset_thread", "ntquery_thread"}:
         return get_thread_information_class_name(value)
     return ""
 
@@ -2921,7 +3051,7 @@ def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict
             _add_buffer_source(sources, name, "input", "parameter", _matching_length_variable(text, name))
         elif "buffer" in lowered or ("information" in lowered and _looks_like_pointer_type(type_text)):
             _add_buffer_source(sources, name, "input", "parameter", _matching_length_variable(text, name))
-    _add_ntset_parameter_buffer_source(sources, function_name, parameters)
+    _add_known_selector_api_parameter_buffer_source(sources, function_name, parameters)
 
     for match in re.finditer(
         r"\b(?P<var>%s)\s*=\s*(?P<irp>%s)->AssociatedIrp\.(?:MasterIrp|SystemBuffer)\s*;"
@@ -2960,18 +3090,37 @@ def _infer_buffer_sources(text: str, capture: FunctionCapture) -> dict[str, dict
     return sources
 
 
-def _add_ntset_parameter_buffer_source(
+def _add_known_selector_api_parameter_buffer_source(
     sources: dict[str, dict[str, str]],
     function_name: str,
     parameters: list[tuple[str, str]],
 ) -> None:
     compact = re.sub(r"[^A-Za-z0-9]", "", function_name or "").lower()
-    if compact == "ntsetsysteminformation":
+    if compact in {"ntsetsysteminformation", "zwsetsysteminformation"}:
         buffer_index = 1
         length_index = 2
-    elif compact in {"ntsetinformationprocess", "ntsetinformationthread"}:
+        role = "input"
+        source = "NtSetInformation parameter position"
+    elif compact in {"ntquerysysteminformation", "zwquerysysteminformation"}:
+        buffer_index = 1
+        length_index = 2
+        role = "output"
+        source = "NtQueryInformation parameter position"
+    elif compact in {"ntsetinformationprocess", "zwsetinformationprocess", "ntsetinformationthread", "zwsetinformationthread"}:
         buffer_index = 2
         length_index = 3
+        role = "input"
+        source = "NtSetInformation parameter position"
+    elif compact in {
+        "ntqueryinformationprocess",
+        "zwqueryinformationprocess",
+        "ntqueryinformationthread",
+        "zwqueryinformationthread",
+    }:
+        buffer_index = 2
+        length_index = 3
+        role = "output"
+        source = "NtQueryInformation parameter position"
     else:
         return
     if len(parameters) <= buffer_index:
@@ -2981,8 +3130,8 @@ def _add_ntset_parameter_buffer_source(
     _add_buffer_source(
         sources,
         buffer_name,
-        "input",
-        "NtSetInformation parameter position",
+        role,
+        source,
         length_name,
     )
 
@@ -3382,6 +3531,8 @@ def _recover_field_accesses(
     copy_aliases = _buffer_copy_aliases(lines, known_buffers, buffer_element_types)
     for line in lines:
         stripped = line.strip()
+        if _looks_like_declaration_only_line(stripped):
+            continue
         left_expr = _assignment_left(stripped)
         for match in _ARROW_FIELD_RE.finditer(stripped):
             buffer = match.group("buffer")
@@ -3518,6 +3669,21 @@ def _recover_field_accesses(
         for item in _alias_field_accesses(stripped, left_expr, copy_aliases, source):
             _merge_field_access(access_by_key, item)
     return list(access_by_key.values())
+
+
+def _looks_like_declaration_only_line(line: str) -> bool:
+    cleaned = re.sub(r"//.*$", "", line or "").strip()
+    if not cleaned.endswith(";"):
+        return False
+    if any(marker in cleaned for marker in ("=", "(", ")", "[", "]", "->", ".")):
+        return False
+    declaration_re = re.compile(
+        r"^(?:(?:const|volatile|struct|union|enum)\s+)?"
+        r"(?:[_A-Za-z][A-Za-z0-9_:<>]*\s+)+"
+        r"(?:\*+\s*)?%s"
+        r"(?:\s*,\s*(?:\*+\s*)?%s)*\s*;$" % (_IDENT_RE, _IDENT_RE)
+    )
+    return bool(declaration_re.match(cleaned))
 
 
 def _buffer_copy_aliases(
@@ -3860,11 +4026,15 @@ def _build_buffer_contracts(
         helper_info = _helper_buffer_info(helper_edges, buffer)
         buffer_field_accesses = [item for item in field_accesses if item.buffer == buffer]
         buffer_field_constraints = [item for item in field_constraints if item.buffer == buffer]
+        source_role = info.get("role", "")
+        helper_role = helper_info.get("role", "")
+        access_role = _role_from_field_accesses(_role_relevant_field_accesses(buffer_field_accesses))
+        name_role = "" if source_role or helper_role or access_role else _role_from_buffer_name(buffer)
         role = _merge_buffer_roles(
-            info.get("role", ""),
-            helper_info.get("role", ""),
-            _role_from_field_accesses(buffer_field_accesses),
-            _role_from_buffer_name(buffer),
+            source_role,
+            helper_role,
+            access_role,
+            name_role,
         )
         structure_name = _structure_name(kind, command_value, command_name, role)
         for item in field_accesses:
@@ -3874,7 +4044,7 @@ def _build_buffer_contracts(
             if item.buffer == buffer:
                 item.structure = structure_name
         buffer_size_constraints = [
-            _constraint_for_buffer(item, buffer)
+            _constraint_for_buffer(item, buffer, role)
             for item in size_constraints
             if _constraint_matches_buffer(item, info, role)
         ]
@@ -4050,6 +4220,13 @@ def _candidate_contract_buffers(
         if item.buffer
     } | _helper_buffers_with_contract_evidence(helper_edges) | _helper_buffers_with_escape_evidence(helper_edges)
     if evidence_buffers:
+        primary_evidence_buffers = {
+            name
+            for name in evidence_buffers
+            if _is_primary_buffer_source(buffer_sources.get(name, {}))
+        }
+        if primary_evidence_buffers:
+            return sorted(primary_evidence_buffers)
         return sorted(evidence_buffers)
     primary = {
         name
@@ -4111,6 +4288,10 @@ def _role_from_field_accesses(accesses: list[FieldAccess]) -> str:
     return _merge_buffer_roles(*access_roles)
 
 
+def _role_relevant_field_accesses(accesses: list[FieldAccess]) -> list[FieldAccess]:
+    return [item for item in accesses if not _is_suspicious_disasm_layout_access(item)]
+
+
 def _merge_csv_values(*values: str) -> str:
     result: list[str] = []
     for value in values:
@@ -4150,10 +4331,9 @@ def _collect_helper_buffer_info(
             if item.buffer != buffer:
                 continue
             _append_unique(lengths, item.length)
-            _append_unique(roles, item.role)
         for item in edge.propagated_field_accesses:
             if item.buffer == buffer:
-                _append_unique(roles, _role_from_field_accesses([item]))
+                _append_unique(roles, _role_from_field_accesses(_role_relevant_field_accesses([item])))
         for item in edge.propagated_field_constraints:
             if item.buffer == buffer:
                 _append_unique(roles, "input")
@@ -4513,13 +4693,18 @@ def _passed_buffer_arguments(arguments: list[str], known_buffers: set[str]) -> l
         if identifier in known_buffers:
             _append_unique(result, identifier)
     for index, identifier in enumerate(identifiers):
-        if not _is_provisional_buffer_argument(arguments, identifiers, index):
+        if not _is_provisional_buffer_argument(arguments, identifiers, index, known_buffers):
             continue
         _append_unique(result, identifier)
     return result
 
 
-def _is_provisional_buffer_argument(arguments: list[str], identifiers: list[str], index: int) -> bool:
+def _is_provisional_buffer_argument(
+    arguments: list[str],
+    identifiers: list[str],
+    index: int,
+    known_buffers: set[str],
+) -> bool:
     if index < 0 or index >= len(identifiers):
         return False
     identifier = identifiers[index]
@@ -4530,7 +4715,19 @@ def _is_provisional_buffer_argument(arguments: list[str], identifiers: list[str]
     if _argument_has_integer_cast(arguments[index]):
         return False
     next_identifier = identifiers[index + 1] if index + 1 < len(identifiers) else ""
+    previous_identifier = identifiers[index - 1] if index > 0 else ""
+    if (
+        _looks_like_compiler_temp_name(identifier)
+        and previous_identifier in known_buffers
+        and next_identifier
+        and _looks_like_length_name(next_identifier)
+    ):
+        return False
     return bool(next_identifier and _looks_like_length_name(next_identifier))
+
+
+def _looks_like_compiler_temp_name(identifier: str) -> bool:
+    return bool(re.fullmatch(r"[av]\d+", (identifier or "").lower()))
 
 
 def _argument_is_output_reference(argument: str) -> bool:
@@ -5021,18 +5218,67 @@ def _trim_case_lines(lines: list[str]) -> list[str]:
 
 
 def _dispatcher_kind(capture: FunctionCapture, flow: FlowRewrite) -> str:
-    name = (capture.name or "").lower()
+    name = _compact_api_name(capture.name)
     prototype = capture.prototype or ""
-    dispatcher = (flow.dispatcher or "").lower()
+    dispatcher = _compact_api_name(flow.dispatcher)
     if "iocontrolcode" in dispatcher or any(decode_ioctl_code(value) for value in flow.recovered_cases):
         return "ioctl"
-    if name == "ntsetinformationprocess" or "PROCESSINFOCLASS" in prototype:
-        return "ntset_process"
-    if name == "ntsetinformationthread" or "THREADINFOCLASS" in prototype:
-        return "ntset_thread"
-    if name == "ntsetsysteminformation" or "SYSTEM_INFORMATION_CLASS" in prototype:
-        return "ntset_system"
+    if _is_process_selector_domain(name, prototype, dispatcher):
+        return "ntquery_process" if _is_query_selector_api(name) else "ntset_process"
+    if _is_thread_selector_domain(name, prototype, dispatcher):
+        return "ntquery_thread" if _is_query_selector_api(name) else "ntset_thread"
+    if _is_system_selector_domain(name, prototype, dispatcher):
+        return "ntquery_system" if _is_query_selector_api(name) else "ntset_system"
     return "generic"
+
+
+def _compact_api_name(value: str | None) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", value or "").lower()
+
+
+def _is_query_selector_api(compact_name: str) -> bool:
+    return compact_name.startswith("ntquery") or compact_name.startswith("zwquery")
+
+
+def _is_process_selector_domain(compact_name: str, prototype: str, dispatcher: str) -> bool:
+    if compact_name in {
+        "ntqueryinformationprocess",
+        "zwqueryinformationprocess",
+        "ntsetinformationprocess",
+        "zwsetinformationprocess",
+    }:
+        return True
+    if dispatcher == "processinformationclass":
+        return True
+    return "PROCESSINFOCLASS" in (prototype or "")
+
+
+def _is_thread_selector_domain(compact_name: str, prototype: str, dispatcher: str) -> bool:
+    if compact_name in {
+        "ntqueryinformationthread",
+        "zwqueryinformationthread",
+        "ntsetinformationthread",
+        "zwsetinformationthread",
+    }:
+        return True
+    if dispatcher == "threadinformationclass":
+        return True
+    return "THREADINFOCLASS" in (prototype or "")
+
+
+def _is_system_selector_domain(compact_name: str, prototype: str, dispatcher: str) -> bool:
+    if compact_name in {
+        "ntquerysysteminformation",
+        "zwquerysysteminformation",
+        "ntsetsysteminformation",
+        "zwsetsysteminformation",
+    }:
+        return True
+    if dispatcher == "systeminformationclass":
+        return True
+    if dispatcher == "infoclass" and "SYSTEM_INFORMATION_CLASS" in (prototype or ""):
+        return True
+    return "SYSTEM_INFORMATION_CLASS" in (prototype or "")
 
 
 def _has_strong_generic_buffer_evidence(text: str) -> bool:
@@ -5099,7 +5345,8 @@ def _constraint_matches_buffer(item: BufferSizeConstraint, info: dict[str, str],
     return False
 
 
-def _constraint_for_buffer(item: BufferSizeConstraint, buffer: str) -> BufferSizeConstraint:
+def _constraint_for_buffer(item: BufferSizeConstraint, buffer: str, role: str = "") -> BufferSizeConstraint:
+    constraint_role = role if role in {"input", "output"} else item.role
     return BufferSizeConstraint(
         buffer=buffer,
         length=item.length,
@@ -5107,7 +5354,7 @@ def _constraint_for_buffer(item: BufferSizeConstraint, buffer: str) -> BufferSiz
         value=item.value,
         valid_relation=item.valid_relation,
         valid_value=item.valid_value,
-        role=item.role,
+        role=constraint_role,
         evidence=item.evidence,
         source=item.source,
         confidence=item.confidence,
@@ -5149,17 +5396,50 @@ def _merge_field_access(access_by_key: dict[tuple[str, int, str, str], FieldAcce
 def _field_expression_for_access(access: FieldAccess, line: str) -> str:
     if access.field.startswith("field_"):
         offset = access.offset
-        type_text = access.type or "_BYTE"
-        candidates = [
-            "*(%s *)(%s + %d)" % (type_text, access.buffer, offset),
-            "*(%s *)%s" % (type_text, access.buffer) if offset == 0 else "",
-        ]
+        candidates: list[str] = []
+        for type_text in _deref_type_expression_candidates(access.type or "_BYTE"):
+            for offset_text in _offset_expression_candidates(offset):
+                if offset == 0 and offset_text == "0":
+                    candidates.append("*(%s *)%s" % (type_text, access.buffer))
+                candidates.append("*(%s *)(%s + %s)" % (type_text, access.buffer, offset_text))
         for candidate in candidates:
             if candidate and candidate in line:
                 return candidate
         return ""
     expression = "%s->%s" % (access.buffer, access.field)
     return expression if expression in line else ""
+
+
+def _deref_type_expression_candidates(type_text: str) -> list[str]:
+    normalized = _normalize_c_type(type_text)
+    aliases = {
+        "ULONG": ["ULONG", "_DWORD", "DWORD", "unsigned int"],
+        "LONG": ["LONG", "int", "_DWORD"],
+        "ULONGLONG": ["ULONGLONG", "_QWORD", "__int64", "unsigned __int64"],
+        "LONGLONG": ["LONGLONG", "__int64", "_QWORD"],
+        "UCHAR": ["UCHAR", "_BYTE", "BYTE", "unsigned __int8"],
+        "CHAR": ["CHAR", "char", "_BYTE"],
+        "USHORT": ["USHORT", "_WORD", "WORD", "unsigned __int16"],
+        "SHORT": ["SHORT", "__int16", "_WORD"],
+        "_OWORD": ["_OWORD", "__int128"],
+        "__int128": ["__int128", "_OWORD"],
+    }
+    result: list[str] = []
+    for item in [type_text, normalized] + aliases.get(normalized, []):
+        item = (item or "").strip()
+        if item and item not in result:
+            result.append(item)
+    return result
+
+
+def _offset_expression_candidates(offset: int) -> list[str]:
+    if offset <= 0:
+        return ["0"]
+    result = [str(offset), "0x%X" % offset]
+    lower_hex = "0x%x" % offset
+    if lower_hex not in result:
+        result.append(lower_hex)
+    return result
 
 
 def _parse_offset(value: str) -> int:
@@ -5231,11 +5511,11 @@ def _structure_name(kind: str, command_value: int, command_name: str, role: str)
         return "PF_IOCTL_%08X_%s" % (command_value & 0xFFFFFFFF, suffix)
     prefix = (
         "PF_SYSTEM"
-        if kind == "ntset_system"
+        if kind in {"ntset_system", "ntquery_system"}
         else "PF_PROCESS"
-        if kind == "ntset_process"
+        if kind in {"ntset_process", "ntquery_process"}
         else "PF_THREAD"
-        if kind == "ntset_thread"
+        if kind in {"ntset_thread", "ntquery_thread"}
         else "PF_COMMAND"
     )
     if command_name:
@@ -5267,6 +5547,8 @@ def _contract_warnings(
             warnings.append("conflicting equality size constraints for %s: %s" % (length, ", ".join(sorted(values))))
     types_by_field: dict[tuple[str, int], set[str]] = {}
     for access in field_accesses:
+        if _is_suspicious_disasm_layout_access(access):
+            continue
         types_by_field.setdefault((access.buffer, access.offset), set()).add(access.type)
     for (buffer, offset), types in types_by_field.items():
         if len(types) > 1:

@@ -131,9 +131,15 @@ def _is_system_information_dispatcher(
 ) -> bool:
     dispatcher_names = {dispatcher, renamed_dispatcher}
     normalized_names = {name.lower() for name in dispatcher_names if name}
-    if {"infoclass", "systeminformationclass"} & normalized_names:
+    capture_name = _compact_function_name(capture.name)
+    if "systeminformationclass" in normalized_names:
         return True
-    if capture.name == "NtSetSystemInformation":
+    if capture_name in {
+        "ntquerysysteminformation",
+        "zwquerysysteminformation",
+        "ntsetsysteminformation",
+        "zwsetsysteminformation",
+    }:
         return True
     return "SYSTEM_INFORMATION_CLASS" in (capture.prototype or "")
 
@@ -145,7 +151,15 @@ def _is_process_information_dispatcher(
 ) -> bool:
     dispatcher_names = {dispatcher, renamed_dispatcher}
     normalized_names = {name.lower() for name in dispatcher_names if name}
+    capture_name = _compact_function_name(capture.name)
     if "processinformationclass" in normalized_names:
+        return True
+    if capture_name in {
+        "ntqueryinformationprocess",
+        "zwqueryinformationprocess",
+        "ntsetinformationprocess",
+        "zwsetinformationprocess",
+    }:
         return True
     if "PROCESSINFOCLASS" in (capture.prototype or ""):
         return True
@@ -164,7 +178,15 @@ def _is_thread_information_dispatcher(
 ) -> bool:
     dispatcher_names = {dispatcher, renamed_dispatcher}
     normalized_names = {name.lower() for name in dispatcher_names if name}
+    capture_name = _compact_function_name(capture.name)
     if "threadinformationclass" in normalized_names:
+        return True
+    if capture_name in {
+        "ntqueryinformationthread",
+        "zwqueryinformationthread",
+        "ntsetinformationthread",
+        "zwsetinformationthread",
+    }:
         return True
     if "THREADINFOCLASS" in (capture.prototype or ""):
         return True
@@ -174,6 +196,10 @@ def _is_thread_information_dispatcher(
     if len(params) < 2:
         return False
     return dispatcher == params[1][0] or renamed_dispatcher == "threadInformationClass"
+
+
+def _compact_function_name(value: str | None) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", value or "").lower()
 
 
 def _find_dispatcher(text: str) -> str:

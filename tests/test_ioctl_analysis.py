@@ -9,6 +9,14 @@ from ida_pseudoforge.core.ioctl_analysis import (
     render_selector_path_analysis_report,
 )
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.core.plan_schema import (
+    BufferContract,
+    CleanPlan,
+    CommandBufferContract,
+    FieldAccess,
+    FieldConstraint,
+    FunctionCapture,
+)
 from tests.test_buffer_contracts import (
     DEEP_HELPER_SAMPLE,
     EXP_FIRMWARE_TABLE_HANDLER_HELPER_SAMPLE,
@@ -140,6 +148,65 @@ class IoctlAnalysisTests(unittest.TestCase):
         self.assertIn("inputBufferLength == 32", report)
         self.assertIn("PF_IOCTL_81230000_INOUT.field_0x00 == 7", report)
         self.assertIn("Context observations:", report)
+
+    def test_selector_report_separates_output_only_predicates_from_requirements(self) -> None:
+        capture = FunctionCapture(
+            name="NtQueryInformationProcess",
+            prototype="NTSTATUS NTAPI NtQueryInformationProcess(HANDLE h, PROCESSINFOCLASS c, PVOID p, ULONG l, PULONG r)",
+        )
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="NtQueryInformationProcess",
+            input_fingerprint="fixture",
+            buffer_contracts=[
+                CommandBufferContract(
+                    dispatcher_kind="ntquery_process",
+                    dispatcher="processInformationClass",
+                    command_value=0x60,
+                    command_name="ProcessEnableLogging",
+                    buffers=[
+                        BufferContract(
+                            role="output",
+                            source="parameter",
+                            variable="processInformation",
+                            length_variable="processInformationLength",
+                            structure_name="PF_PROCESS_ProcessEnableLogging_OUTPUT",
+                            field_accesses=[
+                                FieldAccess(
+                                    buffer="processInformation",
+                                    structure="",
+                                    offset=0,
+                                    type="ULONG",
+                                    field="field_0x00",
+                                    access="write",
+                                    evidence="*(_DWORD *)processInformation |= flags;",
+                                    source="local",
+                                )
+                            ],
+                            field_constraints=[
+                                FieldConstraint(
+                                    buffer="processInformation",
+                                    structure="",
+                                    offset=0,
+                                    field="field_0x00",
+                                    relation=">",
+                                    value="2",
+                                    evidence="*(_DWORD *)processInformation |= flags;",
+                                    source="local",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+        report = render_selector_path_analysis_report(capture, plan, 0x60)
+
+        self.assertIn("Likely requirements:\n\n- none", report)
+        self.assertIn("Output-only observations:", report)
+        self.assertIn("PF_PROCESS_ProcessEnableLogging_OUTPUT.field_0x00 > 2", report)
+        self.assertIn("not values the caller must provide", report)
 
 
 if __name__ == "__main__":

@@ -78,7 +78,12 @@ class IdaCaseContractBatchTests(unittest.TestCase):
                     FlowRewrite(
                         kind="switch_recovery",
                         dispatcher="systemInformationClass",
-                        recovered_cases=[75, 24, 75],
+                        recovered_cases=[75, 24, 118, 75],
+                        case_names={
+                            24: "SystemDpcBehaviorInformation",
+                            75: "SystemSuperfetchInformation",
+                            118: "MaxProcessInfoClass",
+                        },
                     )
                 ],
             )
@@ -259,6 +264,88 @@ class IdaCaseContractBatchTests(unittest.TestCase):
             "MissingSuperfetchHelper",
             metrics["helper_path_families"][0]["root_callee"],
         )
+        self.assertEqual("field_layout", metrics["structure_quality_level"])
+        self.assertGreater(metrics["structure_quality_score"], 0.6)
+        self.assertEqual(2, metrics["layout_field_offsets"])
+        self.assertEqual(12, metrics["layout_bytes_covered"])
+        self.assertEqual(0, metrics["layout_overlap_count"])
+        self.assertEqual(0, metrics["suspicious_layout_offsets"])
+        self.assertEqual(0, metrics["hard_size_requirements"])
+        self.assertEqual(2, metrics["likely_size_predicates"])
+        self.assertEqual(0, metrics["hard_user_field_requirements"])
+        self.assertEqual(2, metrics["likely_user_field_requirements"])
+        self.assertEqual(0, metrics["output_only_field_observations"])
+        self.assertEqual(2, metrics["field_predicates_total"])
+        self.assertEqual(2, metrics["field_predicates_classified"])
+
+    def test_contract_metrics_classifies_output_only_and_suspicious_layout_evidence(self) -> None:
+        contract = CommandBufferContract(
+            dispatcher_kind="ntquery_process",
+            dispatcher="processInformationClass",
+            command_value=0x60,
+            command_name="ProcessEnableLogging",
+            buffers=[
+                BufferContract(
+                    role="output",
+                    source="parameter",
+                    variable="processInformation",
+                    length_variable="processInformationLength",
+                    structure_name="PF_PROCESS_ProcessEnableLogging_OUTPUT",
+                    size_constraints=[
+                        BufferSizeConstraint(
+                            buffer="processInformation",
+                            length="processInformationLength",
+                            relation="<",
+                            value="4",
+                            valid_relation=">=",
+                            valid_value="4",
+                        )
+                    ],
+                    field_accesses=[
+                        FieldAccess(
+                            buffer="processInformation",
+                            structure="",
+                            offset=0,
+                            type="ULONG",
+                            field="field_0x00",
+                            access="write",
+                            source="local",
+                        ),
+                        FieldAccess(
+                            buffer="processInformation",
+                            structure="",
+                            offset=0xA08,
+                            type="ULONG",
+                            field="field_0xA08",
+                            access="read",
+                            source="disasm:0x14099FE0F",
+                            evidence="mov     rdx, [rsp+0A08h+ObjectNameInformation]",
+                        ),
+                    ],
+                    field_constraints=[
+                        FieldConstraint(
+                            buffer="processInformation",
+                            structure="",
+                            offset=0,
+                            field="field_0x00",
+                            relation=">",
+                            value="2",
+                        )
+                    ],
+                )
+            ],
+        )
+
+        metrics = batch._contract_metrics([contract])
+
+        self.assertEqual("field_and_size", metrics["structure_quality_level"])
+        self.assertEqual(1, metrics["layout_field_offsets"])
+        self.assertEqual(1, metrics["suspicious_layout_offsets"])
+        self.assertEqual(1, metrics["hard_size_requirements"])
+        self.assertEqual(0, metrics["hard_user_field_requirements"])
+        self.assertEqual(1, metrics["output_only_field_observations"])
+        self.assertEqual(1, metrics["field_predicates_total"])
+        self.assertEqual(1, metrics["field_predicates_classified"])
 
     def test_helper_capture_metrics_focuses_ledger_on_roots_and_unresolved_helpers(self) -> None:
         plan = CleanPlan(
@@ -418,6 +505,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual("failed", summary["recovery_gate"]["status"])
         self.assertEqual("insufficient_evidence", summary["recovery_gate"]["level"])
         self.assertIn("no_unresolved_helper_edges", summary["recovery_gate"]["blockers"])
+        self.assertIn("quality_gate", summary)
 
         markdown = batch._render_coverage_markdown(summary)
         self.assertIn("`0x4A`", markdown)
@@ -432,6 +520,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertIn("Zero-Contract Audit", markdown)
         self.assertIn("Helper Capture Ledger", markdown)
         self.assertIn("capture_unavailable", markdown)
+        self.assertIn("Recovery Quality Ledger", markdown)
 
     def test_coverage_gate_ignores_nonblocking_warning_cases(self) -> None:
         summary = batch._build_coverage_summary(
@@ -492,6 +581,83 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(0, summary["totals"]["blocking_warnings"])
         self.assertEqual("passed", summary["recovery_gate"]["status"])
         self.assertNotIn("no_blocking_warning_cases", summary["recovery_gate"]["blockers"])
+
+    def test_coverage_summary_builds_quality_gate_and_attention_lists(self) -> None:
+        summary = batch._build_coverage_summary(
+            [
+                {
+                    "status": "ok",
+                    "function": "NtQueryInformationProcess",
+                    "case": "0x20",
+                    "case_value": 0x20,
+                    "command_name": "ProcessHandleTracing",
+                    "contracts": 1,
+                    "buffers": 1,
+                    "layout_field_offsets": 2,
+                    "layout_bytes_covered": 12,
+                    "hard_size_requirements": 1,
+                    "field_predicates_total": 1,
+                    "field_predicates_classified": 1,
+                    "hard_user_field_requirements": 1,
+                    "field_backed_structure_cases": 1,
+                    "clean_field_backed_structure_cases": 1,
+                    "structure_quality_cases_passed": 1,
+                    "structure_quality_level": "field_and_size",
+                    "structure_quality_score": 0.9,
+                },
+                {
+                    "status": "ok",
+                    "function": "NtQueryInformationProcess",
+                    "case": "0x54",
+                    "case_value": 0x54,
+                    "command_name": "ProcessCaptureTrustletLiveDump",
+                    "contracts": 1,
+                    "buffers": 1,
+                    "hard_size_requirements": 1,
+                    "field_backed_structure_cases": 0,
+                    "clean_field_backed_structure_cases": 0,
+                    "structure_quality_cases_passed": 0,
+                    "size_only_structure_cases": 1,
+                    "structure_quality_level": "size_only",
+                    "structure_quality_score": 0.34,
+                },
+                {
+                    "status": "ok",
+                    "function": "NtQueryInformationProcess",
+                    "case": "0x60",
+                    "case_value": 0x60,
+                    "command_name": "ProcessEnableLogging",
+                    "contracts": 1,
+                    "buffers": 1,
+                    "suspicious_layout_offsets": 1,
+                    "weak_structure_cases": 1,
+                    "structure_quality_level": "suspicious_only",
+                    "structure_quality_score": 0.1,
+                },
+            ],
+            out_dir=Path("out"),
+            source_path="ntoskrnl.exe.i64",
+            helper_depth=4,
+            elapsed_seconds=2.0,
+            exit_code=0,
+        )
+
+        self.assertEqual(1, summary["totals"]["field_backed_structure_cases"])
+        self.assertEqual(1, summary["totals"]["clean_field_backed_structure_cases"])
+        self.assertEqual(1, summary["totals"]["structure_quality_cases_passed"])
+        self.assertEqual(["0x60"], summary["weak_structure_cases"])
+        self.assertEqual(["0x60"], summary["suspicious_layout_cases"])
+        self.assertEqual(["0x54"], summary["size_only_structure_cases"])
+        self.assertEqual(["0x20"], summary["user_field_requirement_cases"])
+        self.assertEqual("incomplete", summary["quality_gate"]["status"])
+        self.assertIn("structure_quality_90_percent", summary["quality_gate"]["blockers"])
+        self.assertIn("clean_structure_quality_90_percent", summary["quality_gate"]["blockers"])
+
+        markdown = batch._render_coverage_markdown(summary)
+        self.assertIn("Recovery Quality Ledger", markdown)
+        self.assertIn("Field-backed structure ratio", markdown)
+        self.assertIn("ProcessEnableLogging", markdown)
+        self.assertIn("suspicious_only", markdown)
 
 
 if __name__ == "__main__":

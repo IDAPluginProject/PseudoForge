@@ -218,11 +218,28 @@ def _expand_all_case_targets(function_names: list[str]) -> list[tuple[str, int]]
         plan = build_clean_plan(capture)
         values: set[int] = set()
         for flow in plan.flow_rewrites:
-            values.update(int(value) for value in flow.recovered_cases)
+            values.update(
+                int(value)
+                for value in flow.recovered_cases
+                if not _is_selector_sentinel_case_name(flow.case_names.get(int(value), ""))
+            )
         if not values:
             raise RuntimeError("no recovered selector cases for --target-all-cases: %s" % target_name)
         result.extend((target_name, value) for value in sorted(values))
     return result
+
+
+def _is_selector_sentinel_case_name(name: str) -> bool:
+    compact = re.sub(r"[^A-Za-z0-9]", "", name or "").lower()
+    if not compact:
+        return False
+    return compact.startswith("max") and (
+        compact.endswith("infoclass")
+        or compact.endswith("informationclass")
+        or compact.endswith("processinfoclass")
+        or compact.endswith("systeminfoclass")
+        or compact.endswith("threadinfoclass")
+    )
 
 
 def _dedupe_targets(targets: list[tuple[str, int]]) -> list[tuple[str, int]]:
@@ -362,6 +379,26 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
         "helper_path_families": [],
         "unresolved_helper_edge_audit": [],
         "blocking_unresolved_helper_edge_audit": [],
+        "layout_field_offsets": 0,
+        "layout_bytes_covered": 0,
+        "layout_overlap_count": 0,
+        "suspicious_layout_offsets": 0,
+        "hard_size_requirements": 0,
+        "likely_size_predicates": 0,
+        "hard_user_field_requirements": 0,
+        "likely_user_field_requirements": 0,
+        "output_only_field_observations": 0,
+        "context_field_observations": 0,
+        "field_predicates_total": 0,
+        "field_predicates_classified": 0,
+        "field_backed_structure_cases": 0,
+        "clean_field_backed_structure_cases": 0,
+        "structure_quality_cases_passed": 0,
+        "size_only_structure_cases": 0,
+        "weak_structure_cases": 0,
+        "buffer_quality": [],
+        "structure_quality_level": "none",
+        "structure_quality_score": 0.0,
     }
     warning_messages: list[str] = []
     buffer_names: list[str] = []
@@ -374,6 +411,31 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
             metrics["local_size_constraints"] += len(getattr(buffer, "size_constraints", []) or [])
             metrics["local_field_accesses"] += len(getattr(buffer, "field_accesses", []) or [])
             metrics["local_field_constraints"] += len(getattr(buffer, "field_constraints", []) or [])
+            quality = _buffer_quality_metrics(contract, buffer)
+            metrics["buffer_quality"].append(quality)
+            for key in (
+                "layout_field_offsets",
+                "layout_bytes_covered",
+                "layout_overlap_count",
+                "suspicious_layout_offsets",
+                "hard_size_requirements",
+                "likely_size_predicates",
+                "hard_user_field_requirements",
+                "likely_user_field_requirements",
+                "output_only_field_observations",
+                "context_field_observations",
+                "field_predicates_total",
+                "field_predicates_classified",
+                "field_backed_structure_cases",
+                "clean_field_backed_structure_cases",
+            ):
+                metrics[key] += int(quality.get(key, 0) or 0)
+            if quality.get("structure_quality_passed"):
+                metrics["structure_quality_cases_passed"] += 1
+            if quality.get("structure_quality_level") == "size_only":
+                metrics["size_only_structure_cases"] += 1
+            if quality.get("structure_quality_level") in {"weak_contract", "suspicious_only"}:
+                metrics["weak_structure_cases"] += 1
         edge_metrics = _helper_edge_metrics(getattr(contract, "helper_edges", []) or [])
         metrics["helper_size_constraints"] += edge_metrics["helper_size_constraints"]
         metrics["helper_field_accesses"] += edge_metrics["helper_field_accesses"]
@@ -395,7 +457,300 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
     metrics["helper_path_families"] = helper_path_family_records(contracts)
     metrics["unresolved_helper_edge_audit"] = unresolved_helper_edge_records(audit_records)
     metrics["blocking_unresolved_helper_edge_audit"] = blocking_unresolved_audit
+    metrics["structure_quality_level"] = _case_structure_quality_level(metrics["buffer_quality"])
+    metrics["structure_quality_score"] = _case_structure_quality_score(metrics["buffer_quality"])
     return metrics
+
+
+def _buffer_quality_metrics(contract: object, buffer: object) -> dict[str, Any]:
+    variable = str(getattr(buffer, "variable", "") or "")
+    role = str(getattr(buffer, "role", "") or "")
+    local_sizes = list(getattr(buffer, "size_constraints", []) or [])
+    local_accesses = list(getattr(buffer, "field_accesses", []) or [])
+    local_constraints = list(getattr(buffer, "field_constraints", []) or [])
+    helper_edges = list(getattr(contract, "helper_edges", []) or [])
+    helper_sizes = _edge_size_constraints_for_buffer(helper_edges, variable)
+    helper_accesses = _edge_field_accesses_for_buffer(helper_edges, variable)
+    helper_constraints = _edge_field_constraints_for_buffer(helper_edges, variable)
+    sizes = local_sizes + helper_sizes
+    accesses = local_accesses + helper_accesses
+    constraints = local_constraints + helper_constraints
+    suspicious_accesses = [item for item in accesses if _is_suspicious_layout_access(item)]
+    layout_accesses = [
+        item
+        for item in accesses
+        if _field_offset(item) >= 0 and not _is_suspicious_layout_access(item)
+    ]
+    layout_offsets = sorted({_field_offset(item) for item in layout_accesses if _field_offset(item) >= 0})
+    hard_sizes = [item for item in sizes if _has_valid_requirement(item)]
+    hard_user_fields = 0
+    likely_user_fields = 0
+    output_only_fields = 0
+    context_fields = 0
+    for item in constraints:
+        if _field_constraint_user_controlled(role, item, accesses):
+            if _has_valid_requirement(item):
+                hard_user_fields += 1
+            else:
+                likely_user_fields += 1
+        elif _field_constraint_output_only(role, item, accesses):
+            output_only_fields += 1
+        else:
+            context_fields += 1
+    field_predicates_total = len(constraints)
+    field_predicates_classified = hard_user_fields + likely_user_fields + output_only_fields + context_fields
+    bytes_covered = _covered_layout_bytes(layout_accesses)
+    overlap_count = _layout_overlap_count(layout_accesses)
+    has_field_layout = bool(layout_offsets)
+    has_size_sketch = _has_size_sketch(sizes)
+    quality_level = _structure_quality_level(
+        has_field_layout=has_field_layout,
+        has_size_sketch=has_size_sketch,
+        suspicious_count=len(suspicious_accesses),
+    )
+    quality_score = _structure_quality_score(
+        has_field_layout=has_field_layout,
+        has_size_sketch=has_size_sketch,
+        helper_accesses=helper_accesses,
+        overlap_count=overlap_count,
+        suspicious_count=len(suspicious_accesses),
+    )
+    field_backed_structure = 1 if has_field_layout else 0
+    clean_field_backed_structure = 1 if has_field_layout and not suspicious_accesses else 0
+    return {
+        "buffer": variable,
+        "role": role,
+        "structure": str(getattr(buffer, "structure_name", "") or ""),
+        "structure_quality_level": quality_level,
+        "structure_quality_score": quality_score,
+        "structure_quality_passed": bool(field_backed_structure),
+        "field_backed_structure_cases": field_backed_structure,
+        "clean_field_backed_structure_cases": clean_field_backed_structure,
+        "layout_field_offsets": len(layout_offsets),
+        "layout_bytes_covered": bytes_covered,
+        "layout_overlap_count": overlap_count,
+        "suspicious_layout_offsets": len({_field_offset(item) for item in suspicious_accesses}),
+        "hard_size_requirements": len(hard_sizes),
+        "likely_size_predicates": max(0, len(sizes) - len(hard_sizes)),
+        "hard_user_field_requirements": hard_user_fields,
+        "likely_user_field_requirements": likely_user_fields,
+        "output_only_field_observations": output_only_fields,
+        "context_field_observations": context_fields,
+        "field_predicates_total": field_predicates_total,
+        "field_predicates_classified": field_predicates_classified,
+    }
+
+
+def _edge_size_constraints_for_buffer(edges: list[object], buffer: str) -> list[object]:
+    result: list[object] = []
+    for edge in edges:
+        for item in getattr(edge, "propagated_size_constraints", []) or []:
+            if str(getattr(item, "buffer", "") or "") == buffer:
+                result.append(item)
+        result.extend(_edge_size_constraints_for_buffer(list(getattr(edge, "nested_edges", []) or []), buffer))
+    return result
+
+
+def _edge_field_accesses_for_buffer(edges: list[object], buffer: str) -> list[object]:
+    result: list[object] = []
+    for edge in edges:
+        for item in getattr(edge, "propagated_field_accesses", []) or []:
+            if str(getattr(item, "buffer", "") or "") == buffer:
+                result.append(item)
+        result.extend(_edge_field_accesses_for_buffer(list(getattr(edge, "nested_edges", []) or []), buffer))
+    return result
+
+
+def _edge_field_constraints_for_buffer(edges: list[object], buffer: str) -> list[object]:
+    result: list[object] = []
+    for edge in edges:
+        for item in getattr(edge, "propagated_field_constraints", []) or []:
+            if str(getattr(item, "buffer", "") or "") == buffer:
+                result.append(item)
+        result.extend(_edge_field_constraints_for_buffer(list(getattr(edge, "nested_edges", []) or []), buffer))
+    return result
+
+
+def _has_valid_requirement(item: object) -> bool:
+    relation = str(getattr(item, "valid_relation", "") or "")
+    value = str(getattr(item, "valid_value", "") or "")
+    return bool(relation and value != "")
+
+
+def _field_constraint_user_controlled(role: str, constraint: object, accesses: list[object]) -> bool:
+    if role == "input":
+        return True
+    if role != "inout":
+        return False
+    offset = _field_offset(constraint)
+    return any(_field_offset(item) == offset and _is_user_read_access(item) for item in accesses)
+
+
+def _field_constraint_output_only(role: str, constraint: object, accesses: list[object]) -> bool:
+    offset = _field_offset(constraint)
+    same_offset = [item for item in accesses if _field_offset(item) == offset]
+    if role == "output":
+        return not same_offset or all(not _is_user_read_access(item) for item in same_offset)
+    if role == "inout" and same_offset:
+        return all(_access_kind_text(item) == "write" for item in same_offset)
+    return False
+
+
+def _is_user_read_access(item: object) -> bool:
+    access = _access_kind_text(item)
+    return access in {"read", "read_write"} or "read" in access
+
+
+def _access_kind_text(item: object) -> str:
+    return str(getattr(item, "access", "") or "").lower()
+
+
+def _is_suspicious_layout_access(item: object) -> bool:
+    source = str(getattr(item, "source", "") or "")
+    evidence = str(getattr(item, "evidence", "") or "").lower()
+    offset = _field_offset(item)
+    if "disasm:" not in source:
+        return False
+    if offset >= 0x400:
+        return True
+    return "[rsp+" in evidence or "rsp+" in evidence
+
+
+def _field_offset(item: object) -> int:
+    try:
+        return int(getattr(item, "offset", -1))
+    except (TypeError, ValueError):
+        return -1
+
+
+def _covered_layout_bytes(accesses: list[object]) -> int:
+    intervals = _layout_intervals(accesses)
+    if not intervals:
+        return 0
+    intervals.sort()
+    total = 0
+    cursor_start, cursor_end = intervals[0]
+    for start, end in intervals[1:]:
+        if start <= cursor_end:
+            cursor_end = max(cursor_end, end)
+            continue
+        total += cursor_end - cursor_start
+        cursor_start, cursor_end = start, end
+    total += cursor_end - cursor_start
+    return total
+
+
+def _layout_overlap_count(accesses: list[object]) -> int:
+    intervals = _layout_intervals(accesses)
+    count = 0
+    for index, (start, end) in enumerate(intervals):
+        for other_start, other_end in intervals[index + 1:]:
+            if other_start < end and start < other_end:
+                count += 1
+    return count
+
+
+def _layout_intervals(accesses: list[object]) -> list[tuple[int, int]]:
+    result: list[tuple[int, int]] = []
+    for item in accesses:
+        offset = _field_offset(item)
+        if offset < 0:
+            continue
+        size = _field_type_size(str(getattr(item, "type", "") or ""))
+        result.append((offset, offset + max(1, size)))
+    return result
+
+
+def _field_type_size(type_text: str) -> int:
+    normalized = re.sub(r"\s+", " ", (type_text or "").strip()).lower()
+    if not normalized:
+        return 4
+    if any(token in normalized for token in ("_oword", "__int128", "__m128")):
+        return 16
+    if any(token in normalized for token in ("_qword", "uint64", "int64", "ulonglong", "longlong", "ptr", "handle")):
+        return 8
+    if any(token in normalized for token in ("_word", "uint16", "int16", "ushort", "wchar")):
+        return 2
+    if any(token in normalized for token in ("_byte", "uint8", "int8", "uchar", "char", "byte", "bool")):
+        return 1
+    return 4
+
+
+def _has_size_sketch(sizes: list[object]) -> bool:
+    for item in sizes:
+        relation = str(getattr(item, "valid_relation", "") or getattr(item, "relation", "") or "")
+        value = str(getattr(item, "valid_value", "") or getattr(item, "value", "") or "")
+        if relation in {"==", ">="} and value != "":
+            return True
+    return False
+
+
+def _structure_quality_level(
+    *,
+    has_field_layout: bool,
+    has_size_sketch: bool,
+    suspicious_count: int,
+) -> str:
+    if has_field_layout and has_size_sketch:
+        return "field_and_size"
+    if has_field_layout:
+        return "field_layout"
+    if has_size_sketch:
+        return "size_only"
+    if suspicious_count:
+        return "suspicious_only"
+    return "weak_contract"
+
+
+def _structure_quality_score(
+    *,
+    has_field_layout: bool,
+    has_size_sketch: bool,
+    helper_accesses: list[object],
+    overlap_count: int,
+    suspicious_count: int,
+) -> float:
+    score = 0.0
+    if has_field_layout:
+        score += 0.58
+    if has_size_sketch:
+        score += 0.28
+    if helper_accesses:
+        score += 0.08
+    if overlap_count == 0:
+        score += 0.04
+    if suspicious_count == 0:
+        score += 0.02
+    score -= min(0.25, suspicious_count * 0.08)
+    score -= min(0.12, overlap_count * 0.02)
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def _case_structure_quality_level(buffer_quality: object) -> str:
+    items = list(buffer_quality or [])
+    if not items:
+        return "none"
+    levels = {str(item.get("structure_quality_level", "") or "") for item in items if isinstance(item, dict)}
+    if "field_and_size" in levels:
+        return "field_and_size"
+    if "field_layout" in levels:
+        return "field_layout"
+    if "size_only" in levels:
+        return "size_only"
+    if "suspicious_only" in levels:
+        return "suspicious_only"
+    return "weak_contract"
+
+
+def _case_structure_quality_score(buffer_quality: object) -> float:
+    scores = [
+        float(item.get("structure_quality_score", 0.0) or 0.0)
+        for item in list(buffer_quality or [])
+        if isinstance(item, dict)
+    ]
+    if not scores:
+        return 0.0
+    return round(max(scores), 3)
 
 
 def _blocking_warning_messages(
@@ -635,6 +990,23 @@ def _build_coverage_summary(
         "helper_capture_unavailable": 0,
         "warnings": 0,
         "blocking_warnings": 0,
+        "layout_field_offsets": 0,
+        "layout_bytes_covered": 0,
+        "layout_overlap_count": 0,
+        "suspicious_layout_offsets": 0,
+        "hard_size_requirements": 0,
+        "likely_size_predicates": 0,
+        "hard_user_field_requirements": 0,
+        "likely_user_field_requirements": 0,
+        "output_only_field_observations": 0,
+        "context_field_observations": 0,
+        "field_predicates_total": 0,
+        "field_predicates_classified": 0,
+        "field_backed_structure_cases": 0,
+        "clean_field_backed_structure_cases": 0,
+        "structure_quality_cases_passed": 0,
+        "size_only_structure_cases": 0,
+        "weak_structure_cases": 0,
     }
     cases: list[dict[str, Any]] = []
     zero_contract_cases: list[str] = []
@@ -649,6 +1021,10 @@ def _build_coverage_summary(
     path_families: list[dict[str, Any]] = []
     path_families_with_unresolved: list[str] = []
     zero_contract_audit: list[dict[str, Any]] = []
+    weak_structure_cases: list[str] = []
+    suspicious_layout_cases: list[str] = []
+    size_only_structure_cases: list[str] = []
+    user_field_requirement_cases: list[str] = []
     for record in target_records:
         status = str(record.get("status", "unknown"))
         status_counts[status] = status_counts.get(status, 0) + 1
@@ -703,6 +1079,26 @@ def _build_coverage_summary(
             "helper_capture_status_counts": dict(record.get("helper_capture_status_counts", {}) or {}),
             "helper_capture_unavailable": list(record.get("helper_capture_unavailable", []) or []),
             "zero_contract": dict(record.get("zero_contract", {}) or {}),
+            "layout_field_offsets": int(record.get("layout_field_offsets", 0) or 0),
+            "layout_bytes_covered": int(record.get("layout_bytes_covered", 0) or 0),
+            "layout_overlap_count": int(record.get("layout_overlap_count", 0) or 0),
+            "suspicious_layout_offsets": int(record.get("suspicious_layout_offsets", 0) or 0),
+            "hard_size_requirements": int(record.get("hard_size_requirements", 0) or 0),
+            "likely_size_predicates": int(record.get("likely_size_predicates", 0) or 0),
+            "hard_user_field_requirements": int(record.get("hard_user_field_requirements", 0) or 0),
+            "likely_user_field_requirements": int(record.get("likely_user_field_requirements", 0) or 0),
+            "output_only_field_observations": int(record.get("output_only_field_observations", 0) or 0),
+            "context_field_observations": int(record.get("context_field_observations", 0) or 0),
+            "field_predicates_total": int(record.get("field_predicates_total", 0) or 0),
+            "field_predicates_classified": int(record.get("field_predicates_classified", 0) or 0),
+            "field_backed_structure_cases": _record_field_backed_structure_cases(record),
+            "clean_field_backed_structure_cases": _record_clean_field_backed_structure_cases(record),
+            "structure_quality_cases_passed": int(record.get("structure_quality_cases_passed", 0) or 0),
+            "size_only_structure_cases": int(record.get("size_only_structure_cases", 0) or 0),
+            "weak_structure_cases": int(record.get("weak_structure_cases", 0) or 0),
+            "structure_quality_level": record.get("structure_quality_level", "none"),
+            "structure_quality_score": float(record.get("structure_quality_score", 0.0) or 0.0),
+            "buffer_quality": list(record.get("buffer_quality", []) or []),
             "text_path": record.get("text_path", ""),
             "json_path": record.get("json_path", ""),
         }
@@ -742,6 +1138,14 @@ def _build_coverage_summary(
             blocking_warning_cases.append(case_label)
         if case_entry["helper_edges_unresolved"]:
             unresolved_helper_cases.append(case_label)
+        if case_entry["weak_structure_cases"]:
+            weak_structure_cases.append(case_label)
+        if case_entry["suspicious_layout_offsets"]:
+            suspicious_layout_cases.append(case_label)
+        if case_entry["size_only_structure_cases"]:
+            size_only_structure_cases.append(case_label)
+        if case_entry["hard_user_field_requirements"] or case_entry["likely_user_field_requirements"]:
+            user_field_requirement_cases.append(case_label)
         for classification, count in case_entry["helper_edge_class_counts"].items():
             helper_edge_class_counts_total[str(classification)] = (
                 helper_edge_class_counts_total.get(str(classification), 0) + int(count or 0)
@@ -777,6 +1181,7 @@ def _build_coverage_summary(
         path_families=path_families,
         zero_contract_audit=zero_contract_audit,
     )
+    quality_gate = _build_quality_gate(totals, cases)
     return {
         "schema": "pseudoforge_selector_coverage_summary_v1",
         "out_dir": str(out_dir),
@@ -791,6 +1196,10 @@ def _build_coverage_summary(
         "warning_cases": warning_cases,
         "blocking_warning_cases": blocking_warning_cases,
         "unresolved_helper_cases": unresolved_helper_cases,
+        "weak_structure_cases": weak_structure_cases,
+        "suspicious_layout_cases": suspicious_layout_cases,
+        "size_only_structure_cases": size_only_structure_cases,
+        "user_field_requirement_cases": user_field_requirement_cases,
         "helper_edge_class_counts": dict(sorted(helper_edge_class_counts_total.items())),
         "helper_capture_status_counts": dict(sorted(helper_capture_status_counts_total.items())),
         "helper_capture_unavailable": helper_capture_unavailable,
@@ -800,8 +1209,110 @@ def _build_coverage_summary(
         "path_families_with_unresolved": path_families_with_unresolved,
         "path_families": path_families,
         "recovery_gate": recovery_gate,
+        "quality_gate": quality_gate,
         "cases": cases,
     }
+
+
+def _build_quality_gate(totals: dict[str, int], cases: list[dict[str, Any]]) -> dict[str, Any]:
+    buffer_cases = [
+        item
+        for item in cases
+        if int(item.get("buffers", 0) or 0) > 0
+    ]
+    total_buffer_cases = len(buffer_cases)
+    field_backed_cases = sum(
+        1
+        for item in buffer_cases
+        if int(item.get("field_backed_structure_cases", 0) or 0) > 0
+    )
+    clean_field_backed_cases = sum(
+        1
+        for item in buffer_cases
+        if int(item.get("clean_field_backed_structure_cases", 0) or 0) > 0
+    )
+    structure_ratio = (field_backed_cases / total_buffer_cases) if total_buffer_cases else 1.0
+    clean_structure_ratio = (
+        clean_field_backed_cases / total_buffer_cases
+    ) if total_buffer_cases else 1.0
+    field_total = int(totals.get("field_predicates_total", 0) or 0)
+    field_classified = int(totals.get("field_predicates_classified", 0) or 0)
+    field_ratio = (field_classified / field_total) if field_total else 1.0
+    checks = [
+        {
+            "name": "structure_quality_90_percent",
+            "passed": structure_ratio >= 0.90,
+            "detail": "field_backed=%d total=%d ratio=%.3f" % (
+                field_backed_cases,
+                total_buffer_cases,
+                structure_ratio,
+            ),
+        },
+        {
+            "name": "clean_structure_quality_90_percent",
+            "passed": clean_structure_ratio >= 0.90,
+            "detail": "clean_field_backed=%d total=%d ratio=%.3f" % (
+                clean_field_backed_cases,
+                total_buffer_cases,
+                clean_structure_ratio,
+            ),
+        },
+        {
+            "name": "field_predicate_classification_95_percent",
+            "passed": field_ratio >= 0.95,
+            "detail": "classified=%d total=%d ratio=%.3f" % (
+                field_classified,
+                field_total,
+                field_ratio,
+            ),
+        },
+    ]
+    passed = all(bool(item["passed"]) for item in checks)
+    return {
+        "schema": "pseudoforge_selector_quality_gate_v1",
+        "status": "passed" if passed else "incomplete",
+        "level": "quality_ledger_candidate" if passed else "quality_gaps_present",
+        "passed": passed,
+        "structure_quality_ratio": round(structure_ratio, 3),
+        "clean_structure_quality_ratio": round(clean_structure_ratio, 3),
+        "field_predicate_classification_ratio": round(field_ratio, 3),
+        "checks": checks,
+        "blockers": [item["name"] for item in checks if not bool(item["passed"])],
+    }
+
+
+def _record_field_backed_structure_cases(record: dict[str, Any]) -> int:
+    explicit = record.get("field_backed_structure_cases")
+    if explicit is not None:
+        return int(explicit or 0)
+    buffer_quality = list(record.get("buffer_quality", []) or [])
+    if buffer_quality:
+        return sum(
+            1
+            for item in buffer_quality
+            if isinstance(item, dict) and int(item.get("layout_field_offsets", 0) or 0) > 0
+        )
+    return 1 if int(record.get("layout_field_offsets", 0) or 0) > 0 else 0
+
+
+def _record_clean_field_backed_structure_cases(record: dict[str, Any]) -> int:
+    explicit = record.get("clean_field_backed_structure_cases")
+    if explicit is not None:
+        return int(explicit or 0)
+    buffer_quality = list(record.get("buffer_quality", []) or [])
+    if buffer_quality:
+        return sum(
+            1
+            for item in buffer_quality
+            if (
+                isinstance(item, dict)
+                and int(item.get("layout_field_offsets", 0) or 0) > 0
+                and int(item.get("suspicious_layout_offsets", 0) or 0) == 0
+            )
+        )
+    if int(record.get("layout_field_offsets", 0) or 0) <= 0:
+        return 0
+    return 1 if int(record.get("suspicious_layout_offsets", 0) or 0) == 0 else 0
 
 
 def _build_recovery_gate(
@@ -918,6 +1429,23 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
         "helper_capture_unavailable",
         "warnings",
         "blocking_warnings",
+        "layout_field_offsets",
+        "layout_bytes_covered",
+        "layout_overlap_count",
+        "suspicious_layout_offsets",
+        "hard_size_requirements",
+        "likely_size_predicates",
+        "hard_user_field_requirements",
+        "likely_user_field_requirements",
+        "output_only_field_observations",
+        "context_field_observations",
+        "field_predicates_total",
+        "field_predicates_classified",
+        "field_backed_structure_cases",
+        "clean_field_backed_structure_cases",
+        "structure_quality_cases_passed",
+        "size_only_structure_cases",
+        "weak_structure_cases",
     ]
     for key in metric_order:
         lines.append("| `%s` | %s |" % (key, totals.get(key, 0)))
@@ -930,6 +1458,10 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
             "- Warning cases: %s" % _markdown_case_list(summary.get("warning_cases", [])),
             "- Blocking-warning cases: %s" % _markdown_case_list(summary.get("blocking_warning_cases", [])),
             "- Unresolved-helper cases: %s" % _markdown_case_list(summary.get("unresolved_helper_cases", [])),
+            "- Weak-structure cases: %s" % _markdown_case_list(summary.get("weak_structure_cases", [])),
+            "- Suspicious-layout cases: %s" % _markdown_case_list(summary.get("suspicious_layout_cases", [])),
+            "- Size-only structure cases: %s" % _markdown_case_list(summary.get("size_only_structure_cases", [])),
+            "- User-field requirement cases: %s" % _markdown_case_list(summary.get("user_field_requirement_cases", [])),
             "",
             "## Recovery Gate",
             "",
@@ -959,6 +1491,67 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
         lines.append("")
     else:
         lines.extend(["No recovery gate was produced.", ""])
+    quality_gate = dict(summary.get("quality_gate", {}) or {})
+    lines.extend(["## Recovery Quality Ledger", ""])
+    if quality_gate:
+        lines.extend(
+            [
+                "- Status: `%s`" % quality_gate.get("status", ""),
+                "- Level: `%s`" % quality_gate.get("level", ""),
+                "- Field-backed structure ratio: `%s`" % quality_gate.get("structure_quality_ratio", ""),
+                "- Clean field-backed structure ratio: `%s`"
+                % quality_gate.get("clean_structure_quality_ratio", ""),
+                "- Field predicate classification ratio: `%s`"
+                % quality_gate.get("field_predicate_classification_ratio", ""),
+                "",
+                "| Check | Passed | Detail |",
+                "| --- | --- | --- |",
+            ]
+        )
+        for check in quality_gate.get("checks", []) or []:
+            lines.append(
+                "| `%s` | `%s` | %s |"
+                % (
+                    check.get("name", ""),
+                    check.get("passed", False),
+                    _markdown_table_text(str(check.get("detail", "") or "")),
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["No recovery quality gate was produced.", ""])
+    quality_cases = [
+        case
+        for case in summary.get("cases", []) or []
+        if int(case.get("buffers", 0) or 0) > 0
+    ]
+    if quality_cases:
+        lines.extend(
+            [
+                "| Case | Name | Struct Quality | Score | Offsets | Bytes | Field-Backed | Clean | Hard Size | Hard Fields | Likely Fields | Output Observations | Suspicious |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for case in quality_cases:
+            lines.append(
+                "| `%s` | %s | `%s` | %.3f | %s | %s | %s | %s | %s | %s | %s | %s | %s |"
+                % (
+                    case.get("case", ""),
+                    _markdown_table_text(str(case.get("command_name", "") or "")),
+                    _markdown_table_text(str(case.get("structure_quality_level", "") or "")),
+                    float(case.get("structure_quality_score", 0.0) or 0.0),
+                    case.get("layout_field_offsets", 0),
+                    case.get("layout_bytes_covered", 0),
+                    case.get("field_backed_structure_cases", 0),
+                    case.get("clean_field_backed_structure_cases", 0),
+                    case.get("hard_size_requirements", 0),
+                    case.get("hard_user_field_requirements", 0),
+                    case.get("likely_user_field_requirements", 0),
+                    case.get("output_only_field_observations", 0),
+                    case.get("suspicious_layout_offsets", 0),
+                )
+            )
+        lines.append("")
     zero_contract_audit = list(summary.get("zero_contract_audit", []) or [])
     lines.extend(["## Zero-Contract Audit", ""])
     if zero_contract_audit:

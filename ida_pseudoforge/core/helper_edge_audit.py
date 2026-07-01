@@ -12,8 +12,13 @@ from ida_pseudoforge.profiles.loader import load_kernel_api_family
 def helper_edge_audit_records(contracts: list[CommandBufferContract]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for contract in contracts:
-        for path, edge in _iter_edges(contract.helper_edges):
-            record = classify_helper_edge(edge)
+        primary_buffers = _contract_primary_buffers(contract)
+        for path, edge, covered_by_ancestor in _iter_edges_with_context(contract.helper_edges):
+            record = classify_helper_edge(
+                edge,
+                covered_by_ancestor_contract=covered_by_ancestor,
+                primary_buffers=primary_buffers,
+            )
             record.update(
                 {
                     "command_value": contract.command_value,
@@ -42,10 +47,18 @@ def blocking_unresolved_helper_edge_records(records: list[dict[str, Any]]) -> li
 def helper_path_family_records(contracts: list[CommandBufferContract]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for contract in contracts:
+        primary_buffers = _contract_primary_buffers(contract)
         for index, edge in enumerate(contract.helper_edges):
-            audit = [classify_helper_edge(item) for _path, item in _iter_edges([edge])]
-            metrics = _edge_tree_metrics(edge)
-            root = classify_helper_edge(edge)
+            audit = [
+                classify_helper_edge(
+                    item,
+                    covered_by_ancestor_contract=covered_by_ancestor,
+                    primary_buffers=primary_buffers,
+                )
+                for _path, item, covered_by_ancestor in _iter_edges_with_context([edge])
+            ]
+            metrics = _edge_tree_metrics(edge, primary_buffers=primary_buffers)
+            root = classify_helper_edge(edge, primary_buffers=primary_buffers)
             records.append(
                 {
                     "command_value": contract.command_value,
@@ -69,7 +82,12 @@ def helper_path_family_records(contracts: list[CommandBufferContract]) -> list[d
     return records
 
 
-def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
+def classify_helper_edge(
+    edge: HelperContractEdge,
+    *,
+    covered_by_ancestor_contract: bool = False,
+    primary_buffers: set[str] | None = None,
+) -> dict[str, Any]:
     warnings = [str(item) for item in edge.warnings if str(item)]
     warning_text = " ".join(warnings).lower()
     callee = edge.callee or ""
@@ -97,6 +115,16 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
             severity = depth_summary["severity"]
             reason = depth_summary["reason"]
             next_action = depth_summary["next_action"]
+            blocks_recovery = False
+        elif _depth_limit_is_helper_local_after_contract_evidence(
+            edge,
+            covered_by_ancestor_contract,
+            primary_buffers or set(),
+        ):
+            classification = "depth_limit_helper_local_context"
+            severity = "info"
+            reason = "maximum helper depth stopped in helper-local context after caller buffer evidence was recovered"
+            next_action = "none"
             blocks_recovery = False
         else:
             classification = "depth_limit_reached"
@@ -197,17 +225,46 @@ def _iter_edges(edges: list[HelperContractEdge], prefix: str = "") -> list[tuple
     return result
 
 
+def _iter_edges_with_context(
+    edges: list[HelperContractEdge],
+    prefix: str = "",
+    covered_by_ancestor_contract: bool = False,
+) -> list[tuple[str, HelperContractEdge, bool]]:
+    result: list[tuple[str, HelperContractEdge, bool]] = []
+    for index, edge in enumerate(edges):
+        path = ("%s.%d" % (prefix, index)) if prefix else str(index)
+        result.append((path, edge, covered_by_ancestor_contract))
+        child_covered = covered_by_ancestor_contract or _edge_has_direct_contract_evidence(edge)
+        result.extend(_iter_edges_with_context(edge.nested_edges, path, child_covered))
+    return result
+
+
 def _edge_has_contract_evidence(edge: HelperContractEdge) -> bool:
     return bool(
-        edge.propagated_size_constraints
-        or edge.propagated_field_accesses
-        or edge.propagated_field_constraints
+        _edge_has_direct_contract_evidence(edge)
         or edge.nested_edges
     )
 
 
-def _edge_tree_metrics(edge: HelperContractEdge) -> dict[str, int]:
-    audit = classify_helper_edge(edge)
+def _edge_has_direct_contract_evidence(edge: HelperContractEdge) -> bool:
+    return bool(
+        edge.propagated_size_constraints
+        or edge.propagated_field_accesses
+        or edge.propagated_field_constraints
+    )
+
+
+def _edge_tree_metrics(
+    edge: HelperContractEdge,
+    *,
+    primary_buffers: set[str],
+    covered_by_ancestor_contract: bool = False,
+) -> dict[str, int]:
+    audit = classify_helper_edge(
+        edge,
+        covered_by_ancestor_contract=covered_by_ancestor_contract,
+        primary_buffers=primary_buffers,
+    )
     metrics = {
         "edge_count": 1,
         "unresolved_edges": 0 if edge.resolved else 1,
@@ -217,11 +274,37 @@ def _edge_tree_metrics(edge: HelperContractEdge) -> dict[str, int]:
         "field_constraints": len(edge.propagated_field_constraints),
         "warnings": len(edge.warnings),
     }
+    child_covered = covered_by_ancestor_contract or _edge_has_direct_contract_evidence(edge)
     for nested in edge.nested_edges:
-        nested_metrics = _edge_tree_metrics(nested)
+        nested_metrics = _edge_tree_metrics(
+            nested,
+            primary_buffers=primary_buffers,
+            covered_by_ancestor_contract=child_covered,
+        )
         for key, value in nested_metrics.items():
             metrics[key] += value
     return metrics
+
+
+def _contract_primary_buffers(contract: CommandBufferContract) -> set[str]:
+    return {
+        str(buffer.variable or "")
+        for buffer in contract.buffers
+        if str(buffer.variable or "")
+    }
+
+
+def _depth_limit_is_helper_local_after_contract_evidence(
+    edge: HelperContractEdge,
+    covered_by_ancestor_contract: bool,
+    primary_buffers: set[str],
+) -> bool:
+    if not covered_by_ancestor_contract or not primary_buffers:
+        return False
+    if _edge_has_direct_contract_evidence(edge):
+        return False
+    passed = {str(buffer or "") for buffer in edge.passed_buffers if str(buffer or "")}
+    return bool(passed) and not bool(passed & primary_buffers)
 
 
 @lru_cache(maxsize=4096)
