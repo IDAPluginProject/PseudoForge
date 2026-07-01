@@ -54,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     report_path = Path(args.report) if args.report else out_dir / "pseudoforge-case-contracts.jsonl"
     explicit_targets = [_parse_target(text) for text in args.target]
     reporter = _JsonlReporter(report_path)
+    target_records: list[dict[str, Any]] = []
     exit_code = 0
     started = time.monotonic()
 
@@ -85,16 +86,31 @@ def main(argv: list[str] | None = None) -> int:
                 }
             )
             record = _analyze_target(function_name, case_value, out_dir, source_path, args.helper_depth)
+            target_records.append(record)
             reporter.write(record)
             if record.get("status") != "ok":
                 exit_code = 1
                 if args.stop_on_error:
                     break
+        coverage = _build_coverage_summary(
+            target_records,
+            out_dir=out_dir,
+            source_path=source_path,
+            helper_depth=args.helper_depth,
+            elapsed_seconds=round(time.monotonic() - started, 3),
+            exit_code=exit_code,
+        )
+        coverage_json_path = out_dir / "selector-coverage-summary.json"
+        coverage_md_path = out_dir / "selector-coverage-summary.md"
+        coverage_json_path.write_text(json.dumps(coverage, indent=2, ensure_ascii=True), encoding="utf-8")
+        coverage_md_path.write_text(_render_coverage_markdown(coverage), encoding="utf-8")
         reporter.write(
             {
                 "event": "summary",
                 "elapsed_seconds": round(time.monotonic() - started, 3),
                 "exit_code": exit_code,
+                "coverage_json_path": str(coverage_json_path),
+                "coverage_md_path": str(coverage_md_path),
             }
         )
     except Exception as exc:
@@ -268,6 +284,8 @@ def _analyze_target(
             "function": capture.name or function_name,
             "function_ea": "0x%X" % capture.ea,
             "case": "0x%X" % case_value,
+            "case_value": case_value,
+            "command_name": _case_name_for_value(plan, case_value),
             "contracts": len(contracts),
             "helpers": _count_helper_edges(contracts),
             "buffers": sum(len(contract.buffers) for contract in contracts),
@@ -277,6 +295,7 @@ def _analyze_target(
             "helper_depth": helper_depth,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
+        summary.update(_contract_metrics(contracts))
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=True), encoding="utf-8")
         return {"event": "target", "status": "ok", **summary}
     except Exception as exc:
@@ -301,6 +320,250 @@ def _count_helper_edges(contracts: list[object]) -> int:
 
 def _count_edge(edge: object) -> int:
     return 1 + sum(_count_edge(nested) for nested in getattr(edge, "nested_edges", []))
+
+
+def _case_name_for_value(plan: object, case_value: int) -> str:
+    for flow in getattr(plan, "flow_rewrites", []):
+        names = getattr(flow, "case_names", {}) or {}
+        name = names.get(case_value)
+        if name:
+            return str(name)
+    return ""
+
+
+def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {
+        "local_size_constraints": 0,
+        "local_field_accesses": 0,
+        "local_field_constraints": 0,
+        "helper_size_constraints": 0,
+        "helper_field_accesses": 0,
+        "helper_field_constraints": 0,
+        "helper_edges_total": 0,
+        "helper_edges_resolved": 0,
+        "helper_edges_unresolved": 0,
+        "warnings": 0,
+        "warning_messages": [],
+        "buffer_names": [],
+    }
+    warning_messages: list[str] = []
+    buffer_names: list[str] = []
+    for contract in contracts:
+        warning_messages.extend(str(item) for item in getattr(contract, "warnings", []) or [])
+        for buffer in getattr(contract, "buffers", []) or []:
+            name = str(getattr(buffer, "variable", "") or "")
+            if name and name not in buffer_names:
+                buffer_names.append(name)
+            metrics["local_size_constraints"] += len(getattr(buffer, "size_constraints", []) or [])
+            metrics["local_field_accesses"] += len(getattr(buffer, "field_accesses", []) or [])
+            metrics["local_field_constraints"] += len(getattr(buffer, "field_constraints", []) or [])
+        edge_metrics = _helper_edge_metrics(getattr(contract, "helper_edges", []) or [])
+        metrics["helper_size_constraints"] += edge_metrics["helper_size_constraints"]
+        metrics["helper_field_accesses"] += edge_metrics["helper_field_accesses"]
+        metrics["helper_field_constraints"] += edge_metrics["helper_field_constraints"]
+        metrics["helper_edges_total"] += edge_metrics["helper_edges_total"]
+        metrics["helper_edges_resolved"] += edge_metrics["helper_edges_resolved"]
+        metrics["helper_edges_unresolved"] += edge_metrics["helper_edges_unresolved"]
+        warning_messages.extend(edge_metrics["warning_messages"])
+    metrics["warnings"] = len(warning_messages)
+    metrics["warning_messages"] = sorted(set(warning_messages))
+    metrics["buffer_names"] = buffer_names
+    return metrics
+
+
+def _helper_edge_metrics(edges: list[object]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {
+        "helper_size_constraints": 0,
+        "helper_field_accesses": 0,
+        "helper_field_constraints": 0,
+        "helper_edges_total": 0,
+        "helper_edges_resolved": 0,
+        "helper_edges_unresolved": 0,
+        "warning_messages": [],
+    }
+    warning_messages: list[str] = []
+    for edge in edges:
+        metrics["helper_edges_total"] += 1
+        if getattr(edge, "resolved", False):
+            metrics["helper_edges_resolved"] += 1
+        else:
+            metrics["helper_edges_unresolved"] += 1
+        metrics["helper_size_constraints"] += len(getattr(edge, "propagated_size_constraints", []) or [])
+        metrics["helper_field_accesses"] += len(getattr(edge, "propagated_field_accesses", []) or [])
+        metrics["helper_field_constraints"] += len(getattr(edge, "propagated_field_constraints", []) or [])
+        warning_messages.extend(str(item) for item in getattr(edge, "warnings", []) or [])
+        nested = _helper_edge_metrics(getattr(edge, "nested_edges", []) or [])
+        metrics["helper_size_constraints"] += nested["helper_size_constraints"]
+        metrics["helper_field_accesses"] += nested["helper_field_accesses"]
+        metrics["helper_field_constraints"] += nested["helper_field_constraints"]
+        metrics["helper_edges_total"] += nested["helper_edges_total"]
+        metrics["helper_edges_resolved"] += nested["helper_edges_resolved"]
+        metrics["helper_edges_unresolved"] += nested["helper_edges_unresolved"]
+        warning_messages.extend(nested["warning_messages"])
+    metrics["warning_messages"] = warning_messages
+    return metrics
+
+
+def _build_coverage_summary(
+    target_records: list[dict[str, Any]],
+    *,
+    out_dir: Path,
+    source_path: str,
+    helper_depth: int,
+    elapsed_seconds: float,
+    exit_code: int,
+) -> dict[str, Any]:
+    status_counts: dict[str, int] = {}
+    totals = {
+        "targets": len(target_records),
+        "contracts": 0,
+        "buffers": 0,
+        "helpers": 0,
+        "local_size_constraints": 0,
+        "local_field_accesses": 0,
+        "local_field_constraints": 0,
+        "helper_size_constraints": 0,
+        "helper_field_accesses": 0,
+        "helper_field_constraints": 0,
+        "helper_edges_total": 0,
+        "helper_edges_resolved": 0,
+        "helper_edges_unresolved": 0,
+        "warnings": 0,
+    }
+    cases: list[dict[str, Any]] = []
+    zero_contract_cases: list[str] = []
+    warning_cases: list[str] = []
+    unresolved_helper_cases: list[str] = []
+    for record in target_records:
+        status = str(record.get("status", "unknown"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+        case_label = str(record.get("case", ""))
+        case_entry = {
+            "function": record.get("function", ""),
+            "case": case_label,
+            "case_value": record.get("case_value"),
+            "command_name": record.get("command_name", ""),
+            "status": status,
+            "contracts": int(record.get("contracts", 0) or 0),
+            "buffers": int(record.get("buffers", 0) or 0),
+            "helpers": int(record.get("helpers", 0) or 0),
+            "local_size_constraints": int(record.get("local_size_constraints", 0) or 0),
+            "local_field_accesses": int(record.get("local_field_accesses", 0) or 0),
+            "local_field_constraints": int(record.get("local_field_constraints", 0) or 0),
+            "helper_size_constraints": int(record.get("helper_size_constraints", 0) or 0),
+            "helper_field_accesses": int(record.get("helper_field_accesses", 0) or 0),
+            "helper_field_constraints": int(record.get("helper_field_constraints", 0) or 0),
+            "helper_edges_total": int(record.get("helper_edges_total", 0) or 0),
+            "helper_edges_resolved": int(record.get("helper_edges_resolved", 0) or 0),
+            "helper_edges_unresolved": int(record.get("helper_edges_unresolved", 0) or 0),
+            "warnings": int(record.get("warnings", 0) or 0),
+            "warning_messages": list(record.get("warning_messages", []) or []),
+            "text_path": record.get("text_path", ""),
+            "json_path": record.get("json_path", ""),
+        }
+        cases.append(case_entry)
+        for key in totals:
+            if key == "targets":
+                continue
+            totals[key] += int(case_entry.get(key, 0) or 0)
+        if status == "ok" and case_entry["contracts"] == 0:
+            zero_contract_cases.append(case_label)
+        if case_entry["warnings"]:
+            warning_cases.append(case_label)
+        if case_entry["helper_edges_unresolved"]:
+            unresolved_helper_cases.append(case_label)
+    return {
+        "schema": "pseudoforge_selector_coverage_summary_v1",
+        "out_dir": str(out_dir),
+        "source_path": source_path,
+        "helper_depth": helper_depth,
+        "elapsed_seconds": elapsed_seconds,
+        "exit_code": exit_code,
+        "status_counts": status_counts,
+        "totals": totals,
+        "zero_contract_cases": zero_contract_cases,
+        "warning_cases": warning_cases,
+        "unresolved_helper_cases": unresolved_helper_cases,
+        "cases": cases,
+    }
+
+
+def _render_coverage_markdown(summary: dict[str, Any]) -> str:
+    totals = summary.get("totals", {}) or {}
+    lines = [
+        "# PseudoForge Selector Coverage Summary",
+        "",
+        "- Source: `%s`" % summary.get("source_path", ""),
+        "- Helper depth: `%s`" % summary.get("helper_depth", ""),
+        "- Exit code: `%s`" % summary.get("exit_code", ""),
+        "- Elapsed seconds: `%s`" % summary.get("elapsed_seconds", ""),
+        "",
+        "## Totals",
+        "",
+        "| Metric | Count |",
+        "| --- | ---: |",
+    ]
+    metric_order = [
+        "targets",
+        "contracts",
+        "buffers",
+        "helpers",
+        "local_size_constraints",
+        "local_field_accesses",
+        "local_field_constraints",
+        "helper_size_constraints",
+        "helper_field_accesses",
+        "helper_field_constraints",
+        "helper_edges_total",
+        "helper_edges_resolved",
+        "helper_edges_unresolved",
+        "warnings",
+    ]
+    for key in metric_order:
+        lines.append("| `%s` | %s |" % (key, totals.get(key, 0)))
+    lines.extend(
+        [
+            "",
+            "## Attention Lists",
+            "",
+            "- Zero-contract cases: %s" % _markdown_case_list(summary.get("zero_contract_cases", [])),
+            "- Warning cases: %s" % _markdown_case_list(summary.get("warning_cases", [])),
+            "- Unresolved-helper cases: %s" % _markdown_case_list(summary.get("unresolved_helper_cases", [])),
+            "",
+            "## Cases",
+            "",
+            "| Case | Name | Status | Contracts | Buffers | Helper fields | Helper preds | Unresolved helpers | Warnings |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for case in summary.get("cases", []) or []:
+        lines.append(
+            "| `%s` | %s | `%s` | %s | %s | %s | %s | %s | %s |"
+            % (
+                case.get("case", ""),
+                _markdown_table_text(str(case.get("command_name", "") or "")),
+                case.get("status", ""),
+                case.get("contracts", 0),
+                case.get("buffers", 0),
+                case.get("helper_field_accesses", 0),
+                case.get("helper_field_constraints", 0),
+                case.get("helper_edges_unresolved", 0),
+                case.get("warnings", 0),
+            )
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _markdown_case_list(values: object) -> str:
+    items = [str(item) for item in values or []]
+    if not items:
+        return "none"
+    return ", ".join("`%s`" % item for item in items)
+
+
+def _markdown_table_text(value: str) -> str:
+    return (value or "").replace("|", "\\|") or "-"
 
 
 def _input_path() -> str:

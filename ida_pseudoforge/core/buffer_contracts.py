@@ -75,7 +75,30 @@ _INDEXED_MEMBER_RE = re.compile(
     r"\b(?P<buffer>%s)\s*\[\s*(?P<index>\d+)\s*\]\s*\.\s*"
     r"(?P<member>%s)\s*\[\s*(?P<member_index>\d+)\s*\]" % (_IDENT_RE, _IDENT_RE)
 )
+_POINTER_INDEX_RE = re.compile(
+    r"\b(?P<buffer>%s)\s*\[\s*(?P<index>\d+)\s*\](?!\s*\.)" % _IDENT_RE
+)
+_PLAIN_POINTER_DEREF_RE = re.compile(r"\*\s*(?P<buffer>%s)\b" % _IDENT_RE)
 _ASSIGNMENT_RE = re.compile(r"(?P<left>[^=<>!]+?)\s*=\s*(?!=)(?P<right>.+?);")
+_BUFFER_COPY_ASSIGN_RE = re.compile(
+    r"^\s*(?P<local>%s)\s*=\s*(?P<expr>\*\s*(?P<plain>%s)|(?P<indexed>%s)\s*\[\s*(?P<index>\d+)\s*\])\s*;"
+    % (_IDENT_RE, _IDENT_RE, _IDENT_RE)
+)
+_LOCAL_ACCESSOR_RE = re.compile(
+    r"\b(?P<accessor>(?:LO|HI)(?:BYTE|WORD|DWORD)|(?:BYTE|WORD|DWORD|QWORD)\d+)\s*"
+    r"\(\s*(?P<local>%s)\s*\)" % _IDENT_RE
+)
+_LOCAL_CAST_RE = re.compile(
+    r"\(\s*(?P<type>_?BYTE|_?WORD|_?DWORD|_?QWORD|unsigned\s+int|int|ULONG|LONG|__int64|unsigned\s+__int64)\s*\)"
+    r"\s*(?P<local>%s)\b" % _IDENT_RE
+)
+_LOCAL_ADDRESS_DEREF_RE = re.compile(
+    r"\*\s*\(\s*(?P<type>[_A-Za-z][A-Za-z0-9_\s]*?)\s*\*+\s*\)\s*&\s*(?P<local>%s)\b" % _IDENT_RE
+)
+_LOCAL_MEMBER_RE = re.compile(
+    r"\b(?P<local>%s)\s*\.\s*(?P<member>m128i_[iu](?:8|16|32|64))\s*\[\s*(?P<member_index>\d+)\s*\]"
+    % _IDENT_RE
+)
 _CALL_NAME_RE = re.compile(r"\b(?P<name>%s)\s*\(" % _IDENT_RE)
 _INDIRECT_CALL_TARGET_RE = re.compile(r"\)\s*(?P<name>%s)\s*\)\s*\(" % _IDENT_RE)
 _CAST_OFFSET_ACCESS_RE = re.compile(
@@ -3083,12 +3106,15 @@ def _recover_size_constraints(
     result: list[BufferSizeConstraint] = []
     seen = set()
     known_lengths = known_lengths or set()
+    literal_aliases = _literal_assignments_from_lines(lines)
     for index, line in enumerate(lines):
         stripped = line.strip()
         valid_from_reject = _line_has_reject_outcome(lines, index)
         for match in _LENGTH_COMPARE_RE.finditer(stripped):
             left = _canonical_length_operand(_clean_operand(match.group("left")), length_aliases)
             right = _canonical_length_operand(_clean_operand(match.group("right")), length_aliases)
+            left = _literal_alias_value(left, literal_aliases)
+            right = _literal_alias_value(right, literal_aliases)
             op = match.group("op")
             if _is_known_length_operand(left, known_lengths) and _looks_like_constraint_value(right):
                 length, relation, value = left, op, right
@@ -3176,6 +3202,10 @@ def _canonical_length_operand(value: str, aliases: dict[str, str] | None) -> str
     return operand
 
 
+def _literal_alias_value(value: str, literal_aliases: dict[str, str]) -> str:
+    return literal_aliases.get(value, value)
+
+
 def _line_has_reject_outcome(lines: list[str], index: int) -> bool:
     current = (lines[index] if 0 <= index < len(lines) else "").strip()
     if not current.startswith("if"):
@@ -3201,6 +3231,21 @@ def _line_has_reject_outcome(lines: list[str], index: int) -> bool:
         return True
     if re.search(r"\b(?:goto|break|return)\b", outcome_text) and _has_error_status_assignment(outcome_text):
         return True
+    for match in _GOTO_LABEL_RE.finditer(outcome_text):
+        if _label_has_error_outcome(lines, match.group("label")):
+            return True
+    return False
+
+
+def _label_has_error_outcome(lines: list[str], label: str, max_lines: int = 6) -> bool:
+    if not label:
+        return False
+    label_re = re.compile(r"^\s*%s\s*:" % re.escape(label))
+    for index, line in enumerate(lines):
+        if not label_re.match(line or ""):
+            continue
+        window = "\n".join(item.strip() for item in lines[index + 1:index + 1 + max_lines] if item.strip())
+        return _has_error_status_return(window) or _has_error_status_assignment(window)
     return False
 
 
@@ -3209,7 +3254,12 @@ def _has_error_status_return(text: str) -> bool:
 
 
 def _has_error_status_assignment(text: str) -> bool:
-    return any(_is_error_status_literal(match.group("value")) for match in _ASSIGN_STATUS_LITERAL_RE.finditer(text or ""))
+    if any(_is_error_status_literal(match.group("value")) for match in _ASSIGN_STATUS_LITERAL_RE.finditer(text or "")):
+        return True
+    return any(
+        _is_error_status_literal(match.group("value"))
+        for match in re.finditer(r"=\s*(?P<value>%s)\s*;" % _C_INTEGER_LITERAL_VALUE_RE, text or "")
+    )
 
 
 def _is_error_status_literal(value: str) -> bool:
@@ -3266,11 +3316,14 @@ def _recover_field_accesses(
     buffer_sources: dict[str, dict[str, str]],
     source: str = "local",
     typed_field_layouts: dict[str, dict[str, dict[str, object]]] | None = None,
+    buffer_element_types: dict[str, tuple[str, int]] | None = None,
 ) -> list[FieldAccess]:
     result: list[FieldAccess] = []
     access_by_key: dict[tuple[str, int, str, str], FieldAccess] = {}
     known_buffers = set(buffer_sources)
     typed_field_layouts = typed_field_layouts or {}
+    buffer_element_types = buffer_element_types or {}
+    copy_aliases = _buffer_copy_aliases(lines, known_buffers, buffer_element_types)
     for line in lines:
         stripped = line.strip()
         left_expr = _assignment_left(stripped)
@@ -3367,7 +3420,199 @@ def _recover_field_accesses(
                 confidence=0.7,
             )
             _merge_field_access(access_by_key, item)
+        for match in _POINTER_INDEX_RE.finditer(stripped):
+            if ";" not in stripped:
+                continue
+            buffer = match.group("buffer")
+            if buffer not in known_buffers and not _looks_like_buffer_name(buffer):
+                continue
+            element_type, element_size = _buffer_element_type_and_size(buffer, buffer_element_types)
+            offset = int(match.group("index")) * element_size
+            item = FieldAccess(
+                buffer=buffer,
+                structure="",
+                offset=offset,
+                type=_normalize_c_type(element_type),
+                field=_field_name(offset),
+                access=_access_kind(match.group(0), left_expr),
+                evidence=stripped,
+                source=source,
+                confidence=0.70,
+            )
+            _merge_field_access(access_by_key, item)
+        for match in _PLAIN_POINTER_DEREF_RE.finditer(stripped):
+            if ";" not in stripped:
+                continue
+            buffer = match.group("buffer")
+            if buffer not in known_buffers and not _looks_like_buffer_name(buffer):
+                continue
+            element_type, _element_size = _buffer_element_type_and_size(buffer, buffer_element_types)
+            item = FieldAccess(
+                buffer=buffer,
+                structure="",
+                offset=0,
+                type=_normalize_c_type(element_type),
+                field=_field_name(0),
+                access=_access_kind(match.group(0), left_expr),
+                evidence=stripped,
+                source=source,
+                confidence=0.70,
+            )
+            _merge_field_access(access_by_key, item)
+        for item in _alias_field_accesses(stripped, left_expr, copy_aliases, source):
+            _merge_field_access(access_by_key, item)
     return list(access_by_key.values())
+
+
+def _buffer_copy_aliases(
+    lines: list[str],
+    known_buffers: set[str],
+    buffer_element_types: dict[str, tuple[str, int]],
+) -> dict[str, tuple[str, int, str, int]]:
+    result: dict[str, tuple[str, int, str, int]] = {}
+    for line in lines:
+        match = _BUFFER_COPY_ASSIGN_RE.match(line or "")
+        if not match:
+            continue
+        local = match.group("local")
+        plain = match.group("plain")
+        indexed = match.group("indexed")
+        buffer = plain or indexed
+        if buffer not in known_buffers:
+            continue
+        element_type, element_size = _buffer_element_type_and_size(buffer, buffer_element_types)
+        index = int(match.group("index") or "0")
+        result[local] = (buffer, index * element_size, element_type, element_size)
+    return result
+
+
+def _buffer_element_type_and_size(
+    buffer: str,
+    buffer_element_types: dict[str, tuple[str, int]],
+) -> tuple[str, int]:
+    element_type, element_size = buffer_element_types.get(buffer, ("_BYTE", 1))
+    return element_type or "_BYTE", max(1, int(element_size or 1))
+
+
+def _alias_field_accesses(
+    line: str,
+    left_expr: str,
+    copy_aliases: dict[str, tuple[str, int, str, int]],
+    source: str,
+) -> list[FieldAccess]:
+    result: list[FieldAccess] = []
+    for match in _LOCAL_ACCESSOR_RE.finditer(line):
+        item = _alias_field_access(
+            match.group("local"),
+            _accessor_offset_type(match.group("accessor")),
+            match.group(0),
+            line,
+            left_expr,
+            copy_aliases,
+            source,
+        )
+        if item is not None:
+            result.append(item)
+    for match in _LOCAL_CAST_RE.finditer(line):
+        item = _alias_field_access(
+            match.group("local"),
+            (0, _normalize_c_type(match.group("type")), _sizeof_type(match.group("type"))),
+            match.group(0),
+            line,
+            left_expr,
+            copy_aliases,
+            source,
+        )
+        if item is not None:
+            result.append(item)
+    for match in _LOCAL_ADDRESS_DEREF_RE.finditer(line):
+        item = _alias_field_access(
+            match.group("local"),
+            (0, _normalize_c_type(match.group("type")), _sizeof_type(match.group("type"))),
+            match.group(0),
+            line,
+            left_expr,
+            copy_aliases,
+            source,
+        )
+        if item is not None:
+            result.append(item)
+    for match in _LOCAL_MEMBER_RE.finditer(line):
+        local = match.group("local")
+        member = match.group("member")
+        member_size = _indexed_member_element_size(member)
+        if member_size <= 0:
+            continue
+        item = _alias_field_access(
+            local,
+            (
+                int(match.group("member_index")) * member_size,
+                _indexed_member_element_type(member),
+                member_size,
+            ),
+            match.group(0),
+            line,
+            left_expr,
+            copy_aliases,
+            source,
+        )
+        if item is not None:
+            result.append(item)
+    return result
+
+
+def _alias_field_access(
+    local: str,
+    access_info: tuple[int, str, int] | None,
+    expression: str,
+    line: str,
+    left_expr: str,
+    copy_aliases: dict[str, tuple[str, int, str, int]],
+    source: str,
+) -> FieldAccess | None:
+    if access_info is None or local not in copy_aliases:
+        return None
+    buffer, base_offset, _element_type, _element_size = copy_aliases[local]
+    relative_offset, field_type, _field_size = access_info
+    offset = base_offset + relative_offset
+    return FieldAccess(
+        buffer=buffer,
+        structure="",
+        offset=offset,
+        type=_normalize_c_type(field_type),
+        field=_field_name(offset),
+        access=_access_kind(expression, left_expr),
+        evidence=line,
+        source=source,
+        confidence=0.68,
+    )
+
+
+def _accessor_offset_type(accessor: str) -> tuple[int, str, int] | None:
+    normalized = (accessor or "").upper()
+    direct = {
+        "LOBYTE": (0, "UCHAR", 1),
+        "HIBYTE": (1, "UCHAR", 1),
+        "LOWORD": (0, "USHORT", 2),
+        "HIWORD": (2, "USHORT", 2),
+        "LODWORD": (0, "ULONG", 4),
+        "HIDWORD": (4, "ULONG", 4),
+    }
+    if normalized in direct:
+        return direct[normalized]
+    match = re.match(r"^(?P<kind>BYTE|WORD|DWORD|QWORD)(?P<index>\d+)$", normalized)
+    if not match:
+        return None
+    kind = match.group("kind")
+    index = int(match.group("index"))
+    size_type = {
+        "BYTE": (1, "UCHAR"),
+        "WORD": (2, "USHORT"),
+        "DWORD": (4, "ULONG"),
+        "QWORD": (8, "ULONGLONG"),
+    }[kind]
+    size, type_text = size_type
+    return index * size, type_text, size
 
 
 def _indexed_member_element_size(member: str) -> int:
@@ -4078,6 +4323,40 @@ def _typed_field_layouts_for_params(
     return result
 
 
+def _typed_pointer_elements_for_params(
+    params: list[tuple[str, str]],
+    rename_map: dict[str, str],
+) -> dict[str, tuple[str, int]]:
+    result: dict[str, tuple[str, int]] = {}
+    for param_name, type_text in params:
+        buffer = rename_map.get(param_name, param_name)
+        if not buffer:
+            continue
+        element = _pointer_element_type_and_size(type_text)
+        if element is not None:
+            result[buffer] = element
+    return result
+
+
+def _pointer_element_type_and_size(type_text: str) -> tuple[str, int] | None:
+    raw = str(type_text or "").strip()
+    cleaned = _clean_profile_type(raw)
+    if "*" not in raw and not _profile_type_is_pointer(cleaned):
+        return None
+    element_type = cleaned.replace("*", "").strip()
+    aliases = load_kernel_api_family("aliases")
+    alias = aliases.get(cleaned, {}) if isinstance(aliases, dict) else {}
+    if isinstance(alias, dict):
+        target = _clean_profile_type(str(alias.get("target", "") or ""))
+        if target:
+            element_type = target.replace("*", "").strip()
+    if cleaned.startswith("P") and "*" not in cleaned and len(cleaned) > 1:
+        element_type = cleaned[1:]
+    if not element_type:
+        element_type = "_BYTE"
+    return element_type, _sizeof_type(element_type)
+
+
 @lru_cache(maxsize=512)
 def _profile_field_layout_for_pointer_type(type_text: str) -> dict[str, dict[str, object]]:
     structure_name = _profile_structure_name_from_pointer_type(type_text)
@@ -4278,6 +4557,7 @@ def _analyze_helper_edge(
     helper_lines = helper_text.splitlines()
     helper_length_aliases = _infer_length_aliases(helper_text)
     typed_field_layouts = _typed_field_layouts_for_params(params, rename_map)
+    buffer_element_types = _typed_pointer_elements_for_params(params, rename_map)
     helper_sources: dict[str, dict[str, str]] = {}
     for name in set(passed_buffers):
         length = (
@@ -4297,6 +4577,7 @@ def _analyze_helper_edge(
         helper_sources,
         source="helper:%s" % helper.name,
         typed_field_layouts=typed_field_layouts,
+        buffer_element_types=buffer_element_types,
     )
     field_constraints = _recover_field_constraints(helper_lines, field_accesses, source="helper:%s" % helper.name)
     propagated_sizes = [
@@ -4335,6 +4616,8 @@ def _should_rename_helper_param(
     passed_buffers: list[str],
 ) -> bool:
     if argument_identifier in set(passed_buffers):
+        return True
+    if _looks_like_length_name(argument_identifier):
         return True
     if _helper_param_looks_like_length(param_name, type_text):
         return True
@@ -4623,6 +4906,8 @@ def _sizeof_type(type_text: str) -> int:
         return 2
     if normalized in {"ULONG", "LONG", "DWORD", "_DWORD", "int", "unsigned int"}:
         return 4
+    if normalized in {"__int128", "_OWORD", "__m128i", "__m128"}:
+        return 16
     return 8
 
 

@@ -793,6 +793,97 @@ NTSTATUS __fastcall ExpRegisterFirmwareTableInformationHandler(
 """
 
 
+NTSET_SYSTEM_SUPERFETCH_COPY_ALIAS_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        PVOID systemInformation,
+        __int64 systemInformationLength)
+{
+  switch ( systemInformationClass )
+  {
+    case SystemSuperfetchInformation:
+      return (unsigned int)PfSetSuperfetchInformation(79LL, (__int128 *)systemInformation, systemInformationLength, previousMode);
+    default:
+      return STATUS_INVALID_INFO_CLASS;
+  }
+}
+"""
+
+
+SUPERFETCH_COPY_ALIAS_HELPER_SAMPLE = r"""
+__int64 __fastcall PfSetSuperfetchInformation(__int64 a1, __int128 *a2, int a3, KPROCESSOR_MODE a4)
+{
+  int v12;
+  __int128 v30;
+  __int128 v31;
+
+  if ( a3 != 32 )
+  {
+    LODWORD(v12) = -1073741820;
+    goto LABEL_13;
+  }
+  v30 = *a2;
+  v31 = a2[1];
+  if ( (_QWORD)v30 != 0x6B7568430000002DLL )
+    goto LABEL_26;
+  if ( DWORD2(v30) != 3 )
+    goto LABEL_26;
+  if ( DWORD2(v31) != 24 )
+    goto LABEL_45;
+  if ( a4 && (v31 & 7) != 0 )
+    ExRaiseDatatypeMisalignment();
+  return 0LL;
+LABEL_26:
+  LODWORD(v12) = -1073741811;
+  goto LABEL_13;
+LABEL_45:
+  LODWORD(v12) = -1073741306;
+LABEL_13:
+  return (unsigned int)v12;
+}
+"""
+
+
+NTSET_SYSTEM_LITERAL_SIZE_ALIAS_SAMPLE = r"""
+NTSTATUS NTAPI NtSetSystemInformation(
+        SYSTEM_INFORMATION_CLASS systemInformationClass,
+        PVOID systemInformation,
+        __int64 systemInformationLength)
+{
+  unsigned int expectedLength;
+
+  switch ( systemInformationClass )
+  {
+    case SystemTimeZoneInformation:
+      expectedLength = 172;
+      if ( (_DWORD)systemInformationLength != expectedLength )
+      {
+        return STATUS_INFO_LENGTH_MISMATCH;
+      }
+      return (ULONG)ExpSetTimeZoneInformation((_OWORD *)systemInformation, expectedLength);
+    default:
+      return STATUS_INVALID_INFO_CLASS;
+  }
+}
+"""
+
+
+TIME_ZONE_POINTER_INDEX_HELPER_SAMPLE = r"""
+NTSTATUS __fastcall ExpSetTimeZoneInformation(_OWORD *a1, int a2)
+{
+  _OWORD v14[10];
+
+  if ( a2 == 172 )
+  {
+    v14[0] = *a1;
+    v14[1] = a1[1];
+    return STATUS_SUCCESS;
+  }
+  return STATUS_INFO_LENGTH_MISMATCH;
+}
+"""
+
+
 NESTED_SWITCH_SAMPLE = r"""
 NTSTATUS __fastcall DispatchNested(PDEVICE_OBJECT deviceObject, PIRP irp)
 {
@@ -1781,6 +1872,95 @@ class BufferContractTests(unittest.TestCase):
         self.assertIn("std::uint8_t Register;", header)
         self.assertIn("PFNFTH FirmwareTableHandler;", header)
         self.assertIn("void * DriverObject;", header)
+
+    def test_helper_copy_aliases_project_field_guards_to_caller_buffer(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_SUPERFETCH_COPY_ALIAS_SAMPLE)
+        helper = capture_from_pseudocode(SUPERFETCH_COPY_ALIAS_HELPER_SAMPLE)
+
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"PfSetSuperfetchInformation": helper},
+            buffer_contract_case_values=[79],
+        )
+
+        self.assertEqual([79], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        buffer = contract.buffers[0]
+        self.assertEqual("systemInformation", buffer.variable)
+        helper_edge = contract.helper_edges[0]
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "!="
+                and item.value == "32"
+                and item.valid_relation == "=="
+                and item.valid_value == "32"
+                for item in helper_edge.propagated_size_constraints
+            )
+        )
+        self.assertTrue(any(item.offset == 0x00 for item in helper_edge.propagated_field_accesses))
+        self.assertTrue(any(item.offset == 0x10 for item in helper_edge.propagated_field_accesses))
+        self.assertTrue(
+            any(
+                item.offset == 0x00
+                and item.relation == "!="
+                and item.value == "0x6B7568430000002DLL"
+                and item.valid_relation == "=="
+                for item in helper_edge.propagated_field_constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.offset == 0x08
+                and item.relation == "!="
+                and item.value == "3"
+                and item.valid_relation == "=="
+                for item in helper_edge.propagated_field_constraints
+            )
+        )
+        self.assertTrue(
+            any(
+                item.offset == 0x18
+                and item.relation == "!="
+                and item.value == "24"
+                and item.valid_relation == "=="
+                for item in helper_edge.propagated_field_constraints
+            )
+        )
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("PF_SYSTEM_SystemSuperfetchInformation_INPUT_SIZE = 0x20", header)
+        self.assertIn("__int128 field_0x00;", header)
+        self.assertIn("std::uint32_t field_0x08;", header)
+        self.assertIn("std::uint32_t field_0x18;", header)
+
+    def test_literal_size_alias_and_pointer_index_helper_fields_are_recovered(self) -> None:
+        capture = capture_from_pseudocode(NTSET_SYSTEM_LITERAL_SIZE_ALIAS_SAMPLE)
+        helper = capture_from_pseudocode(TIME_ZONE_POINTER_INDEX_HELPER_SAMPLE)
+
+        plan = build_clean_plan(
+            capture,
+            helper_captures={"ExpSetTimeZoneInformation": helper},
+            buffer_contract_case_values=[93],
+        )
+
+        self.assertEqual([93], [contract.command_value for contract in plan.buffer_contracts])
+        contract = plan.buffer_contracts[0]
+        buffer = contract.buffers[0]
+        self.assertTrue(
+            any(
+                item.length == "systemInformationLength"
+                and item.relation == "!="
+                and item.value == "172"
+                and item.valid_relation == "=="
+                for item in buffer.size_constraints
+            )
+        )
+        helper_edge = contract.helper_edges[0]
+        self.assertTrue(any(item.offset == 0 for item in helper_edge.propagated_field_accesses))
+        self.assertTrue(any(item.offset == 0x10 for item in helper_edge.propagated_field_accesses))
+        header = render_buffer_struct_header(capture, plan.buffer_contracts)
+        self.assertIn("PF_SYSTEM_SystemTimeZoneInformation_INPUT_SIZE = 0xAC", header)
+        self.assertIn("std::uint8_t reserved_0x08[8];", header)
 
     def test_ntset_parameter_fallback_uses_prototype_name_when_capture_name_empty(self) -> None:
         capture = FunctionCapture(
