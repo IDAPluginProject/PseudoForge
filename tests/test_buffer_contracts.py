@@ -9,6 +9,7 @@ from ida_pseudoforge.core.capture import capture_from_pseudocode
 from ida_pseudoforge.core.buffer_contracts import (
     _infer_buffer_sources,
     _iter_helper_call_sites,
+    _recover_helper_edges,
     find_case_value_near_line,
     helper_names_for_selected_case,
     recover_buffer_contracts,
@@ -1642,6 +1643,39 @@ class BufferContractTests(unittest.TestCase):
         record = classify_helper_edge(edge)
 
         self.assertEqual("helper_capture_missing", record["classification"])
+        self.assertTrue(record["blocks_recovery"])
+
+    def test_guard_dispatch_target_argument_is_not_payload_buffer(self) -> None:
+        edges = _recover_helper_edges(
+            "guard_dispatch_icall_no_overrides(Object, v4);",
+            {"Object": {"source": "helper argument", "role": "input"}},
+            {},
+            max_depth=2,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual([], edges)
+
+    def test_guard_dispatch_payload_buffer_records_target_expression(self) -> None:
+        edges = _recover_helper_edges(
+            "guard_dispatch_icall_no_overrides(v5, systemInformation);",
+            {"systemInformation": {"source": "parameter", "role": "input"}},
+            {},
+            max_depth=2,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual(1, len(edges))
+        edge = edges[0]
+        self.assertEqual(["systemInformation"], edge.passed_buffers)
+        self.assertIn("indirect dispatch target argument: v5", edge.warnings)
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("indirect_dispatch_target_unresolved", record["classification"])
+        self.assertEqual("v5", record["indirect_target"])
         self.assertTrue(record["blocks_recovery"])
 
     def test_helper_only_case_still_emits_buffer_struct_fields(self) -> None:

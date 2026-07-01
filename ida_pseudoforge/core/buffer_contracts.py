@@ -4164,7 +4164,8 @@ def _recover_helper_edges(
         if edge_key in seen_edges:
             continue
         seen_edges.add(edge_key)
-        passed_buffers = _passed_buffer_arguments(arguments, known_buffers)
+        payload_arguments = _helper_payload_arguments(site)
+        passed_buffers = _passed_buffer_arguments(payload_arguments, known_buffers)
         if not passed_buffers:
             continue
         helper = helper_map.get(callee)
@@ -4224,7 +4225,8 @@ def _depth_limited_helper_edges(
         if edge_key in seen_edges:
             continue
         seen_edges.add(edge_key)
-        passed_buffers = _passed_buffer_arguments(arguments, known_buffers)
+        payload_arguments = _helper_payload_arguments(site)
+        passed_buffers = _passed_buffer_arguments(payload_arguments, known_buffers)
         if not passed_buffers:
             continue
         warnings = [
@@ -4249,6 +4251,16 @@ def _depth_limited_helper_edges(
 
 
 def _missing_helper_warnings(site: _HelperCallSite) -> list[str]:
+    if _is_indirect_dispatch_thunk(site.callee):
+        warnings = [
+            "indirect helper call target not resolved",
+            "helper not available for buffer contract analysis",
+            "buffer pointer escapes to unresolved indirect call",
+        ]
+        target = _indirect_dispatch_target_argument(site)
+        if target:
+            warnings.append("indirect dispatch target argument: %s" % target)
+        return warnings
     if site.indirect:
         return [
             "indirect helper call target not resolved",
@@ -4259,6 +4271,23 @@ def _missing_helper_warnings(site: _HelperCallSite) -> list[str]:
         "helper not available for buffer contract analysis",
         "buffer pointer escapes to unknown function",
     ]
+
+
+def _helper_payload_arguments(site: _HelperCallSite) -> list[str]:
+    if _is_indirect_dispatch_thunk(site.callee) and site.arguments:
+        return list(site.arguments[1:])
+    return list(site.arguments)
+
+
+def _indirect_dispatch_target_argument(site: _HelperCallSite) -> str:
+    if not _is_indirect_dispatch_thunk(site.callee) or not site.arguments:
+        return ""
+    return str(site.arguments[0] or "").strip()
+
+
+def _is_indirect_dispatch_thunk(callee: str) -> bool:
+    lowered = str(callee or "").lower()
+    return "guard_dispatch_icall" in lowered
 
 
 def _passed_buffer_arguments(arguments: list[str], known_buffers: set[str]) -> list[str]:
