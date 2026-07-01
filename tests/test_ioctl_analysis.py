@@ -18,6 +18,36 @@ from tests.test_buffer_contracts import (
 )
 
 
+LIKELY_REQUIREMENT_SAMPLE = r"""
+NTSTATUS __fastcall DispatchLikely(PDEVICE_OBJECT deviceObject, PIRP irp)
+{
+  NTSTATUS status;
+  PVOID systemBuffer;
+  ULONG inputBufferLength;
+  ULONG ioControlCode;
+
+  switch ( ioControlCode )
+  {
+    case 0x81230000:
+      if ( inputBufferLength == 32 )
+      {
+        if ( *(_DWORD *)systemBuffer == 7 )
+        {
+          status = STATUS_SUCCESS;
+          break;
+        }
+      }
+      status = STATUS_INVALID_PARAMETER;
+      break;
+    default:
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      break;
+  }
+  return status;
+}
+"""
+
+
 class IoctlAnalysisTests(unittest.TestCase):
     def test_ioctl_deep_analysis_reports_structs_and_meaningful_path_requirements(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
@@ -87,6 +117,29 @@ class IoctlAnalysisTests(unittest.TestCase):
 
         self.assertIn("Selector: `0x1D` (`29`)", report)
         self.assertIn("No selector buffer structures were inferred", report)
+
+    def test_selector_report_includes_helper_edge_audit(self) -> None:
+        capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[0x91234008])
+
+        report = render_ioctl_deep_analysis_report(capture, plan, 0x91234008)
+
+        self.assertIn("Helper Edge Audit", report)
+        self.assertIn("helper_capture_missing", report)
+        self.assertIn("MissingHelper", report)
+        self.assertIn("decompile the callee", report)
+        self.assertIn("Helper Path Families", report)
+
+    def test_selector_report_separates_likely_requirements(self) -> None:
+        capture = capture_from_pseudocode(LIKELY_REQUIREMENT_SAMPLE)
+        plan = build_clean_plan(capture, buffer_contract_case_values=[0x81230000])
+
+        report = render_ioctl_deep_analysis_report(capture, plan, 0x81230000)
+
+        self.assertIn("Likely requirements:", report)
+        self.assertIn("inputBufferLength == 32", report)
+        self.assertIn("PF_IOCTL_81230000_INOUT.field_0x00 == 7", report)
+        self.assertIn("Context observations:", report)
 
 
 if __name__ == "__main__":

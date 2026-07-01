@@ -17,8 +17,19 @@ from ida_pseudoforge.core.buffer_contracts import (
 )
 from ida_pseudoforge.core.disasm_contracts import DisasmCaseSlice, DisasmInstruction
 from ida_pseudoforge.core.export_bundle import write_export_bundle
+from ida_pseudoforge.core.helper_edge_audit import (
+    classify_helper_edge,
+    helper_edge_audit_records,
+    unresolved_helper_edge_records,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
-from ida_pseudoforge.core.plan_schema import CleanPlan, FlowRewrite, FunctionCapture, RenameSuggestion
+from ida_pseudoforge.core.plan_schema import (
+    CleanPlan,
+    FlowRewrite,
+    FunctionCapture,
+    HelperContractEdge,
+    RenameSuggestion,
+)
 
 
 IOCTL_CONTRACT_SAMPLE = r"""
@@ -1455,6 +1466,58 @@ class BufferContractTests(unittest.TestCase):
         self.assertFalse(missing_edge.resolved)
         self.assertEqual("MissingHelper", missing_edge.callee)
         self.assertIn("helper not available", " ".join(missing_edge.warnings))
+        audit = helper_edge_audit_records([contracts[0x91234008]])
+        unresolved = unresolved_helper_edge_records(audit)
+        self.assertEqual(1, len(unresolved))
+        self.assertEqual("helper_capture_missing", unresolved[0]["classification"])
+        self.assertEqual("high", unresolved[0]["severity"])
+
+    def test_helper_depth_limit_is_reported_as_auditable_edge(self) -> None:
+        capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
+        helper_capture = capture_from_pseudocode(HELPER_SAMPLE)
+        deep_helper_capture = capture_from_pseudocode(DEEP_HELPER_SAMPLE)
+        plan = build_clean_plan(
+            capture,
+            helper_captures={
+                "QueryConfig": helper_capture,
+                "ValidateConfig": deep_helper_capture,
+            },
+            buffer_contract_case_values=[0x91234000],
+            buffer_contract_helper_depth=1,
+        )
+
+        contract = [item for item in plan.buffer_contracts if item.command_value == 0x91234000][0]
+        audit = helper_edge_audit_records([contract])
+        unresolved = unresolved_helper_edge_records(audit)
+
+        self.assertTrue(any(item["callee"] == "ValidateConfig" for item in unresolved))
+        self.assertTrue(
+            any(
+                item["callee"] == "ValidateConfig"
+                and item["classification"] == "depth_limit_reached"
+                for item in unresolved
+            )
+        )
+
+    def test_profile_known_external_helper_is_summary_gap(self) -> None:
+        edge = HelperContractEdge(
+            callee="RtlEqualUnicodeString",
+            arguments=["String1", "String2", "1"],
+            passed_buffers=["String1"],
+            resolved=False,
+            depth=2,
+            evidence="RtlEqualUnicodeString(String1, String2, 1)",
+            warnings=[
+                "helper not available for buffer contract analysis",
+                "buffer pointer escapes to unknown function",
+            ],
+        )
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("external_api_summary_gap", record["classification"])
+        self.assertEqual("medium", record["severity"])
+        self.assertEqual("wdm.h", record["external_profile"]["header"])
 
     def test_helper_only_case_still_emits_buffer_struct_fields(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)

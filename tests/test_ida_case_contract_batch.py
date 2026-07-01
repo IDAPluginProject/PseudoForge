@@ -116,6 +116,29 @@ class IdaCaseContractBatchTests(unittest.TestCase):
             targets,
         )
 
+    def test_zero_contract_context_classifies_no_buffer_status_case(self) -> None:
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="Dispatch",
+            input_fingerprint="fixture",
+            flow_rewrites=[
+                FlowRewrite(
+                    kind="switch_recovery",
+                    dispatcher="selector",
+                    recovered_cases=[0x10],
+                    case_bodies={
+                        0x10: [
+                            "return STATUS_NOT_SUPPORTED;",
+                        ]
+                    },
+                )
+            ],
+        )
+
+        context = batch._zero_contract_context(plan, 0x10, [])
+
+        self.assertEqual("no_buffer_immediate_status", context["zero_contract"]["classification"])
+
     def test_contract_metrics_separate_local_and_helper_evidence(self) -> None:
         contract = CommandBufferContract(
             dispatcher_kind="ntset_system",
@@ -161,7 +184,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
             ],
             helper_edges=[
                 HelperContractEdge(
-                    callee="PfSetSuperfetchInformation",
+                    callee="MissingSuperfetchHelper",
                     resolved=False,
                     propagated_size_constraints=[
                         BufferSizeConstraint(
@@ -191,7 +214,10 @@ class IdaCaseContractBatchTests(unittest.TestCase):
                             value="8",
                         )
                     ],
-                    warnings=["unresolved helper edge"],
+                    warnings=[
+                        "helper not available for buffer contract analysis",
+                        "buffer pointer escapes to unknown function",
+                    ],
                 )
             ],
             warnings=["case warning"],
@@ -206,8 +232,23 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(1, metrics["helper_field_accesses"])
         self.assertEqual(1, metrics["helper_field_constraints"])
         self.assertEqual(1, metrics["helper_edges_unresolved"])
-        self.assertEqual(2, metrics["warnings"])
+        self.assertEqual(3, metrics["warnings"])
         self.assertEqual(["systemInformation"], metrics["buffer_names"])
+        self.assertEqual(1, len(metrics["helper_edge_audit"]))
+        self.assertEqual(
+            {"helper_capture_missing": 1},
+            metrics["helper_edge_class_counts"],
+        )
+        self.assertEqual(1, len(metrics["unresolved_helper_edge_audit"]))
+        self.assertEqual(
+            "helper_capture_missing",
+            metrics["unresolved_helper_edge_audit"][0]["classification"],
+        )
+        self.assertEqual(1, len(metrics["helper_path_families"]))
+        self.assertEqual(
+            "MissingSuperfetchHelper",
+            metrics["helper_path_families"][0]["root_callee"],
+        )
 
     def test_coverage_summary_tracks_zero_warning_and_unresolved_cases(self) -> None:
         summary = batch._build_coverage_summary(
@@ -233,6 +274,32 @@ class IdaCaseContractBatchTests(unittest.TestCase):
                     "helper_edges_unresolved": 1,
                     "warnings": 1,
                     "warning_messages": ["unresolved helper edge"],
+                    "helper_edge_class_counts": {
+                        "helper_capture_missing": 1,
+                    },
+                    "helper_path_families": [
+                        {
+                            "family_id": "0x4F:0:MissingSuperfetchHelper",
+                            "root_callee": "MissingSuperfetchHelper",
+                            "root_classification": "helper_capture_missing",
+                            "edge_count": 1,
+                            "unresolved_edges": 1,
+                            "field_accesses": 5,
+                            "field_constraints": 2,
+                            "warnings": 1,
+                        }
+                    ],
+                    "unresolved_helper_edge_audit": [
+                        {
+                            "command": "0x4F",
+                            "callee": "MissingSuperfetchHelper",
+                            "classification": "helper_capture_missing",
+                            "severity": "high",
+                            "depth": 1,
+                            "passed_buffers": ["systemInformation"],
+                            "next_action": "decompile the callee",
+                        }
+                    ],
                 },
                 {
                     "status": "error",
@@ -253,13 +320,28 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(3, summary["totals"]["targets"])
         self.assertEqual(1, summary["totals"]["contracts"])
         self.assertEqual(["0x4A"], summary["zero_contract_cases"])
+        self.assertEqual(1, len(summary["zero_contract_audit"]))
+        self.assertEqual("unknown_unclassified", summary["zero_contract_audit"][0]["classification"])
         self.assertEqual(["0x4F"], summary["warning_cases"])
         self.assertEqual(["0x4F"], summary["unresolved_helper_cases"])
+        self.assertEqual({"helper_capture_missing": 1}, summary["helper_edge_class_counts"])
+        self.assertEqual(1, len(summary["unresolved_helper_edge_audit"]))
+        self.assertEqual(1, summary["path_family_count"])
+        self.assertEqual(["0x4F:0:MissingSuperfetchHelper"], summary["path_families_with_unresolved"])
+        self.assertEqual("failed", summary["recovery_gate"]["status"])
+        self.assertEqual("insufficient_evidence", summary["recovery_gate"]["level"])
+        self.assertIn("no_unresolved_helper_edges", summary["recovery_gate"]["blockers"])
 
         markdown = batch._render_coverage_markdown(summary)
         self.assertIn("`0x4A`", markdown)
         self.assertIn("SystemSuperfetchInformation", markdown)
         self.assertIn("| `0x4F` |", markdown)
+        self.assertIn("MissingSuperfetchHelper", markdown)
+        self.assertIn("helper_capture_missing", markdown)
+        self.assertIn("Helper Path Families", markdown)
+        self.assertIn("Recovery Gate", markdown)
+        self.assertIn("insufficient_evidence", markdown)
+        self.assertIn("Zero-Contract Audit", markdown)
 
 
 if __name__ == "__main__":

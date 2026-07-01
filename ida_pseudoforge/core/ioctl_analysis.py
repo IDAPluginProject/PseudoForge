@@ -5,6 +5,12 @@ from ida_pseudoforge.core.buffer_contracts import (
     render_case_context_report,
 )
 from ida_pseudoforge.core.helper_depth import DEFAULT_HELPER_DEPTH, normalize_helper_depth
+from ida_pseudoforge.core.helper_edge_audit import (
+    helper_edge_audit_records,
+    helper_edge_class_counts,
+    helper_path_family_records,
+    unresolved_helper_edge_records,
+)
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, format_ctl_code
 from ida_pseudoforge.core.plan_schema import (
     BufferContract,
@@ -81,6 +87,8 @@ def render_selector_path_analysis_report(
     lines.extend(_render_schema_hypotheses(contracts))
     lines.extend(_render_meaningful_path_requirements(contracts))
     lines.extend(_render_helper_propagation(contracts))
+    lines.extend(_render_helper_edge_audit(contracts))
+    lines.extend(_render_helper_path_families(contracts))
     if context_report:
         lines.append("# Selected Case Context")
         lines.append("")
@@ -207,41 +215,81 @@ def _render_meaningful_path_requirements(contracts: list[CommandBufferContract])
         lines.append("")
         return lines
 
-    size_rows: list[str] = []
-    field_rows: list[str] = []
+    hard_size_rows: list[str] = []
+    hard_field_rows: list[str] = []
+    likely_size_rows: list[str] = []
+    likely_field_rows: list[str] = []
+    context_rows: list[str] = []
     for contract in contracts:
         for buffer in contract.buffers:
             for item in _all_size_constraints(contract, buffer):
-                row = _format_size_requirement(item)
-                if row:
-                    size_rows.append(row)
+                hard_row = _format_size_requirement(item)
+                if hard_row:
+                    hard_size_rows.append(hard_row)
+                    continue
+                likely_row = _format_likely_size_requirement(item)
+                if likely_row:
+                    likely_size_rows.append(likely_row)
             for item in _all_field_constraints(contract, buffer):
-                row = _format_field_requirement(buffer, item)
-                if row:
-                    field_rows.append(row)
+                hard_row = _format_field_requirement(buffer, item)
+                if hard_row:
+                    hard_field_rows.append(hard_row)
+                    continue
+                likely_row = _format_likely_field_requirement(buffer, item)
+                if likely_row:
+                    likely_field_rows.append(likely_row)
+            context_rows.extend(_field_access_context_rows(contract, buffer))
 
-    size_rows = _dedupe(size_rows)
-    field_rows = _dedupe(field_rows)
-    if size_rows:
+    hard_size_rows = _dedupe(hard_size_rows)
+    hard_field_rows = _dedupe(hard_field_rows)
+    likely_size_rows = _dedupe(likely_size_rows)
+    likely_field_rows = _dedupe(likely_field_rows)
+    context_rows = _dedupe(context_rows)
+
+    lines.append("Hard requirements:")
+    lines.append("")
+    if hard_size_rows:
         lines.append("Length requirements:")
         lines.append("")
-        for row in size_rows:
+        for row in hard_size_rows:
             lines.append("- %s" % row)
         lines.append("")
     else:
         lines.append("Length requirements: none recovered from local rejection guards.")
         lines.append("")
-    if field_rows:
+    if hard_field_rows:
         lines.append("Field requirements:")
         lines.append("")
-        for row in field_rows:
+        for row in hard_field_rows:
             lines.append("- %s" % row)
         lines.append("")
     else:
         lines.append("Field requirements: none recovered from local rejection guards.")
         lines.append("")
+    lines.append("Likely requirements:")
+    lines.append("")
+    if likely_size_rows or likely_field_rows:
+        for row in likely_size_rows:
+            lines.append("- %s" % row)
+        for row in likely_field_rows:
+            lines.append("- %s" % row)
+    else:
+        lines.append("- none")
+    lines.append("")
+    lines.append("Context observations:")
+    lines.append("")
+    if context_rows:
+        for row in context_rows[:24]:
+            lines.append("- %s" % row)
+        if len(context_rows) > 24:
+            lines.append("- ... %d more observation(s)" % (len(context_rows) - 24))
+    else:
+        lines.append("- none")
+    lines.append("")
     lines.append(
-        "These are necessary local predicates derived from observed error branches, not a full path satisfiability proof."
+        "Hard rows are derived from observed rejection guards. Likely rows are predicates without a confirmed "
+        "reject outcome. Context rows are access evidence, not requirements. This is not a full path "
+        "satisfiability proof."
     )
     lines.append("")
     return lines
@@ -267,6 +315,77 @@ def _render_helper_propagation(contracts: list[CommandBufferContract]) -> list[s
         )
         for warning in edge.warnings:
             lines.append("  - warning: %s" % warning)
+    lines.append("")
+    return lines
+
+
+def _render_helper_edge_audit(contracts: list[CommandBufferContract]) -> list[str]:
+    lines = ["# Helper Edge Audit", ""]
+    records = helper_edge_audit_records(contracts)
+    if not records:
+        lines.append("No helper edge audit records were produced for this case.")
+        lines.append("")
+        return lines
+
+    counts = helper_edge_class_counts(records)
+    lines.append("Classification counts:")
+    lines.append("")
+    for classification, count in counts.items():
+        lines.append("- `%s`: `%d`" % (classification, count))
+    lines.append("")
+
+    unresolved = unresolved_helper_edge_records(records)
+    if not unresolved:
+        lines.append("Unresolved helper edges: none")
+        lines.append("")
+        return lines
+
+    lines.append("Unresolved helper edges:")
+    lines.append("")
+    for record in unresolved:
+        lines.append(
+            "- `%s`: `%s` severity=`%s`, depth=`%s`, buffers=%s"
+            % (
+                record.get("callee", ""),
+                record.get("classification", ""),
+                record.get("severity", ""),
+                record.get("depth", ""),
+                ", ".join(record.get("passed_buffers", []) or []) or "none",
+            )
+        )
+        lines.append("  - reason: %s" % record.get("reason", ""))
+        lines.append("  - next: %s" % record.get("next_action", ""))
+        if record.get("evidence"):
+            lines.append("  - evidence: `%s`" % record.get("evidence", ""))
+    lines.append("")
+    return lines
+
+
+def _render_helper_path_families(contracts: list[CommandBufferContract]) -> list[str]:
+    lines = ["# Helper Path Families", ""]
+    families = helper_path_family_records(contracts)
+    if not families:
+        lines.append("No helper path families were recovered for this case.")
+        lines.append("")
+        return lines
+    for family in families:
+        lines.append(
+            "- `%s`: root=`%s`, class=`%s`, edges=`%s`, unresolved=`%s`, fields=`%s`, predicates=`%s`"
+            % (
+                family.get("family_id", ""),
+                family.get("root_callee", ""),
+                family.get("root_classification", ""),
+                family.get("edge_count", 0),
+                family.get("unresolved_edges", 0),
+                family.get("field_accesses", 0),
+                family.get("field_constraints", 0),
+            )
+        )
+    lines.append("")
+    lines.append(
+        "Path families are top-level helper evidence groups. They are a partitioning aid, not a complete "
+        "symbolic execution proof."
+    )
     lines.append("")
     return lines
 
@@ -329,6 +448,18 @@ def _format_size_requirement(item: BufferSizeConstraint) -> str:
     )
 
 
+def _format_likely_size_requirement(item: BufferSizeConstraint) -> str:
+    if not item.length or not item.relation or not item.value:
+        return ""
+    return "`%s %s %s` from `%s` [%s]" % (
+        item.length,
+        item.relation,
+        item.value,
+        item.evidence,
+        item.source,
+    )
+
+
 def _format_field_requirement(buffer: BufferContract, item: FieldConstraint) -> str:
     relation = item.valid_relation
     value = item.valid_value
@@ -346,6 +477,43 @@ def _format_field_requirement(buffer: BufferContract, item: FieldConstraint) -> 
     else:
         expression = "%s %s %s" % (field_ref, relation, value)
     return "`%s` from `%s` [%s]" % (expression, item.evidence, item.source)
+
+
+def _format_likely_field_requirement(buffer: BufferContract, item: FieldConstraint) -> str:
+    if not item.relation or not item.value:
+        return ""
+    field_ref = "%s.%s" % (buffer.structure_name, item.field)
+    if item.relation.startswith("mask_"):
+        op = item.relation[len("mask_"):]
+        expression = "(%s & %s) %s %s" % (
+            field_ref,
+            item.mask or "mask",
+            op,
+            item.value,
+        )
+    else:
+        expression = "%s %s %s" % (field_ref, item.relation, item.value)
+    return "`%s` from `%s` [%s]" % (expression, item.evidence, item.source)
+
+
+def _field_access_context_rows(contract: CommandBufferContract, buffer: BufferContract) -> list[str]:
+    constrained_offsets = {item.offset for item in _all_field_constraints(contract, buffer)}
+    rows: list[str] = []
+    for item in _all_field_accesses(contract, buffer):
+        if item.offset in constrained_offsets:
+            continue
+        rows.append(
+            "`%s.%s` accessed as `%s` `%s` from `%s` [%s]"
+            % (
+                buffer.structure_name,
+                item.field,
+                item.type or "unknown",
+                item.access or "access",
+                item.evidence,
+                item.source,
+            )
+        )
+    return rows
 
 
 def _direction_text(role: str) -> str:

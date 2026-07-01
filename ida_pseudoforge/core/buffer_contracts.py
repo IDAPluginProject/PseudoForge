@@ -4153,7 +4153,7 @@ def _recover_helper_edges(
     visited: set[str],
 ) -> list[HelperContractEdge]:
     if depth >= max_depth:
-        return []
+        return _depth_limited_helper_edges(body_text, buffer_sources, depth)
     known_buffers = set(buffer_sources)
     result: list[HelperContractEdge] = []
     seen_edges: set[tuple[str, tuple[str, ...]]] = set()
@@ -4169,6 +4169,7 @@ def _recover_helper_edges(
             continue
         helper = helper_map.get(callee)
         if helper is None:
+            warnings = _missing_helper_warnings(site)
             result.append(
                 HelperContractEdge(
                     callee=callee,
@@ -4177,10 +4178,7 @@ def _recover_helper_edges(
                     resolved=False,
                     depth=depth + 1,
                     evidence=site.evidence,
-                    warnings=[
-                        "helper not available for buffer contract analysis",
-                        "buffer pointer escapes to unknown function",
-                    ],
+                    warnings=warnings,
                     confidence=0.45,
                 )
             )
@@ -4210,6 +4208,57 @@ def _recover_helper_edges(
         )
         result.append(edge)
     return result
+
+
+def _depth_limited_helper_edges(
+    body_text: str,
+    buffer_sources: dict[str, dict[str, str]],
+    depth: int,
+) -> list[HelperContractEdge]:
+    known_buffers = set(buffer_sources)
+    result: list[HelperContractEdge] = []
+    seen_edges: set[tuple[str, tuple[str, ...]]] = set()
+    for site in _iter_helper_call_sites(body_text):
+        arguments = site.arguments
+        edge_key = (site.callee, tuple(arguments))
+        if edge_key in seen_edges:
+            continue
+        seen_edges.add(edge_key)
+        passed_buffers = _passed_buffer_arguments(arguments, known_buffers)
+        if not passed_buffers:
+            continue
+        warnings = [
+            "helper depth limit reached",
+            "helper not analyzed because maximum helper depth was reached",
+        ]
+        if site.indirect:
+            warnings.append("indirect helper call target not resolved")
+        result.append(
+            HelperContractEdge(
+                callee=site.callee,
+                arguments=arguments,
+                passed_buffers=passed_buffers,
+                resolved=False,
+                depth=depth + 1,
+                evidence=site.evidence,
+                warnings=warnings,
+                confidence=0.35,
+            )
+        )
+    return result
+
+
+def _missing_helper_warnings(site: _HelperCallSite) -> list[str]:
+    if site.indirect:
+        return [
+            "indirect helper call target not resolved",
+            "helper not available for buffer contract analysis",
+            "buffer pointer escapes to unresolved indirect call",
+        ]
+    return [
+        "helper not available for buffer contract analysis",
+        "buffer pointer escapes to unknown function",
+    ]
 
 
 def _passed_buffer_arguments(arguments: list[str], known_buffers: set[str]) -> list[str]:

@@ -18,6 +18,12 @@ for module_name in list(sys.modules):
         del sys.modules[module_name]
 
 from ida_pseudoforge.core.buffer_contracts import buffer_contracts_json_payload
+from ida_pseudoforge.core.helper_edge_audit import (
+    helper_edge_audit_records,
+    helper_edge_class_counts,
+    helper_path_family_records,
+    unresolved_helper_edge_records,
+)
 from ida_pseudoforge.core.helper_depth import (
     DEFAULT_HELPER_DEPTH,
     MAX_HELPER_DEPTH,
@@ -296,6 +302,7 @@ def _analyze_target(
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
         summary.update(_contract_metrics(contracts))
+        summary.update(_zero_contract_context(plan, case_value, contracts))
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=True), encoding="utf-8")
         return {"event": "target", "status": "ok", **summary}
     except Exception as exc:
@@ -345,6 +352,10 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
         "warnings": 0,
         "warning_messages": [],
         "buffer_names": [],
+        "helper_edge_audit": [],
+        "helper_edge_class_counts": {},
+        "helper_path_families": [],
+        "unresolved_helper_edge_audit": [],
     }
     warning_messages: list[str] = []
     buffer_names: list[str] = []
@@ -365,10 +376,86 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
         metrics["helper_edges_resolved"] += edge_metrics["helper_edges_resolved"]
         metrics["helper_edges_unresolved"] += edge_metrics["helper_edges_unresolved"]
         warning_messages.extend(edge_metrics["warning_messages"])
+    audit_records = helper_edge_audit_records(contracts)
     metrics["warnings"] = len(warning_messages)
     metrics["warning_messages"] = sorted(set(warning_messages))
     metrics["buffer_names"] = buffer_names
+    metrics["helper_edge_audit"] = audit_records
+    metrics["helper_edge_class_counts"] = helper_edge_class_counts(audit_records)
+    metrics["helper_path_families"] = helper_path_family_records(contracts)
+    metrics["unresolved_helper_edge_audit"] = unresolved_helper_edge_records(audit_records)
     return metrics
+
+
+def _zero_contract_context(plan: object, case_value: int, contracts: list[object]) -> dict[str, Any]:
+    if contracts:
+        return {}
+    body = _case_body_lines_for_value(plan, case_value)
+    text = "\n".join(body)
+    classification = "unknown_unclassified"
+    reason = "no recovered contract and no selected case body was available"
+    if body:
+        has_buffer_reference = _case_body_has_buffer_reference(text)
+        if has_buffer_reference:
+            classification = "no_contract_but_buffer_referenced"
+            reason = "selected case references buffer-like data but no contract was recovered"
+        elif _case_body_is_status_only(text):
+            classification = "no_buffer_immediate_status"
+            reason = "selected case returns or assigns an immediate status without buffer evidence"
+        elif _case_body_has_nonbuffer_call(text):
+            classification = "no_buffer_context_call"
+            reason = "selected case calls a routine without passing buffer-like data"
+        else:
+            classification = "no_buffer_context_only"
+            reason = "selected case has no buffer-like evidence"
+    return {
+        "zero_contract": {
+            "classification": classification,
+            "reason": reason,
+            "evidence": " ".join(line.strip() for line in body[:6] if line.strip()),
+        }
+    }
+
+
+def _case_body_lines_for_value(plan: object, case_value: int) -> list[str]:
+    for flow in getattr(plan, "flow_rewrites", []) or []:
+        bodies = getattr(flow, "case_bodies", {}) or {}
+        body = bodies.get(case_value)
+        if body:
+            return [str(line) for line in body]
+    return []
+
+
+def _case_body_has_buffer_reference(text: str) -> bool:
+    lowered = (text or "").lower()
+    markers = (
+        "buffer",
+        "inputbuffer",
+        "outputbuffer",
+        "systembuffer",
+        "userbuffer",
+        "informationlength",
+        "processinformation",
+        "threadinformation",
+        "systeminformation",
+        "associatedirp",
+        "mdladdress",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _case_body_is_status_only(text: str) -> bool:
+    source = text or ""
+    lowered = source.lower()
+    if "status_" in lowered:
+        return True
+    return bool(re.search(r"\breturn\s+(?:\([^)]+\)\s*)?-?(?:0x[0-9a-fA-F]+|\d+)\s*;", source))
+
+
+def _case_body_has_nonbuffer_call(text: str) -> bool:
+    if _case_body_has_buffer_reference(text):
+        return False
+    return bool(re.search(r"\b[A-Za-z_][A-Za-z0-9_]*\s*\(", text or ""))
 
 
 def _helper_edge_metrics(edges: list[object]) -> dict[str, Any]:
@@ -434,6 +521,11 @@ def _build_coverage_summary(
     zero_contract_cases: list[str] = []
     warning_cases: list[str] = []
     unresolved_helper_cases: list[str] = []
+    helper_edge_class_counts_total: dict[str, int] = {}
+    unresolved_helper_edge_audit: list[dict[str, Any]] = []
+    path_families: list[dict[str, Any]] = []
+    path_families_with_unresolved: list[str] = []
+    zero_contract_audit: list[dict[str, Any]] = []
     for record in target_records:
         status = str(record.get("status", "unknown"))
         status_counts[status] = status_counts.get(status, 0) + 1
@@ -458,6 +550,11 @@ def _build_coverage_summary(
             "helper_edges_unresolved": int(record.get("helper_edges_unresolved", 0) or 0),
             "warnings": int(record.get("warnings", 0) or 0),
             "warning_messages": list(record.get("warning_messages", []) or []),
+            "helper_edge_class_counts": dict(record.get("helper_edge_class_counts", {}) or {}),
+            "helper_edge_audit": list(record.get("helper_edge_audit", []) or []),
+            "helper_path_families": list(record.get("helper_path_families", []) or []),
+            "unresolved_helper_edge_audit": list(record.get("unresolved_helper_edge_audit", []) or []),
+            "zero_contract": dict(record.get("zero_contract", {}) or {}),
             "text_path": record.get("text_path", ""),
             "json_path": record.get("json_path", ""),
         }
@@ -468,10 +565,45 @@ def _build_coverage_summary(
             totals[key] += int(case_entry.get(key, 0) or 0)
         if status == "ok" and case_entry["contracts"] == 0:
             zero_contract_cases.append(case_label)
+            zero_contract = dict(case_entry.get("zero_contract", {}) or {})
+            if not zero_contract:
+                zero_contract = {
+                    "classification": "unknown_unclassified",
+                    "reason": "no zero-contract classification was provided",
+                    "evidence": "",
+                }
+                case_entry["zero_contract"] = zero_contract
+            zero_contract_audit.append(
+                {
+                    "case": case_label,
+                    "case_value": case_entry.get("case_value"),
+                    "command_name": case_entry.get("command_name", ""),
+                    **zero_contract,
+                }
+            )
         if case_entry["warnings"]:
             warning_cases.append(case_label)
         if case_entry["helper_edges_unresolved"]:
             unresolved_helper_cases.append(case_label)
+        for classification, count in case_entry["helper_edge_class_counts"].items():
+            helper_edge_class_counts_total[str(classification)] = (
+                helper_edge_class_counts_total.get(str(classification), 0) + int(count or 0)
+            )
+        unresolved_helper_edge_audit.extend(case_entry["unresolved_helper_edge_audit"])
+        for family in case_entry["helper_path_families"]:
+            path_families.append(family)
+            if int(family.get("unresolved_edges", 0) or 0) > 0:
+                path_families_with_unresolved.append(str(family.get("family_id", "")))
+    recovery_gate = _build_recovery_gate(
+        status_counts=status_counts,
+        totals=totals,
+        zero_contract_cases=zero_contract_cases,
+        warning_cases=warning_cases,
+        unresolved_helper_cases=unresolved_helper_cases,
+        helper_edge_class_counts=helper_edge_class_counts_total,
+        path_families=path_families,
+        zero_contract_audit=zero_contract_audit,
+    )
     return {
         "schema": "pseudoforge_selector_coverage_summary_v1",
         "out_dir": str(out_dir),
@@ -482,9 +614,89 @@ def _build_coverage_summary(
         "status_counts": status_counts,
         "totals": totals,
         "zero_contract_cases": zero_contract_cases,
+        "zero_contract_audit": zero_contract_audit,
         "warning_cases": warning_cases,
         "unresolved_helper_cases": unresolved_helper_cases,
+        "helper_edge_class_counts": dict(sorted(helper_edge_class_counts_total.items())),
+        "unresolved_helper_edge_audit": unresolved_helper_edge_audit,
+        "path_family_count": len(path_families),
+        "path_families_with_unresolved": path_families_with_unresolved,
+        "path_families": path_families,
+        "recovery_gate": recovery_gate,
         "cases": cases,
+    }
+
+
+def _build_recovery_gate(
+    *,
+    status_counts: dict[str, int],
+    totals: dict[str, int],
+    zero_contract_cases: list[str],
+    warning_cases: list[str],
+    unresolved_helper_cases: list[str],
+    helper_edge_class_counts: dict[str, int],
+    path_families: list[dict[str, Any]],
+    zero_contract_audit: list[dict[str, Any]],
+) -> dict[str, Any]:
+    unclassified_zero_contracts = [
+        item
+        for item in zero_contract_audit
+        if str(item.get("classification", "")) in {"", "unknown_unclassified", "no_contract_but_buffer_referenced"}
+    ]
+    checks = [
+        {
+            "name": "all_targets_ok",
+            "passed": status_counts.get("error", 0) == 0 and status_counts.get("skipped", 0) == 0,
+            "detail": "errors=%d skipped=%d" % (status_counts.get("error", 0), status_counts.get("skipped", 0)),
+        },
+        {
+            "name": "no_unresolved_helper_edges",
+            "passed": int(totals.get("helper_edges_unresolved", 0) or 0) == 0,
+            "detail": "unresolved=%d" % int(totals.get("helper_edges_unresolved", 0) or 0),
+        },
+        {
+            "name": "no_warning_cases",
+            "passed": not warning_cases,
+            "detail": "warning_cases=%d" % len(warning_cases),
+        },
+        {
+            "name": "zero_contract_cases_classified",
+            "passed": not unclassified_zero_contracts,
+            "detail": "zero_contract_cases=%d unclassified=%d"
+            % (len(zero_contract_cases), len(unclassified_zero_contracts)),
+        },
+        {
+            "name": "helper_edge_audit_available",
+            "passed": bool(helper_edge_class_counts) or int(totals.get("helper_edges_total", 0) or 0) == 0,
+            "detail": "classifications=%d" % len(helper_edge_class_counts),
+        },
+        {
+            "name": "path_family_ledger_available",
+            "passed": bool(path_families) or int(totals.get("helper_edges_total", 0) or 0) == 0,
+            "detail": "path_families=%d" % len(path_families),
+        },
+    ]
+    passed = all(bool(item["passed"]) for item in checks)
+    if passed:
+        level = "perfect_recovery_candidate"
+        status = "passed"
+    elif checks[0]["passed"] and checks[4]["passed"] and checks[5]["passed"]:
+        level = "audited_incomplete_recovery"
+        status = "incomplete"
+    else:
+        level = "insufficient_evidence"
+        status = "failed"
+    return {
+        "schema": "pseudoforge_selector_recovery_gate_v1",
+        "status": status,
+        "level": level,
+        "passed": passed,
+        "checks": checks,
+        "blockers": [
+            item["name"]
+            for item in checks
+            if not bool(item["passed"])
+        ],
     }
 
 
@@ -530,6 +742,124 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
             "- Warning cases: %s" % _markdown_case_list(summary.get("warning_cases", [])),
             "- Unresolved-helper cases: %s" % _markdown_case_list(summary.get("unresolved_helper_cases", [])),
             "",
+            "## Recovery Gate",
+            "",
+        ]
+    )
+    gate = dict(summary.get("recovery_gate", {}) or {})
+    if gate:
+        lines.extend(
+            [
+                "- Status: `%s`" % gate.get("status", ""),
+                "- Level: `%s`" % gate.get("level", ""),
+                "- Passed: `%s`" % gate.get("passed", False),
+                "",
+                "| Check | Passed | Detail |",
+                "| --- | --- | --- |",
+            ]
+        )
+        for check in gate.get("checks", []) or []:
+            lines.append(
+                "| `%s` | `%s` | %s |"
+                % (
+                    check.get("name", ""),
+                    check.get("passed", False),
+                    _markdown_table_text(str(check.get("detail", "") or "")),
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["No recovery gate was produced.", ""])
+    zero_contract_audit = list(summary.get("zero_contract_audit", []) or [])
+    lines.extend(["## Zero-Contract Audit", ""])
+    if zero_contract_audit:
+        lines.extend(
+            [
+                "| Case | Name | Classification | Reason |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for item in zero_contract_audit:
+            lines.append(
+                "| `%s` | %s | `%s` | %s |"
+                % (
+                    item.get("case", ""),
+                    _markdown_table_text(str(item.get("command_name", "") or "")),
+                    _markdown_table_text(str(item.get("classification", "") or "")),
+                    _markdown_table_text(str(item.get("reason", "") or "")),
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["No zero-contract cases were present.", ""])
+    lines.extend(
+        [
+            "## Helper Edge Audit",
+            "",
+        ]
+    )
+    class_counts = dict(summary.get("helper_edge_class_counts", {}) or {})
+    if class_counts:
+        lines.extend(["| Classification | Count |", "| --- | ---: |"])
+        for classification, count in class_counts.items():
+            lines.append("| `%s` | %s |" % (classification, count))
+        lines.append("")
+    else:
+        lines.extend(["No helper edge audit records were produced.", ""])
+    unresolved = list(summary.get("unresolved_helper_edge_audit", []) or [])
+    if unresolved:
+        lines.extend(
+            [
+                "### Unresolved Helper Edges",
+                "",
+                "| Case | Callee | Classification | Severity | Depth | Buffers | Next Action |",
+                "| --- | --- | --- | --- | ---: | --- | --- |",
+            ]
+        )
+        for record in unresolved:
+            lines.append(
+                "| `%s` | `%s` | `%s` | `%s` | %s | %s | %s |"
+                % (
+                    record.get("command", ""),
+                    _markdown_table_text(str(record.get("callee", "") or "")),
+                    _markdown_table_text(str(record.get("classification", "") or "")),
+                    _markdown_table_text(str(record.get("severity", "") or "")),
+                    record.get("depth", ""),
+                    _markdown_table_text(", ".join(record.get("passed_buffers", []) or []) or "none"),
+                    _markdown_table_text(str(record.get("next_action", "") or "")),
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["Unresolved helper edges: none", ""])
+    path_families = list(summary.get("path_families", []) or [])
+    lines.extend(["## Helper Path Families", ""])
+    if path_families:
+        lines.extend(
+            [
+                "| Family | Root Callee | Root Class | Edges | Unresolved | Helper Fields | Helper Preds | Warnings |",
+                "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for family in path_families:
+            lines.append(
+                "| `%s` | `%s` | `%s` | %s | %s | %s | %s | %s |"
+                % (
+                    _markdown_table_text(str(family.get("family_id", "") or "")),
+                    _markdown_table_text(str(family.get("root_callee", "") or "")),
+                    _markdown_table_text(str(family.get("root_classification", "") or "")),
+                    family.get("edge_count", 0),
+                    family.get("unresolved_edges", 0),
+                    family.get("field_accesses", 0),
+                    family.get("field_constraints", 0),
+                    family.get("warnings", 0),
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["No helper path families were recovered.", ""])
+    lines.extend(
+        [
             "## Cases",
             "",
             "| Case | Name | Status | Contracts | Buffers | Helper fields | Helper preds | Unresolved helpers | Warnings |",
