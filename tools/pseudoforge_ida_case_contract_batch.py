@@ -302,8 +302,10 @@ def _analyze_target(
             "helper_depth": helper_depth,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
-        summary.update(_contract_metrics(contracts))
+        contract_metrics = _contract_metrics(contracts)
+        summary.update(contract_metrics)
         summary.update(_zero_contract_context(plan, case_value, contracts))
+        summary.update(_helper_capture_metrics(plan, contract_metrics.get("blocking_unresolved_helper_edge_audit", [])))
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=True), encoding="utf-8")
         return {"event": "target", "status": "ok", **summary}
     except Exception as exc:
@@ -388,6 +390,86 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
     metrics["unresolved_helper_edge_audit"] = unresolved_helper_edge_records(audit_records)
     metrics["blocking_unresolved_helper_edge_audit"] = blocking_unresolved_helper_edge_records(audit_records)
     return metrics
+
+
+def _helper_capture_metrics(plan: object, unresolved_helper_edge_audit: object | None = None) -> dict[str, Any]:
+    rule_report = getattr(plan, "rule_report", {}) or {}
+    full_ledger = _normalized_helper_capture_ledger(rule_report.get("buffer_contract_helper_capture_ledger", []))
+    interesting_names = _unresolved_helper_callee_names(unresolved_helper_edge_audit)
+    ledger = _focused_helper_capture_ledger(full_ledger, interesting_names)
+    status_counts: dict[str, int] = {}
+    unavailable: list[dict[str, Any]] = []
+    for item in full_ledger:
+        status = str(item.get("status", "") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    for item in ledger:
+        status = str(item.get("status", "") or "unknown")
+        if status != "captured":
+            unavailable.append(item)
+    return {
+        "helper_capture_ledger": ledger,
+        "helper_capture_candidate_count": len(full_ledger),
+        "helper_capture_status_counts": dict(sorted(status_counts.items())),
+        "helper_capture_unavailable": unavailable,
+    }
+
+
+def _normalized_helper_capture_ledger(raw_ledger: object) -> list[dict[str, Any]]:
+    if not isinstance(raw_ledger, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in raw_ledger:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "name": str(item.get("name", "") or ""),
+                "depth": _int_value(item.get("depth", 0), 0),
+                "status": str(item.get("status", "") or "unknown"),
+                "reason": str(item.get("reason", "") or ""),
+                "ea": str(item.get("ea", "") or ""),
+                "captured_name": str(item.get("captured_name", "") or ""),
+                "call_count": _int_value(item.get("call_count", 0), 0),
+            }
+        )
+    return result
+
+
+def _focused_helper_capture_ledger(
+    ledger: list[dict[str, Any]],
+    interesting_names: set[str],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in ledger:
+        name = str(item.get("name", "") or "")
+        if not name or name in seen:
+            continue
+        depth = _int_value(item.get("depth", 0), 0)
+        if depth == 1 or name in interesting_names:
+            result.append(item)
+            seen.add(name)
+    return result
+
+
+def _unresolved_helper_callee_names(records: object | None) -> set[str]:
+    if not isinstance(records, list):
+        return set()
+    result: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        callee = str(record.get("callee", "") or "")
+        if callee:
+            result.add(callee)
+    return result
+
+
+def _int_value(value: object, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _zero_contract_context(plan: object, case_value: int, contracts: list[object]) -> dict[str, Any]:
@@ -519,6 +601,8 @@ def _build_coverage_summary(
         "helper_edges_resolved": 0,
         "helper_edges_unresolved": 0,
         "blocking_unresolved_helper_edges": 0,
+        "helper_capture_candidates": 0,
+        "helper_capture_unavailable": 0,
         "warnings": 0,
     }
     cases: list[dict[str, Any]] = []
@@ -528,6 +612,8 @@ def _build_coverage_summary(
     helper_edge_class_counts_total: dict[str, int] = {}
     unresolved_helper_edge_audit: list[dict[str, Any]] = []
     blocking_unresolved_helper_edge_audit: list[dict[str, Any]] = []
+    helper_capture_unavailable: list[dict[str, Any]] = []
+    helper_capture_status_counts_total: dict[str, int] = {}
     path_families: list[dict[str, Any]] = []
     path_families_with_unresolved: list[str] = []
     zero_contract_audit: list[dict[str, Any]] = []
@@ -566,6 +652,12 @@ def _build_coverage_summary(
             "helper_path_families": list(record.get("helper_path_families", []) or []),
             "unresolved_helper_edge_audit": unresolved_audit,
             "blocking_unresolved_helper_edge_audit": blocking_unresolved_audit,
+            "helper_capture_ledger": list(record.get("helper_capture_ledger", []) or []),
+            "helper_capture_candidate_count": int(
+                record.get("helper_capture_candidate_count", len(record.get("helper_capture_ledger", []) or [])) or 0
+            ),
+            "helper_capture_status_counts": dict(record.get("helper_capture_status_counts", {}) or {}),
+            "helper_capture_unavailable": list(record.get("helper_capture_unavailable", []) or []),
             "zero_contract": dict(record.get("zero_contract", {}) or {}),
             "text_path": record.get("text_path", ""),
             "json_path": record.get("json_path", ""),
@@ -576,6 +668,10 @@ def _build_coverage_summary(
                 continue
             if key == "blocking_unresolved_helper_edges":
                 totals[key] += len(case_entry["blocking_unresolved_helper_edge_audit"])
+            elif key == "helper_capture_candidates":
+                totals[key] += int(case_entry.get("helper_capture_candidate_count", 0) or 0)
+            elif key == "helper_capture_unavailable":
+                totals[key] += len(case_entry["helper_capture_unavailable"])
             else:
                 totals[key] += int(case_entry.get(key, 0) or 0)
         if status == "ok" and case_entry["contracts"] == 0:
@@ -603,6 +699,19 @@ def _build_coverage_summary(
         for classification, count in case_entry["helper_edge_class_counts"].items():
             helper_edge_class_counts_total[str(classification)] = (
                 helper_edge_class_counts_total.get(str(classification), 0) + int(count or 0)
+            )
+        for status, count in case_entry["helper_capture_status_counts"].items():
+            helper_capture_status_counts_total[str(status)] = (
+                helper_capture_status_counts_total.get(str(status), 0) + int(count or 0)
+            )
+        for item in case_entry["helper_capture_unavailable"]:
+            helper_capture_unavailable.append(
+                {
+                    "case": case_label,
+                    "case_value": case_entry.get("case_value"),
+                    "command_name": case_entry.get("command_name", ""),
+                    **item,
+                }
             )
         unresolved_helper_edge_audit.extend(case_entry["unresolved_helper_edge_audit"])
         blocking_unresolved_helper_edge_audit.extend(case_entry["blocking_unresolved_helper_edge_audit"])
@@ -635,6 +744,8 @@ def _build_coverage_summary(
         "warning_cases": warning_cases,
         "unresolved_helper_cases": unresolved_helper_cases,
         "helper_edge_class_counts": dict(sorted(helper_edge_class_counts_total.items())),
+        "helper_capture_status_counts": dict(sorted(helper_capture_status_counts_total.items())),
+        "helper_capture_unavailable": helper_capture_unavailable,
         "unresolved_helper_edge_audit": unresolved_helper_edge_audit,
         "blocking_unresolved_helper_edge_audit": blocking_unresolved_helper_edge_audit,
         "path_family_count": len(path_families),
@@ -753,6 +864,8 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
         "helper_edges_resolved",
         "helper_edges_unresolved",
         "blocking_unresolved_helper_edges",
+        "helper_capture_candidates",
+        "helper_capture_unavailable",
         "warnings",
     ]
     for key in metric_order:
@@ -857,6 +970,39 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
         lines.append("")
     else:
         lines.extend(["Unresolved helper edges: none", ""])
+    capture_counts = dict(summary.get("helper_capture_status_counts", {}) or {})
+    capture_unavailable = list(summary.get("helper_capture_unavailable", []) or [])
+    lines.extend(["## Helper Capture Ledger", ""])
+    if capture_counts:
+        lines.extend(["| Status | Count |", "| --- | ---: |"])
+        for status, count in capture_counts.items():
+            lines.append("| `%s` | %s |" % (_markdown_table_text(str(status)), count))
+        lines.append("")
+    else:
+        lines.extend(["No helper capture candidates were recorded.", ""])
+    if capture_unavailable:
+        lines.extend(
+            [
+                "### Uncaptured Helper Candidates",
+                "",
+                "| Case | Helper | Status | Depth | Reason |",
+                "| --- | --- | --- | ---: | --- |",
+            ]
+        )
+        for item in capture_unavailable:
+            lines.append(
+                "| `%s` | `%s` | `%s` | %s | %s |"
+                % (
+                    item.get("case", ""),
+                    _markdown_table_text(str(item.get("name", "") or "")),
+                    _markdown_table_text(str(item.get("status", "") or "")),
+                    item.get("depth", ""),
+                    _markdown_table_text(str(item.get("reason", "") or "")),
+                )
+            )
+        lines.append("")
+    else:
+        lines.extend(["Uncaptured helper candidates: none", ""])
     path_families = list(summary.get("path_families", []) or [])
     lines.extend(["## Helper Path Families", ""])
     if path_families:

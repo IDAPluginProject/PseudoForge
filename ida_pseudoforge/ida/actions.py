@@ -5,6 +5,7 @@ import re
 import inspect
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from ida_pseudoforge.config import (
     get_provider_api_key,
@@ -305,7 +306,7 @@ def analyze_current_buffer_contract_case(
             )
         )
         _raise_if_task_cancelled(purpose, "after initial plan")
-        helper_captures = _capture_buffer_contract_helpers(
+        helper_captures, helper_capture_ledger = _capture_buffer_contract_helpers_with_status(
             helper_names,
             caller_ea=capture.ea,
             max_depth=helper_depth,
@@ -324,12 +325,14 @@ def analyze_current_buffer_contract_case(
                 buffer_contract_helper_depth=helper_depth,
                 buffer_contract_disasm_slices=disasm_slices,
             )
+        _attach_helper_capture_ledger(plan, helper_capture_ledger)
         text = _format_buffer_contract_case_preview(
             capture,
             plan,
             command_value,
             helper_captures,
             helper_names,
+            helper_capture_ledger=helper_capture_ledger,
             helper_depth=helper_depth,
         )
         log_event(
@@ -2805,28 +2808,91 @@ def _capture_buffer_contract_helpers(
     max_depth: int,
     max_helpers: int,
 ) -> dict[str, FunctionCapture]:
+    captures, _ledger = _capture_buffer_contract_helpers_with_status(
+        helper_names,
+        caller_ea=caller_ea,
+        max_depth=max_depth,
+        max_helpers=max_helpers,
+    )
+    return captures
+
+
+def _capture_buffer_contract_helpers_with_status(
+    helper_names: list[str],
+    caller_ea: int,
+    max_depth: int,
+    max_helpers: int,
+) -> tuple[dict[str, FunctionCapture], list[dict[str, Any]]]:
     result: dict[str, FunctionCapture] = {}
     queue = [(name, 1) for name in helper_names if name]
     seen = set()
+    ledger: list[dict[str, Any]] = []
     while queue and len(result) < max_helpers:
         name, depth = queue.pop(0)
         if name in seen:
             continue
         seen.add(name)
+        status: dict[str, Any] = {
+            "name": name,
+            "depth": depth,
+            "status": "capture_unavailable",
+            "reason": "capture_function_by_name returned no decompilable function",
+        }
         try:
             helper_capture = capture_function_by_name(name)
         except Exception as exc:
             log_checkpoint("buffer_contract_case.helper.capture_failed", helper=name, error=str(exc))
+            status["status"] = "capture_failed"
+            status["reason"] = str(exc)
+            ledger.append(status)
             continue
         if helper_capture is None or helper_capture.ea == caller_ea:
+            if helper_capture is not None and helper_capture.ea == caller_ea:
+                status["status"] = "caller_self"
+                status["reason"] = "candidate resolved to the caller function"
+                status["ea"] = "0x%X" % int(helper_capture.ea)
+                status["captured_name"] = helper_capture.name
+            ledger.append(status)
             continue
         result[name] = helper_capture
+        status.update(
+            {
+                "status": "captured",
+                "reason": "captured by IDA Hex-Rays",
+                "ea": "0x%X" % int(helper_capture.ea),
+                "captured_name": helper_capture.name,
+                "call_count": len(helper_capture.calls),
+            }
+        )
+        ledger.append(status)
         if depth >= max_depth:
             continue
         for call_name in helper_capture.calls:
             if call_name not in seen:
                 queue.append((call_name, depth + 1))
-    return result
+    for name, depth in queue:
+        if name in seen:
+            continue
+        seen.add(name)
+        ledger.append(
+            {
+                "name": name,
+                "depth": depth,
+                "status": "capture_limit_skipped",
+                "reason": "helper capture limit reached before this candidate was attempted",
+            }
+        )
+    return result, ledger
+
+
+def _attach_helper_capture_ledger(plan: CleanPlan, ledger: list[dict[str, Any]]) -> None:
+    plan.rule_report = dict(plan.rule_report or {})
+    plan.rule_report["buffer_contract_helper_capture_ledger"] = list(ledger)
+    counts: dict[str, int] = {}
+    for item in ledger:
+        status = str(item.get("status", "") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    plan.rule_report["buffer_contract_helper_capture_status_counts"] = dict(sorted(counts.items()))
 
 
 def _format_buffer_contract_case_preview(
@@ -2835,6 +2901,7 @@ def _format_buffer_contract_case_preview(
     command_value: int,
     helper_captures: dict[str, FunctionCapture],
     helper_candidates: list[str] | None = None,
+    helper_capture_ledger: list[dict[str, Any]] | None = None,
     helper_depth: int = DEFAULT_HELPER_DEPTH,
 ) -> str:
     contracts = [contract for contract in plan.buffer_contracts if contract.command_value == command_value]
@@ -2856,9 +2923,34 @@ def _format_buffer_contract_case_preview(
     if helper_candidates:
         lines.append("Helper candidate set:")
         lines.append("")
+        display_ledger = _focused_helper_capture_ledger(helper_capture_ledger or [], contracts)
+        ledger_by_name = {str(item.get("name", "") or ""): item for item in display_ledger}
         for name in helper_candidates:
-            suffix = "" if name in helper_captures else " (capture unavailable)"
+            status = ledger_by_name.get(name, {})
+            if name in helper_captures:
+                suffix = ""
+            elif status:
+                suffix = " (%s)" % str(status.get("status", "capture_unavailable") or "capture_unavailable")
+            else:
+                suffix = " (capture unavailable)"
             lines.append("- `%s`%s" % (name, suffix))
+        lines.append("")
+    if helper_capture_ledger:
+        display_ledger = _focused_helper_capture_ledger(helper_capture_ledger, contracts)
+        lines.append("Helper capture ledger:")
+        lines.append("")
+        for item in display_ledger:
+            detail = str(item.get("reason", "") or "").strip()
+            suffix = ": %s" % detail if detail else ""
+            lines.append(
+                "- `%s`: `%s` at depth `%s`%s"
+                % (
+                    item.get("name", ""),
+                    item.get("status", ""),
+                    item.get("depth", ""),
+                    suffix,
+                )
+            )
         lines.append("")
     if helper_captures:
         lines.append("Helper capture set:")
@@ -2883,6 +2975,42 @@ def _format_buffer_contract_case_preview(
     lines.append(header.rstrip())
     lines.append("")
     return "\n".join(lines)
+
+
+def _focused_helper_capture_ledger(
+    ledger: list[dict[str, Any]],
+    contracts: list[object],
+) -> list[dict[str, Any]]:
+    unresolved_names = _unresolved_helper_edge_names(contracts)
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in ledger:
+        name = str(item.get("name", "") or "")
+        if not name or name in seen:
+            continue
+        depth = int(item.get("depth", 0) or 0)
+        if depth == 1 or name in unresolved_names:
+            result.append(item)
+            seen.add(name)
+    return result
+
+
+def _unresolved_helper_edge_names(contracts: list[object]) -> set[str]:
+    result: set[str] = set()
+    for contract in contracts:
+        result.update(_unresolved_edge_names(getattr(contract, "helper_edges", []) or []))
+    return result
+
+
+def _unresolved_edge_names(edges: list[object]) -> set[str]:
+    result: set[str] = set()
+    for edge in edges:
+        if not getattr(edge, "resolved", False):
+            name = str(getattr(edge, "callee", "") or "")
+            if name:
+                result.add(name)
+        result.update(_unresolved_edge_names(getattr(edge, "nested_edges", []) or []))
+    return result
 
 
 def _unlinked_helper_capture_names(

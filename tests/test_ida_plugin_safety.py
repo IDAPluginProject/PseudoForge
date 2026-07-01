@@ -1450,7 +1450,7 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         initial_plan.buffer_contracts = []
         captured_helper_names = []
         old_build = actions_module._build_plan_with_config
-        old_capture_helpers = actions_module._capture_buffer_contract_helpers
+        old_capture_helpers = actions_module._capture_buffer_contract_helpers_with_status
         old_set_source = actions_module._set_capture_source_path
 
         def fake_build(*args, **kwargs):
@@ -1458,16 +1458,16 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
 
         def fake_capture_helpers(helper_names, **kwargs):
             captured_helper_names.extend(helper_names)
-            return {}
+            return {}, []
 
         actions_module._build_plan_with_config = fake_build
-        actions_module._capture_buffer_contract_helpers = fake_capture_helpers
+        actions_module._capture_buffer_contract_helpers_with_status = fake_capture_helpers
         actions_module._set_capture_source_path = lambda captured: None
         try:
             actions_module.analyze_current_buffer_contract_case(0x91236000, capture=capture)
         finally:
             actions_module._build_plan_with_config = old_build
-            actions_module._capture_buffer_contract_helpers = old_capture_helpers
+            actions_module._capture_buffer_contract_helpers_with_status = old_capture_helpers
             actions_module._set_capture_source_path = old_set_source
 
         self.assertEqual(["HandlePayload"], captured_helper_names)
@@ -1552,6 +1552,66 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertIn("sub_140002000", captures)
         self.assertIs(helper_capture, captures["sub_140002000"])
         self.assertNotIn("RenamedHelper", captures)
+
+    def test_buffer_contract_helper_capture_ledger_records_attempt_statuses(self):
+        caller_ea = 0x140001000
+        helper_capture = FunctionCapture(
+            ea=0x140002000,
+            name="ResolvedHelper",
+            prototype="NTSTATUS __fastcall ResolvedHelper(PVOID buffer)",
+            pseudocode="NTSTATUS __fastcall ResolvedHelper(PVOID buffer)\n{\n  return 0;\n}\n",
+        )
+        self_capture = FunctionCapture(ea=caller_ea, name="Dispatch")
+        old_capture = actions_module.capture_function_by_name
+
+        def fake_capture(name):
+            if name == "ResolvedHelper":
+                return helper_capture
+            if name == "SelfHelper":
+                return self_capture
+            if name == "BoomHelper":
+                raise RuntimeError("decompile failed")
+            return None
+
+        actions_module.capture_function_by_name = fake_capture
+        try:
+            captures, ledger = actions_module._capture_buffer_contract_helpers_with_status(
+                ["ResolvedHelper", "MissingHelper", "SelfHelper", "BoomHelper"],
+                caller_ea=caller_ea,
+                max_depth=1,
+                max_helpers=8,
+            )
+        finally:
+            actions_module.capture_function_by_name = old_capture
+
+        self.assertEqual(["ResolvedHelper"], list(captures))
+        statuses = {item["name"]: item["status"] for item in ledger}
+        self.assertEqual("captured", statuses["ResolvedHelper"])
+        self.assertEqual("capture_unavailable", statuses["MissingHelper"])
+        self.assertEqual("caller_self", statuses["SelfHelper"])
+        self.assertEqual("capture_failed", statuses["BoomHelper"])
+
+    def test_buffer_contract_helper_capture_ledger_records_limit_skips(self):
+        root_capture = FunctionCapture(
+            ea=0x140002000,
+            name="RootHelper",
+            calls=["NestedHelper"],
+        )
+        old_capture = actions_module.capture_function_by_name
+        actions_module.capture_function_by_name = lambda name: root_capture if name == "RootHelper" else None
+        try:
+            _captures, ledger = actions_module._capture_buffer_contract_helpers_with_status(
+                ["RootHelper"],
+                caller_ea=0x140001000,
+                max_depth=2,
+                max_helpers=1,
+            )
+        finally:
+            actions_module.capture_function_by_name = old_capture
+
+        statuses = {item["name"]: item["status"] for item in ledger}
+        self.assertEqual("captured", statuses["RootHelper"])
+        self.assertEqual("capture_limit_skipped", statuses["NestedHelper"])
 
     def test_action_registry_tracks_and_unregisters_actions(self):
         fake_idaapi = FakeIdaApi()

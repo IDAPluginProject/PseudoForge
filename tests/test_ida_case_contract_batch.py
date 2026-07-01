@@ -251,6 +251,56 @@ class IdaCaseContractBatchTests(unittest.TestCase):
             metrics["helper_path_families"][0]["root_callee"],
         )
 
+    def test_helper_capture_metrics_focuses_ledger_on_roots_and_unresolved_helpers(self) -> None:
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="Dispatch",
+            input_fingerprint="fixture",
+            rule_report={
+                "buffer_contract_helper_capture_ledger": [
+                    {
+                        "name": "RootHelper",
+                        "depth": 1,
+                        "status": "captured",
+                        "reason": "captured by IDA Hex-Rays",
+                    },
+                    {
+                        "name": "UnresolvedNestedHelper",
+                        "depth": 3,
+                        "status": "capture_limit_skipped",
+                        "reason": "helper capture limit reached before this candidate was attempted",
+                    },
+                    {
+                        "name": "NoisyNestedHelper",
+                        "depth": 3,
+                        "status": "capture_limit_skipped",
+                        "reason": "helper capture limit reached before this candidate was attempted",
+                    },
+                ],
+            },
+        )
+
+        metrics = batch._helper_capture_metrics(
+            plan,
+            [
+                {
+                    "callee": "UnresolvedNestedHelper",
+                    "classification": "helper_capture_missing",
+                }
+            ],
+        )
+
+        self.assertEqual(3, metrics["helper_capture_candidate_count"])
+        self.assertEqual(
+            {"capture_limit_skipped": 2, "captured": 1},
+            metrics["helper_capture_status_counts"],
+        )
+        self.assertEqual(
+            ["RootHelper", "UnresolvedNestedHelper"],
+            [item["name"] for item in metrics["helper_capture_ledger"]],
+        )
+        self.assertEqual(["UnresolvedNestedHelper"], [item["name"] for item in metrics["helper_capture_unavailable"]])
+
     def test_coverage_summary_tracks_zero_warning_and_unresolved_cases(self) -> None:
         summary = batch._build_coverage_summary(
             [
@@ -302,6 +352,25 @@ class IdaCaseContractBatchTests(unittest.TestCase):
                             "next_action": "decompile the callee",
                         }
                     ],
+                    "helper_capture_ledger": [
+                        {
+                            "name": "MissingSuperfetchHelper",
+                            "depth": 1,
+                            "status": "capture_unavailable",
+                            "reason": "capture_function_by_name returned no decompilable function",
+                        }
+                    ],
+                    "helper_capture_status_counts": {
+                        "capture_unavailable": 1,
+                    },
+                    "helper_capture_unavailable": [
+                        {
+                            "name": "MissingSuperfetchHelper",
+                            "depth": 1,
+                            "status": "capture_unavailable",
+                            "reason": "capture_function_by_name returned no decompilable function",
+                        }
+                    ],
                 },
                 {
                     "status": "error",
@@ -331,6 +400,10 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(1, summary["path_family_count"])
         self.assertEqual(["0x4F:0:MissingSuperfetchHelper"], summary["path_families_with_unresolved"])
         self.assertEqual(1, summary["totals"]["blocking_unresolved_helper_edges"])
+        self.assertEqual(1, summary["totals"]["helper_capture_candidates"])
+        self.assertEqual(1, summary["totals"]["helper_capture_unavailable"])
+        self.assertEqual({"capture_unavailable": 1}, summary["helper_capture_status_counts"])
+        self.assertEqual("0x4F", summary["helper_capture_unavailable"][0]["case"])
         self.assertEqual("failed", summary["recovery_gate"]["status"])
         self.assertEqual("insufficient_evidence", summary["recovery_gate"]["level"])
         self.assertIn("no_unresolved_helper_edges", summary["recovery_gate"]["blockers"])
@@ -346,6 +419,8 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertIn("Recovery Gate", markdown)
         self.assertIn("insufficient_evidence", markdown)
         self.assertIn("Zero-Contract Audit", markdown)
+        self.assertIn("Helper Capture Ledger", markdown)
+        self.assertIn("capture_unavailable", markdown)
 
 
 if __name__ == "__main__":
