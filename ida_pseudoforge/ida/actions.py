@@ -295,6 +295,7 @@ def analyze_current_buffer_contract_case(
             _helper_names_from_contracts(initial_plan)
             + helper_names_for_selected_case(capture, initial_plan, command_value)
         )
+        focus_names, helper_focus_indices = _helper_capture_focus_context(initial_plan, command_value)
         log_event(
             "buffer_contract_case.helper_candidates function=\"%s\" ea=0x%X case=0x%X count=%d names=\"%s\""
             % (
@@ -311,6 +312,8 @@ def analyze_current_buffer_contract_case(
             caller_ea=capture.ea,
             max_depth=helper_depth,
             max_helpers=max_helpers,
+            focus_names=focus_names,
+            helper_focus_indices=helper_focus_indices,
         )
         _raise_if_task_cancelled(purpose, "after helper capture")
         disasm_slices = _capture_buffer_contract_case_disasm(capture, command_value, case_entry_ea)
@@ -2807,12 +2810,16 @@ def _capture_buffer_contract_helpers(
     caller_ea: int,
     max_depth: int,
     max_helpers: int,
+    focus_names: set[str] | None = None,
+    helper_focus_indices: dict[str, set[int]] | None = None,
 ) -> dict[str, FunctionCapture]:
     captures, _ledger = _capture_buffer_contract_helpers_with_status(
         helper_names,
         caller_ea=caller_ea,
         max_depth=max_depth,
         max_helpers=max_helpers,
+        focus_names=focus_names,
+        helper_focus_indices=helper_focus_indices,
     )
     return captures
 
@@ -2822,13 +2829,19 @@ def _capture_buffer_contract_helpers_with_status(
     caller_ea: int,
     max_depth: int,
     max_helpers: int,
+    focus_names: set[str] | None = None,
+    helper_focus_indices: dict[str, set[int]] | None = None,
 ) -> tuple[dict[str, FunctionCapture], list[dict[str, Any]]]:
     result: dict[str, FunctionCapture] = {}
-    queue = [(name, 1) for name in helper_names if name]
+    base_focus_names = {str(item or "").strip() for item in focus_names or set() if str(item or "").strip()}
+    focus_indices = helper_focus_indices or {}
+    priority_queue = [(name, 1, set(base_focus_names)) for name in helper_names if name]
+    normal_queue: list[tuple[str, int, set[str]]] = []
     seen = set()
     ledger: list[dict[str, Any]] = []
-    while queue and len(result) < max_helpers:
-        name, depth = queue.pop(0)
+    while (priority_queue or normal_queue) and len(result) < max_helpers:
+        queue = priority_queue if priority_queue else normal_queue
+        name, depth, inherited_focus_names = queue.pop(0)
         if name in seen:
             continue
         seen.add(name)
@@ -2867,10 +2880,20 @@ def _capture_buffer_contract_helpers_with_status(
         ledger.append(status)
         if depth >= max_depth:
             continue
-        for call_name in helper_capture.calls:
+        local_focus_names = _helper_capture_local_focus_names(
+            helper_capture,
+            name,
+            inherited_focus_names,
+            focus_indices,
+        )
+        prioritized_calls, other_calls = _prioritized_nested_helper_calls(helper_capture, local_focus_names)
+        for call_name in prioritized_calls:
             if call_name not in seen:
-                queue.append((call_name, depth + 1))
-    for name, depth in queue:
+                priority_queue.append((call_name, depth + 1, set(local_focus_names)))
+        for call_name in other_calls:
+            if call_name not in seen:
+                normal_queue.append((call_name, depth + 1, set(local_focus_names)))
+    for name, depth, _focus in priority_queue + normal_queue:
         if name in seen:
             continue
         seen.add(name)
@@ -2883,6 +2906,169 @@ def _capture_buffer_contract_helpers_with_status(
             }
         )
     return result, ledger
+
+
+def _helper_capture_focus_context(plan: CleanPlan, command_value: int) -> tuple[set[str], dict[str, set[int]]]:
+    focus_names: set[str] = set()
+    helper_focus_indices: dict[str, set[int]] = {}
+    for contract in getattr(plan, "buffer_contracts", []) or []:
+        if not _contract_command_matches(contract, command_value):
+            continue
+        for buffer in getattr(contract, "buffers", []) or []:
+            _add_focus_name(focus_names, getattr(buffer, "variable", ""))
+            _add_focus_name(focus_names, getattr(buffer, "length_variable", ""))
+            for constraint in getattr(buffer, "size_constraints", []) or []:
+                _add_focus_name(focus_names, getattr(constraint, "buffer", ""))
+                _add_focus_name(focus_names, getattr(constraint, "length", ""))
+        _collect_helper_edge_focus_context(
+            getattr(contract, "helper_edges", []) or [],
+            focus_names,
+            helper_focus_indices,
+        )
+    return focus_names, helper_focus_indices
+
+
+def _contract_command_matches(contract: object, command_value: int) -> bool:
+    try:
+        contract_value = int(getattr(contract, "command_value", -1))
+        target_value = int(command_value)
+    except (TypeError, ValueError):
+        return False
+    return contract_value == target_value
+
+
+def _collect_helper_edge_focus_context(
+    edges: list[object],
+    focus_names: set[str],
+    helper_focus_indices: dict[str, set[int]],
+) -> None:
+    for edge in edges:
+        passed_buffers = {
+            _capture_argument_identifier(str(item or ""))
+            for item in getattr(edge, "passed_buffers", []) or []
+        }
+        passed_buffers = {item for item in passed_buffers if item}
+        for item in passed_buffers:
+            _add_focus_name(focus_names, item)
+        callee = str(getattr(edge, "callee", "") or "")
+        arguments = [str(item or "") for item in getattr(edge, "arguments", []) or []]
+        for index, argument in enumerate(arguments):
+            identifier = _capture_argument_identifier(argument)
+            if not identifier:
+                continue
+            if identifier in focus_names or identifier in passed_buffers:
+                helper_focus_indices.setdefault(callee, set()).add(index)
+        _collect_helper_edge_focus_context(
+            getattr(edge, "nested_edges", []) or [],
+            focus_names,
+            helper_focus_indices,
+        )
+
+
+def _add_focus_name(focus_names: set[str], value: object) -> None:
+    name = _capture_argument_identifier(str(value or ""))
+    if name:
+        focus_names.add(name)
+
+
+def _helper_capture_local_focus_names(
+    helper_capture: FunctionCapture,
+    call_site_name: str,
+    inherited_focus_names: set[str],
+    helper_focus_indices: dict[str, set[int]],
+) -> set[str]:
+    result = set(inherited_focus_names)
+    indices = set(helper_focus_indices.get(call_site_name, set()))
+    if not indices:
+        return result
+    signature = helper_capture.prototype or extract_function_signature(helper_capture.pseudocode or "")
+    params = extract_parameters_from_signature(signature)
+    for index in indices:
+        if index < 0 or index >= len(params):
+            continue
+        name, _type_text = params[index]
+        _add_focus_name(result, name)
+    return result
+
+
+def _prioritized_nested_helper_calls(
+    helper_capture: FunctionCapture,
+    focus_names: set[str],
+) -> tuple[list[str], list[str]]:
+    priority: list[str] = []
+    normal: list[str] = []
+    parsed_calls = _helper_capture_call_sites(helper_capture.pseudocode or "", helper_capture.name)
+    if not parsed_calls:
+        return [], list(helper_capture.calls)
+    parsed_names: set[str] = set()
+    for call_name, arguments in parsed_calls:
+        parsed_names.add(call_name)
+        target = priority if _arguments_reference_focus_names(arguments, focus_names) else normal
+        _append_unique_name(target, call_name)
+    for call_name in helper_capture.calls:
+        if call_name not in parsed_names:
+            _append_unique_name(normal, call_name)
+    return priority, normal
+
+
+def _helper_capture_call_sites(text: str, current_name: str) -> list[tuple[str, list[str]]]:
+    result: list[tuple[str, list[str]]] = []
+    source = text or ""
+    for match in re.finditer(r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(", source):
+        name = match.group("name")
+        if not name or name == current_name or _is_capture_queue_ignored_call(name):
+            continue
+        open_index = match.end() - 1
+        close_index = find_matching_paren(source, open_index)
+        if close_index < 0:
+            continue
+        arguments = [item for item, _span in split_parameters_with_spans(source[open_index + 1 : close_index])]
+        result.append((name, arguments))
+    return result
+
+
+def _arguments_reference_focus_names(arguments: list[str], focus_names: set[str]) -> bool:
+    if not focus_names:
+        return False
+    for argument in arguments:
+        identifiers = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", argument or "")
+        if any(identifier in focus_names for identifier in identifiers):
+            return True
+    return False
+
+
+def _capture_argument_identifier(argument: str) -> str:
+    text = str(argument or "").strip()
+    while text.startswith("(") and ")" in text:
+        close = text.find(")")
+        if close <= 0:
+            break
+        text = text[close + 1 :].strip()
+    text = re.sub(r"^\&\s*", "", text)
+    match = re.match(r"[A-Za-z_][A-Za-z0-9_]*", text)
+    return match.group(0) if match else ""
+
+
+def _is_capture_queue_ignored_call(name: str) -> bool:
+    return name in {
+        "if",
+        "for",
+        "while",
+        "switch",
+        "return",
+        "sizeof",
+        "LODWORD",
+        "HIDWORD",
+        "LOBYTE",
+        "HIBYTE",
+        "LOWORD",
+        "HIWORD",
+    }
+
+
+def _append_unique_name(items: list[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
 
 
 def _attach_helper_capture_ledger(plan: CleanPlan, ledger: list[dict[str, Any]]) -> None:

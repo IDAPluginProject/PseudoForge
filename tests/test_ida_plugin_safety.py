@@ -1613,6 +1613,81 @@ NTSTATUS __fastcall DispatchHelperOnly(PDEVICE_OBJECT deviceObject, PIRP irp)
         self.assertEqual("captured", statuses["RootHelper"])
         self.assertEqual("capture_limit_skipped", statuses["NestedHelper"])
 
+    def test_buffer_contract_helper_capture_prioritizes_buffer_forwarding_calls(self):
+        root_capture = FunctionCapture(
+            ea=0x140002000,
+            name="RootHelper",
+            prototype="NTSTATUS __fastcall RootHelper(PVOID payload)",
+            pseudocode="\n".join(
+                [
+                    "NTSTATUS __fastcall RootHelper(PVOID payload)",
+                    "{",
+                    "  NoiseHelper(context);",
+                    "  FocusedNestedHelper(payload);",
+                    "  return 0;",
+                    "}",
+                ]
+            ),
+            calls=["NoiseHelper", "FocusedNestedHelper"],
+        )
+        noise_capture = FunctionCapture(ea=0x140003000, name="NoiseHelper")
+        focused_capture = FunctionCapture(ea=0x140004000, name="FocusedNestedHelper")
+        old_capture = actions_module.capture_function_by_name
+
+        def fake_capture(name):
+            if name == "RootHelper":
+                return root_capture
+            if name == "NoiseHelper":
+                return noise_capture
+            if name == "FocusedNestedHelper":
+                return focused_capture
+            return None
+
+        actions_module.capture_function_by_name = fake_capture
+        try:
+            captures, ledger = actions_module._capture_buffer_contract_helpers_with_status(
+                ["RootHelper"],
+                caller_ea=0x140001000,
+                max_depth=2,
+                max_helpers=2,
+                focus_names={"systemInformation"},
+                helper_focus_indices={"RootHelper": {0}},
+            )
+        finally:
+            actions_module.capture_function_by_name = old_capture
+
+        self.assertEqual(["RootHelper", "FocusedNestedHelper"], list(captures))
+        statuses = {item["name"]: item["status"] for item in ledger}
+        self.assertEqual("captured", statuses["FocusedNestedHelper"])
+        self.assertEqual("capture_limit_skipped", statuses["NoiseHelper"])
+
+    def test_buffer_contract_helper_focus_context_preserves_zero_command(self):
+        capture = FunctionCapture(ea=0x140001000, name="NtLikeDispatcher")
+        plan = CleanPlan(
+            function_ea=capture.ea,
+            function_name=capture.name,
+            input_fingerprint=capture.input_fingerprint(),
+            buffer_contracts=[
+                CommandBufferContract(
+                    dispatcher_kind="selector",
+                    dispatcher="SystemInformationClass",
+                    command_value=0,
+                    helper_edges=[
+                        HelperContractEdge(
+                            callee="ZeroClassHelper",
+                            arguments=["systemInformation", "systemInformationLength"],
+                            passed_buffers=["systemInformation"],
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        focus_names, helper_focus_indices = actions_module._helper_capture_focus_context(plan, 0)
+
+        self.assertIn("systemInformation", focus_names)
+        self.assertEqual({0}, helper_focus_indices["ZeroClassHelper"])
+
     def test_action_registry_tracks_and_unregisters_actions(self):
         fake_idaapi = FakeIdaApi()
         registry = ActionRegistry(fake_idaapi)
