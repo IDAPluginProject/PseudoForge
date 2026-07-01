@@ -1676,6 +1676,75 @@ class BufferContractTests(unittest.TestCase):
 
         self.assertEqual("indirect_dispatch_target_unresolved", record["classification"])
         self.assertEqual("v5", record["indirect_target"])
+        self.assertEqual([], record["indirect_target_candidates"])
+        self.assertTrue(record["blocks_recovery"])
+
+    def test_guard_dispatch_local_target_assignment_records_candidate(self) -> None:
+        edges = _recover_helper_edges(
+            "\n".join(
+                [
+                    "v40 = &ValidateIndirectPayload;",
+                    "guard_dispatch_icall_no_overrides(v40, systemInformation);",
+                ]
+            ),
+            {"systemInformation": {"source": "parameter", "role": "input"}},
+            {},
+            max_depth=2,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual(1, len(edges))
+        edge = edges[0]
+        self.assertIn("indirect dispatch target argument: v40", edge.warnings)
+        self.assertIn("indirect dispatch target candidate: ValidateIndirectPayload", edge.warnings)
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("indirect_dispatch_target_candidate", record["classification"])
+        self.assertEqual("v40", record["indirect_target"])
+        self.assertEqual(["ValidateIndirectPayload"], record["indirect_target_candidates"])
+        self.assertTrue(record["blocks_recovery"])
+
+    def test_guard_dispatch_future_assignment_is_not_target_candidate(self) -> None:
+        edges = _recover_helper_edges(
+            "\n".join(
+                [
+                    "guard_dispatch_icall_no_overrides(v40, systemInformation);",
+                    "v40 = &ValidateIndirectPayload;",
+                ]
+            ),
+            {"systemInformation": {"source": "parameter", "role": "input"}},
+            {},
+            max_depth=2,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual(1, len(edges))
+
+        record = classify_helper_edge(edges[0])
+
+        self.assertEqual("indirect_dispatch_target_unresolved", record["classification"])
+        self.assertEqual([], record["indirect_target_candidates"])
+
+    def test_guard_dispatch_direct_named_target_records_candidate(self) -> None:
+        edges = _recover_helper_edges(
+            "guard_dispatch_icall_no_overrides(ValidateIndirectPayload, systemInformation);",
+            {"systemInformation": {"source": "parameter", "role": "input"}},
+            {},
+            max_depth=2,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual(1, len(edges))
+
+        record = classify_helper_edge(edges[0])
+
+        self.assertEqual("indirect_dispatch_target_candidate", record["classification"])
+        self.assertEqual("ValidateIndirectPayload", record["indirect_target"])
+        self.assertEqual(["ValidateIndirectPayload"], record["indirect_target_candidates"])
         self.assertTrue(record["blocks_recovery"])
 
     def test_intervening_opaque_pointer_prevents_context_length_guess(self) -> None:

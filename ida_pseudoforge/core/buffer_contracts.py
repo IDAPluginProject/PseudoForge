@@ -191,6 +191,7 @@ class _HelperCallSite:
     arguments: list[str]
     evidence: str
     indirect: bool = False
+    offset: int = -1
 
 
 def recover_buffer_contracts(
@@ -640,6 +641,7 @@ def _direct_helper_call_sites(text: str) -> list[_HelperCallSite]:
                 callee=callee,
                 arguments=arguments,
                 evidence=_call_site_evidence(callee, arguments),
+                offset=match.start(),
             )
         )
     return result
@@ -663,6 +665,7 @@ def _indirect_helper_call_sites(text: str) -> list[_HelperCallSite]:
                 arguments=arguments,
                 evidence=_call_site_evidence(callee, arguments),
                 indirect=True,
+                offset=match.start(),
             )
         )
     return result
@@ -4170,7 +4173,7 @@ def _recover_helper_edges(
             continue
         helper = helper_map.get(callee)
         if helper is None:
-            warnings = _missing_helper_warnings(site)
+            warnings = _missing_helper_warnings(site, body_text)
             result.append(
                 HelperContractEdge(
                     callee=callee,
@@ -4250,7 +4253,7 @@ def _depth_limited_helper_edges(
     return result
 
 
-def _missing_helper_warnings(site: _HelperCallSite) -> list[str]:
+def _missing_helper_warnings(site: _HelperCallSite, body_text: str = "") -> list[str]:
     if _is_indirect_dispatch_thunk(site.callee):
         warnings = [
             "indirect helper call target not resolved",
@@ -4260,6 +4263,8 @@ def _missing_helper_warnings(site: _HelperCallSite) -> list[str]:
         target = _indirect_dispatch_target_argument(site)
         if target:
             warnings.append("indirect dispatch target argument: %s" % target)
+        for candidate in _indirect_dispatch_target_candidates(body_text, site):
+            warnings.append("indirect dispatch target candidate: %s" % candidate)
         return warnings
     if site.indirect:
         return [
@@ -4283,6 +4288,106 @@ def _indirect_dispatch_target_argument(site: _HelperCallSite) -> str:
     if not _is_indirect_dispatch_thunk(site.callee) or not site.arguments:
         return ""
     return str(site.arguments[0] or "").strip()
+
+
+def _indirect_dispatch_target_candidates(body_text: str, site: _HelperCallSite) -> list[str]:
+    if not _is_indirect_dispatch_thunk(site.callee):
+        return []
+    target_argument = _indirect_dispatch_target_argument(site)
+    if not target_argument:
+        return []
+    result: list[str] = []
+    direct_candidate = _indirect_target_direct_candidate(target_argument)
+    if direct_candidate:
+        _append_unique(result, direct_candidate)
+    target_identifier = _argument_identifier(target_argument)
+    if not target_identifier:
+        return result
+    source = body_text or ""
+    if site.offset >= 0:
+        source = source[: site.offset]
+    for match in _ASSIGNMENT_RE.finditer(source):
+        if _assignment_lhs_identifier(match.group("left")) != target_identifier:
+            continue
+        for candidate in _indirect_target_expression_candidates(match.group("right")):
+            if candidate == target_identifier:
+                continue
+            _append_unique(result, candidate)
+    return result
+
+
+def _assignment_lhs_identifier(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or any(marker in text for marker in ("*", "->", "[", "]", ".")):
+        return ""
+    identifiers = re.findall(_IDENT_RE, text)
+    if not identifiers:
+        return ""
+    return identifiers[-1]
+
+
+def _indirect_target_direct_candidate(argument: str) -> str:
+    candidates = _indirect_target_expression_candidates(argument)
+    if len(candidates) != 1:
+        return ""
+    candidate = candidates[0]
+    identifier = _argument_identifier(argument)
+    if candidate == identifier and not _looks_like_concrete_indirect_target_name(candidate):
+        return ""
+    return candidate
+
+
+def _indirect_target_expression_candidates(expression: str) -> list[str]:
+    result: list[str] = []
+    text = _strip_leading_casts(str(expression or "").strip())
+    text = re.sub(r"^\&\s*", "", text).strip()
+    text = _strip_balanced_outer_parentheses(text)
+    indexed = re.fullmatch(r"(?P<base>%s)\s*\[[^\]]+\]" % _IDENT_RE, text)
+    if indexed:
+        base = indexed.group("base")
+        if _looks_like_concrete_indirect_target_name(base):
+            _append_unique(result, "%s[]" % base)
+        return result
+    identifier = _argument_identifier(text)
+    if identifier and _looks_like_concrete_indirect_target_name(identifier):
+        _append_unique(result, identifier)
+        return result
+    for identifier in re.findall(_IDENT_RE, text):
+        if _looks_like_concrete_indirect_target_name(identifier):
+            _append_unique(result, identifier)
+    return result
+
+
+def _strip_balanced_outer_parentheses(value: str) -> str:
+    result = str(value or "").strip()
+    while result.startswith("(") and result.endswith(")"):
+        close_index = find_matching_paren(result, 0)
+        if close_index != len(result) - 1:
+            return result
+        result = result[1:-1].strip()
+    return result
+
+
+def _looks_like_concrete_indirect_target_name(name: str) -> bool:
+    value = str(name or "").strip()
+    if not value:
+        return False
+    lowered = value.lower()
+    if value in _KEYWORDS or value in _TYPE_LIKE_CALL_TOKENS or value in _CALLING_CONVENTION_TOKENS:
+        return False
+    if _TYPE_LIKE_CALL_RE.fullmatch(value or ""):
+        return False
+    if re.fullmatch(r"[va]\d+", lowered):
+        return False
+    if lowered in {"result", "status", "systeminformation", "systembuffer", "input", "output"}:
+        return False
+    if _looks_like_length_name(value):
+        return False
+    if re.match(r"(?i)^(sub|off|qword|dword|word|byte|ptr|func)_[0-9A-F]+", value):
+        return True
+    if any(marker in lowered for marker in ("handler", "dispatch", "callback", "routine", "function", "thunk")):
+        return True
+    return any(char.isupper() for char in value)
 
 
 def _is_indirect_dispatch_thunk(callee: str) -> bool:

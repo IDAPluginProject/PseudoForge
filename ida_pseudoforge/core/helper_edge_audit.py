@@ -74,6 +74,7 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
     callee = edge.callee or ""
     evidence = edge.evidence or ""
     indirect_target = _indirect_target_from_warnings(warnings)
+    indirect_target_candidates = _indirect_target_candidates_from_warnings(warnings)
     external_profile = _external_function_profile(callee)
     classification = "resolved"
     severity = "info"
@@ -109,7 +110,11 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
         next_action = "add a fixed-point helper summary or review the recursive cycle manually"
         blocks_recovery = True
     elif _looks_like_indirect_helper(callee, evidence, warning_text):
-        if indirect_target:
+        if indirect_target_candidates:
+            classification = "indirect_dispatch_target_candidate"
+            reason = "buffer reaches an indirect dispatch target with unresolved target candidates"
+            next_action = "capture/decompile candidate targets or attach a target-set summary"
+        elif indirect_target:
             classification = "indirect_dispatch_target_unresolved"
             reason = "buffer reaches an unresolved indirect dispatch target"
             next_action = "resolve the dispatch target expression or attach a target-set summary"
@@ -178,6 +183,7 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
         "confidence": edge.confidence,
         "external_profile": external_profile,
         "indirect_target": indirect_target,
+        "indirect_target_candidates": indirect_target_candidates,
     }
 
 
@@ -417,3 +423,15 @@ def _indirect_target_from_warnings(warnings: list[str]) -> str:
         if text.lower().startswith(prefix):
             return text[len(prefix) :].strip()
     return ""
+
+
+def _indirect_target_candidates_from_warnings(warnings: list[str]) -> list[str]:
+    prefix = "indirect dispatch target candidate:"
+    result: list[str] = []
+    for warning in warnings:
+        text = str(warning or "").strip()
+        if text.lower().startswith(prefix):
+            candidate = text[len(prefix) :].strip()
+            if candidate and candidate not in result:
+                result.append(candidate)
+    return result
