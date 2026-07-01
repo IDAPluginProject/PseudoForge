@@ -126,11 +126,19 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
             next_action = "add or attach a reusable external API summary for this callee"
             blocks_recovery = True
     elif "helper not available" in warning_text:
-        classification = "helper_capture_missing"
-        severity = "high"
-        reason = "callee capture was not available to the helper analyzer"
-        next_action = "decompile the callee, add it to helper captures, or provide a reusable summary"
-        blocks_recovery = True
+        boundary_summary = _missing_helper_boundary_summary(edge)
+        if boundary_summary:
+            classification = boundary_summary["classification"]
+            severity = boundary_summary["severity"]
+            reason = boundary_summary["reason"]
+            next_action = boundary_summary["next_action"]
+            blocks_recovery = False
+        else:
+            classification = "helper_capture_missing"
+            severity = "high"
+            reason = "callee capture was not available to the helper analyzer"
+            next_action = "decompile the callee, add it to helper captures, or provide a reusable summary"
+            blocks_recovery = True
     elif "buffer pointer escapes" in warning_text:
         classification = "pointer_escape_unknown"
         severity = "medium"
@@ -267,6 +275,17 @@ def _depth_limit_summary(callee: str, external_profile: dict[str, str]) -> dict[
     return {}
 
 
+def _missing_helper_boundary_summary(edge: HelperContractEdge) -> dict[str, str]:
+    if _looks_like_external_lock_boundary(edge.callee) and _has_explicit_length_for_passed_buffer(edge):
+        return {
+            "classification": "external_lock_boundary_summary",
+            "severity": "info",
+            "reason": "missing helper looks like a synchronization boundary with an explicit buffer length argument",
+            "next_action": "none",
+        }
+    return {}
+
+
 def _looks_like_terminal_sink(callee: str) -> bool:
     name = str(callee or "")
     if name in {"KeBugCheck2", "KeBugCheckEx"}:
@@ -291,6 +310,67 @@ def _looks_like_internal_state_probe(callee: str) -> bool:
         "MmIsNonPagedPoolNx",
     }
     return name in internal_state_queries
+
+
+def _looks_like_external_lock_boundary(callee: str) -> bool:
+    name = str(callee or "")
+    lock_markers = (
+        "AcquireLock",
+        "ReleaseLock",
+    )
+    return any(marker in name for marker in lock_markers)
+
+
+def _has_explicit_length_for_passed_buffer(edge: HelperContractEdge) -> bool:
+    arguments = [str(item or "").strip() for item in edge.arguments]
+    if not arguments or not edge.passed_buffers:
+        return False
+    identifiers = [_argument_identifier(item) for item in arguments]
+    for buffer in edge.passed_buffers:
+        buffer_name = _argument_identifier(str(buffer or ""))
+        if not buffer_name:
+            continue
+        for index, identifier in enumerate(identifiers):
+            if identifier != buffer_name:
+                continue
+            following = identifiers[index + 1 :]
+            if any(_is_length_identifier_for_buffer(item, buffer_name) for item in following):
+                return True
+    return False
+
+
+def _argument_identifier(argument: str) -> str:
+    text = str(argument or "").strip()
+    if not text:
+        return ""
+    if text.startswith("&"):
+        text = text[1:].strip()
+    while text.startswith("(") and ")" in text:
+        close = text.find(")")
+        if close <= 0:
+            break
+        text = text[close + 1 :].strip()
+    result = []
+    for char in text:
+        if char.isalnum() or char == "_":
+            result.append(char)
+        elif result:
+            break
+    return "".join(result)
+
+
+def _is_length_identifier_for_buffer(identifier: str, buffer_name: str) -> bool:
+    lowered = str(identifier or "").lower()
+    buffer_lowered = str(buffer_name or "").lower()
+    if not lowered or lowered == buffer_lowered:
+        return False
+    if lowered in {
+        "%slength" % buffer_lowered,
+        "%ssize" % buffer_lowered,
+        "%sbytes" % buffer_lowered,
+    }:
+        return True
+    return lowered.endswith(("length", "size", "bytes"))
 
 
 def _external_profile_is_input_only(raw_signature: str) -> bool:

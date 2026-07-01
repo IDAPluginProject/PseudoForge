@@ -1586,6 +1586,64 @@ class BufferContractTests(unittest.TestCase):
                 self.assertEqual("info", record["severity"])
                 self.assertFalse(record["blocks_recovery"])
 
+    def test_missing_lock_boundary_with_explicit_length_is_nonblocking_summary(self) -> None:
+        edge = HelperContractEdge(
+            callee="SubsystemAcquireLock",
+            arguments=["context", "systemInformation", "systemInformationLength", "previousMode"],
+            passed_buffers=["systemInformation"],
+            resolved=False,
+            depth=2,
+            evidence="SubsystemAcquireLock(context, systemInformation, systemInformationLength, previousMode)",
+            warnings=[
+                "helper not available for buffer contract analysis",
+                "buffer pointer escapes to unknown function",
+            ],
+        )
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("external_lock_boundary_summary", record["classification"])
+        self.assertEqual("info", record["severity"])
+        self.assertFalse(record["blocks_recovery"])
+
+    def test_missing_lock_boundary_without_explicit_length_stays_blocking(self) -> None:
+        edge = HelperContractEdge(
+            callee="SubsystemAcquireLock",
+            arguments=["context", "systemInformation", "previousMode"],
+            passed_buffers=["systemInformation"],
+            resolved=False,
+            depth=2,
+            evidence="SubsystemAcquireLock(context, systemInformation, previousMode)",
+            warnings=[
+                "helper not available for buffer contract analysis",
+                "buffer pointer escapes to unknown function",
+            ],
+        )
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("helper_capture_missing", record["classification"])
+        self.assertTrue(record["blocks_recovery"])
+
+    def test_missing_set_boundary_with_length_stays_blocking(self) -> None:
+        edge = HelperContractEdge(
+            callee="SubsystemSetInformation",
+            arguments=["context", "systemInformation", "systemInformationLength"],
+            passed_buffers=["systemInformation"],
+            resolved=False,
+            depth=2,
+            evidence="SubsystemSetInformation(context, systemInformation, systemInformationLength)",
+            warnings=[
+                "helper not available for buffer contract analysis",
+                "buffer pointer escapes to unknown function",
+            ],
+        )
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("helper_capture_missing", record["classification"])
+        self.assertTrue(record["blocks_recovery"])
+
     def test_helper_only_case_still_emits_buffer_struct_fields(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
         helper_capture = capture_from_pseudocode(HELPER_SAMPLE)
