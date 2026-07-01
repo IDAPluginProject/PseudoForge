@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from functools import lru_cache
 from typing import Any
@@ -289,6 +290,13 @@ def _depth_limit_summary(callee: str, external_profile: dict[str, str]) -> dict[
 
 
 def _missing_helper_boundary_summary(edge: HelperContractEdge) -> dict[str, str]:
+    if _looks_like_terminal_guarded_boundary(edge):
+        return {
+            "classification": "terminal_helper_boundary_summary",
+            "severity": "info",
+            "reason": "missing helper is a directly returned subsystem boundary after caller-side buffer guards",
+            "next_action": "none",
+        }
     if _looks_like_external_lock_boundary(edge.callee) and _has_explicit_length_for_passed_buffer(edge):
         return {
             "classification": "external_lock_boundary_summary",
@@ -297,6 +305,58 @@ def _missing_helper_boundary_summary(edge: HelperContractEdge) -> dict[str, str]
             "next_action": "none",
         }
     return {}
+
+
+def _looks_like_terminal_guarded_boundary(edge: HelperContractEdge) -> bool:
+    warning_text = " ".join(str(item or "").lower() for item in edge.warnings)
+    if "terminal helper call returned directly" not in warning_text:
+        return False
+    if "caller case has local buffer guard before terminal helper" not in warning_text:
+        return False
+    if not _looks_like_subsystem_boundary(edge.callee):
+        return False
+    return _has_selector_context_boundary_shape(edge)
+
+
+def _looks_like_subsystem_boundary(callee: str) -> bool:
+    name = str(callee or "")
+    if not name:
+        return False
+    boundary_markers = (
+        "Initialize",
+        "Register",
+        "Unregister",
+        "Notify",
+        "Notification",
+        "Callback",
+        "Control",
+    )
+    return any(marker in name for marker in boundary_markers)
+
+
+def _has_selector_context_boundary_shape(edge: HelperContractEdge) -> bool:
+    arguments = [str(item or "").strip() for item in edge.arguments]
+    if len(arguments) < 3:
+        return False
+    passed = {_argument_identifier(buffer) for buffer in edge.passed_buffers}
+    has_constant_selector = any(_is_constant_argument(argument) for argument in arguments)
+    has_context_reference = any(_is_context_reference_argument(argument, passed) for argument in arguments)
+    return has_constant_selector and has_context_reference
+
+
+def _is_constant_argument(argument: str) -> bool:
+    text = str(argument or "").strip()
+    if not text:
+        return False
+    return bool(re.fullmatch(r"(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L|u|U)?", text))
+
+
+def _is_context_reference_argument(argument: str, passed_buffers: set[str]) -> bool:
+    text = str(argument or "").strip()
+    if not text.startswith("&"):
+        return False
+    identifier = _argument_identifier(text)
+    return bool(identifier and identifier not in passed_buffers)
 
 
 def _looks_like_terminal_sink(callee: str) -> bool:

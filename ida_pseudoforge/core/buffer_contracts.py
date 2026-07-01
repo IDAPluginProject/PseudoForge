@@ -203,7 +203,9 @@ def recover_buffer_contracts(
     case_values: Iterable[int] | None = None,
     disasm_case_slices: Iterable[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None = None,
 ) -> list[CommandBufferContract]:
-    text = safe_identifier_replace(capture.pseudocode, rename_map or {})
+    raw_text = capture.pseudocode or ""
+    text = safe_identifier_replace(raw_text, rename_map or {})
+    renames = rename_map or {}
     helper_map = _normalize_helper_captures(helper_captures)
     buffer_sources = _infer_buffer_sources(text, capture)
     length_aliases = _infer_length_aliases(text)
@@ -240,8 +242,12 @@ def recover_buffer_contracts(
         for value in flow.recovered_cases:
             if case_filter is not None and value not in case_filter:
                 continue
-            body_lines = case_bodies.get(value, [])
+            body_lines = _authoritative_case_body_lines(raw_text, flow, value, renames)
             if not body_lines:
+                body_lines = case_bodies.get(value, [])
+            if not body_lines:
+                continue
+            if _is_terminal_noncontract_case_body(body_lines):
                 continue
             body_lines = _body_lines_with_shared_tail_size_guards(
                 text,
@@ -266,7 +272,10 @@ def recover_buffer_contracts(
                     body_lines,
                     helper_interesting_names,
                 )
-            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+            if (
+                not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases)
+                and not _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
+            ):
                 body_lines = _body_lines_with_dispatcher_condition_context(
                     text,
                     flow.dispatcher,
@@ -1211,23 +1220,41 @@ def _selected_case_body(
     rename_map: dict[str, str] | None = None,
 ) -> tuple[FlowRewrite | None, list[str]]:
     text = capture.pseudocode or ""
-    renamed_text = safe_identifier_replace(text, rename_map or {}) if rename_map else text
     for flow in plan.flow_rewrites:
         if command_value not in set(flow.recovered_cases) and command_value not in flow.case_bodies:
             continue
-        native_bodies = _native_switch_case_bodies(text, flow.dispatcher)
-        body_lines = native_bodies.get(command_value)
-        if body_lines is None and renamed_text != text:
-            native_bodies = _native_switch_case_bodies(renamed_text, flow.dispatcher)
-            body_lines = native_bodies.get(command_value)
-        if body_lines is None:
-            body_lines = _case_body_from_anchor(text, command_value, flow.case_anchors.get(command_value, 0))
-        if body_lines is None and renamed_text != text:
-            body_lines = _case_body_from_anchor(renamed_text, command_value, flow.case_anchors.get(command_value, 0))
-        if body_lines is None:
-            body_lines = _renamed_case_body_lines(flow.case_bodies.get(command_value, []), rename_map or {})
+        body_lines = _authoritative_case_body_lines(text, flow, command_value, rename_map or {})
         return flow, list(body_lines)
     return None, []
+
+
+def _authoritative_case_body_lines(
+    text: str,
+    flow: FlowRewrite,
+    command_value: int,
+    rename_map: dict[str, str] | None = None,
+) -> list[str]:
+    renames = rename_map or {}
+    source_variants = _case_body_source_variants(text, renames)
+    for source in source_variants:
+        body = _native_switch_case_bodies(source, flow.dispatcher).get(command_value)
+        if body is not None:
+            return _renamed_case_body_lines(body, renames)
+    for source in source_variants:
+        body = _case_body_from_anchor(source, command_value, flow.case_anchors.get(command_value, 0))
+        if body is not None:
+            return _renamed_case_body_lines(body, renames)
+    return _renamed_case_body_lines(flow.case_bodies.get(command_value, []), renames)
+
+
+def _case_body_source_variants(text: str, rename_map: dict[str, str]) -> list[str]:
+    raw_text = text or ""
+    if not rename_map:
+        return [raw_text]
+    renamed_text = safe_identifier_replace(raw_text, rename_map)
+    if renamed_text == raw_text:
+        return [raw_text]
+    return [raw_text, renamed_text]
 
 
 def _merged_case_bodies(
@@ -1237,9 +1264,29 @@ def _merged_case_bodies(
     merged = {value: list(lines) for value, lines in flow_bodies.items() if lines}
     for value, body in native_bodies.items():
         current = merged.get(value)
-        if current is None or _native_case_body_score(body) > _native_case_body_score(current):
+        if (
+            _is_terminal_noncontract_case_body(body)
+            or current is None
+            or _native_case_body_score(body) > _native_case_body_score(current)
+        ):
             merged[value] = list(body)
     return merged
+
+
+def _is_terminal_noncontract_case_body(lines: list[str]) -> bool:
+    significant = [
+        line.strip()
+        for line in lines
+        if line.strip() and line.strip() not in {"{", "}"}
+    ]
+    if len(significant) != 1:
+        return False
+    line = significant[0]
+    if "(" in line or ")" in line:
+        return False
+    if re.fullmatch(r"return\s+(?:0x[0-9A-Fa-f]+|\d+)(?:LL|i64|L|u|U)?\s*;", line):
+        return True
+    return bool(re.fullmatch(r"return\s+STATUS_[A-Za-z0-9_]+\s*;", line))
 
 
 def _renamed_case_body_lines(lines: list[str], rename_map: dict[str, str]) -> list[str]:
@@ -2317,6 +2364,9 @@ def _recover_focused_native_switch_contracts(
             body_lines = case_bodies.get(value)
             if not body_lines:
                 continue
+            if _is_terminal_noncontract_case_body(body_lines):
+                recovered.add(value)
+                continue
             body_lines = _body_lines_with_shared_tail_size_guards(
                 text,
                 dispatcher,
@@ -2340,7 +2390,10 @@ def _recover_focused_native_switch_contracts(
                     body_lines,
                     helper_interesting_names,
                 )
-            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+            if (
+                not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases)
+                and not _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
+            ):
                 body_lines = _body_lines_with_dispatcher_condition_context(
                     text,
                     dispatcher,
@@ -4265,17 +4318,75 @@ def _missing_helper_warnings(site: _HelperCallSite, body_text: str = "") -> list
             warnings.append("indirect dispatch target argument: %s" % target)
         for candidate in _indirect_dispatch_target_candidates(body_text, site):
             warnings.append("indirect dispatch target candidate: %s" % candidate)
+        if _site_is_terminal_return(site, body_text):
+            warnings.append("terminal helper call returned directly")
+        if _site_has_caller_buffer_guard(site, body_text):
+            warnings.append("caller case has local buffer guard before terminal helper")
         return warnings
     if site.indirect:
-        return [
+        warnings = [
             "indirect helper call target not resolved",
             "helper not available for buffer contract analysis",
             "buffer pointer escapes to unresolved indirect call",
         ]
-    return [
+        if _site_is_terminal_return(site, body_text):
+            warnings.append("terminal helper call returned directly")
+        if _site_has_caller_buffer_guard(site, body_text):
+            warnings.append("caller case has local buffer guard before terminal helper")
+        return warnings
+    warnings = [
         "helper not available for buffer contract analysis",
         "buffer pointer escapes to unknown function",
     ]
+    if _site_is_terminal_return(site, body_text):
+        warnings.append("terminal helper call returned directly")
+    if _site_has_caller_buffer_guard(site, body_text):
+        warnings.append("caller case has local buffer guard before terminal helper")
+    return warnings
+
+
+def _site_is_terminal_return(site: _HelperCallSite, body_text: str) -> bool:
+    line = _call_site_source_line(site, body_text)
+    if not line.startswith("return "):
+        return False
+    return site.evidence in line and line.rstrip().endswith(";")
+
+
+def _site_has_caller_buffer_guard(site: _HelperCallSite, body_text: str) -> bool:
+    if site.offset < 0:
+        return False
+    source = (body_text or "")[: site.offset]
+    if not source:
+        return False
+    identifiers = [_argument_identifier(argument) for argument in site.arguments]
+    argument_names = {identifier for identifier in identifiers if identifier}
+    if not argument_names:
+        return False
+    for line in source.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("if"):
+            continue
+        if _guard_line_references_argument_or_length(stripped, argument_names):
+            return True
+    return False
+
+
+def _guard_line_references_argument_or_length(line: str, argument_names: set[str]) -> bool:
+    identifiers = set(re.findall(r"\b%s\b" % _IDENT_RE, line or ""))
+    if identifiers & argument_names:
+        return True
+    return any(_looks_like_length_name(identifier) for identifier in identifiers)
+
+
+def _call_site_source_line(site: _HelperCallSite, body_text: str) -> str:
+    source = body_text or ""
+    if site.offset < 0 or site.offset >= len(source):
+        return ""
+    start = source.rfind("\n", 0, site.offset) + 1
+    end = source.find("\n", site.offset)
+    if end < 0:
+        end = len(source)
+    return source[start:end].strip()
 
 
 def _helper_payload_arguments(site: _HelperCallSite) -> list[str]:

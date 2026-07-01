@@ -1645,6 +1645,54 @@ class BufferContractTests(unittest.TestCase):
         self.assertEqual("helper_capture_missing", record["classification"])
         self.assertTrue(record["blocks_recovery"])
 
+    def test_terminal_guarded_initializer_boundary_is_nonblocking_summary(self) -> None:
+        edges = _recover_helper_edges(
+            "\n".join(
+                [
+                    "if ( previousMode || !systemInformation || (_DWORD)systemInformationLength != 8 )",
+                    "  return 3221225485LL;",
+                    "return (unsigned int)KdInitialize(3LL, systemInformation, &KdpContext, 1LL);",
+                ]
+            ),
+            {"systemInformation": {"source": "parameter", "role": "input"}},
+            {},
+            max_depth=4,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual(1, len(edges))
+        edge = edges[0]
+        self.assertIn("terminal helper call returned directly", edge.warnings)
+        self.assertIn("caller case has local buffer guard before terminal helper", edge.warnings)
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("terminal_helper_boundary_summary", record["classification"])
+        self.assertEqual("info", record["severity"])
+        self.assertFalse(record["blocks_recovery"])
+
+    def test_terminal_initializer_without_selector_context_shape_stays_blocking(self) -> None:
+        edge = HelperContractEdge(
+            callee="ValidateInitialize",
+            arguments=["systemInformation"],
+            passed_buffers=["systemInformation"],
+            resolved=False,
+            depth=1,
+            evidence="ValidateInitialize(systemInformation)",
+            warnings=[
+                "helper not available for buffer contract analysis",
+                "buffer pointer escapes to unknown function",
+                "terminal helper call returned directly",
+                "caller case has local buffer guard before terminal helper",
+            ],
+        )
+
+        record = classify_helper_edge(edge)
+
+        self.assertEqual("helper_capture_missing", record["classification"])
+        self.assertTrue(record["blocks_recovery"])
+
     def test_guard_dispatch_target_argument_is_not_payload_buffer(self) -> None:
         edges = _recover_helper_edges(
             "guard_dispatch_icall_no_overrides(Object, v4);",
@@ -1998,6 +2046,86 @@ class BufferContractTests(unittest.TestCase):
         self.assertIn(0x10, offsets)
         self.assertNotIn(0x18, offsets)
         self.assertNotIn(0x20, offsets)
+
+    def test_native_status_only_case_body_overrides_noisy_flow_body(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+NTSTATUS __fastcall NtSetSystemInformation(SYSTEM_INFORMATION_CLASS systemInformationClass, PVOID systemInformation, ULONG systemInformationLength)
+{
+  if ( v5 == 71 )
+  {
+    if ( (_DWORD)systemInformationLength != 40 )
+      return 3221225485LL;
+    guard_dispatch_icall_no_overrides(v40, systemInformation);
+  }
+  switch ( systemInformationClass )
+  {
+    case 71:
+      return 3221225659LL;
+    case 72:
+      return (unsigned int)ValidateOtherSystemInfo(systemInformation, systemInformationLength);
+    default:
+      return 3221225485LL;
+  }
+}
+"""
+        )
+        flow = FlowRewrite(
+            kind="switch_recovery",
+            dispatcher="v5",
+            recovered_cases=[71],
+            case_names={71: "SystemWatchdogTimerHandler"},
+            case_anchors={71: 6},
+            case_bodies={
+                71: [
+                    "ValidateOtherSystemInfo(systemInformation, systemInformationLength);",
+                    "guard_dispatch_icall_no_overrides(v40, systemInformation);",
+                ],
+            },
+        )
+
+        contracts = recover_buffer_contracts(capture, [flow], case_values=[71])
+
+        self.assertEqual([], contracts)
+
+    def test_direct_helper_case_body_does_not_merge_noisy_dispatcher_context(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+NTSTATUS __fastcall NtSetSystemInformation(SYSTEM_INFORMATION_CLASS systemInformationClass, PVOID systemInformation, ULONG systemInformationLength)
+{
+  if ( v5 == 113 )
+  {
+    if ( (_DWORD)systemInformationLength != 40 )
+      return 3221225485LL;
+    guard_dispatch_icall_no_overrides(v40, systemInformation);
+  }
+  switch ( systemInformationClass )
+  {
+    case 113:
+      return (unsigned int)PsSetCpuQuotaInformation(systemInformation, systemInformationLength, previousMode);
+    default:
+      return 3221225485LL;
+  }
+}
+"""
+        )
+        flow = FlowRewrite(
+            kind="switch_recovery",
+            dispatcher="v5",
+            recovered_cases=[113],
+            case_names={113: "SystemCpuQuotaInformation"},
+            case_anchors={113: 9},
+            case_bodies={
+                113: [
+                    "return (unsigned int)PsSetCpuQuotaInformation(systemInformation, systemInformationLength, previousMode);",
+                ],
+            },
+        )
+
+        contracts = recover_buffer_contracts(capture, [flow], case_values=[113])
+
+        self.assertEqual([113], [contract.command_value for contract in contracts])
+        self.assertEqual(["PsSetCpuQuotaInformation"], [edge.callee for edge in contracts[0].helper_edges])
 
     def test_ntset_system_goto_label_tail_recovers_selected_case_sizes(self) -> None:
         capture = capture_from_pseudocode(NTSET_SYSTEM_GOTO_LABEL_TAIL_SAMPLE)

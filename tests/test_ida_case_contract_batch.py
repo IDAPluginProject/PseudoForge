@@ -233,6 +233,15 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(1, metrics["helper_field_constraints"])
         self.assertEqual(1, metrics["helper_edges_unresolved"])
         self.assertEqual(3, metrics["warnings"])
+        self.assertEqual(3, metrics["blocking_warnings"])
+        self.assertEqual(
+            [
+                "buffer pointer escapes to unknown function",
+                "case warning",
+                "helper not available for buffer contract analysis",
+            ],
+            metrics["blocking_warning_messages"],
+        )
         self.assertEqual(["systemInformation"], metrics["buffer_names"])
         self.assertEqual(1, len(metrics["helper_edge_audit"]))
         self.assertEqual(
@@ -394,12 +403,14 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(1, len(summary["zero_contract_audit"]))
         self.assertEqual("unknown_unclassified", summary["zero_contract_audit"][0]["classification"])
         self.assertEqual(["0x4F"], summary["warning_cases"])
+        self.assertEqual(["0x4F"], summary["blocking_warning_cases"])
         self.assertEqual(["0x4F"], summary["unresolved_helper_cases"])
         self.assertEqual({"helper_capture_missing": 1}, summary["helper_edge_class_counts"])
         self.assertEqual(1, len(summary["unresolved_helper_edge_audit"]))
         self.assertEqual(1, summary["path_family_count"])
         self.assertEqual(["0x4F:0:MissingSuperfetchHelper"], summary["path_families_with_unresolved"])
         self.assertEqual(1, summary["totals"]["blocking_unresolved_helper_edges"])
+        self.assertEqual(1, summary["totals"]["blocking_warnings"])
         self.assertEqual(1, summary["totals"]["helper_capture_candidates"])
         self.assertEqual(1, summary["totals"]["helper_capture_unavailable"])
         self.assertEqual({"capture_unavailable": 1}, summary["helper_capture_status_counts"])
@@ -421,6 +432,66 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertIn("Zero-Contract Audit", markdown)
         self.assertIn("Helper Capture Ledger", markdown)
         self.assertIn("capture_unavailable", markdown)
+
+    def test_coverage_gate_ignores_nonblocking_warning_cases(self) -> None:
+        summary = batch._build_coverage_summary(
+            [
+                {
+                    "status": "ok",
+                    "function": "NtSetSystemInformation",
+                    "case": "0xA1",
+                    "case_value": 0xA1,
+                    "command_name": "SystemVmGenerationCountInformation",
+                    "contracts": 1,
+                    "buffers": 1,
+                    "helpers": 1,
+                    "helper_edges_total": 1,
+                    "helper_edges_unresolved": 1,
+                    "warnings": 4,
+                    "blocking_warnings": 0,
+                    "warning_messages": [
+                        "KdInitialize: helper not available for buffer contract analysis",
+                    ],
+                    "helper_edge_class_counts": {
+                        "terminal_helper_boundary_summary": 1,
+                    },
+                    "helper_path_families": [
+                        {
+                            "family_id": "0xA1:0:KdInitialize",
+                            "root_callee": "KdInitialize",
+                            "root_classification": "terminal_helper_boundary_summary",
+                            "edge_count": 1,
+                            "unresolved_edges": 1,
+                            "blocking_unresolved_edges": 0,
+                            "warnings": 4,
+                        }
+                    ],
+                    "unresolved_helper_edge_audit": [
+                        {
+                            "command": "0xA1",
+                            "callee": "KdInitialize",
+                            "classification": "terminal_helper_boundary_summary",
+                            "severity": "info",
+                            "blocks_recovery": False,
+                            "depth": 1,
+                            "passed_buffers": ["systemInformation"],
+                            "next_action": "none",
+                        }
+                    ],
+                },
+            ],
+            out_dir=Path("out"),
+            source_path="ntoskrnl.exe.i64",
+            helper_depth=4,
+            elapsed_seconds=1.0,
+            exit_code=0,
+        )
+
+        self.assertEqual(["0xA1"], summary["warning_cases"])
+        self.assertEqual([], summary["blocking_warning_cases"])
+        self.assertEqual(0, summary["totals"]["blocking_warnings"])
+        self.assertEqual("passed", summary["recovery_gate"]["status"])
+        self.assertNotIn("no_blocking_warning_cases", summary["recovery_gate"]["blockers"])
 
 
 if __name__ == "__main__":

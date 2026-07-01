@@ -353,7 +353,9 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
         "helper_edges_resolved": 0,
         "helper_edges_unresolved": 0,
         "warnings": 0,
+        "blocking_warnings": 0,
         "warning_messages": [],
+        "blocking_warning_messages": [],
         "buffer_names": [],
         "helper_edge_audit": [],
         "helper_edge_class_counts": {},
@@ -381,15 +383,43 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
         metrics["helper_edges_unresolved"] += edge_metrics["helper_edges_unresolved"]
         warning_messages.extend(edge_metrics["warning_messages"])
     audit_records = helper_edge_audit_records(contracts)
+    blocking_unresolved_audit = blocking_unresolved_helper_edge_records(audit_records)
+    blocking_warning_messages = _blocking_warning_messages(warning_messages, blocking_unresolved_audit)
     metrics["warnings"] = len(warning_messages)
+    metrics["blocking_warnings"] = len(blocking_warning_messages)
     metrics["warning_messages"] = sorted(set(warning_messages))
+    metrics["blocking_warning_messages"] = blocking_warning_messages
     metrics["buffer_names"] = buffer_names
     metrics["helper_edge_audit"] = audit_records
     metrics["helper_edge_class_counts"] = helper_edge_class_counts(audit_records)
     metrics["helper_path_families"] = helper_path_family_records(contracts)
     metrics["unresolved_helper_edge_audit"] = unresolved_helper_edge_records(audit_records)
-    metrics["blocking_unresolved_helper_edge_audit"] = blocking_unresolved_helper_edge_records(audit_records)
+    metrics["blocking_unresolved_helper_edge_audit"] = blocking_unresolved_audit
     return metrics
+
+
+def _blocking_warning_messages(
+    warning_messages: list[str],
+    blocking_unresolved_audit: list[dict[str, Any]],
+) -> list[str]:
+    if not blocking_unresolved_audit:
+        return []
+    blocking_callees = {
+        str(item.get("callee", "") or "")
+        for item in blocking_unresolved_audit
+        if str(item.get("callee", "") or "")
+    }
+    result: list[str] = []
+    for message in warning_messages:
+        text = str(message or "").strip()
+        if not text:
+            continue
+        if not blocking_callees or any(text == callee or text.startswith(callee + ":") for callee in blocking_callees):
+            if text not in result:
+                result.append(text)
+    if result:
+        return sorted(result)
+    return sorted({str(item or "").strip() for item in warning_messages if str(item or "").strip()})
 
 
 def _helper_capture_metrics(plan: object, unresolved_helper_edge_audit: object | None = None) -> dict[str, Any]:
@@ -604,10 +634,12 @@ def _build_coverage_summary(
         "helper_capture_candidates": 0,
         "helper_capture_unavailable": 0,
         "warnings": 0,
+        "blocking_warnings": 0,
     }
     cases: list[dict[str, Any]] = []
     zero_contract_cases: list[str] = []
     warning_cases: list[str] = []
+    blocking_warning_cases: list[str] = []
     unresolved_helper_cases: list[str] = []
     helper_edge_class_counts_total: dict[str, int] = {}
     unresolved_helper_edge_audit: list[dict[str, Any]] = []
@@ -627,6 +659,16 @@ def _build_coverage_summary(
             blocking_unresolved_audit = [
                 item for item in unresolved_audit if bool(item.get("blocks_recovery", True))
             ]
+        record_warnings = int(record.get("warnings", 0) or 0)
+        record_blocking_warning_messages = list(record.get("blocking_warning_messages", []) or [])
+        if "blocking_warnings" in record:
+            record_blocking_warnings = int(record.get("blocking_warnings", 0) or 0)
+        elif record_blocking_warning_messages:
+            record_blocking_warnings = len(record_blocking_warning_messages)
+        elif blocking_unresolved_audit:
+            record_blocking_warnings = record_warnings
+        else:
+            record_blocking_warnings = 0
         case_entry = {
             "function": record.get("function", ""),
             "case": case_label,
@@ -645,8 +687,10 @@ def _build_coverage_summary(
             "helper_edges_total": int(record.get("helper_edges_total", 0) or 0),
             "helper_edges_resolved": int(record.get("helper_edges_resolved", 0) or 0),
             "helper_edges_unresolved": int(record.get("helper_edges_unresolved", 0) or 0),
-            "warnings": int(record.get("warnings", 0) or 0),
+            "warnings": record_warnings,
+            "blocking_warnings": record_blocking_warnings,
             "warning_messages": list(record.get("warning_messages", []) or []),
+            "blocking_warning_messages": record_blocking_warning_messages,
             "helper_edge_class_counts": dict(record.get("helper_edge_class_counts", {}) or {}),
             "helper_edge_audit": list(record.get("helper_edge_audit", []) or []),
             "helper_path_families": list(record.get("helper_path_families", []) or []),
@@ -694,6 +738,8 @@ def _build_coverage_summary(
             )
         if case_entry["warnings"]:
             warning_cases.append(case_label)
+        if case_entry["blocking_warnings"]:
+            blocking_warning_cases.append(case_label)
         if case_entry["helper_edges_unresolved"]:
             unresolved_helper_cases.append(case_label)
         for classification, count in case_entry["helper_edge_class_counts"].items():
@@ -724,6 +770,7 @@ def _build_coverage_summary(
         totals=totals,
         zero_contract_cases=zero_contract_cases,
         warning_cases=warning_cases,
+        blocking_warning_cases=blocking_warning_cases,
         unresolved_helper_cases=unresolved_helper_cases,
         blocking_unresolved_helper_edge_audit=blocking_unresolved_helper_edge_audit,
         helper_edge_class_counts=helper_edge_class_counts_total,
@@ -742,6 +789,7 @@ def _build_coverage_summary(
         "zero_contract_cases": zero_contract_cases,
         "zero_contract_audit": zero_contract_audit,
         "warning_cases": warning_cases,
+        "blocking_warning_cases": blocking_warning_cases,
         "unresolved_helper_cases": unresolved_helper_cases,
         "helper_edge_class_counts": dict(sorted(helper_edge_class_counts_total.items())),
         "helper_capture_status_counts": dict(sorted(helper_capture_status_counts_total.items())),
@@ -762,6 +810,7 @@ def _build_recovery_gate(
     totals: dict[str, int],
     zero_contract_cases: list[str],
     warning_cases: list[str],
+    blocking_warning_cases: list[str],
     unresolved_helper_cases: list[str],
     blocking_unresolved_helper_edge_audit: list[dict[str, Any]],
     helper_edge_class_counts: dict[str, int],
@@ -789,9 +838,10 @@ def _build_recovery_gate(
             ),
         },
         {
-            "name": "no_warning_cases",
-            "passed": not warning_cases,
-            "detail": "warning_cases=%d" % len(warning_cases),
+            "name": "no_blocking_warning_cases",
+            "passed": not blocking_warning_cases,
+            "detail": "warning_cases=%d blocking_warning_cases=%d"
+            % (len(warning_cases), len(blocking_warning_cases)),
         },
         {
             "name": "zero_contract_cases_classified",
@@ -867,6 +917,7 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
         "helper_capture_candidates",
         "helper_capture_unavailable",
         "warnings",
+        "blocking_warnings",
     ]
     for key in metric_order:
         lines.append("| `%s` | %s |" % (key, totals.get(key, 0)))
@@ -877,6 +928,7 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
             "",
             "- Zero-contract cases: %s" % _markdown_case_list(summary.get("zero_contract_cases", [])),
             "- Warning cases: %s" % _markdown_case_list(summary.get("warning_cases", [])),
+            "- Blocking-warning cases: %s" % _markdown_case_list(summary.get("blocking_warning_cases", [])),
             "- Unresolved-helper cases: %s" % _markdown_case_list(summary.get("unresolved_helper_cases", [])),
             "",
             "## Recovery Gate",
