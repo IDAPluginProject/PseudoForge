@@ -1661,7 +1661,10 @@ def _render_single_buffer_struct(contract: CommandBufferContract, buffer: Buffer
     lines.append("{")
     lines.extend(_render_cpp_field_layout(fields, size_hint, size_predicates))
     lines.append("};")
+    emitted_field_offsets = _cpp_emitted_field_offsets(fields)
     for field in fields:
+        if int(field["offset"]) not in emitted_field_offsets:
+            continue
         lines.append(
             "static_assert(offsetof(%s, %s) == 0x%X, \"%s.%s offset mismatch\");"
             % (
@@ -1916,6 +1919,19 @@ def _render_cpp_field_layout(
     elif not fields and reserved_index == 0:
         lines.append("    std::uint8_t reserved_0x00[%d];" % target_size)
     return lines
+
+
+def _cpp_emitted_field_offsets(fields: list[dict[str, object]]) -> set[int]:
+    emitted: set[int] = set()
+    cursor = 0
+    for field in fields:
+        offset = int(field["offset"])
+        size = int(field["size"])
+        if offset < cursor:
+            continue
+        emitted.add(offset)
+        cursor = offset + size
+    return emitted
 
 
 def _render_size_only_byte_layout(size_hint: int, size_predicates: list[_SizePredicate]) -> list[str]:

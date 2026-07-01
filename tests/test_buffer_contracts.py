@@ -3486,6 +3486,60 @@ NTSTATUS __fastcall DispatchAnchorFallback(IRP *irp)
         self.assertTrue(any(item.length == "inputBytes" and item.value == "16" for item in edge.propagated_size_constraints))
         self.assertTrue(any(item.length == "outputBytes" and item.value == "24" for item in edge.propagated_size_constraints))
 
+    def test_overlapping_skipped_fields_do_not_emit_offset_asserts(self) -> None:
+        contract = CommandBufferContract(
+            dispatcher_kind="ioctl",
+            dispatcher="ioControlCode",
+            command_value=0x9123B000,
+            command_name="OverlapCase",
+            buffers=[
+                BufferContract(
+                    role="output",
+                    source="system_buffer",
+                    variable="systemBuffer",
+                    length_variable="outputBufferLength",
+                    structure_name="PF_IOCTL_9123B000_OUTPUT",
+                    size_constraints=[
+                        BufferSizeConstraint(
+                            buffer="systemBuffer",
+                            length="outputBufferLength",
+                            relation="!=",
+                            value="48",
+                            valid_relation="==",
+                            valid_value="48",
+                        )
+                    ],
+                    field_accesses=[
+                        FieldAccess(
+                            buffer="systemBuffer",
+                            structure="",
+                            offset=0x10,
+                            type="_OWORD",
+                            field="field_0x10",
+                            access="write",
+                            source="local",
+                        ),
+                        FieldAccess(
+                            buffer="systemBuffer",
+                            structure="",
+                            offset=0x14,
+                            type="ULONG",
+                            field="field_0x14",
+                            access="write",
+                            source="local",
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        capture = FunctionCapture(name="DispatchDeviceControl")
+        header = render_buffer_struct_header(capture, [contract])
+
+        self.assertIn("Overlapping field skipped at 0x14: field_0x14", header)
+        self.assertIn("static_assert(offsetof(PF_IOCTL_9123B000_OUTPUT, field_0x10) == 0x10", header)
+        self.assertNotIn("static_assert(offsetof(PF_IOCTL_9123B000_OUTPUT, field_0x14)", header)
+
     def test_export_bundle_writes_buffer_contract_artifacts(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
         plan = build_clean_plan(capture)

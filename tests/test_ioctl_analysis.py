@@ -208,6 +208,63 @@ class IoctlAnalysisTests(unittest.TestCase):
         self.assertIn("PF_PROCESS_ProcessEnableLogging_OUTPUT.field_0x00 > 2", report)
         self.assertIn("not values the caller must provide", report)
 
+    def test_selector_report_quarantines_suspicious_disasm_field_accesses(self) -> None:
+        capture = FunctionCapture(
+            name="NtQueryInformationProcess",
+            prototype="NTSTATUS NTAPI NtQueryInformationProcess(HANDLE h, PROCESSINFOCLASS c, PVOID p, ULONG l, PULONG r)",
+        )
+        plan = CleanPlan(
+            function_ea=0,
+            function_name="NtQueryInformationProcess",
+            input_fingerprint="fixture",
+            buffer_contracts=[
+                CommandBufferContract(
+                    dispatcher_kind="ntquery_process",
+                    dispatcher="processInformationClass",
+                    command_value=0x20,
+                    command_name="ProcessHandleTracing",
+                    buffers=[
+                        BufferContract(
+                            role="inout",
+                            source="parameter",
+                            variable="processInformation",
+                            length_variable="processInformationLength",
+                            structure_name="PF_PROCESS_ProcessHandleTracing_INOUT",
+                            field_accesses=[
+                                FieldAccess(
+                                    buffer="processInformation",
+                                    structure="",
+                                    offset=0,
+                                    type="ULONGLONG",
+                                    field="field_0x00",
+                                    access="read",
+                                    evidence="if ( *(_QWORD *)v6 == v229 || !*(_QWORD *)v6 )",
+                                    source="local",
+                                ),
+                                FieldAccess(
+                                    buffer="processInformation",
+                                    structure="",
+                                    offset=0xA08,
+                                    type="ULONG",
+                                    field="field_0xA08",
+                                    access="read",
+                                    evidence="mov     rdx, [rsp+0A08h+ObjectNameInformation]",
+                                    source="disasm:0x14099FE0F",
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            ],
+        )
+
+        report = render_selector_path_analysis_report(capture, plan, 0x20)
+
+        self.assertIn("field accesses: `1`", report)
+        self.assertIn("quarantined field-like observations: `1`", report)
+        self.assertIn("Quarantined layout observations:", report)
+        self.assertNotIn("field_0xA08` accessed as", report)
+
 
 if __name__ == "__main__":
     unittest.main()

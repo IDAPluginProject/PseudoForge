@@ -220,6 +220,7 @@ def _render_schema_hypotheses(contracts: list[CommandBufferContract]) -> list[st
         for buffer in contract.buffers:
             direction = _direction_text(buffer.role)
             accesses = _all_field_accesses(contract, buffer)
+            quarantined_accesses = _quarantined_field_accesses(contract, buffer)
             constraints = _all_field_constraints(contract, buffer)
             sizes = _all_size_constraints(contract, buffer)
             lines.extend(
@@ -232,6 +233,7 @@ def _render_schema_hypotheses(contracts: list[CommandBufferContract]) -> list[st
                     "  - source: `%s`" % (buffer.source or "unknown"),
                     "  - length: `%s`" % (buffer.length_variable or "unknown"),
                     "  - field accesses: `%d`" % len(accesses),
+                    "  - quarantined field-like observations: `%d`" % len(quarantined_accesses),
                     "  - field predicates: `%d`" % len(constraints),
                     "  - size predicates: `%d`" % len(sizes),
                 ]
@@ -465,7 +467,19 @@ def _all_field_accesses(
         for item in edge.propagated_field_accesses:
             if item.buffer == buffer.variable:
                 result.append(item)
-    return result
+    return [item for item in result if not _is_suspicious_disasm_layout_access(item)]
+
+
+def _quarantined_field_accesses(
+    contract: CommandBufferContract,
+    buffer: BufferContract,
+) -> list[FieldAccess]:
+    result = list(buffer.field_accesses)
+    for edge in _iter_helper_edges(contract.helper_edges):
+        for item in edge.propagated_field_accesses:
+            if item.buffer == buffer.variable:
+                result.append(item)
+    return [item for item in result if _is_suspicious_disasm_layout_access(item)]
 
 
 def _all_field_constraints(
@@ -577,6 +591,16 @@ def _field_constraint_output_only(
 
 def _field_access_reads_caller_value(access: FieldAccess) -> bool:
     return access.access in {"read", "read_write"} or "read" in (access.access or "")
+
+
+def _is_suspicious_disasm_layout_access(access: FieldAccess) -> bool:
+    source = str(access.source or "")
+    evidence = str(access.evidence or "").lower()
+    if "disasm:" not in source:
+        return False
+    if access.offset >= 0x400:
+        return True
+    return "[rsp+" in evidence or "rsp+" in evidence
 
 
 def _field_access_context_rows(contract: CommandBufferContract, buffer: BufferContract) -> list[str]:
