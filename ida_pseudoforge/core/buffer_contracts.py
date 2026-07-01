@@ -4313,15 +4313,8 @@ def _is_provisional_buffer_argument(arguments: list[str], identifiers: list[str]
         return False
     if _argument_has_integer_cast(arguments[index]):
         return False
-    next_identifier = _next_identifier(identifiers, index + 1)
+    next_identifier = identifiers[index + 1] if index + 1 < len(identifiers) else ""
     return bool(next_identifier and _looks_like_length_name(next_identifier))
-
-
-def _next_identifier(identifiers: list[str], start: int) -> str:
-    for identifier in identifiers[start:]:
-        if identifier:
-            return identifier
-    return ""
 
 
 def _argument_is_output_reference(argument: str) -> bool:

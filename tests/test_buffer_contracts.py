@@ -1678,6 +1678,18 @@ class BufferContractTests(unittest.TestCase):
         self.assertEqual("v5", record["indirect_target"])
         self.assertTrue(record["blocks_recovery"])
 
+    def test_intervening_opaque_pointer_prevents_context_length_guess(self) -> None:
+        edges = _recover_helper_edges(
+            "SmProcessCreateRequest(ProcessPartition, (unsigned __int64)Address[1], Length, a4);",
+            {},
+            {},
+            max_depth=2,
+            depth=0,
+            visited=set(),
+        )
+
+        self.assertEqual([], edges)
+
     def test_helper_only_case_still_emits_buffer_struct_fields(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)
         helper_capture = capture_from_pseudocode(HELPER_SAMPLE)
