@@ -88,11 +88,19 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
             classification = "resolved_no_contract_evidence"
             reason = "helper was analyzed but no buffer contract evidence was propagated"
     elif "helper depth limit" in warning_text:
-        classification = "depth_limit_reached"
-        severity = "warning"
-        reason = "maximum helper depth stopped deeper propagation"
-        next_action = "increase helper depth if allowed or add a reusable helper summary"
-        blocks_recovery = True
+        depth_summary = _depth_limit_summary(callee, external_profile)
+        if depth_summary:
+            classification = depth_summary["classification"]
+            severity = depth_summary["severity"]
+            reason = depth_summary["reason"]
+            next_action = depth_summary["next_action"]
+            blocks_recovery = False
+        else:
+            classification = "depth_limit_reached"
+            severity = "warning"
+            reason = "maximum helper depth stopped deeper propagation"
+            next_action = "increase helper depth if allowed or add a reusable helper summary"
+            blocks_recovery = True
     elif "recursive helper edge skipped" in warning_text:
         classification = "recursive_edge_skipped"
         severity = "warning"
@@ -199,6 +207,9 @@ def _external_function_profile(callee: str) -> dict[str, str]:
     name = str(callee or "").strip()
     if not name:
         return {}
+    builtin = _builtin_external_profile(name)
+    if builtin:
+        return builtin
     functions = load_kernel_api_family("functions")
     item = functions.get(name) if isinstance(functions, dict) else None
     if not isinstance(item, dict) or not item:
@@ -212,6 +223,54 @@ def _external_function_profile(callee: str) -> dict[str, str]:
         "summary_kind": summary_kind,
         "raw_signature": raw_signature,
     }
+
+
+def _builtin_external_profile(name: str) -> dict[str, str]:
+    builtin_signatures = {
+        "memcmp": "int memcmp(_In_reads_bytes_(Length) const void *Left, _In_reads_bytes_(Length) const void *Right, _In_ size_t Length);",
+    }
+    raw_signature = builtin_signatures.get(name)
+    if not raw_signature:
+        return {}
+    return {
+        "name": name,
+        "return_type": "int",
+        "header": "crt",
+        "summary_kind": "input_only",
+        "raw_signature": raw_signature,
+    }
+
+
+def _depth_limit_summary(callee: str, external_profile: dict[str, str]) -> dict[str, str]:
+    name = str(callee or "")
+    if external_profile.get("summary_kind") == "input_only":
+        return {
+            "classification": "depth_limit_external_profile_summary",
+            "severity": "info",
+            "reason": "maximum helper depth stopped at an input-only external/profile function",
+            "next_action": "none",
+        }
+    if _looks_like_terminal_sink(name):
+        return {
+            "classification": "depth_limit_terminal_sink",
+            "severity": "info",
+            "reason": "maximum helper depth stopped at a diagnostic or terminal sink",
+            "next_action": "none",
+        }
+    return {}
+
+
+def _looks_like_terminal_sink(callee: str) -> bool:
+    name = str(callee or "")
+    if name in {"KeBugCheck2", "KeBugCheckEx"}:
+        return True
+    terminal_markers = (
+        "ReportRuleViolation",
+        "LogHeapFailure",
+        "LogPoolTrace",
+        "Notification",
+    )
+    return any(marker in name for marker in terminal_markers)
 
 
 def _external_profile_is_input_only(raw_signature: str) -> bool:
