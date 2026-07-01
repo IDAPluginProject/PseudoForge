@@ -34,6 +34,10 @@ def unresolved_helper_edge_records(records: list[dict[str, Any]]) -> list[dict[s
     return [record for record in records if not bool(record.get("resolved", False))]
 
 
+def blocking_unresolved_helper_edge_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [record for record in records if bool(record.get("blocks_recovery", False))]
+
+
 def helper_path_family_records(contracts: list[CommandBufferContract]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for contract in contracts:
@@ -53,6 +57,7 @@ def helper_path_family_records(contracts: list[CommandBufferContract]) -> list[d
                     "passed_buffers": list(edge.passed_buffers),
                     "edge_count": metrics["edge_count"],
                     "unresolved_edges": metrics["unresolved_edges"],
+                    "blocking_unresolved_edges": metrics["blocking_unresolved_edges"],
                     "size_constraints": metrics["size_constraints"],
                     "field_accesses": metrics["field_accesses"],
                     "field_constraints": metrics["field_constraints"],
@@ -73,6 +78,7 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
     severity = "info"
     reason = "helper edge resolved"
     next_action = "none"
+    blocks_recovery = False
 
     if edge.resolved:
         if _edge_has_contract_evidence(edge):
@@ -86,36 +92,49 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
         severity = "warning"
         reason = "maximum helper depth stopped deeper propagation"
         next_action = "increase helper depth if allowed or add a reusable helper summary"
+        blocks_recovery = True
     elif "recursive helper edge skipped" in warning_text:
         classification = "recursive_edge_skipped"
         severity = "warning"
         reason = "recursive helper cycle was skipped"
         next_action = "add a fixed-point helper summary or review the recursive cycle manually"
+        blocks_recovery = True
     elif _looks_like_indirect_helper(callee, evidence, warning_text):
         classification = "indirect_call_unresolved"
         severity = "high"
         reason = "buffer reaches an unresolved indirect helper call"
         next_action = "resolve the indirect target set or attach a profile-backed external summary"
+        blocks_recovery = True
     elif external_profile and "helper not available" in warning_text:
-        classification = "external_api_summary_gap"
-        severity = "medium"
-        reason = "callee is known in the kernel API profile but has no buffer contract summary"
-        next_action = "add or attach a reusable external API summary for this callee"
+        if external_profile.get("summary_kind") == "input_only":
+            classification = "external_api_profile_summary"
+            severity = "info"
+            reason = "callee is known in the kernel API profile and has input-only SAL annotations"
+            next_action = "none"
+        else:
+            classification = "external_api_summary_gap"
+            severity = "medium"
+            reason = "callee is known in the kernel API profile but needs an explicit buffer contract summary"
+            next_action = "add or attach a reusable external API summary for this callee"
+            blocks_recovery = True
     elif "helper not available" in warning_text:
         classification = "helper_capture_missing"
         severity = "high"
         reason = "callee capture was not available to the helper analyzer"
         next_action = "decompile the callee, add it to helper captures, or provide a reusable summary"
+        blocks_recovery = True
     elif "buffer pointer escapes" in warning_text:
         classification = "pointer_escape_unknown"
         severity = "medium"
         reason = "buffer pointer escapes to a function without contract evidence"
         next_action = "model the callee as an external summary or inspect the call target"
+        blocks_recovery = True
     elif not edge.resolved:
         classification = "unknown_unresolved"
         severity = "medium"
         reason = "helper edge is unresolved without a more specific reason"
         next_action = "inspect helper capture availability and call-site evidence"
+        blocks_recovery = True
 
     return {
         "callee": callee,
@@ -127,6 +146,7 @@ def classify_helper_edge(edge: HelperContractEdge) -> dict[str, Any]:
         "severity": severity,
         "reason": reason,
         "next_action": next_action,
+        "blocks_recovery": blocks_recovery,
         "evidence": evidence,
         "warnings": warnings,
         "size_constraints": len(edge.propagated_size_constraints),
@@ -157,9 +177,11 @@ def _edge_has_contract_evidence(edge: HelperContractEdge) -> bool:
 
 
 def _edge_tree_metrics(edge: HelperContractEdge) -> dict[str, int]:
+    audit = classify_helper_edge(edge)
     metrics = {
         "edge_count": 1,
         "unresolved_edges": 0 if edge.resolved else 1,
+        "blocking_unresolved_edges": 1 if bool(audit.get("blocks_recovery", False)) else 0,
         "size_constraints": len(edge.propagated_size_constraints),
         "field_accesses": len(edge.propagated_field_accesses),
         "field_constraints": len(edge.propagated_field_constraints),
@@ -181,11 +203,30 @@ def _external_function_profile(callee: str) -> dict[str, str]:
     item = functions.get(name) if isinstance(functions, dict) else None
     if not isinstance(item, dict) or not item:
         return {}
+    raw_signature = str(item.get("raw_signature", "") or "")
+    summary_kind = "input_only" if _external_profile_is_input_only(raw_signature) else "requires_explicit_summary"
     return {
         "name": name,
         "return_type": str(item.get("return_type", "") or ""),
         "header": str(item.get("header", "") or ""),
+        "summary_kind": summary_kind,
+        "raw_signature": raw_signature,
     }
+
+
+def _external_profile_is_input_only(raw_signature: str) -> bool:
+    lowered = str(raw_signature or "").lower()
+    if not lowered:
+        return False
+    output_markers = (
+        "_out",
+        "_inout",
+        "outptr",
+        "out_writes",
+        "out_reads",
+        "deref_out",
+    )
+    return not any(marker in lowered for marker in output_markers)
 
 
 def _looks_like_indirect_helper(callee: str, evidence: str, warning_text: str) -> bool:

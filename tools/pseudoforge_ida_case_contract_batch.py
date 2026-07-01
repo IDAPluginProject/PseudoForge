@@ -19,6 +19,7 @@ for module_name in list(sys.modules):
 
 from ida_pseudoforge.core.buffer_contracts import buffer_contracts_json_payload
 from ida_pseudoforge.core.helper_edge_audit import (
+    blocking_unresolved_helper_edge_records,
     helper_edge_audit_records,
     helper_edge_class_counts,
     helper_path_family_records,
@@ -356,6 +357,7 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
         "helper_edge_class_counts": {},
         "helper_path_families": [],
         "unresolved_helper_edge_audit": [],
+        "blocking_unresolved_helper_edge_audit": [],
     }
     warning_messages: list[str] = []
     buffer_names: list[str] = []
@@ -384,6 +386,7 @@ def _contract_metrics(contracts: list[object]) -> dict[str, Any]:
     metrics["helper_edge_class_counts"] = helper_edge_class_counts(audit_records)
     metrics["helper_path_families"] = helper_path_family_records(contracts)
     metrics["unresolved_helper_edge_audit"] = unresolved_helper_edge_records(audit_records)
+    metrics["blocking_unresolved_helper_edge_audit"] = blocking_unresolved_helper_edge_records(audit_records)
     return metrics
 
 
@@ -515,6 +518,7 @@ def _build_coverage_summary(
         "helper_edges_total": 0,
         "helper_edges_resolved": 0,
         "helper_edges_unresolved": 0,
+        "blocking_unresolved_helper_edges": 0,
         "warnings": 0,
     }
     cases: list[dict[str, Any]] = []
@@ -523,6 +527,7 @@ def _build_coverage_summary(
     unresolved_helper_cases: list[str] = []
     helper_edge_class_counts_total: dict[str, int] = {}
     unresolved_helper_edge_audit: list[dict[str, Any]] = []
+    blocking_unresolved_helper_edge_audit: list[dict[str, Any]] = []
     path_families: list[dict[str, Any]] = []
     path_families_with_unresolved: list[str] = []
     zero_contract_audit: list[dict[str, Any]] = []
@@ -530,6 +535,12 @@ def _build_coverage_summary(
         status = str(record.get("status", "unknown"))
         status_counts[status] = status_counts.get(status, 0) + 1
         case_label = str(record.get("case", ""))
+        unresolved_audit = list(record.get("unresolved_helper_edge_audit", []) or [])
+        blocking_unresolved_audit = list(record.get("blocking_unresolved_helper_edge_audit", []) or [])
+        if not blocking_unresolved_audit and unresolved_audit:
+            blocking_unresolved_audit = [
+                item for item in unresolved_audit if bool(item.get("blocks_recovery", True))
+            ]
         case_entry = {
             "function": record.get("function", ""),
             "case": case_label,
@@ -553,7 +564,8 @@ def _build_coverage_summary(
             "helper_edge_class_counts": dict(record.get("helper_edge_class_counts", {}) or {}),
             "helper_edge_audit": list(record.get("helper_edge_audit", []) or []),
             "helper_path_families": list(record.get("helper_path_families", []) or []),
-            "unresolved_helper_edge_audit": list(record.get("unresolved_helper_edge_audit", []) or []),
+            "unresolved_helper_edge_audit": unresolved_audit,
+            "blocking_unresolved_helper_edge_audit": blocking_unresolved_audit,
             "zero_contract": dict(record.get("zero_contract", {}) or {}),
             "text_path": record.get("text_path", ""),
             "json_path": record.get("json_path", ""),
@@ -562,7 +574,10 @@ def _build_coverage_summary(
         for key in totals:
             if key == "targets":
                 continue
-            totals[key] += int(case_entry.get(key, 0) or 0)
+            if key == "blocking_unresolved_helper_edges":
+                totals[key] += len(case_entry["blocking_unresolved_helper_edge_audit"])
+            else:
+                totals[key] += int(case_entry.get(key, 0) or 0)
         if status == "ok" and case_entry["contracts"] == 0:
             zero_contract_cases.append(case_label)
             zero_contract = dict(case_entry.get("zero_contract", {}) or {})
@@ -590,6 +605,7 @@ def _build_coverage_summary(
                 helper_edge_class_counts_total.get(str(classification), 0) + int(count or 0)
             )
         unresolved_helper_edge_audit.extend(case_entry["unresolved_helper_edge_audit"])
+        blocking_unresolved_helper_edge_audit.extend(case_entry["blocking_unresolved_helper_edge_audit"])
         for family in case_entry["helper_path_families"]:
             path_families.append(family)
             if int(family.get("unresolved_edges", 0) or 0) > 0:
@@ -600,6 +616,7 @@ def _build_coverage_summary(
         zero_contract_cases=zero_contract_cases,
         warning_cases=warning_cases,
         unresolved_helper_cases=unresolved_helper_cases,
+        blocking_unresolved_helper_edge_audit=blocking_unresolved_helper_edge_audit,
         helper_edge_class_counts=helper_edge_class_counts_total,
         path_families=path_families,
         zero_contract_audit=zero_contract_audit,
@@ -619,6 +636,7 @@ def _build_coverage_summary(
         "unresolved_helper_cases": unresolved_helper_cases,
         "helper_edge_class_counts": dict(sorted(helper_edge_class_counts_total.items())),
         "unresolved_helper_edge_audit": unresolved_helper_edge_audit,
+        "blocking_unresolved_helper_edge_audit": blocking_unresolved_helper_edge_audit,
         "path_family_count": len(path_families),
         "path_families_with_unresolved": path_families_with_unresolved,
         "path_families": path_families,
@@ -634,6 +652,7 @@ def _build_recovery_gate(
     zero_contract_cases: list[str],
     warning_cases: list[str],
     unresolved_helper_cases: list[str],
+    blocking_unresolved_helper_edge_audit: list[dict[str, Any]],
     helper_edge_class_counts: dict[str, int],
     path_families: list[dict[str, Any]],
     zero_contract_audit: list[dict[str, Any]],
@@ -651,8 +670,12 @@ def _build_recovery_gate(
         },
         {
             "name": "no_unresolved_helper_edges",
-            "passed": int(totals.get("helper_edges_unresolved", 0) or 0) == 0,
-            "detail": "unresolved=%d" % int(totals.get("helper_edges_unresolved", 0) or 0),
+            "passed": not blocking_unresolved_helper_edge_audit,
+            "detail": "raw_unresolved=%d blocking_unresolved=%d"
+            % (
+                int(totals.get("helper_edges_unresolved", 0) or 0),
+                len(blocking_unresolved_helper_edge_audit),
+            ),
         },
         {
             "name": "no_warning_cases",
@@ -729,6 +752,7 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
         "helper_edges_total",
         "helper_edges_resolved",
         "helper_edges_unresolved",
+        "blocking_unresolved_helper_edges",
         "warnings",
     ]
     for key in metric_order:
@@ -812,17 +836,18 @@ def _render_coverage_markdown(summary: dict[str, Any]) -> str:
             [
                 "### Unresolved Helper Edges",
                 "",
-                "| Case | Callee | Classification | Severity | Depth | Buffers | Next Action |",
-                "| --- | --- | --- | --- | ---: | --- | --- |",
+                "| Case | Callee | Classification | Blocks | Severity | Depth | Buffers | Next Action |",
+                "| --- | --- | --- | --- | --- | ---: | --- | --- |",
             ]
         )
         for record in unresolved:
             lines.append(
-                "| `%s` | `%s` | `%s` | `%s` | %s | %s | %s |"
+                "| `%s` | `%s` | `%s` | `%s` | `%s` | %s | %s | %s |"
                 % (
                     record.get("command", ""),
                     _markdown_table_text(str(record.get("callee", "") or "")),
                     _markdown_table_text(str(record.get("classification", "") or "")),
+                    record.get("blocks_recovery", False),
                     _markdown_table_text(str(record.get("severity", "") or "")),
                     record.get("depth", ""),
                     _markdown_table_text(", ".join(record.get("passed_buffers", []) or []) or "none"),

@@ -1515,9 +1515,11 @@ class BufferContractTests(unittest.TestCase):
 
         record = classify_helper_edge(edge)
 
-        self.assertEqual("external_api_summary_gap", record["classification"])
-        self.assertEqual("medium", record["severity"])
+        self.assertEqual("external_api_profile_summary", record["classification"])
+        self.assertEqual("info", record["severity"])
+        self.assertFalse(record["blocks_recovery"])
         self.assertEqual("wdm.h", record["external_profile"]["header"])
+        self.assertEqual("input_only", record["external_profile"]["summary_kind"])
 
     def test_helper_only_case_still_emits_buffer_struct_fields(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)

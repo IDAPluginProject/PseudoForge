@@ -244,6 +244,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
             "helper_capture_missing",
             metrics["unresolved_helper_edge_audit"][0]["classification"],
         )
+        self.assertEqual(1, len(metrics["blocking_unresolved_helper_edge_audit"]))
         self.assertEqual(1, len(metrics["helper_path_families"]))
         self.assertEqual(
             "MissingSuperfetchHelper",
@@ -295,6 +296,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
                             "callee": "MissingSuperfetchHelper",
                             "classification": "helper_capture_missing",
                             "severity": "high",
+                            "blocks_recovery": True,
                             "depth": 1,
                             "passed_buffers": ["systemInformation"],
                             "next_action": "decompile the callee",
@@ -328,6 +330,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertEqual(1, len(summary["unresolved_helper_edge_audit"]))
         self.assertEqual(1, summary["path_family_count"])
         self.assertEqual(["0x4F:0:MissingSuperfetchHelper"], summary["path_families_with_unresolved"])
+        self.assertEqual(1, summary["totals"]["blocking_unresolved_helper_edges"])
         self.assertEqual("failed", summary["recovery_gate"]["status"])
         self.assertEqual("insufficient_evidence", summary["recovery_gate"]["level"])
         self.assertIn("no_unresolved_helper_edges", summary["recovery_gate"]["blockers"])
@@ -338,6 +341,7 @@ class IdaCaseContractBatchTests(unittest.TestCase):
         self.assertIn("| `0x4F` |", markdown)
         self.assertIn("MissingSuperfetchHelper", markdown)
         self.assertIn("helper_capture_missing", markdown)
+        self.assertIn("blocking_unresolved_helper_edges", markdown)
         self.assertIn("Helper Path Families", markdown)
         self.assertIn("Recovery Gate", markdown)
         self.assertIn("insufficient_evidence", markdown)
