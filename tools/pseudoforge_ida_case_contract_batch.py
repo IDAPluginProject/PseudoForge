@@ -18,8 +18,15 @@ for module_name in list(sys.modules):
         del sys.modules[module_name]
 
 from ida_pseudoforge.core.buffer_contracts import buffer_contracts_json_payload
+from ida_pseudoforge.core.helper_depth import (
+    DEFAULT_HELPER_DEPTH,
+    MAX_HELPER_DEPTH,
+    MIN_HELPER_DEPTH,
+    parse_helper_depth,
+)
 from ida_pseudoforge.core.ioctl import parse_c_integer_literal
-from ida_pseudoforge.ida.actions import analyze_current_buffer_contract_case
+from ida_pseudoforge.core.lvar_analysis import build_clean_plan
+from ida_pseudoforge.ida.actions import analyze_current_selector_case
 from ida_pseudoforge.ida.decompiler import capture_function_by_name
 from ida_pseudoforge.profiles.loader import active_profile_root, configure_profile_dir
 
@@ -45,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     report_path = Path(args.report) if args.report else out_dir / "pseudoforge-case-contracts.jsonl"
-    targets = [_parse_target(text) for text in args.target]
+    explicit_targets = [_parse_target(text) for text in args.target]
     reporter = _JsonlReporter(report_path)
     exit_code = 0
     started = time.monotonic()
@@ -57,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         if not ida_hexrays.init_hexrays_plugin():
             raise RuntimeError("Hex-Rays decompiler is not available")
         source_path = _input_path()
+        targets = _dedupe_targets(explicit_targets + _expand_all_case_targets(args.target_all_cases))
         reporter.write(
             {
                 "event": "start",
@@ -64,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
                 "out_dir": str(out_dir),
                 "profile_dir": active_profile_root(),
                 "input_path": source_path,
+                "helper_depth": args.helper_depth,
             }
         )
         for index, (function_name, case_value) in enumerate(targets, start=1):
@@ -75,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
                     "case": "0x%X" % case_value,
                 }
             )
-            record = _analyze_target(function_name, case_value, out_dir, source_path)
+            record = _analyze_target(function_name, case_value, out_dir, source_path, args.helper_depth)
             reporter.write(record)
             if record.get("status") != "ok":
                 exit_code = 1
@@ -106,21 +115,47 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run focused PseudoForge buffer-contract case analysis inside IDA."
+        description="Run focused PseudoForge selector/buffer-contract case analysis inside IDA."
     )
     parser.add_argument(
         "--target",
         action="append",
-        required=True,
+        default=[],
         help="FunctionName:caseValue target. Case accepts decimal or C-style hex.",
+    )
+    parser.add_argument(
+        "--target-all-cases",
+        action="append",
+        default=[],
+        metavar="FunctionName",
+        help="Expand all recovered selector cases for a function, for example NtSetSystemInformation.",
     )
     parser.add_argument("--out-dir", required=True, help="Directory for Markdown and JSON artifacts.")
     parser.add_argument("--report", default="", help="Optional JSONL report path.")
     parser.add_argument("--profile-dir", default="", help="Optional PseudoForge profile directory.")
+    parser.add_argument(
+        "--helper-depth",
+        default=DEFAULT_HELPER_DEPTH,
+        type=_parse_helper_depth_arg,
+        help="Maximum helper/subhandler follow depth. Valid range: %d-%d. Default: %d."
+        % (MIN_HELPER_DEPTH, MAX_HELPER_DEPTH, DEFAULT_HELPER_DEPTH),
+    )
     parser.add_argument("--stop-on-error", action="store_true", help="Stop after the first failed target.")
     parser.add_argument("--no-auto-wait", action="store_true", help="Do not wait for IDA autoanalysis first.")
     parser.add_argument("--no-exit", action="store_true", help="Do not call ida_pro.qexit at the end.")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if not args.target and not args.target_all_cases:
+        parser.error("at least one --target or --target-all-cases is required")
+    return args
+
+
+def _parse_helper_depth_arg(text: str) -> int:
+    depth = parse_helper_depth(text)
+    if depth is None:
+        raise argparse.ArgumentTypeError(
+            "helper depth must be an integer from %d to %d" % (MIN_HELPER_DEPTH, MAX_HELPER_DEPTH)
+        )
+    return depth
 
 
 def _script_argv() -> list[str]:
@@ -148,6 +183,37 @@ def _parse_target(text: str) -> tuple[str, int]:
     return function_name, int(value)
 
 
+def _expand_all_case_targets(function_names: list[str]) -> list[tuple[str, int]]:
+    result: list[tuple[str, int]] = []
+    for function_name in function_names:
+        target_name = function_name.strip()
+        if not target_name:
+            continue
+        capture = capture_function_by_name(target_name)
+        if capture is None:
+            raise RuntimeError("function capture unavailable for --target-all-cases: %s" % target_name)
+        plan = build_clean_plan(capture)
+        values: set[int] = set()
+        for flow in plan.flow_rewrites:
+            values.update(int(value) for value in flow.recovered_cases)
+        if not values:
+            raise RuntimeError("no recovered selector cases for --target-all-cases: %s" % target_name)
+        result.extend((target_name, value) for value in sorted(values))
+    return result
+
+
+def _dedupe_targets(targets: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    result: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for function_name, case_value in targets:
+        key = (function_name, int(case_value))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(key)
+    return result
+
+
 def _require_ida() -> None:
     missing = [
         name
@@ -162,7 +228,13 @@ def _require_ida() -> None:
         raise RuntimeError("IDA APIs are not available: %s" % ", ".join(missing))
 
 
-def _analyze_target(function_name: str, case_value: int, out_dir: Path, source_path: str) -> dict[str, Any]:
+def _analyze_target(
+    function_name: str,
+    case_value: int,
+    out_dir: Path,
+    source_path: str,
+    helper_depth: int,
+) -> dict[str, Any]:
     started = time.monotonic()
     try:
         capture = capture_function_by_name(function_name)
@@ -177,7 +249,11 @@ def _analyze_target(function_name: str, case_value: int, out_dir: Path, source_p
             }
         if source_path:
             capture.source_path = source_path
-        capture, plan, preview = analyze_current_buffer_contract_case(case_value, capture=capture)
+        capture, plan, preview = analyze_current_selector_case(
+            case_value,
+            capture=capture,
+            helper_depth=helper_depth,
+        )
         contracts = [contract for contract in plan.buffer_contracts if contract.command_value == case_value]
         stem = _safe_stem("%s_0x%X" % (capture.name or function_name, case_value))
         text_path = out_dir / (stem + ".md")
@@ -197,6 +273,8 @@ def _analyze_target(function_name: str, case_value: int, out_dir: Path, source_p
             "buffers": sum(len(contract.buffers) for contract in contracts),
             "text_path": str(text_path),
             "json_path": str(json_path),
+            "report_kind": "selector_path",
+            "helper_depth": helper_depth,
             "elapsed_seconds": round(time.monotonic() - started, 3),
         }
         summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=True), encoding="utf-8")

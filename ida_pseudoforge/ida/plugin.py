@@ -97,10 +97,10 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
         )
         self._actions.register(
             self.ioctl_action_name,
-            "Analyze IOCTL path...",
+            "Analyze IOCTL/selector path...",
             AnalyzeIoctlCaseHandler(),
             "Ctrl+Alt+I",
-            "Deep-analyze input/output structures and meaningful path predicates for the selected IOCTL case",
+            "Deep-analyze input/output structures and meaningful path predicates for the selected IOCTL or selector case",
         )
         self._actions.register(
             self.cancel_action_name,
@@ -191,7 +191,7 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
             self.buffer_contract_value_action_name,
         )
         self._actions.attach_menu(
-            "Edit/PseudoForge/IOCTL Analysis/",
+            "Edit/PseudoForge/Selector Analysis/",
             self.ioctl_action_name,
         )
         self._actions.attach_menu(
@@ -242,7 +242,7 @@ class PseudoForgePlugin(idaapi.plugin_t if idaapi else object):
 
         for name, label, menu_path in (
             ("pseudoforge_menu", "PseudoForge", "Edit/"),
-            ("pseudoforge_ioctl_menu", "IOCTL Analysis", "Edit/PseudoForge/"),
+            ("pseudoforge_ioctl_menu", "Selector Analysis", "Edit/PseudoForge/"),
             ("pseudoforge_advanced_menu", "Advanced", "Edit/PseudoForge/"),
         ):
             try:
@@ -341,7 +341,7 @@ class ContextMenuHooks(idaapi.UI_Hooks if idaapi else object):
                 form,
                 popup,
                 PseudoForgePlugin.ioctl_action_name,
-                "PseudoForge/IOCTL Analysis/",
+                "PseudoForge/Selector Analysis/",
             )
             idaapi.attach_action_to_popup(
                 form,

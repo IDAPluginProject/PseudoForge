@@ -4,6 +4,7 @@ from ida_pseudoforge.core.buffer_contracts import (
     render_buffer_struct_header,
     render_case_context_report,
 )
+from ida_pseudoforge.core.helper_depth import DEFAULT_HELPER_DEPTH, normalize_helper_depth
 from ida_pseudoforge.core.ioctl import decode_ioctl_code, format_ctl_code
 from ida_pseudoforge.core.plan_schema import (
     BufferContract,
@@ -15,47 +16,68 @@ from ida_pseudoforge.core.plan_schema import (
     FunctionCapture,
     HelperContractEdge,
 )
+from ida_pseudoforge.profiles.loader import (
+    get_process_information_class_name,
+    get_system_information_class_name,
+    get_thread_information_class_name,
+)
 
 
 def render_ioctl_deep_analysis_report(
     capture: FunctionCapture,
     plan: CleanPlan,
     command_value: int,
+    helper_depth: int = DEFAULT_HELPER_DEPTH,
+) -> str:
+    return render_selector_path_analysis_report(capture, plan, command_value, helper_depth=helper_depth)
+
+
+def render_selector_path_analysis_report(
+    capture: FunctionCapture,
+    plan: CleanPlan,
+    command_value: int,
+    helper_depth: int = DEFAULT_HELPER_DEPTH,
 ) -> str:
     contracts = [
         contract
         for contract in plan.buffer_contracts
-        if contract.command_value == command_value and contract.dispatcher_kind == "ioctl"
+        if contract.command_value == command_value
     ]
     decoded = decode_ioctl_code(command_value)
     context_report = render_case_context_report(capture, plan, command_value)
+    selector_kind = _selector_kind(capture, contracts)
     lines = [
-        "# PseudoForge IOCTL Deep Analysis",
+        "# PseudoForge Selector Path Analysis",
         "",
         "- Function: `%s`" % (capture.name or "function"),
         "- EA: `0x%X`" % capture.ea,
-        "- IOCTL: `0x%08X`" % (command_value & 0xFFFFFFFF),
+        "- Selector: `0x%X` (`%d`)" % (command_value, command_value),
+        "- Selector domain: `%s`" % _selector_domain_label(selector_kind),
+        "- Helper depth: `%d`" % normalize_helper_depth(helper_depth),
     ]
-    if decoded is None:
-        lines.append("- Decode: not a Windows IOCTL-shaped value")
-    else:
+    selector_name = _selector_name(selector_kind, command_value, contracts)
+    if selector_name:
+        lines.append("- Selector name: `%s`" % selector_name)
+    if selector_kind == "ioctl" and decoded is not None:
         lines.extend(
             [
-                "- Decode: `%s`" % format_ctl_code(command_value),
-                "- Method: `%s`" % decoded.method_name,
-                "- Access: `%s`" % decoded.access_name,
-                "- Device type: `0x%X`" % decoded.device_type,
+                "- CTL_CODE decode: `%s`" % format_ctl_code(command_value),
+                "- IOCTL method: `%s`" % decoded.method_name,
+                "- IOCTL access: `%s`" % decoded.access_name,
+                "- IOCTL device type: `0x%X`" % decoded.device_type,
                 "- IOCTL function: `0x%X`" % decoded.function,
             ]
         )
+    elif selector_kind == "ioctl":
+        lines.append("- CTL_CODE decode: not a Windows IOCTL-shaped value")
     lines.extend(
         [
-            "- IOCTL contracts: `%d`" % len(contracts),
+            "- Matching contracts: `%d`" % len(contracts),
             "",
         ]
     )
 
-    lines.extend(_render_transfer_model(decoded, contracts))
+    lines.extend(_render_selector_model(selector_kind, decoded, contracts))
     lines.extend(_render_schema_hypotheses(contracts))
     lines.extend(_render_meaningful_path_requirements(contracts))
     lines.extend(_render_helper_propagation(contracts))
@@ -64,22 +86,62 @@ def render_ioctl_deep_analysis_report(
         lines.append("")
         lines.append(_strip_heading(context_report.rstrip(), "# Selected Case Context").rstrip())
         lines.append("")
-    lines.append("# C++ IOCTL Struct Sketch")
+    lines.append("# C++ Selector Struct Sketch")
     lines.append("")
     lines.append(render_buffer_struct_header(capture, contracts).rstrip())
     lines.append("")
     return "\n".join(lines)
 
 
-def _render_transfer_model(
+def _render_selector_model(
+    selector_kind: str,
     decoded: object | None,
     contracts: list[CommandBufferContract],
 ) -> list[str]:
-    lines = ["# IOCTL Transfer Model", ""]
-    if decoded is None:
-        lines.append("- Transfer model unavailable because the selected value did not decode as CTL_CODE.")
+    lines = ["# Selector Data Model", ""]
+    if selector_kind == "ntset_system":
+        lines.append(
+            "- `NtSetSystemInformation` uses `SystemInformationClass` as the selector and "
+            "`SystemInformation`/`SystemInformationLength` as the focused input buffer contract."
+        )
+        lines.append(
+            "- Output evidence is reported only when the selected case writes back into `SystemInformation`."
+        )
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this SystemInformationClass case.")
         lines.append("")
         return lines
+    if selector_kind == "ntset_process":
+        lines.append(
+            "- `NtSetInformationProcess` uses `PROCESSINFOCLASS` as the selector and "
+            "`ProcessInformation`/`ProcessInformationLength` as the focused buffer contract."
+        )
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this ProcessInformationClass case.")
+        lines.append("")
+        return lines
+    if selector_kind == "ntset_thread":
+        lines.append(
+            "- `NtSetInformationThread` uses `THREADINFOCLASS` as the selector and "
+            "`ThreadInformation`/`ThreadInformationLength` as the focused buffer contract."
+        )
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this ThreadInformationClass case.")
+        lines.append("")
+        return lines
+    if selector_kind != "ioctl":
+        lines.append("- No CTL_CODE transfer model is used for this selector domain.")
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this selector case.")
+        lines.append("")
+        return lines
+    if decoded is None:
+        lines.append("- No CTL_CODE transfer model is available for this selector value.")
+        if not contracts:
+            lines.append("- No buffer contract was recovered for this selector case.")
+        lines.append("")
+        return lines
+
     method_name = str(getattr(decoded, "method_name", "") or "")
     if method_name == "METHOD_BUFFERED":
         lines.append(
@@ -104,7 +166,7 @@ def _render_transfer_model(
 def _render_schema_hypotheses(contracts: list[CommandBufferContract]) -> list[str]:
     lines = ["# Input And Output Structure Hypotheses", ""]
     if not contracts:
-        lines.append("No IOCTL buffer structures were inferred for this case.")
+        lines.append("No selector buffer structures were inferred for this case.")
         lines.append("")
         return lines
     for contract in contracts:
@@ -312,3 +374,49 @@ def _dedupe(rows: list[str]) -> list[str]:
         seen.add(row)
         result.append(row)
     return result
+
+
+def _selector_kind(capture: FunctionCapture, contracts: list[CommandBufferContract]) -> str:
+    for contract in contracts:
+        if contract.dispatcher_kind:
+            return contract.dispatcher_kind
+    name = (capture.name or "").lower()
+    prototype = capture.prototype or ""
+    if name == "ntsetsysteminformation" or "SYSTEM_INFORMATION_CLASS" in prototype:
+        return "ntset_system"
+    if name == "ntsetinformationprocess" or "PROCESSINFOCLASS" in prototype:
+        return "ntset_process"
+    if name == "ntsetinformationthread" or "THREADINFOCLASS" in prototype:
+        return "ntset_thread"
+    return "generic"
+
+
+def _selector_domain_label(selector_kind: str) -> str:
+    if selector_kind == "ioctl":
+        return "IOCTL"
+    if selector_kind == "ntset_system":
+        return "SYSTEM_INFORMATION_CLASS"
+    if selector_kind == "ntset_process":
+        return "PROCESSINFOCLASS"
+    if selector_kind == "ntset_thread":
+        return "THREADINFOCLASS"
+    return selector_kind or "generic"
+
+
+def _selector_name(
+    selector_kind: str,
+    command_value: int,
+    contracts: list[CommandBufferContract],
+) -> str:
+    for contract in contracts:
+        if contract.command_name:
+            return contract.command_name
+    if selector_kind == "ntset_system":
+        return get_system_information_class_name(command_value)
+    if selector_kind == "ntset_process":
+        return get_process_information_class_name(command_value)
+    if selector_kind == "ntset_thread":
+        return get_thread_information_class_name(command_value)
+    if selector_kind == "ioctl" and decode_ioctl_code(command_value) is not None:
+        return format_ctl_code(command_value)
+    return ""

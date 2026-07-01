@@ -42,8 +42,17 @@ from ida_pseudoforge.core.normalize import (
     find_matching_paren,
     split_parameters_with_spans,
 )
-from ida_pseudoforge.core.ioctl import decode_ioctl_code, parse_c_integer_literal
-from ida_pseudoforge.core.ioctl_analysis import render_ioctl_deep_analysis_report
+from ida_pseudoforge.core.ioctl import parse_c_integer_literal
+from ida_pseudoforge.core.ioctl_analysis import render_selector_path_analysis_report
+from ida_pseudoforge.core.helper_depth import (
+    DEFAULT_HELPER_DEPTH,
+    MAX_HELPER_DEPTH,
+    MIN_HELPER_DEPTH,
+    helper_capture_limit_for_depth,
+    helper_depth_range_text,
+    normalize_helper_depth,
+    parse_helper_depth,
+)
 from ida_pseudoforge.core.lvar_analysis import build_clean_plan
 from ida_pseudoforge.core.kernel_api import kernel_function_metadata
 from ida_pseudoforge.core.plan_schema import CleanPlan, FunctionCapture, ParameterTypeCorrection
@@ -257,8 +266,11 @@ def analyze_current_buffer_contract_case(
     command_value: int,
     capture: FunctionCapture | None = None,
     case_entry_ea: int | None = None,
+    helper_depth: int = DEFAULT_HELPER_DEPTH,
 ) -> tuple[FunctionCapture, CleanPlan, str]:
     purpose = "buffer_contract_case"
+    helper_depth = normalize_helper_depth(helper_depth)
+    max_helpers = helper_capture_limit_for_depth(helper_depth)
     with trace_scope(purpose, command_value="0x%X" % command_value):
         _raise_if_task_cancelled(purpose, "before capture")
         if capture is None:
@@ -296,8 +308,8 @@ def analyze_current_buffer_contract_case(
         helper_captures = _capture_buffer_contract_helpers(
             helper_names,
             caller_ea=capture.ea,
-            max_depth=2,
-            max_helpers=12,
+            max_depth=helper_depth,
+            max_helpers=max_helpers,
         )
         _raise_if_task_cancelled(purpose, "after helper capture")
         disasm_slices = _capture_buffer_contract_case_disasm(capture, command_value, case_entry_ea)
@@ -309,30 +321,63 @@ def analyze_current_buffer_contract_case(
                 force_deterministic=True,
                 helper_captures=helper_captures,
                 buffer_contract_case_values=[command_value],
-                buffer_contract_helper_depth=2,
+                buffer_contract_helper_depth=helper_depth,
                 buffer_contract_disasm_slices=disasm_slices,
             )
-        text = _format_buffer_contract_case_preview(capture, plan, command_value, helper_captures, helper_names)
+        text = _format_buffer_contract_case_preview(
+            capture,
+            plan,
+            command_value,
+            helper_captures,
+            helper_names,
+            helper_depth=helper_depth,
+        )
         log_event(
-            "buffer_contract_case.done function=\"%s\" ea=0x%X case=0x%X contracts=%d helpers=%d"
-            % (_ascii_for_log(capture.name), capture.ea, command_value, len(plan.buffer_contracts), len(helper_captures))
+            "buffer_contract_case.done function=\"%s\" ea=0x%X case=0x%X contracts=%d helpers=%d helper_depth=%d"
+            % (
+                _ascii_for_log(capture.name),
+                capture.ea,
+                command_value,
+                len(plan.buffer_contracts),
+                len(helper_captures),
+                helper_depth,
+            )
         )
         return capture, plan, text
+
+
+def analyze_current_selector_case(
+    command_value: int,
+    capture: FunctionCapture | None = None,
+    case_entry_ea: int | None = None,
+    helper_depth: int = DEFAULT_HELPER_DEPTH,
+) -> tuple[FunctionCapture, CleanPlan, str]:
+    capture, plan, _buffer_text = analyze_current_buffer_contract_case(
+        command_value,
+        capture=capture,
+        case_entry_ea=case_entry_ea,
+        helper_depth=helper_depth,
+    )
+    return capture, plan, render_selector_path_analysis_report(
+        capture,
+        plan,
+        command_value,
+        helper_depth=helper_depth,
+    )
 
 
 def analyze_current_ioctl_case(
     command_value: int,
     capture: FunctionCapture | None = None,
     case_entry_ea: int | None = None,
+    helper_depth: int = DEFAULT_HELPER_DEPTH,
 ) -> tuple[FunctionCapture, CleanPlan, str]:
-    if decode_ioctl_code(command_value) is None:
-        raise RuntimeError("case 0x%X does not decode as a Windows IOCTL value" % command_value)
-    capture, plan, _buffer_text = analyze_current_buffer_contract_case(
+    return analyze_current_selector_case(
         command_value,
         capture=capture,
         case_entry_ea=case_entry_ea,
+        helper_depth=helper_depth,
     )
-    return capture, plan, render_ioctl_deep_analysis_report(capture, plan, command_value)
 
 
 def _store_analysis_session(
@@ -550,6 +595,11 @@ class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else ob
                 )
                 log_checkpoint("action.buffer_contract_case.cursor_unresolved")
             return 1
+        helper_depth = _ask_buffer_contract_helper_depth()
+        if helper_depth is None:
+            info("PseudoForge buffer contract case analysis cancelled.")
+            log_checkpoint("action.buffer_contract_case.cancelled.depth")
+            return 1
         log_output("PseudoForge buffer contract deep analysis is running for case 0x%X." % command_value)
 
         def on_success(result):
@@ -574,7 +624,12 @@ class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else ob
 
         run_background(
             "buffer-contract-case",
-            lambda: analyze_current_buffer_contract_case(command_value, capture=capture, case_entry_ea=case_entry_ea),
+            lambda: analyze_current_buffer_contract_case(
+                command_value,
+                capture=capture,
+                case_entry_ea=case_entry_ea,
+                helper_depth=helper_depth,
+            ),
             on_success,
             group_name=PLUGIN_STATE_GROUP,
         )
@@ -587,53 +642,58 @@ class AnalyzeBufferContractCaseHandler(idaapi.action_handler_t if idaapi else ob
 
 class AnalyzeIoctlCaseHandler(idaapi.action_handler_t if idaapi else object):
     def activate(self, ctx):
-        log_checkpoint("action.ioctl_case.activate.before")
+        log_checkpoint("action.selector_case.activate.before")
         capture = None
         case_entry_ea = _current_screen_ea()
         command_value, capture = _resolve_buffer_contract_case_from_cursor(ctx)
         if command_value is None:
             command_value = _ask_buffer_contract_case_value()
         if command_value is None:
-            info("PseudoForge IOCTL analysis cancelled.")
-            log_checkpoint("action.ioctl_case.cancelled")
+            info("PseudoForge selector path analysis cancelled.")
+            log_checkpoint("action.selector_case.cancelled")
             return 1
-        if decode_ioctl_code(command_value) is None:
-            warning(
-                "PseudoForge selected case 0x%X does not decode as a Windows IOCTL value. "
-                "Use buffer contract analysis for generic command cases."
-                % command_value
-            )
-            log_checkpoint("action.ioctl_case.not_ioctl", case="0x%X" % command_value)
+        helper_depth = _ask_buffer_contract_helper_depth()
+        if helper_depth is None:
+            info("PseudoForge selector path analysis cancelled.")
+            log_checkpoint("action.selector_case.cancelled.depth")
             return 1
-        log_output("PseudoForge IOCTL deep analysis is running for 0x%X." % command_value)
+        log_output("PseudoForge selector path analysis is running for 0x%X." % command_value)
 
         def on_success(result):
-            log_checkpoint("action.ioctl_case.on_success.before")
+            log_checkpoint("action.selector_case.on_success.before")
             capture, plan, text = result
-            title = "PseudoForge IOCTL analysis: %s 0x%X" % (capture.name or "function", command_value)
+            title = "PseudoForge selector path analysis: %s 0x%X" % (
+                capture.name or "function",
+                command_value,
+            )
             show_text_view(
                 title,
                 text,
-                suggested_filename=build_save_as_filename("pseudoforge-ioctl-analysis", capture.name, capture.ea),
+                suggested_filename=build_save_as_filename("pseudoforge-selector-analysis", capture.name, capture.ea),
                 copy_from_source=False,
                 reference_text=capture.pseudocode,
                 reference_title="Raw Hex-Rays pseudocode",
-                content_title="PseudoForge IOCTL deep analysis",
-                summary_text="PseudoForge analyzed IOCTL 0x%X: %d contract(s)" % (
+                content_title="PseudoForge selector path analysis",
+                summary_text="PseudoForge analyzed selector 0x%X: %d contract(s)" % (
                     command_value,
                     len(plan.buffer_contracts),
                 ),
             )
-            log_output("PseudoForge IOCTL deep analysis completed for 0x%X." % command_value)
-            log_checkpoint("action.ioctl_case.on_success.after")
+            log_output("PseudoForge selector path analysis completed for 0x%X." % command_value)
+            log_checkpoint("action.selector_case.on_success.after")
 
         run_background(
-            "ioctl-case",
-            lambda: analyze_current_ioctl_case(command_value, capture=capture, case_entry_ea=case_entry_ea),
+            "selector-case",
+            lambda: analyze_current_selector_case(
+                command_value,
+                capture=capture,
+                case_entry_ea=case_entry_ea,
+                helper_depth=helper_depth,
+            ),
             on_success,
             group_name=PLUGIN_STATE_GROUP,
         )
-        log_checkpoint("action.ioctl_case.activate.after", case="0x%X" % command_value)
+        log_checkpoint("action.selector_case.activate.after", case="0x%X" % command_value)
         return 1
 
     def update(self, ctx):
@@ -2684,6 +2744,33 @@ def _ask_buffer_contract_case_value() -> int | None:
     return value
 
 
+def _ask_buffer_contract_helper_depth() -> int | None:
+    if ida_kernwin is None:
+        return DEFAULT_HELPER_DEPTH
+    asker = getattr(ida_kernwin, "ask_str", None)
+    if not callable(asker):
+        return DEFAULT_HELPER_DEPTH
+    try:
+        text = asker(
+            str(DEFAULT_HELPER_DEPTH),
+            0,
+            "PseudoForge helper follow depth (%s)" % helper_depth_range_text(),
+        )
+    except Exception as exc:
+        log_checkpoint("buffer_contract_case.ask_depth.failed", error=str(exc))
+        return None
+    if text is None:
+        return None
+    depth = parse_helper_depth(text)
+    if depth is None:
+        warning(
+            "PseudoForge helper depth must be an integer from %d to %d."
+            % (MIN_HELPER_DEPTH, MAX_HELPER_DEPTH)
+        )
+        return None
+    return depth
+
+
 def _parse_buffer_contract_case_value(text: str | None) -> int | None:
     if text is None:
         return None
@@ -2748,6 +2835,7 @@ def _format_buffer_contract_case_preview(
     command_value: int,
     helper_captures: dict[str, FunctionCapture],
     helper_candidates: list[str] | None = None,
+    helper_depth: int = DEFAULT_HELPER_DEPTH,
 ) -> str:
     contracts = [contract for contract in plan.buffer_contracts if contract.command_value == command_value]
     report = render_buffer_contract_report(capture, contracts)
@@ -2759,6 +2847,7 @@ def _format_buffer_contract_case_preview(
         "- Function: `%s`" % (capture.name or "function"),
         "- EA: `0x%X`" % capture.ea,
         "- Case: `0x%X`" % command_value,
+        "- Helper depth: `%d`" % normalize_helper_depth(helper_depth),
         "- Contracts: `%d`" % len(contracts),
         "- Helper candidates: `%d`" % len(helper_candidates or []),
         "- Helper captures: `%d`" % len(helper_captures),

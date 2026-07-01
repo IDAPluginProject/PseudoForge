@@ -526,8 +526,8 @@ Edit/PseudoForge/
   Export cleaned pseudocode
   Analyze buffer contract for cursor case
   Analyze buffer contract by case value...
-  IOCTL Analysis/
-    Analyze IOCTL path...
+  Selector Analysis/
+    Analyze IOCTL/selector path...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -547,8 +547,8 @@ PseudoForge/
   Export cleaned pseudocode
   Analyze buffer contract for cursor case
   Analyze buffer contract by case value...
-  IOCTL Analysis/
-    Analyze IOCTL path...
+  Selector Analysis/
+    Analyze IOCTL/selector path...
   Cancel current operation
   Configure LLM rename assist
   Configure profile directory
@@ -566,7 +566,7 @@ Ctrl+Alt+P        Show current analysis result
 Ctrl+Alt+Shift+P  Analyzed functions...
 Ctrl+Alt+Shift+F  Export cleaned pseudocode
 Ctrl+Alt+B        Analyze buffer contract for cursor case
-Ctrl+Alt+I        Analyze IOCTL path
+Ctrl+Alt+I        Analyze IOCTL/selector path
 Ctrl+Alt+Shift+V  Configure preview mode
 ```
 
@@ -629,18 +629,36 @@ menu exposes both cursor-case and explicit case-value analysis, and the preview
 shows the generated buffer-contract C++ sketch for review. The sketch is an
 export/preview artifact only; it is not applied to the IDB as a type definition.
 
-`Analyze IOCTL path...` is the DeviceControl-specific view of the same focused
+`Analyze IOCTL/selector path...` is the selector-domain view of the same focused
 analysis. It first uses the Hex-Rays cursor to resolve the selected case, then
-prompts for an IOCTL code if the cursor is not on a concrete case. It accepts
-only case values that decode as Windows
-`CTL_CODE(...)` values, then reports the IOCTL method/access bits, inferred
-input/output or shared-buffer structures, rejection-guard-derived length and
-field predicates required to stay on the meaningful path, helper propagation,
-and a packed C++ struct sketch. This is a necessary-condition report from local
-guards, not a full symbolic satisfiability proof.
+prompts for a selector value if the cursor is not on a concrete case. For driver
+dispatchers, selector values that decode as Windows `CTL_CODE(...)` include
+method/access metadata. For generic NT dispatchers such as
+`NtSetSystemInformation`, the entered value is treated as the
+`SYSTEM_INFORMATION_CLASS` selector, so decimal values such as `75` can recover
+`PF_SYSTEM_*` input/output sketches instead of being rejected for not being an
+IOCTL. The report includes inferred input/output or shared-buffer structures,
+rejection-guard-derived length and field predicates required to stay on the
+meaningful path, helper propagation, selected-case context, and a packed C++
+struct sketch. This is a necessary-condition report from local guards, not a
+full symbolic satisfiability proof.
 
-The generic buffer contract action remains available for `NtSetInformation*`
-and other non-IOCTL command dispatchers.
+Focused buffer-contract and selector-path menu actions also prompt for helper
+follow depth before analysis starts. The default and minimum is `2`, the maximum
+is `4`; larger values are intentionally rejected to keep nested helper
+decompilation bounded inside IDA.
+
+The generic buffer contract actions remain available for the lower-level report
+when only the raw contract extraction view is needed.
+
+For large IDBs, `tools/pseudoforge_ida_case_contract_batch.py` can run the same
+selector report outside the UI. Use repeated `--target FunctionName:caseValue`
+for specific selectors, or `--target-all-cases NtSetSystemInformation` to expand
+all recovered `SYSTEM_INFORMATION_CLASS` cases from the selected function and
+write one Markdown report plus one JSON contract payload per case. Batch helper
+follow depth uses the same `2..4` range through `--helper-depth`; for example,
+`--target-all-cases NtSetSystemInformation --helper-depth 4` follows up to four
+helper/subhandler levels.
 
 `Cancel current operation` requests cooperative cancellation for the active analyze, export, or apply-preparation task. Cancellation is checked at safe phase boundaries; an in-flight Hex-Rays decompile or LLM provider call may finish before the task stops.
 
