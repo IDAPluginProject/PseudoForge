@@ -1,6 +1,6 @@
 # PseudoForge Implementation Status
 
-Current plugin version: `0.1.6`.
+Current plugin version: `0.1.7`.
 
 ## Current MVP
 
