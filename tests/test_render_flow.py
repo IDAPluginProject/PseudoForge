@@ -312,6 +312,45 @@ __int64 __fastcall NativeDispatcher(int code, int other)
         self.assertIn("`3` (body_state=`fallthrough_or_join`", report)
         self.assertIn("Native switch (code) already exists", outline)
 
+    def test_recover_flow_handles_signed_ioctl_condition_cases(self) -> None:
+        capture = FunctionCapture(
+            ea=0x140003000,
+            name="SignedIoctlDispatcher",
+            pseudocode="""
+__int64 __fastcall SignedIoctlDispatcher(int code, int length)
+{
+  switch ( code )
+  {
+    case 0x83386400:
+      return 1;
+    case 0x8338640C:
+      return 2;
+    case 0x8338A410:
+      return 3;
+  }
+  if ( code != -2093423612 )
+  {
+    if ( code != -2093423608 )
+      return -1;
+    if ( length < 0x38 )
+      return -2;
+    return 4;
+  }
+  if ( length < 0x58 )
+    return -3;
+  return 5;
+}
+""",
+        )
+
+        flows = recover_flow(capture)
+        flow = flows[0]
+
+        self.assertIn(0x8338E404, flow.recovered_cases)
+        self.assertIn(0x8338E408, flow.recovered_cases)
+        self.assertTrue(any("length < 0x58" in line for line in flow.case_bodies[0x8338E404]))
+        self.assertTrue(any("length < 0x38" in line for line in flow.case_bodies[0x8338E408]))
+
 
 if __name__ == "__main__":
     unittest.main()

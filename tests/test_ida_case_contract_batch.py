@@ -46,6 +46,21 @@ class IdaCaseContractBatchTests(unittest.TestCase):
 
         self.assertEqual(4, args.helper_depth)
 
+    def test_parse_args_accepts_discovered_ioctl_dispatch_mode(self) -> None:
+        args = batch._parse_args(
+            [
+                "--discover-ioctl-dispatch-all-cases",
+                "--discover-max-dispatchers",
+                "2",
+                "--out-dir",
+                "out",
+            ]
+        )
+
+        self.assertTrue(args.discover_ioctl_dispatch_all_cases)
+        self.assertEqual(2, args.discover_max_dispatchers)
+        self.assertEqual(6, args.discover_min_score)
+
     def test_parse_args_rejects_helper_depth_below_minimum(self) -> None:
         with self.assertRaises(SystemExit):
             batch._parse_args(
@@ -103,6 +118,41 @@ class IdaCaseContractBatchTests(unittest.TestCase):
             ],
             targets,
         )
+
+    def test_score_ioctl_dispatch_pseudocode_identifies_wdm_device_control(self) -> None:
+        score, reasons = batch._score_ioctl_dispatch_pseudocode(
+            """
+            stack = IoGetCurrentIrpStackLocation(Irp);
+            systemBuffer = Irp->AssociatedIrp.SystemBuffer;
+            inputLength = stack->Parameters.DeviceIoControl.InputBufferLength;
+            outputLength = stack->Parameters.DeviceIoControl.OutputBufferLength;
+            ioControlCode = stack->Parameters.DeviceIoControl.IoControlCode;
+            switch ( ioControlCode )
+            {
+            case 0x8338E404:
+              status = HandleConfigure(systemBuffer, inputLength, outputLength);
+              break;
+            }
+            IoCompleteRequest(Irp, 0);
+            """
+        )
+
+        self.assertGreaterEqual(score, 16)
+        self.assertIn("IoGetCurrentIrpStackLocation", reasons)
+        self.assertIn("ioctl_constants", reasons)
+
+    def test_score_ioctl_dispatch_pseudocode_rejects_non_dispatch_helper(self) -> None:
+        score, reasons = batch._score_ioctl_dispatch_pseudocode(
+            """
+            status = PsLookupProcessByProcessId(ProcessId, &Process);
+            if ( status >= 0 )
+              ObDereferenceObject(Process);
+            return status;
+            """
+        )
+
+        self.assertLess(score, 8)
+        self.assertEqual([], reasons)
 
     def test_dedupe_targets_preserves_first_seen_order(self) -> None:
         targets = batch._dedupe_targets(

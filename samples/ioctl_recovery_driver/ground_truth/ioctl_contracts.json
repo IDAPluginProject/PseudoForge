@@ -1,0 +1,123 @@
+{
+  "schema": "pseudoforge_ioctl_recovery_ground_truth_v1",
+  "driver": "PfIoctlRecovery",
+  "device_type": "0x8338",
+  "ioctls": [
+    {
+      "name": "PFIR_IOCTL_GET_CAPABILITIES",
+      "code": "0x83386400",
+      "role": "output",
+      "required_output_size": 40,
+      "structure": "PFIR_CAPABILITIES_REPLY",
+      "fields": [
+        {"offset": 0, "size": 4, "name": "Header.Size", "type": "ULONG"},
+        {"offset": 4, "size": 4, "name": "Header.Version", "type": "ULONG"},
+        {"offset": 8, "size": 4, "name": "Header.Flags", "type": "ULONG"},
+        {"offset": 16, "size": 4, "name": "DriverVersion", "type": "ULONG"},
+        {"offset": 20, "size": 4, "name": "SupportedFeatures", "type": "ULONG"},
+        {"offset": 24, "size": 4, "name": "MaxRules", "type": "ULONG"},
+        {"offset": 28, "size": 4, "name": "MaxEvents", "type": "ULONG"},
+        {"offset": 32, "size": 4, "name": "MaxNameBytes", "type": "ULONG"},
+        {"offset": 36, "size": 4, "name": "Alignment", "type": "ULONG"}
+      ],
+      "requirements": []
+    },
+    {
+      "name": "PFIR_IOCTL_CONFIGURE_SESSION",
+      "code": "0x8338E404",
+      "role": "inout",
+      "required_input_size": 88,
+      "required_output_size": 40,
+      "structure": "PFIR_CONFIGURE_REQUEST_REPLY",
+      "fields": [
+        {"offset": 0, "size": 4, "name": "Header.Size", "type": "ULONG"},
+        {"offset": 4, "size": 4, "name": "Header.Version", "type": "ULONG"},
+        {"offset": 8, "size": 4, "name": "Header.Flags", "type": "ULONG"},
+        {"offset": 16, "size": 8, "name": "SessionId", "type": "ULONGLONG"},
+        {"offset": 24, "size": 4, "name": "Mode", "type": "ULONG"},
+        {"offset": 28, "size": 4, "name": "RuleCount", "type": "ULONG"},
+        {"offset": 32, "size": 4, "name": "Threshold", "type": "ULONG"},
+        {"offset": 36, "size": 4, "name": "TimeoutMs", "type": "ULONG"},
+        {"offset": 40, "size": 4, "name": "FeatureMask", "type": "ULONG"},
+        {"offset": 44, "size": 4, "name": "ClientProcessId", "type": "ULONG"},
+        {"offset": 48, "size": 4, "name": "NameLength", "type": "ULONG"}
+      ],
+      "requirements": [
+        {"offset": 0, "relation": "==", "value": "0x58"},
+        {"offset": 4, "relation": "==", "value": "1"},
+        {"offset": 8, "relation": "mask_==", "mask": "0xFFFFFFFC", "value": "0"},
+        {"offset": 16, "relation": "!=", "value": "0"},
+        {"offset": 24, "relation": ">=", "value": "1"},
+        {"offset": 24, "relation": "<=", "value": "3"},
+        {"offset": 28, "relation": "<=", "value": "16"},
+        {"offset": 32, "relation": ">=", "value": "10"},
+        {"offset": 32, "relation": "<=", "value": "100000"},
+        {"offset": 36, "relation": ">=", "value": "100"},
+        {"offset": 36, "relation": "<=", "value": "60000"},
+        {"offset": 40, "relation": "!=", "value": "0"},
+        {"offset": 40, "relation": "mask_==", "mask": "0xFFFFFFF8", "value": "0"},
+        {"offset": 48, "relation": "<=", "value": "32"},
+        {"offset": 48, "relation": "mask_==", "mask": "1", "value": "0"}
+      ]
+    },
+    {
+      "name": "PFIR_IOCTL_SUBMIT_EVENT",
+      "code": "0x8338E408",
+      "role": "inout",
+      "required_input_size": 56,
+      "required_output_size": 56,
+      "structure": "PFIR_EVENT_SUBMIT",
+      "fields": [
+        {"offset": 0, "size": 4, "name": "Header.Size", "type": "ULONG"},
+        {"offset": 4, "size": 4, "name": "Header.Version", "type": "ULONG"},
+        {"offset": 8, "size": 4, "name": "Header.Flags", "type": "ULONG"},
+        {"offset": 16, "size": 8, "name": "EventId", "type": "ULONGLONG"},
+        {"offset": 24, "size": 4, "name": "ProcessId", "type": "ULONG"},
+        {"offset": 28, "size": 4, "name": "ThreadId", "type": "ULONG"},
+        {"offset": 32, "size": 4, "name": "Severity", "type": "ULONG"},
+        {"offset": 36, "size": 4, "name": "Category", "type": "ULONG"},
+        {"offset": 40, "size": 4, "name": "PayloadSize", "type": "ULONG"},
+        {"offset": 44, "size": 4, "name": "PayloadHash", "type": "ULONG"},
+        {"offset": 48, "size": 4, "name": "ResultCode", "type": "ULONG"},
+        {"offset": 52, "size": 4, "name": "StoredIndex", "type": "ULONG"}
+      ],
+      "requirements": [
+        {"offset": 0, "relation": "==", "value": "0x38"},
+        {"offset": 4, "relation": "==", "value": "1"},
+        {"offset": 8, "relation": "mask_==", "mask": "0xFFFFFFFC", "value": "0"},
+        {"offset": 16, "relation": "!=", "value": "0"},
+        {"offset": 32, "relation": "<=", "value": "5"},
+        {"offset": 36, "relation": ">=", "value": "1"},
+        {"offset": 36, "relation": "<=", "value": "8"},
+        {"offset": 40, "relation": "<=", "value": "256"}
+      ]
+    },
+    {
+      "name": "PFIR_IOCTL_LIST_EVENTS",
+      "code": "0x8338640C",
+      "role": "output",
+      "required_output_size": 32,
+      "structure": "PFIR_EVENT_LIST",
+      "fields": [
+        {"offset": 0, "size": 4, "name": "Header.Size", "type": "ULONG"},
+        {"offset": 4, "size": 4, "name": "Header.Version", "type": "ULONG"},
+        {"offset": 16, "size": 4, "name": "RecordSize", "type": "ULONG"},
+        {"offset": 20, "size": 4, "name": "RecordCount", "type": "ULONG"},
+        {"offset": 24, "size": 4, "name": "RequiredRecordCount", "type": "ULONG"},
+        {"offset": 28, "size": 4, "name": "Truncated", "type": "ULONG"},
+        {"offset": 32, "size": 4, "name": "Records[0].RecordSize", "type": "ULONG"},
+        {"offset": 36, "size": 4, "name": "Records[0].Severity", "type": "ULONG"},
+        {"offset": 40, "size": 8, "name": "Records[0].EventId", "type": "ULONGLONG"}
+      ],
+      "requirements": []
+    },
+    {
+      "name": "PFIR_IOCTL_RESET_STATE",
+      "code": "0x8338A410",
+      "role": "none",
+      "fields": [],
+      "requirements": []
+    }
+  ]
+}
+

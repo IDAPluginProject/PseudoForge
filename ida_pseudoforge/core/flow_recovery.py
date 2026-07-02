@@ -16,10 +16,28 @@ from ida_pseudoforge.profiles.loader import (
 )
 
 
+_CASE_INTEGER_SUFFIX = r"(?i:ui64|i64|u?ll|llu|ul|lu|u|l)"
+_C_INTEGER_LITERAL_VALUE_RE = r"-?(?:0x[0-9A-Fa-f]+|\d+)(?:%s)?" % _CASE_INTEGER_SUFFIX
 _CAST_PREFIX = r"(?:\(\s*(?:_DWORD|int|unsigned\s+int|ULONG|LONG|DWORD|PROCESSINFOCLASS|SYSTEM_INFORMATION_CLASS|THREADINFOCLASS)\s*\)\s*)*"
 COMPARE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*(?:==|!=|>=|<=|>|<)\s*(?P<value>\d+)\b"
-    % _CAST_PREFIX
+    r"(?<![A-Za-z0-9_])%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<op>==|!=|>=|<=|>|<)\s*(?P<value>%s)\b"
+    % (_CAST_PREFIX, _C_INTEGER_LITERAL_VALUE_RE)
+)
+COMPARE_REVERSED_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?P<value>%s)\s*(?P<op>==|!=|>=|<=|>|<)\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\b"
+    % (_C_INTEGER_LITERAL_VALUE_RE, _CAST_PREFIX)
+)
+DIRECT_IF_COMPARE_RE = re.compile(
+    r"if\s*\(\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<op>==|!=)\s*(?P<value>%s)\s*\)"
+    % (_CAST_PREFIX, _C_INTEGER_LITERAL_VALUE_RE)
+)
+DIRECT_IF_COMPARE_REVERSED_RE = re.compile(
+    r"if\s*\(\s*(?P<value>%s)\s*(?P<op>==|!=)\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*\)"
+    % (_C_INTEGER_LITERAL_VALUE_RE, _CAST_PREFIX)
+)
+DIRECT_IF_EQ_RE = re.compile(
+    r"if\s*\(\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*(?P<value>%s)\s*\)"
+    % (_CAST_PREFIX, _C_INTEGER_LITERAL_VALUE_RE)
 )
 SUB_RE = re.compile(
     r"\b(?P<dst>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
@@ -35,11 +53,6 @@ RANGE_SUB_RE = re.compile(
 )
 SWITCH_RE = re.compile(r"\bswitch\s*\(\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*\)" % _CAST_PREFIX)
 CASE_LABEL_RE = re.compile(r"^\s*case\s+(?P<value>[^:]+?)\s*:\s*$")
-DIRECT_IF_EQ_RE = re.compile(
-    r"if\s*\(\s*%s(?P<var>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*(?P<value>\d+)\s*\)" % _CAST_PREFIX
-)
-
-
 def recover_flow(capture: FunctionCapture, rename_map: dict[str, str] | None = None) -> list[FlowRewrite]:
     if _looks_like_template_or_tracing_function(capture):
         return []
@@ -266,7 +279,14 @@ def _recover_cases(text: str, dispatcher: str) -> set[int]:
     for line in lines:
         for match in COMPARE_RE.finditer(line):
             if match.group("var") == dispatcher:
-                cases.add(int(match.group("value")))
+                value = _parse_case_label(match.group("value"))
+                if value is not None:
+                    cases.add(value)
+        for match in COMPARE_REVERSED_RE.finditer(line):
+            if match.group("var") == dispatcher:
+                value = _parse_case_label(match.group("value"))
+                if value is not None:
+                    cases.add(value)
 
         range_match = RANGE_SUB_RE.search(line)
         if range_match and range_match.group("var") == dispatcher:
@@ -319,11 +339,12 @@ def _recover_case_bodies(text: str, dispatcher: str) -> dict[int, list[str]]:
             elif src in offsets:
                 offsets[dst] = offsets[src] + value
 
-        case_value = _case_value_for_condition(line, dispatcher, offsets)
+        condition = _case_condition_for_line(line, dispatcher, offsets)
+        case_value = condition[0] if condition is not None else None
         if case_value is None:
             continue
 
-        body = _collect_if_body(lines, index)
+        body = _collect_if_body(lines, index, branch=condition[1] if condition is not None else "true")
         if body:
             bodies.setdefault(case_value, body)
 
@@ -349,9 +370,9 @@ def _recover_case_anchors(text: str, dispatcher: str) -> dict[int, int]:
             elif src in offsets:
                 offsets[dst] = offsets[src] + value
 
-        case_value = _case_value_for_condition(line, dispatcher, offsets)
-        if case_value is not None:
-            anchors.setdefault(case_value, index + 1)
+        condition = _case_condition_for_line(line, dispatcher, offsets)
+        if condition is not None:
+            anchors.setdefault(condition[0], index + 1)
     return anchors
 
 
@@ -558,8 +579,14 @@ def _parse_case_label(value: str) -> int | None:
         return result
     parsed = parse_c_integer_literal(token)
     if parsed is not None:
-        return parsed
+        return _normalize_case_value(parsed)
     return _information_class_value(token)
+
+
+def _normalize_case_value(value: int) -> int:
+    if value < 0 and value >= -0x80000000:
+        return value & 0xFFFFFFFF
+    return value
 
 
 def _information_class_value(name: str) -> int | None:
@@ -591,29 +618,52 @@ def _case_value_for_condition(
     dispatcher: str,
     offsets: dict[str, int],
 ) -> int | None:
+    condition = _case_condition_for_line(line, dispatcher, offsets)
+    return condition[0] if condition is not None else None
+
+
+def _case_condition_for_line(
+    line: str,
+    dispatcher: str,
+    offsets: dict[str, int],
+) -> tuple[int, str] | None:
+    direct_match = DIRECT_IF_COMPARE_RE.search(line)
+    if direct_match and direct_match.group("var") == dispatcher:
+        value = _parse_case_label(direct_match.group("value"))
+        if value is not None:
+            return value, "true" if direct_match.group("op") == "==" else "false"
+
+    reversed_match = DIRECT_IF_COMPARE_REVERSED_RE.search(line)
+    if reversed_match and reversed_match.group("var") == dispatcher:
+        value = _parse_case_label(reversed_match.group("value"))
+        if value is not None:
+            return value, "true" if reversed_match.group("op") == "==" else "false"
+
     direct_match = DIRECT_IF_EQ_RE.search(line)
     if direct_match and direct_match.group("var") == dispatcher:
-        return int(direct_match.group("value"))
+        value = _parse_case_label(direct_match.group("value"))
+        if value is not None:
+            return value, "true"
 
     not_match = NOT_TEMP_RE.search(line)
     if not_match:
         temp = not_match.group("temp")
         if temp in offsets:
-            return offsets[temp]
+            return offsets[temp], "true"
 
     eq_match = EQ_TEMP_RE.search(line)
     if eq_match:
         temp = eq_match.group("temp")
         if temp in offsets:
-            return offsets[temp] + int(eq_match.group("value"))
+            return offsets[temp] + int(eq_match.group("value")), "true"
 
     return None
 
 
-def _collect_if_body(lines: list[str], condition_index: int) -> list[str]:
+def _collect_if_body(lines: list[str], condition_index: int, branch: str = "true") -> list[str]:
     line = lines[condition_index]
     inline_tail = _inline_if_tail(line)
-    if inline_tail:
+    if inline_tail and branch == "true":
         return [inline_tail]
 
     next_index = _next_non_empty_line(lines, condition_index + 1)
@@ -621,6 +671,15 @@ def _collect_if_body(lines: list[str], condition_index: int) -> list[str]:
         return []
 
     next_line = lines[next_index].strip()
+    then_end = _condition_body_end_index(lines, next_index)
+    if branch == "false":
+        else_index = _next_non_empty_line(lines, then_end)
+        if else_index is not None and lines[else_index].strip().startswith("else"):
+            else_body_start = _next_non_empty_line(lines, else_index + 1)
+            if else_body_start is None:
+                return []
+            return _collect_statement_body(lines, else_body_start)
+        return _collect_join_body(lines, then_end)
     if next_line == "{":
         return _collect_braced_body(lines, next_index)
     if next_line.startswith("{"):
@@ -628,6 +687,56 @@ def _collect_if_body(lines: list[str], condition_index: int) -> list[str]:
     if next_line.startswith("else"):
         return []
     return [lines[next_index].strip()]
+
+
+def _condition_body_end_index(lines: list[str], body_start_index: int) -> int:
+    if body_start_index < 0 or body_start_index >= len(lines):
+        return body_start_index
+    stripped = lines[body_start_index].strip()
+    if stripped.startswith("{"):
+        depth = 0
+        started = False
+        for index in range(body_start_index, len(lines)):
+            item = lines[index].strip()
+            if "{" in item:
+                depth += item.count("{")
+                started = True
+            if "}" in item:
+                depth -= item.count("}")
+                if started and depth <= 0:
+                    return index + 1
+        return len(lines)
+    return body_start_index + 1
+
+
+def _collect_statement_body(lines: list[str], body_start_index: int) -> list[str]:
+    if body_start_index < 0 or body_start_index >= len(lines):
+        return []
+    stripped = lines[body_start_index].strip()
+    if stripped.startswith("{"):
+        return _collect_braced_body(lines, body_start_index)
+    return [stripped] if stripped else []
+
+
+def _collect_join_body(lines: list[str], start_index: int, max_lines: int = 96) -> list[str]:
+    result: list[str] = []
+    depth = 0
+    started = False
+    for line in lines[start_index:start_index + max_lines]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith(("case ", "default:")):
+            break
+        if stripped == "}" and not started:
+            break
+        result.append(stripped)
+        depth += stripped.count("{") - stripped.count("}")
+        if "{" in stripped:
+            started = True
+        if depth <= 0 and stripped.startswith(("return ", "goto ", "break;")):
+            break
+    return result
 
 
 def _inline_if_tail(line: str) -> str:

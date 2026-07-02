@@ -11,6 +11,7 @@ from ida_pseudoforge.core.buffer_contracts import (
     _candidate_contract_buffers,
     _infer_buffer_sources,
     _iter_helper_call_sites,
+    _is_weak_size_only_case,
     _passed_buffer_arguments,
     _recover_field_accesses,
     _recover_field_constraints,
@@ -3539,6 +3540,192 @@ NTSTATUS __fastcall DispatchAnchorFallback(IRP *irp)
         self.assertIn("Overlapping field skipped at 0x14: field_0x14", header)
         self.assertIn("static_assert(offsetof(PF_IOCTL_9123B000_OUTPUT, field_0x10) == 0x10", header)
         self.assertNotIn("static_assert(offsetof(PF_IOCTL_9123B000_OUTPUT, field_0x14)", header)
+
+    def test_signed_ioctl_condition_fallback_recovers_system_buffer_overlay_fields(self) -> None:
+        capture = capture_from_pseudocode(
+            r"""
+NTSTATUS __fastcall Dispatch(PIRP irp)
+{
+  struct _IRP *MasterIrp;
+  ULONG Options;
+  ULONG Length;
+  ULONG LowPart;
+  NTSTATUS status;
+  int MdlAddress;
+
+  MasterIrp = irp->AssociatedIrp.MasterIrp;
+  Options = stack->Parameters.Create.Options;
+  Length = stack->Parameters.Read.Length;
+  LowPart = stack->Parameters.Read.ByteOffset.LowPart;
+  switch ( LowPart )
+  {
+    case 0x83386400:
+      status = 0;
+      break;
+    case 0x8338640C:
+      status = 0;
+      break;
+    case 0x8338A410:
+      status = 0;
+      break;
+  }
+  if ( LowPart != -2093423612 )
+  {
+    if ( LowPart != -2093423608 )
+    {
+      status = STATUS_INVALID_DEVICE_REQUEST;
+      goto Complete;
+    }
+    if ( Options < 0x38 )
+    {
+      status = STATUS_INFO_LENGTH_MISMATCH;
+      goto Complete;
+    }
+    if ( *(_DWORD *)&MasterIrp->Type != 56 )
+    {
+      status = STATUS_INVALID_PARAMETER;
+      goto Complete;
+    }
+    if ( *(_DWORD *)(&MasterIrp->Size + 1) != 1 )
+    {
+      status = STATUS_REVISION_MISMATCH;
+      goto Complete;
+    }
+    if ( ((__int64)MasterIrp->MdlAddress & 0xFFFFFFFC) != 0
+      || !*(_QWORD *)&MasterIrp->Flags
+      || LODWORD(MasterIrp->ThreadListEntry.Flink) > 5
+      || (unsigned int)(HIDWORD(MasterIrp->ThreadListEntry.Flink) - 1) > 7 )
+    {
+      status = STATUS_INVALID_PARAMETER;
+      goto Complete;
+    }
+    MasterIrp->IoStatus.Status = 0;
+    HIDWORD(MasterIrp->IoStatus.Pointer) = 3;
+    status = 0;
+    goto Complete;
+  }
+  if ( Options < 0x58 )
+  {
+    status = STATUS_INFO_LENGTH_MISMATCH;
+    goto Complete;
+  }
+  if ( Length < 0x28 )
+  {
+    status = STATUS_BUFFER_TOO_SMALL;
+    goto Complete;
+  }
+  if ( *(_DWORD *)&MasterIrp->Type != 88 )
+  {
+    status = STATUS_INVALID_PARAMETER;
+    goto Complete;
+  }
+  MdlAddress = (int)MasterIrp->MdlAddress;
+  if ( (MdlAddress & 0xFFFFFFFC) != 0 )
+  {
+    status = STATUS_INVALID_PARAMETER;
+    goto Complete;
+  }
+  if ( !*(_QWORD *)&MasterIrp->Flags )
+  {
+    status = STATUS_INVALID_PARAMETER;
+    goto Complete;
+  }
+  if ( (unsigned int)(MasterIrp->AssociatedIrp.IrpCount - 1) > 2 )
+  {
+    status = STATUS_INVALID_PARAMETER;
+    goto Complete;
+  }
+  MasterIrp->AssociatedIrp.IrpCount = (LONG)MasterIrp->ThreadListEntry.Blink;
+  status = 0;
+Complete:
+  return status;
+}
+"""
+        )
+
+        plan = build_clean_plan(capture, buffer_contract_case_values=[0x8338E404, 0x8338E408])
+        contracts = {item.command_value: item for item in plan.buffer_contracts}
+
+        self.assertIn(0x8338E404, contracts)
+        self.assertIn(0x8338E408, contracts)
+        configure_buffer = contracts[0x8338E404].buffers[0]
+        event_buffer = contracts[0x8338E408].buffers[0]
+        self.assertEqual("AssociatedIrp.SystemBuffer", configure_buffer.source)
+        self.assertEqual("masterIrp", configure_buffer.variable)
+        configure_offsets = {item.offset for item in configure_buffer.field_accesses}
+        event_offsets = {item.offset for item in event_buffer.field_accesses}
+        self.assertTrue({0, 8, 16, 24}.issubset(configure_offsets))
+        self.assertTrue({0, 4, 8, 16, 32, 36, 48, 52}.issubset(event_offsets))
+        self.assertTrue(any(item.offset == 0 and item.valid_relation == "==" and item.valid_value == "56" for item in event_buffer.field_constraints))
+        self.assertTrue(any(item.offset == 16 and item.valid_relation == "!=" and item.valid_value == "0" for item in event_buffer.field_constraints))
+        self.assertTrue(any(item.offset == 24 and item.valid_relation == ">=" and item.valid_value == "1" for item in configure_buffer.field_constraints))
+        self.assertTrue(any(item.offset == 24 and item.valid_relation == "<=" and item.valid_value == "3" for item in configure_buffer.field_constraints))
+
+    def test_system_buffer_overlay_splits_wide_writes_and_prefers_predicates(self) -> None:
+        lines = [
+            "*(_DWORD *)&masterIrp->Type = 40;",
+            "if ( *(_DWORD *)&masterIrp->Type != 88 )",
+            "{",
+            "  status = STATUS_INVALID_PARAMETER;",
+            "}",
+            "*(_QWORD *)(&masterIrp->Size + 1) = 1LL;",
+            "masterIrp->Flags = 539363074;",
+            "*(&masterIrp->Flags + 1) = 7;",
+        ]
+
+        accesses = _recover_field_accesses(
+            lines,
+            {"masterIrp": {"source": "AssociatedIrp.SystemBuffer", "role": "inout"}},
+        )
+        offsets = {item.offset for item in accesses}
+        type_access = [item for item in accesses if item.offset == 0 and item.type == "ULONG"][0]
+
+        self.assertTrue({0, 4, 8, 16, 20}.issubset(offsets))
+        self.assertTrue(type_access.evidence.startswith("if "))
+
+        constraints = _recover_field_constraints(lines, accesses)
+        self.assertTrue(
+            any(
+                item.offset == 0
+                and item.valid_relation == "=="
+                and item.valid_value == "88"
+                for item in constraints
+            )
+        )
+
+    def test_weak_size_only_case_is_not_promoted_to_buffer_contract(self) -> None:
+        self.assertTrue(
+            _is_weak_size_only_case(
+                [
+                    BufferSizeConstraint(
+                        buffer="systemBuffer",
+                        length="inputBufferLength",
+                        relation="<",
+                        value="0x58",
+                    )
+                ],
+                [],
+                [],
+                [],
+            )
+        )
+        self.assertFalse(
+            _is_weak_size_only_case(
+                [
+                    BufferSizeConstraint(
+                        buffer="systemBuffer",
+                        length="inputBufferLength",
+                        relation="<",
+                        value="0x58",
+                        valid_relation=">=",
+                        valid_value="0x58",
+                    )
+                ],
+                [],
+                [],
+                [],
+            )
+        )
 
     def test_export_bundle_writes_buffer_contract_artifacts(self) -> None:
         capture = capture_from_pseudocode(IOCTL_CONTRACT_SAMPLE)

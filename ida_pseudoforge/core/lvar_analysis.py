@@ -88,6 +88,7 @@ def build_clean_plan(
     _attach_rename_identities(validated, capture)
     rename_map = {item.old: item.new for item in validated if item.apply}
     flow_rewrites = recover_flow(capture, rename_map=rename_map)
+    cleanup_labels = classify_cleanup_labels(capture)
     buffer_contracts = recover_buffer_contracts(
         capture,
         flow_rewrites,
@@ -96,8 +97,8 @@ def build_clean_plan(
         max_depth=buffer_contract_helper_depth,
         case_values=buffer_contract_case_values,
         disasm_case_slices=buffer_contract_disasm_slices,
+        cleanup_labels=cleanup_labels,
     )
-    cleanup_labels = classify_cleanup_labels(capture)
     type_corrections = domain_identity_parameter_type_corrections(
         capture.pseudocode,
         profile_context=capture.profile_context,

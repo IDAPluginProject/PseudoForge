@@ -39,17 +39,21 @@ from ida_pseudoforge.profiles.loader import active_profile_root, configure_profi
 
 try:
     import ida_auto  # type: ignore
+    import ida_funcs  # type: ignore
     import ida_hexrays  # type: ignore
     import ida_nalt  # type: ignore
     import ida_pro  # type: ignore
     import idaapi  # type: ignore
+    import idautils  # type: ignore
     import idc  # type: ignore
 except Exception:
     ida_auto = None
+    ida_funcs = None
     ida_hexrays = None
     ida_nalt = None
     ida_pro = None
     idaapi = None
+    idautils = None
     idc = None
 
 
@@ -72,7 +76,22 @@ def main(argv: list[str] | None = None) -> int:
         if not ida_hexrays.init_hexrays_plugin():
             raise RuntimeError("Hex-Rays decompiler is not available")
         source_path = _input_path()
-        targets = _dedupe_targets(explicit_targets + _expand_all_case_targets(args.target_all_cases))
+        discovered_targets = []
+        if args.discover_ioctl_dispatch_all_cases:
+            discovery_candidates = _discover_ioctl_dispatch_candidates(min_score=args.discover_min_score)
+            reporter.write(
+                {
+                    "event": "discovery",
+                    "kind": "ioctl_dispatch",
+                    "candidates": discovery_candidates,
+                }
+            )
+            discovered_targets = _expand_discovered_ioctl_dispatch_targets(
+                max_dispatchers=args.discover_max_dispatchers,
+                min_score=args.discover_min_score,
+                candidates=discovery_candidates,
+            )
+        targets = _dedupe_targets(explicit_targets + _expand_all_case_targets(args.target_all_cases) + discovered_targets)
         reporter.write(
             {
                 "event": "start",
@@ -153,6 +172,23 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         metavar="FunctionName",
         help="Expand all recovered selector cases for a function, for example NtSetSystemInformation.",
     )
+    parser.add_argument(
+        "--discover-ioctl-dispatch-all-cases",
+        action="store_true",
+        help="Discover likely WDM IOCTL dispatch functions and expand all recovered IOCTL cases.",
+    )
+    parser.add_argument(
+        "--discover-max-dispatchers",
+        default=1,
+        type=int,
+        help="Maximum discovered IOCTL dispatch functions to analyze. Default: 1.",
+    )
+    parser.add_argument(
+        "--discover-min-score",
+        default=6,
+        type=int,
+        help="Minimum WDM IOCTL dispatch discovery score. Default: 6.",
+    )
     parser.add_argument("--out-dir", required=True, help="Directory for Markdown and JSON artifacts.")
     parser.add_argument("--report", default="", help="Optional JSONL report path.")
     parser.add_argument("--profile-dir", default="", help="Optional PseudoForge profile directory.")
@@ -167,8 +203,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-auto-wait", action="store_true", help="Do not wait for IDA autoanalysis first.")
     parser.add_argument("--no-exit", action="store_true", help="Do not call ida_pro.qexit at the end.")
     args = parser.parse_args(argv)
-    if not args.target and not args.target_all_cases:
-        parser.error("at least one --target or --target-all-cases is required")
+    if not args.target and not args.target_all_cases and not args.discover_ioctl_dispatch_all_cases:
+        parser.error(
+            "at least one --target, --target-all-cases, or --discover-ioctl-dispatch-all-cases is required"
+        )
+    if args.discover_max_dispatchers < 1:
+        parser.error("--discover-max-dispatchers must be at least 1")
     return args
 
 
@@ -227,6 +267,119 @@ def _expand_all_case_targets(function_names: list[str]) -> list[tuple[str, int]]
             raise RuntimeError("no recovered selector cases for --target-all-cases: %s" % target_name)
         result.extend((target_name, value) for value in sorted(values))
     return result
+
+
+def _expand_discovered_ioctl_dispatch_targets(
+    *,
+    max_dispatchers: int,
+    min_score: int,
+    candidates: list[dict[str, Any]] | None = None,
+) -> list[tuple[str, int]]:
+    result: list[tuple[str, int]] = []
+    candidates = candidates if candidates is not None else _discover_ioctl_dispatch_candidates(min_score=min_score)
+    for candidate in candidates[:max_dispatchers]:
+        target_name = str(candidate.get("name", "") or "")
+        if not target_name:
+            continue
+        capture = capture_function_by_name(target_name)
+        if capture is None:
+            continue
+        plan = build_clean_plan(capture)
+        values: set[int] = set()
+        for flow in plan.flow_rewrites:
+            values.update(int(value) for value in flow.recovered_cases)
+        if values:
+            result.extend((target_name, value) for value in sorted(values))
+    if not result:
+        raise RuntimeError("no recovered IOCTL cases from discovered dispatch functions")
+    return result
+
+
+def _discover_ioctl_dispatch_candidates(*, min_score: int = 6) -> list[dict[str, Any]]:
+    if ida_funcs is None or ida_hexrays is None or idautils is None:
+        return []
+    candidates: list[dict[str, Any]] = []
+    try:
+        function_eas = list(idautils.Functions())
+    except Exception:
+        function_eas = []
+    for ea in function_eas:
+        try:
+            func = ida_funcs.get_func(ea)
+        except Exception:
+            func = None
+        if func is None:
+            continue
+        try:
+            cfunc = ida_hexrays.decompile(func)
+        except Exception:
+            cfunc = None
+        if cfunc is None:
+            continue
+        text = _ida_cfunc_text(cfunc)
+        score, reasons = _score_ioctl_dispatch_pseudocode(text)
+        if score < min_score:
+            continue
+        try:
+            name = ida_funcs.get_func_name(getattr(func, "start_ea", ea)) or ""
+        except Exception:
+            name = ""
+        if not name:
+            name = "sub_%X" % int(getattr(func, "start_ea", ea))
+        candidates.append(
+            {
+                "name": name,
+                "ea": "0x%X" % int(getattr(func, "start_ea", ea)),
+                "score": score,
+                "reasons": reasons,
+            }
+        )
+    return sorted(candidates, key=lambda item: (-int(item.get("score", 0) or 0), str(item.get("name", ""))))
+
+
+def _score_ioctl_dispatch_pseudocode(text: str) -> tuple[int, list[str]]:
+    lower = (text or "").lower()
+    score = 0
+    reasons: list[str] = []
+    checks = [
+        ("IoGetCurrentIrpStackLocation", "iogetcurrentirpstacklocation", 4),
+        ("DeviceIoControl", "deviceiocontrol", 4),
+        ("IoControlCode", "iocontrolcode", 4),
+        ("InputBufferLength", "inputbufferlength", 2),
+        ("OutputBufferLength", "outputbufferlength", 2),
+        ("SystemBuffer", "systembuffer", 2),
+        ("IoCompleteRequest", "iocompleterequest", 1),
+        ("switch", "switch", 1),
+        ("case", "case ", 1),
+    ]
+    for label, needle, weight in checks:
+        if needle in lower:
+            score += weight
+            reasons.append(label)
+    if re.search(r"case\s+0x[0-9a-f]+", lower):
+        score += 2
+        reasons.append("hex_case")
+    if re.search(r"0x[0-9a-f]{8,}", lower) and "iocontrolcode" in lower:
+        score += 2
+        reasons.append("ioctl_constants")
+    return score, reasons
+
+
+def _ida_cfunc_text(cfunc: object) -> str:
+    lines: list[str] = []
+    try:
+        pseudocode = cfunc.get_pseudocode()  # type: ignore[attr-defined]
+        for line in pseudocode:
+            raw = getattr(line, "line", str(line))
+            if idaapi is not None:
+                try:
+                    raw = idaapi.tag_remove(raw)
+                except Exception:
+                    pass
+            lines.append(str(raw))
+    except Exception:
+        return str(cfunc)
+    return "\n".join(lines)
 
 
 def _is_selector_sentinel_case_name(name: str) -> bool:

@@ -26,6 +26,7 @@ from ida_pseudoforge.core.plan_schema import (
     BufferSizeConstraint,
     CleanPlan,
     CommandBufferContract,
+    CleanupLabel,
     FieldAccess,
     FieldConstraint,
     FlowRewrite,
@@ -158,6 +159,30 @@ _TYPE_LIKE_CALL_TOKENS = {
 }
 _TYPE_LIKE_CALL_RE = re.compile(r"^_{1,2}(?:u?int(?:8|16|32|64)|m(?:64|128i?|256i?|512i?))$")
 _IRP_ASSOCIATED_IRP_OFFSET_X64 = 0x18
+_SYSTEM_BUFFER_IRP_OVERLAY_OFFSETS = {
+    "Type": (0x00, "ULONG"),
+    "Size": (0x02, "USHORT"),
+    "MdlAddress": (0x08, "ULONG"),
+    "Flags": (0x10, "ULONGLONG"),
+    "AssociatedIrp.IrpCount": (0x18, "ULONG"),
+    "AssociatedIrp.SystemBuffer": (0x18, "ULONGLONG"),
+    "ThreadListEntry.Flink": (0x20, "ULONGLONG"),
+    "ThreadListEntry.Blink": (0x28, "ULONGLONG"),
+    "IoStatus.Status": (0x30, "ULONG"),
+    "IoStatus.Pointer": (0x30, "ULONGLONG"),
+}
+_SYSTEM_BUFFER_IRP_OVERLAY_POINTER_STEPS = {
+    "Type": 2,
+    "Size": 2,
+    "MdlAddress": 8,
+    "Flags": 4,
+    "AssociatedIrp.IrpCount": 4,
+    "AssociatedIrp.SystemBuffer": 8,
+    "ThreadListEntry.Flink": 8,
+    "ThreadListEntry.Blink": 8,
+    "IoStatus.Status": 4,
+    "IoStatus.Pointer": 8,
+}
 _SELECTOR_PROFILE_STRUCTURE_HINTS = {
     ("ntquery_process", "ProcessBasicInformation"): "PROCESS_BASIC_INFORMATION",
     ("ntquery_process", "ProcessQuotaLimits"): "QUOTA_LIMITS",
@@ -211,6 +236,7 @@ def recover_buffer_contracts(
     max_depth: int = 2,
     case_values: Iterable[int] | None = None,
     disasm_case_slices: Iterable[DisasmCaseSlice] | dict[int, DisasmCaseSlice] | None = None,
+    cleanup_labels: Iterable[CleanupLabel] | None = None,
 ) -> list[CommandBufferContract]:
     raw_text = capture.pseudocode or ""
     text = safe_identifier_replace(raw_text, rename_map or {})
@@ -224,6 +250,7 @@ def recover_buffer_contracts(
         | _length_like_names(text)
     )
     case_filter = {int(value) for value in case_values} if case_values is not None else None
+    error_labels = _error_cleanup_label_names(cleanup_labels)
     disasm_evidence_by_case = _recover_disasm_evidence_by_case(
         disasm_case_slices,
         buffer_sources,
@@ -233,6 +260,7 @@ def recover_buffer_contracts(
     )
     disasm_helper_slices = _disasm_helper_slices_by_name(disasm_case_slices, capture)
     result: list[CommandBufferContract] = []
+    terminal_noncontract_cases: set[int] = set()
 
     for flow in flow_rewrites:
         kind = _dispatcher_kind(capture, flow)
@@ -257,7 +285,13 @@ def recover_buffer_contracts(
             if not body_lines:
                 continue
             if _is_terminal_noncontract_case_body(body_lines):
+                terminal_noncontract_cases.add(value)
                 continue
+            body_had_direct_evidence = _case_body_has_contract_evidence(
+                body_lines,
+                buffer_sources,
+                length_aliases,
+            ) or _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
             body_lines = _body_lines_with_shared_tail_size_guards(
                 text,
                 flow.dispatcher,
@@ -292,6 +326,29 @@ def recover_buffer_contracts(
                     flow.case_names.get(value, ""),
                     body_lines,
                 )
+            if (
+                not _case_body_has_field_or_helper_evidence(body_lines, buffer_sources, helper_interesting_names)
+                and flow.dispatcher
+            ):
+                enriched_body_lines = _body_lines_with_dispatcher_condition_context(
+                    text,
+                    flow.dispatcher,
+                    value,
+                    flow.case_names.get(value, ""),
+                    body_lines,
+                )
+                if _case_body_has_field_or_helper_evidence(enriched_body_lines, buffer_sources, helper_interesting_names):
+                    body_lines = enriched_body_lines
+            body_lines = _body_lines_with_goto_label_error_outcomes(
+                text,
+                body_lines,
+            )
+            if (
+                kind == "ioctl" and
+                not body_had_direct_evidence
+                and not _case_body_has_field_or_helper_evidence(body_lines, buffer_sources, helper_interesting_names)
+            ):
+                continue
             command_name = flow.case_names.get(value, "")
             if not command_name and kind == "ioctl":
                 command_name = format_ctl_code(value)
@@ -309,12 +366,32 @@ def recover_buffer_contracts(
                 length_aliases=length_aliases,
                 disasm_evidence=disasm_evidence_by_case.get(value),
                 disasm_helper_slices=disasm_helper_slices,
+                error_labels=error_labels,
             )
             if command.buffers or command.helper_edges:
                 result.append(command)
 
     if case_filter is not None:
-        missing_values = [value for value in sorted(case_filter) if value not in {item.command_value for item in result}]
+        condition_candidates = _recover_focused_condition_contracts(
+            capture,
+            text,
+            sorted(case_filter),
+            buffer_sources,
+            helper_map,
+            max_depth,
+            length_aliases,
+            helper_interesting_names,
+            disasm_evidence_by_case,
+            disasm_helper_slices,
+            error_labels,
+        )
+        result = _merge_richer_command_results(result, condition_candidates)
+        missing_values = [
+            value
+            for value in sorted(case_filter)
+            if value not in {item.command_value for item in result}
+            and value not in terminal_noncontract_cases
+        ]
         if missing_values:
             result.extend(
                 _recover_focused_native_switch_contracts(
@@ -328,9 +405,37 @@ def recover_buffer_contracts(
                     helper_interesting_names,
                     disasm_evidence_by_case,
                     disasm_helper_slices,
+                    error_labels,
                 )
             )
-        missing_values = [value for value in sorted(case_filter) if value not in {item.command_value for item in result}]
+        missing_values = [
+            value
+            for value in sorted(case_filter)
+            if value not in {item.command_value for item in result}
+            and value not in terminal_noncontract_cases
+        ]
+        if missing_values:
+            result.extend(
+                _recover_focused_condition_contracts(
+                    capture,
+                    text,
+                    missing_values,
+                    buffer_sources,
+                    helper_map,
+                    max_depth,
+                    length_aliases,
+                    helper_interesting_names,
+                    disasm_evidence_by_case,
+                    disasm_helper_slices,
+                    error_labels,
+                )
+            )
+        missing_values = [
+            value
+            for value in sorted(case_filter)
+            if value not in {item.command_value for item in result}
+            and value not in terminal_noncontract_cases
+        ]
         if missing_values:
             result.extend(
                 _recover_focused_disasm_contracts(
@@ -343,6 +448,7 @@ def recover_buffer_contracts(
                     length_aliases,
                     disasm_evidence_by_case,
                     disasm_helper_slices,
+                    error_labels,
                 )
             )
 
@@ -758,6 +864,45 @@ def _body_lines_with_goto_label_tail_context(
     return body_lines
 
 
+def _body_lines_with_goto_label_error_outcomes(
+    text: str,
+    body_lines: list[str],
+    max_tail_lines: int = 24,
+) -> list[str]:
+    labels = _case_goto_labels(body_lines)
+    if not labels:
+        return body_lines
+    lines = (text or "").splitlines()
+    merged = list(body_lines)
+    for label in labels:
+        outcome = _goto_label_error_outcome_context(lines, label, max_tail_lines)
+        if outcome:
+            merged = _merge_unique_context_lines(merged, outcome)
+    return merged
+
+
+def _goto_label_error_outcome_context(lines: list[str], label: str, max_tail_lines: int) -> list[str]:
+    label_re = re.compile(r"^\s*%s\s*:" % re.escape(label))
+    for index, line in enumerate(lines):
+        if not label_re.match(line or ""):
+            continue
+        result = [line.strip()]
+        for item in lines[index + 1:index + 1 + max_tail_lines]:
+            stripped = item.strip()
+            if not stripped:
+                continue
+            if _has_error_status_assignment(stripped) or _has_error_status_return(stripped):
+                result.append(stripped)
+                continue
+            if result and re.search(r"\b(?:goto|break|return)\b", stripped):
+                result.append(stripped)
+                break
+            if len(result) > 1:
+                break
+        return result if len(result) > 1 and _label_has_error_outcome(result, label) else []
+    return []
+
+
 def _body_lines_with_goto_label_helper_context(
     text: str,
     body_lines: list[str],
@@ -921,6 +1066,17 @@ def _case_body_has_helper_argument_evidence(body_lines: list[str], interesting_n
     return False
 
 
+def _case_body_has_field_or_helper_evidence(
+    body_lines: list[str],
+    buffer_sources: dict[str, dict[str, str]],
+    helper_interesting_names: set[str],
+) -> bool:
+    return bool(
+        _recover_field_accesses(body_lines, buffer_sources)
+        or _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
+    )
+
+
 def _body_lines_with_dispatcher_condition_context(
     text: str,
     dispatcher: str,
@@ -944,11 +1100,16 @@ def _dispatcher_condition_context_lines(
         return []
     lines = text.splitlines()
     for index, line in enumerate(lines):
-        if not _is_simple_dispatcher_case_condition(line, dispatcher, command_value, command_name):
+        branch = _dispatcher_case_condition_branch(line, dispatcher, command_value, command_name)
+        if not branch:
             continue
-        prefix = _preceding_guard_context(lines, index)
-        branch = _true_branch_and_join_context(lines, index)
-        context = prefix + branch
+        prefix = [] if branch == "false" else _preceding_guard_context(lines, index)
+        branch_context = (
+            _true_branch_and_join_context(lines, index)
+            if branch == "true"
+            else _false_branch_and_join_context(lines, index)
+        )
+        context = prefix + branch_context
         if _case_context_has_buffer_evidence(context):
             return context
     return []
@@ -960,18 +1121,30 @@ def _is_simple_dispatcher_case_condition(
     command_value: int,
     command_name: str,
 ) -> bool:
-    match = re.match(r"^\s*if\s*\(\s*(?P<left>.+?)\s*==\s*(?P<right>.+?)\s*\)\s*$", line or "")
+    return bool(_dispatcher_case_condition_branch(line, dispatcher, command_value, command_name))
+
+
+def _dispatcher_case_condition_branch(
+    line: str,
+    dispatcher: str,
+    command_value: int,
+    command_name: str,
+) -> str:
+    match = re.match(r"^\s*if\s*\(\s*(?P<left>.+?)\s*(?P<op>==|!=)\s*(?P<right>.+?)\s*\)\s*$", line or "")
     if not match:
-        return False
+        return ""
     left = _clean_dispatcher_case_operand(match.group("left"))
     right = _clean_dispatcher_case_operand(match.group("right"))
-    return (
+    matched = (
         _operand_matches_dispatcher(left, dispatcher)
         and _operand_matches_case(right, command_value, command_name)
     ) or (
         _operand_matches_dispatcher(right, dispatcher)
         and _operand_matches_case(left, command_value, command_name)
     )
+    if not matched:
+        return ""
+    return "true" if match.group("op") == "==" else "false"
 
 
 def _clean_dispatcher_case_operand(value: str) -> str:
@@ -1060,6 +1233,48 @@ def _true_branch_and_join_context(
             join_start = else_index + 1
 
     result.extend(_join_context_lines(lines, join_start, max_join_lines))
+    return result
+
+
+def _false_branch_and_join_context(
+    lines: list[str],
+    condition_index: int,
+    max_join_lines: int = 128,
+) -> list[str]:
+    result = [lines[condition_index].strip()]
+    then_start = _next_non_empty_index(lines, condition_index + 1)
+    if then_start is None:
+        return result
+    then_end = _statement_end_index(lines, then_start)
+    else_index = _next_non_empty_index(lines, then_end)
+    if else_index is not None and lines[else_index].strip().startswith("else"):
+        else_body_start = _next_non_empty_index(lines, else_index + 1)
+        if else_body_start is None:
+            return result
+        else_end = _statement_end_index(lines, else_body_start)
+        result.extend(_statement_lines(lines, else_body_start, else_end))
+        return result
+    result.extend(_case_fallthrough_context_lines(lines, then_end, max_join_lines))
+    return result
+
+
+def _case_fallthrough_context_lines(lines: list[str], start: int, max_lines: int) -> list[str]:
+    result: list[str] = []
+    depth = 0
+    saw_content = False
+    for index in range(start, min(len(lines), start + max_lines)):
+        stripped = lines[index].strip()
+        if not stripped:
+            continue
+        if stripped.startswith(("case ", "default:")):
+            break
+        if stripped == "}" and depth <= 0 and saw_content:
+            break
+        result.append(stripped)
+        saw_content = True
+        depth += stripped.count("{") - stripped.count("}")
+        if depth <= 0 and (stripped.startswith("return ") or stripped == "return;"):
+            break
     return result
 
 
@@ -1396,6 +1611,15 @@ def _argument_references_any_name(argument: str, names: set[str]) -> bool:
         return False
     identifiers = set(re.findall(r"\b%s\b" % _IDENT_RE, argument))
     return bool(identifiers & names)
+
+
+def _error_cleanup_label_names(labels: Iterable[CleanupLabel] | None) -> set[str]:
+    result: set[str] = set()
+    for item in labels or []:
+        classification = getattr(item, "classification", "") or ""
+        if classification.startswith("set_error_status"):
+            result.add(getattr(item, "label", "") or "")
+    return {label for label in result if label}
 
 
 def _case_goto_labels(lines: list[str]) -> list[str]:
@@ -1735,7 +1959,7 @@ def _parse_case_label_value(value: str) -> int | None:
         return result
     parsed = parse_c_integer_literal(token)
     if parsed is not None:
-        return parsed
+        return _normalize_case_value(parsed)
     for resolver in (
         get_process_information_class_value,
         get_system_information_class_value,
@@ -1745,6 +1969,12 @@ def _parse_case_label_value(value: str) -> int | None:
         if parsed is not None:
             return parsed
     return None
+
+
+def _normalize_case_value(value: int) -> int:
+    if value < 0 and value >= -0x80000000:
+        return value & 0xFFFFFFFF
+    return value
 
 
 def _is_default_case_line(line: str) -> bool:
@@ -2404,6 +2634,7 @@ def _analyze_command_case(
     length_aliases: dict[str, str] | None = None,
     disasm_evidence: DisasmCaseContractEvidence | None = None,
     disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+    error_labels: set[str] | None = None,
 ) -> CommandBufferContract:
     body_text = "\n".join(body_lines)
     size_constraints = _recover_size_constraints(
@@ -2412,7 +2643,7 @@ def _analyze_command_case(
         known_lengths=_length_names_from_sources(buffer_sources),
     )
     field_accesses = _recover_field_accesses(body_lines, buffer_sources)
-    field_constraints = _recover_field_constraints(body_lines, field_accesses)
+    field_constraints = _recover_field_constraints(body_lines, field_accesses, error_labels=error_labels)
     helper_edges = _recover_helper_edges(
         body_text,
         buffer_sources,
@@ -2421,6 +2652,8 @@ def _analyze_command_case(
         depth=depth,
         visited=visited,
     )
+    if _is_weak_size_only_case(size_constraints, field_accesses, field_constraints, helper_edges):
+        size_constraints = []
     merge_warnings: list[str] = []
     if disasm_evidence is not None:
         disasm_edges = _resolve_disasm_helper_edges(
@@ -2476,6 +2709,64 @@ def _analyze_command_case(
     )
 
 
+def _is_weak_size_only_case(
+    size_constraints: list[BufferSizeConstraint],
+    field_accesses: list[FieldAccess],
+    field_constraints: list[FieldConstraint],
+    helper_edges: list[HelperContractEdge],
+) -> bool:
+    if not size_constraints or field_accesses or field_constraints or helper_edges:
+        return False
+    return not any(item.valid_relation and item.valid_value for item in size_constraints)
+
+
+def _merge_richer_command_results(
+    existing: list[CommandBufferContract],
+    candidates: list[CommandBufferContract],
+) -> list[CommandBufferContract]:
+    by_value: dict[int, CommandBufferContract] = {item.command_value: item for item in existing}
+    order: list[int] = [item.command_value for item in existing]
+    for candidate in candidates:
+        if candidate.dispatcher_kind != "ioctl":
+            continue
+        current = by_value.get(candidate.command_value)
+        if current is None:
+            by_value[candidate.command_value] = candidate
+            order.append(candidate.command_value)
+            continue
+        if _command_contract_richness_score(candidate) > _command_contract_richness_score(current):
+            by_value[candidate.command_value] = candidate
+    return [by_value[value] for value in order if value in by_value]
+
+
+def _command_contract_richness_score(command: CommandBufferContract) -> tuple[int, int, int, int, int]:
+    field_offsets: set[tuple[str, int]] = set()
+    hard_field_constraints = 0
+    hard_size_constraints = 0
+    helper_edges = 0
+    buffers = 0
+    for buffer in command.buffers:
+        buffers += 1
+        for item in buffer.field_accesses:
+            field_offsets.add((buffer.variable, item.offset))
+        for item in buffer.field_constraints:
+            if item.valid_relation and item.valid_value:
+                hard_field_constraints += 1
+        for item in buffer.size_constraints:
+            if item.valid_relation and item.valid_value:
+                hard_size_constraints += 1
+    for edge in command.helper_edges:
+        if edge.resolved:
+            helper_edges += 1
+    return (
+        hard_field_constraints,
+        len(field_offsets),
+        hard_size_constraints,
+        helper_edges,
+        buffers,
+    )
+
+
 def _recover_focused_native_switch_contracts(
     capture: FunctionCapture,
     text: str,
@@ -2487,6 +2778,7 @@ def _recover_focused_native_switch_contracts(
     helper_interesting_names: set[str],
     disasm_evidence_by_case: dict[int, DisasmCaseContractEvidence] | None = None,
     disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+    error_labels: set[str] | None = None,
 ) -> list[CommandBufferContract]:
     result: list[CommandBufferContract] = []
     recovered: set[int] = set()
@@ -2513,6 +2805,11 @@ def _recover_focused_native_switch_contracts(
             if _is_terminal_noncontract_case_body(body_lines):
                 recovered.add(value)
                 continue
+            body_had_direct_evidence = _case_body_has_contract_evidence(
+                body_lines,
+                buffer_sources,
+                length_aliases,
+            ) or _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
             body_lines = _body_lines_with_shared_tail_size_guards(
                 text,
                 dispatcher,
@@ -2547,6 +2844,16 @@ def _recover_focused_native_switch_contracts(
                     _command_name_for_kind(kind, value),
                     body_lines,
                 )
+            body_lines = _body_lines_with_goto_label_error_outcomes(
+                text,
+                body_lines,
+            )
+            if (
+                kind == "ioctl" and
+                not body_had_direct_evidence
+                and not _case_body_has_field_or_helper_evidence(body_lines, buffer_sources, helper_interesting_names)
+            ):
+                continue
             command_name = _command_name_for_kind(kind, value)
             if not command_name and kind == "ioctl":
                 command_name = format_ctl_code(value)
@@ -2564,10 +2871,118 @@ def _recover_focused_native_switch_contracts(
                 length_aliases=length_aliases,
                 disasm_evidence=(disasm_evidence_by_case or {}).get(value),
                 disasm_helper_slices=disasm_helper_slices,
+                error_labels=error_labels,
             )
             if command.buffers or command.helper_edges:
                 result.append(command)
                 recovered.add(value)
+    return result
+
+
+def _recover_focused_condition_contracts(
+    capture: FunctionCapture,
+    text: str,
+    case_values: list[int],
+    buffer_sources: dict[str, dict[str, str]],
+    helper_map: dict[str, FunctionCapture],
+    max_depth: int,
+    length_aliases: dict[str, str],
+    helper_interesting_names: set[str],
+    disasm_evidence_by_case: dict[int, DisasmCaseContractEvidence] | None = None,
+    disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+    error_labels: set[str] | None = None,
+) -> list[CommandBufferContract]:
+    result: list[CommandBufferContract] = []
+    recovered: set[int] = set()
+    for dispatcher in _focused_condition_dispatchers(text, case_values):
+        flow = FlowRewrite(
+            kind="condition_focused_fallback",
+            dispatcher=dispatcher,
+            recovered_cases=list(case_values),
+            confidence=0.42,
+            evidence="Focused fallback recovered dispatcher condition body",
+        )
+        kind = _dispatcher_kind(capture, flow)
+        if kind == "generic" and not _has_strong_generic_buffer_evidence(text):
+            continue
+        for value in case_values:
+            if value in recovered:
+                continue
+            command_name = _command_name_for_kind(kind, value)
+            if not command_name and kind == "ioctl":
+                command_name = format_ctl_code(value)
+            body_lines = _dispatcher_condition_context_lines(text, dispatcher, value, command_name)
+            if not body_lines or _is_terminal_noncontract_case_body(body_lines):
+                continue
+            if not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases):
+                body_lines = _body_lines_with_goto_label_tail_context(
+                    text,
+                    body_lines,
+                    buffer_sources,
+                    length_aliases,
+                )
+            if (
+                not _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases)
+                and not _case_body_has_helper_argument_evidence(body_lines, helper_interesting_names)
+            ):
+                body_lines = _body_lines_with_goto_label_helper_context(
+                    text,
+                    body_lines,
+                    helper_interesting_names,
+                )
+            body_lines = _body_lines_with_goto_label_error_outcomes(
+                text,
+                body_lines,
+            )
+            if (
+                kind == "ioctl" and
+                _case_body_has_contract_evidence(body_lines, buffer_sources, length_aliases)
+                and not _case_body_has_field_or_helper_evidence(body_lines, buffer_sources, helper_interesting_names)
+            ):
+                continue
+            command = _analyze_command_case(
+                kind,
+                dispatcher,
+                value,
+                command_name,
+                body_lines,
+                buffer_sources,
+                helper_map,
+                max_depth=max_depth,
+                depth=0,
+                visited={capture.name},
+                length_aliases=length_aliases,
+                disasm_evidence=(disasm_evidence_by_case or {}).get(value),
+                disasm_helper_slices=disasm_helper_slices,
+                error_labels=error_labels,
+            )
+            if command.buffers or command.helper_edges:
+                result.append(command)
+                recovered.add(value)
+    return result
+
+
+def _focused_condition_dispatchers(text: str, case_values: list[int]) -> list[str]:
+    result = _native_switch_dispatchers(text)
+    case_set = {int(value) for value in case_values}
+    condition_re = re.compile(
+        r"\bif\s*\(\s*(?P<left>.+?)\s*(?:==|!=)\s*(?P<right>.+?)\s*\)\s*$"
+    )
+    for line in (text or "").splitlines():
+        match = condition_re.match(line.strip())
+        if not match:
+            continue
+        left = _clean_dispatcher_case_operand(match.group("left"))
+        right = _clean_dispatcher_case_operand(match.group("right"))
+        left_value = _parse_case_label_value(left)
+        right_value = _parse_case_label_value(right)
+        candidate = ""
+        if left_value in case_set and right and right_value is None:
+            candidate = right
+        elif right_value in case_set and left and left_value is None:
+            candidate = left
+        if candidate and re.fullmatch(_IDENT_RE, candidate) and candidate not in result:
+            result.append(candidate)
     return result
 
 
@@ -2581,6 +2996,7 @@ def _recover_focused_disasm_contracts(
     length_aliases: dict[str, str],
     disasm_evidence_by_case: dict[int, DisasmCaseContractEvidence],
     disasm_helper_slices: dict[str, DisasmCaseSlice] | None = None,
+    error_labels: set[str] | None = None,
 ) -> list[CommandBufferContract]:
     result: list[CommandBufferContract] = []
     native_dispatchers = _native_switch_dispatchers(text)
@@ -2614,6 +3030,7 @@ def _recover_focused_disasm_contracts(
             length_aliases=length_aliases,
             disasm_evidence=evidence,
             disasm_helper_slices=disasm_helper_slices,
+            error_labels=error_labels,
         )
         if command.buffers or command.helper_edges:
             result.append(command)
@@ -3249,7 +3666,19 @@ def _add_buffer_source(
 
 def _known_length_names(text: str) -> str:
     names = set(re.findall(r"\b%s\b" % _IDENT_RE, text or ""))
-    return ", ".join(sorted(name for name in names if _looks_like_length_name(name)))
+    names.update(_io_stack_length_alias_names(text))
+    return ", ".join(sorted(name for name in names if _looks_like_length_name(name) or name in _io_stack_length_alias_names(text)))
+
+
+def _io_stack_length_alias_names(text: str) -> set[str]:
+    result: set[str] = set()
+    assignment_re = re.compile(
+        r"\b(?P<dst>%s)\s*=\s*[^;\n]*->Parameters\.[A-Za-z0-9_]+\.(?:InputBufferLength|OutputBufferLength|Length|Options)\s*;"
+        % _IDENT_RE
+    )
+    for match in assignment_re.finditer(text or ""):
+        result.add(match.group("dst"))
+    return result
 
 
 def _infer_length_aliases(text: str) -> dict[str, str]:
@@ -3427,10 +3856,17 @@ def _literal_alias_value(value: str, literal_aliases: dict[str, str]) -> str:
     return literal_aliases.get(value, value)
 
 
-def _line_has_reject_outcome(lines: list[str], index: int) -> bool:
+def _line_has_reject_outcome(
+    lines: list[str],
+    index: int,
+    error_labels: set[str] | None = None,
+) -> bool:
     current = (lines[index] if 0 <= index < len(lines) else "").strip()
     if not current.startswith("if"):
-        return False
+        condition_start = _multi_line_condition_start(lines, index)
+        if condition_start is None or condition_start == index:
+            return False
+        return _line_has_reject_outcome(lines, condition_start, error_labels=error_labels)
     outcome_text = current + "\n" + _guard_outcome_window(lines, index)
     lowered = outcome_text.lower()
     reject_status_markers = (
@@ -3453,9 +3889,29 @@ def _line_has_reject_outcome(lines: list[str], index: int) -> bool:
     if re.search(r"\b(?:goto|break|return)\b", outcome_text) and _has_error_status_assignment(outcome_text):
         return True
     for match in _GOTO_LABEL_RE.finditer(outcome_text):
-        if _label_has_error_outcome(lines, match.group("label")):
+        label = match.group("label")
+        if label in (error_labels or set()):
+            return True
+        if _label_has_error_outcome(lines, label):
             return True
     return False
+
+
+def _multi_line_condition_start(lines: list[str], index: int, max_scan: int = 8) -> int | None:
+    if index < 0 or index >= len(lines):
+        return None
+    current = lines[index].strip()
+    if not current.startswith(("||", "&&")) and "||" not in current and "&&" not in current:
+        return None
+    for candidate in range(index - 1, max(-1, index - max_scan - 1), -1):
+        stripped = lines[candidate].strip()
+        if not stripped:
+            break
+        if stripped.startswith("if"):
+            return candidate
+        if stripped.endswith(";") or stripped.startswith(("case ", "default:", "return ")):
+            break
+    return None
 
 
 def _label_has_error_outcome(lines: list[str], label: str, max_lines: int = 6) -> bool:
@@ -3545,14 +4001,23 @@ def _recover_field_accesses(
     typed_field_layouts = typed_field_layouts or {}
     buffer_element_types = buffer_element_types or {}
     copy_aliases = _buffer_copy_aliases(lines, known_buffers, buffer_element_types)
+    field_aliases = _system_buffer_irp_overlay_copy_aliases(lines, buffer_sources, source)
     for line in lines:
         stripped = line.strip()
         if _looks_like_declaration_only_line(stripped):
             continue
         left_expr = _assignment_left(stripped)
+        overlay_accesses = _system_buffer_irp_overlay_field_accesses(stripped, left_expr, buffer_sources, source)
+        overlay_buffers = {item.buffer for item in overlay_accesses}
+        for item in overlay_accesses:
+            _merge_field_access(access_by_key, item)
+        for item in _field_alias_accesses(stripped, left_expr, field_aliases, source):
+            _merge_field_access(access_by_key, item)
         for match in _ARROW_FIELD_RE.finditer(stripped):
             buffer = match.group("buffer")
             if buffer not in known_buffers and not _looks_like_buffer_name(buffer):
+                continue
+            if buffer in overlay_buffers and _is_system_buffer_overlay_source(buffer_sources.get(buffer, {})):
                 continue
             field = match.group("field")
             field_layout = typed_field_layouts.get(buffer, {}).get(field, {})
@@ -3685,6 +4150,185 @@ def _recover_field_accesses(
         for item in _alias_field_accesses(stripped, left_expr, copy_aliases, source):
             _merge_field_access(access_by_key, item)
     return list(access_by_key.values())
+
+
+def _system_buffer_irp_overlay_copy_aliases(
+    lines: list[str],
+    buffer_sources: dict[str, dict[str, str]],
+    source: str,
+) -> dict[str, FieldAccess]:
+    result: dict[str, FieldAccess] = {}
+    for line in lines:
+        stripped = line.strip()
+        left_expr = _assignment_left(stripped)
+        local = left_expr.strip()
+        if not re.fullmatch(_IDENT_RE, local or ""):
+            continue
+        accesses = _system_buffer_irp_overlay_field_accesses(stripped, left_expr, buffer_sources, source)
+        reads = [item for item in accesses if item.access in {"read", "read_write"}]
+        if len(reads) != 1:
+            continue
+        access = reads[0]
+        result[local] = FieldAccess(
+            buffer=access.buffer,
+            structure=access.structure,
+            offset=access.offset,
+            type=access.type,
+            field=access.field,
+            access="read",
+            evidence=stripped,
+            source=_merge_source_text(access.source, "overlay_expr:%s" % local),
+            confidence=access.confidence,
+        )
+    return result
+
+
+def _field_alias_accesses(
+    line: str,
+    left_expr: str,
+    aliases: dict[str, FieldAccess],
+    source: str,
+) -> list[FieldAccess]:
+    result: list[FieldAccess] = []
+    for local, alias in aliases.items():
+        if not re.search(r"\b%s\b" % re.escape(local), line or ""):
+            continue
+        if left_expr.strip() == local:
+            continue
+        result.append(
+            FieldAccess(
+                buffer=alias.buffer,
+                structure=alias.structure,
+                offset=alias.offset,
+                type=alias.type,
+                field=alias.field,
+                access="read",
+                evidence=line,
+                source=_merge_source_text(source, "overlay_expr:%s" % local),
+                confidence=0.72,
+            )
+        )
+    return result
+
+
+def _system_buffer_irp_overlay_field_accesses(
+    line: str,
+    left_expr: str,
+    buffer_sources: dict[str, dict[str, str]],
+    source: str,
+) -> list[FieldAccess]:
+    result: list[FieldAccess] = []
+    seen: set[tuple[str, int, str, str]] = set()
+    for buffer, info in buffer_sources.items():
+        if not _is_system_buffer_overlay_source(info):
+            continue
+        for field_path, (offset, type_text) in _SYSTEM_BUFFER_IRP_OVERLAY_OFFSETS.items():
+            expr_info = _system_buffer_irp_overlay_expression(line, buffer, field_path, offset, type_text)
+            if expr_info is None:
+                continue
+            expression, resolved_offset, resolved_type = expr_info
+            field = _field_name(resolved_offset)
+            item = FieldAccess(
+                buffer=buffer,
+                structure="",
+                offset=resolved_offset,
+                type=resolved_type,
+                field=field,
+                access=_access_kind(expression, left_expr),
+                evidence=line,
+                source=_merge_source_text(source, "system_buffer_irp_overlay overlay_expr:%s" % expression),
+                confidence=0.82,
+            )
+            key = (item.buffer, item.offset, item.type, item.evidence)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+            for split_item in _split_wide_system_buffer_overlay_access(item):
+                split_key = (split_item.buffer, split_item.offset, split_item.type, split_item.evidence)
+                if split_key in seen:
+                    continue
+                seen.add(split_key)
+                result.append(split_item)
+    return result
+
+
+def _split_wide_system_buffer_overlay_access(item: FieldAccess) -> list[FieldAccess]:
+    size = _sizeof_type(item.type)
+    if size <= 4:
+        return []
+    result: list[FieldAccess] = []
+    for offset in range(item.offset + 4, item.offset + size, 4):
+        result.append(
+            FieldAccess(
+                buffer=item.buffer,
+                structure=item.structure,
+                offset=offset,
+                type="ULONG",
+                field=_field_name(offset),
+                access=item.access,
+                evidence=item.evidence,
+                source=_merge_source_text(item.source, "wide_overlay_split"),
+                confidence=max(0.60, item.confidence - 0.06),
+            )
+        )
+    return result
+
+
+def _is_system_buffer_overlay_source(info: dict[str, str]) -> bool:
+    source = str((info or {}).get("source", "") or "")
+    return source == "AssociatedIrp.SystemBuffer" or source.startswith("IRP offset")
+
+
+def _system_buffer_irp_overlay_expression(
+    line: str,
+    buffer: str,
+    field_path: str,
+    offset: int,
+    type_text: str,
+) -> tuple[str, int, str] | None:
+    escaped = re.escape("%s->%s" % (buffer, field_path))
+    address_plus_match = re.search(
+        r"\*\s*\(\s*(?P<type>[_A-Za-z][A-Za-z0-9_\s]*?)\s*\*+\s*\)\s*"
+        r"\(\s*&\s*%s\s*\+\s*(?P<index>%s)\s*\)" % (escaped, _C_VALUE_RE),
+        line,
+    )
+    if address_plus_match:
+        index = parse_c_integer_literal(address_plus_match.group("index"))
+        if index is not None:
+            step = _SYSTEM_BUFFER_IRP_OVERLAY_POINTER_STEPS.get(field_path, max(1, _sizeof_type(type_text)))
+            return (
+                address_plus_match.group(0),
+                offset + int(index) * step,
+                _normalize_c_type(address_plus_match.group("type")),
+            )
+
+    deref_match = re.search(
+        r"\*\s*\(\s*(?P<type>[_A-Za-z][A-Za-z0-9_\s]*?)\s*\*+\s*\)\s*&\s*%s" % escaped,
+        line,
+    )
+    if deref_match:
+        return deref_match.group(0), offset, _normalize_c_type(deref_match.group("type"))
+
+    high_match = re.search(r"\bHIDWORD\s*\(\s*%s\s*\)" % escaped, line)
+    if high_match:
+        return high_match.group(0), offset + 4, "ULONG"
+
+    low_match = re.search(r"\bLODWORD\s*\(\s*%s\s*\)" % escaped, line)
+    if low_match:
+        return low_match.group(0), offset, "ULONG"
+
+    cast_match = re.search(
+        r"\(\s*(?P<type>[_A-Za-z][A-Za-z0-9_\s]*?)\s*\)\s*%s" % escaped,
+        line,
+    )
+    if cast_match:
+        return cast_match.group(0), offset, _normalize_c_type(cast_match.group("type"))
+
+    plain_match = re.search(escaped, line)
+    if plain_match:
+        return plain_match.group(0), offset, type_text
+    return None
 
 
 def _looks_like_declaration_only_line(line: str) -> bool:
@@ -3883,22 +4527,28 @@ def _recover_field_constraints(
     lines: list[str],
     accesses: list[FieldAccess],
     source: str = "local",
+    error_labels: set[str] | None = None,
 ) -> list[FieldConstraint]:
     result: list[FieldConstraint] = []
     for index, line in enumerate(lines):
         stripped = line.strip()
-        valid_from_reject = _line_has_reject_outcome(lines, index)
+        valid_from_reject = _line_has_reject_outcome(lines, index, error_labels=error_labels)
         for access in accesses:
-            if access.evidence != stripped:
-                continue
+            evidence_matches = access.evidence == stripped
             expression = _field_expression_for_access(access, stripped)
             if not expression:
+                if not evidence_matches:
+                    continue
                 generic_constraint = _generic_deref_constraint(access, stripped, source, valid_from_reject)
                 if generic_constraint is not None:
                     result.append(generic_constraint)
                 continue
+            range_constraints = _range_subtract_constraints(access, expression, stripped, source, valid_from_reject)
+            if range_constraints:
+                result.extend(range_constraints)
+                continue
             mask_match = re.search(
-                r"\(\s*%s\s*&\s*(?P<mask>~?%s)\s*\)\s*(?P<op>==|!=)\s*(?P<value>0x[0-9A-Fa-f]+|\d+)"
+                r"\(\s*(?:\(\s*[^()]+\s*\)\s*)?%s\s*&\s*(?P<mask>~?%s)\s*\)\s*(?P<op>==|!=)\s*(?P<value>0x[0-9A-Fa-f]+|\d+)"
                 % (re.escape(expression), _C_VALUE_RE),
                 stripped,
             )
@@ -3921,7 +4571,23 @@ def _recover_field_constraints(
                         confidence=0.78,
                     )
                 )
-                continue
+            if re.search(r"!\s*%s\b" % re.escape(expression), stripped):
+                valid_relation = _valid_relation_for_reject_guard("==") if valid_from_reject else ""
+                result.append(
+                    FieldConstraint(
+                        buffer=access.buffer,
+                        structure="",
+                        offset=access.offset,
+                        field=access.field,
+                        relation="==",
+                        value="0",
+                        valid_relation=valid_relation,
+                        valid_value="0" if valid_relation else "",
+                        evidence=stripped,
+                        source=source,
+                        confidence=0.76,
+                    )
+                )
             compare_match = re.search(
                 r"%s\s*(?P<op>==|!=|<=|>=|<|>)\s*(?P<value>%s)"
                 % (re.escape(expression), _C_VALUE_RE),
@@ -3945,24 +4611,6 @@ def _recover_field_constraints(
                         confidence=0.80,
                     )
                 )
-                continue
-            if re.search(r"!\s*%s\b" % re.escape(expression), stripped):
-                valid_relation = _valid_relation_for_reject_guard("==") if valid_from_reject else ""
-                result.append(
-                    FieldConstraint(
-                        buffer=access.buffer,
-                        structure="",
-                        offset=access.offset,
-                        field=access.field,
-                        relation="==",
-                        value="0",
-                        valid_relation=valid_relation,
-                        valid_value="0" if valid_relation else "",
-                        evidence=stripped,
-                        source=source,
-                        confidence=0.70,
-                    )
-                )
     return _dedupe_field_constraints(result)
 
 
@@ -3974,6 +4622,21 @@ def _generic_deref_constraint(
 ) -> FieldConstraint | None:
     if not access.field.startswith("field_"):
         return None
+    if _line_has_unary_not(line):
+        valid_relation = _valid_relation_for_reject_guard("==") if valid_from_reject else ""
+        return FieldConstraint(
+            buffer=access.buffer,
+            structure="",
+            offset=access.offset,
+            field=access.field,
+            relation="==",
+            value="0",
+            valid_relation=valid_relation,
+            valid_value="0" if valid_relation else "",
+            evidence=line,
+            source=source,
+            confidence=0.68,
+        )
     mask_match = re.search(
         r"&\s*(?P<mask>~?%s)\s*\)?\s*(?P<op>==|!=)\s*(?P<value>0x[0-9A-Fa-f]+|\d+)" % _C_VALUE_RE,
         line,
@@ -4013,6 +4676,65 @@ def _generic_deref_constraint(
         source=source,
         confidence=0.70,
     )
+
+
+def _line_has_unary_not(line: str) -> bool:
+    return bool(re.search(r"(?<![=!<>])!\s*(?!=)", line or ""))
+
+
+def _range_subtract_constraints(
+    access: FieldAccess,
+    expression: str,
+    line: str,
+    source: str,
+    valid_from_reject: bool,
+) -> list[FieldConstraint]:
+    escaped = re.escape(expression)
+    match = re.search(
+        r"(?:\(\s*)?(?:unsigned\s+int\s*)?\(?\s*%s\s*-\s*(?P<base>%s)\s*\)?\s*(?:\)\s*)?"
+        r"(?P<op>>|>=)\s*(?P<limit>%s)" % (escaped, _C_VALUE_RE, _C_VALUE_RE),
+        line,
+    )
+    if not match:
+        return []
+    base = parse_c_integer_literal(match.group("base"))
+    limit = parse_c_integer_literal(match.group("limit"))
+    if base is None or limit is None:
+        return []
+    observed_relation = match.group("op")
+    valid_relation = _valid_relation_for_reject_guard(observed_relation) if valid_from_reject else ""
+    upper = base + limit
+    if observed_relation == ">=":
+        upper = base + max(0, limit - 1)
+    constraints = [
+        FieldConstraint(
+            buffer=access.buffer,
+            structure="",
+            offset=access.offset,
+            field=access.field,
+            relation="range_min",
+            value=str(base),
+            valid_relation=">=" if valid_from_reject else "",
+            valid_value=str(base) if valid_from_reject else "",
+            evidence=line,
+            source=source,
+            confidence=0.76,
+        ),
+        FieldConstraint(
+            buffer=access.buffer,
+            structure="",
+            offset=access.offset,
+            field=access.field,
+            relation=observed_relation,
+            value=str(limit),
+            valid_relation=valid_relation,
+            valid_value=str(upper) if valid_relation else "",
+            evidence=line,
+            source=source,
+            confidence=0.76,
+        ),
+    ]
+    return constraints
 
 
 def _build_buffer_contracts(
@@ -5405,11 +6127,32 @@ def _merge_field_access(access_by_key: dict[tuple[str, int, str, str], FieldAcce
         return
     if current.access != item.access:
         current.access = "read_write"
-    if len(item.evidence) < len(current.evidence):
+    current_score = _field_access_evidence_score(current.evidence)
+    item_score = _field_access_evidence_score(item.evidence)
+    if item_score > current_score or (item_score == current_score and len(item.evidence) < len(current.evidence)):
         current.evidence = item.evidence
+        current.source = item.source
+        current.confidence = max(current.confidence, item.confidence)
+
+
+def _field_access_evidence_score(evidence: str) -> int:
+    text = (evidence or "").strip()
+    score = 0
+    if text.startswith("if"):
+        score += 6
+    if any(op in text for op in ("!=", "==", "<=", ">=", "<", ">")):
+        score += 3
+    if "STATUS_" in text or "goto " in text or "return " in text:
+        score += 1
+    if "=" in text and not any(op in text for op in ("!=", "==", "<=", ">=")):
+        score -= 1
+    return score
 
 
 def _field_expression_for_access(access: FieldAccess, line: str) -> str:
+    for overlay_expression in _overlay_expressions_from_source(access.source):
+        if overlay_expression and overlay_expression in line:
+            return overlay_expression
     if access.field.startswith("field_"):
         offset = access.offset
         candidates: list[str] = []
@@ -5424,6 +6167,15 @@ def _field_expression_for_access(access: FieldAccess, line: str) -> str:
         return ""
     expression = "%s->%s" % (access.buffer, access.field)
     return expression if expression in line else ""
+
+
+def _overlay_expressions_from_source(source: str) -> list[str]:
+    expressions = [
+        match.group("expr").strip()
+        for match in re.finditer(r"overlay_expr:(?P<expr>.+?)(?:\s+\||$)", source or "")
+        if match.group("expr").strip()
+    ]
+    return sorted(expressions, key=len, reverse=True)
 
 
 def _deref_type_expression_candidates(type_text: str) -> list[str]:
